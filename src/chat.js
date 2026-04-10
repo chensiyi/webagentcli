@@ -156,12 +156,12 @@ const ChatManager = (function() {
                 </div>
                 ${language === 'javascript' || language === 'js' ? `
                     <div class="code-actions">
-                        <button class="code-btn execute" onclick="executeCodeFromBlock(this)">▶ 执行代码</button>
-                        <button class="code-btn" onclick="copyCode(this)">📋 复制</button>
+                        <button class="code-btn execute" data-action="execute-code">▶ 执行代码</button>
+                        <button class="code-btn" data-action="copy-code">📋 复制</button>
                     </div>
                 ` : `
                     <div class="code-actions">
-                        <button class="code-btn" onclick="copyCode(this)">📋 复制</button>
+                        <button class="code-btn" data-action="copy-code">📋 复制</button>
                     </div>
                 `}
             `;
@@ -185,31 +185,6 @@ const ChatManager = (function() {
         div.textContent = text;
         return div.innerHTML;
     }
-
-    /**
-     * 从代码块执行代码 (全局函数)
-     */
-    window.executeCodeFromBlock = function(btn) {
-        const codeBlock = btn.closest('.assistant-message').querySelector('.code-block pre');
-        const code = codeBlock.textContent;
-        executeJavaScript(code);
-    };
-
-    /**
-     * 复制代码 (全局函数)
-     */
-    window.copyCode = function(btn) {
-        const codeBlock = btn.closest('.assistant-message').querySelector('.code-block pre');
-        const code = codeBlock.textContent;
-        
-        navigator.clipboard.writeText(code).then(() => {
-            const originalText = btn.textContent;
-            btn.textContent = '✓ 已复制';
-            setTimeout(() => {
-                btn.textContent = originalText;
-            }, 2000);
-        });
-    };
 
     /**
      * 清空聊天

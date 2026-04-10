@@ -718,6 +718,43 @@ const UIManager = (function() {
     }
 
     /**
+     * 设置聊天区域事件委托
+     */
+    function setupChatEventDelegation() {
+        const chat = document.getElementById('agent-chat');
+        if (!chat) return;
+
+        // 使用事件委托处理代码块按钮点击
+        chat.addEventListener('click', (e) => {
+            const target = e.target.closest('button[data-action]');
+            if (!target) return;
+
+            const action = target.dataset.action;
+            const assistantMessage = target.closest('.assistant-message');
+            if (!assistantMessage) return;
+
+            const codeBlock = assistantMessage.querySelector('.code-block pre');
+            if (!codeBlock) return;
+
+            const code = codeBlock.textContent;
+
+            if (action === 'execute-code') {
+                // 派发自定义事件,由 main.js 处理
+                window.dispatchEvent(new CustomEvent('agent-execute-code', { detail: code }));
+            } else if (action === 'copy-code') {
+                // 复制代码
+                navigator.clipboard.writeText(code).then(() => {
+                    const originalText = target.textContent;
+                    target.textContent = '✓ 已复制';
+                    setTimeout(() => {
+                        target.textContent = originalText;
+                    }, 2000);
+                });
+            }
+        });
+    }
+
+    /**
      * 显示/隐藏打字指示器
      */
     function showTypingIndicator() {
@@ -1086,12 +1123,12 @@ const ChatManager = (function() {
                 </div>
                 ${language === 'javascript' || language === 'js' ? `
                     <div class="code-actions">
-                        <button class="code-btn execute" onclick="executeCodeFromBlock(this)">▶ 执行代码</button>
-                        <button class="code-btn" onclick="copyCode(this)">📋 复制</button>
+                        <button class="code-btn execute" data-action="execute-code">▶ 执行代码</button>
+                        <button class="code-btn" data-action="copy-code">📋 复制</button>
                     </div>
                 ` : `
                     <div class="code-actions">
-                        <button class="code-btn" onclick="copyCode(this)">📋 复制</button>
+                        <button class="code-btn" data-action="copy-code">📋 复制</button>
                     </div>
                 `}
             `;
@@ -1115,31 +1152,6 @@ const ChatManager = (function() {
         div.textContent = text;
         return div.innerHTML;
     }
-
-    /**
-     * 从代码块执行代码 (全局函数)
-     */
-    window.executeCodeFromBlock = function(btn) {
-        const codeBlock = btn.closest('.assistant-message').querySelector('.code-block pre');
-        const code = codeBlock.textContent;
-        executeJavaScript(code);
-    };
-
-    /**
-     * 复制代码 (全局函数)
-     */
-    window.copyCode = function(btn) {
-        const codeBlock = btn.closest('.assistant-message').querySelector('.code-block pre');
-        const code = codeBlock.textContent;
-        
-        navigator.clipboard.writeText(code).then(() => {
-            const originalText = btn.textContent;
-            btn.textContent = '✓ 已复制';
-            setTimeout(() => {
-                btn.textContent = originalText;
-            }, 2000);
-        });
-    };
 
     /**
      * 清空聊天
@@ -2535,6 +2547,12 @@ const Utils = (function() {
         // 清空聊天事件
         window.addEventListener('agent-clear-chat', () => {
             ChatManager.clearChat();
+        });
+
+        // 执行代码事件 (来自代码块按钮)
+        window.addEventListener('agent-execute-code', (e) => {
+            const code = e.detail;
+            ChatManager.executeJavaScript(code);
         });
     }
 

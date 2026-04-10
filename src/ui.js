@@ -401,6 +401,43 @@ const UIManager = (function() {
     }
 
     /**
+     * 设置聊天区域事件委托
+     */
+    function setupChatEventDelegation() {
+        const chat = document.getElementById('agent-chat');
+        if (!chat) return;
+
+        // 使用事件委托处理代码块按钮点击
+        chat.addEventListener('click', (e) => {
+            const target = e.target.closest('button[data-action]');
+            if (!target) return;
+
+            const action = target.dataset.action;
+            const assistantMessage = target.closest('.assistant-message');
+            if (!assistantMessage) return;
+
+            const codeBlock = assistantMessage.querySelector('.code-block pre');
+            if (!codeBlock) return;
+
+            const code = codeBlock.textContent;
+
+            if (action === 'execute-code') {
+                // 派发自定义事件,由 main.js 处理
+                window.dispatchEvent(new CustomEvent('agent-execute-code', { detail: code }));
+            } else if (action === 'copy-code') {
+                // 复制代码
+                navigator.clipboard.writeText(code).then(() => {
+                    const originalText = target.textContent;
+                    target.textContent = '✓ 已复制';
+                    setTimeout(() => {
+                        target.textContent = originalText;
+                    }, 2000);
+                });
+            }
+        });
+    }
+
+    /**
      * 显示/隐藏打字指示器
      */
     function showTypingIndicator() {

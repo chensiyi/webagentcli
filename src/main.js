@@ -56,6 +56,12 @@
         window.addEventListener('agent-clear-chat', () => {
             ChatManager.clearChat();
         });
+
+        // 执行代码事件 (来自代码块按钮)
+        window.addEventListener('agent-execute-code', (e) => {
+            const code = e.detail;
+            ChatManager.executeJavaScript(code);
+        });
     }
 
     /**
