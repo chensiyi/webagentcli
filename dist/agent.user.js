@@ -1941,7 +1941,7 @@ const StorageManager = (function() {
                     <p style="font-size: 13px; color: #6b7280; margin-bottom: 12px;">
                         选择一个本地文件夹作为工作空间,数据将保存在该文件夹中
                     </p>
-                    <button class="ws-btn ws-btn-primary" onclick="StorageManager.openFolder()" style="width: 100%; padding: 10px;">
+                    <button class="ws-btn ws-btn-primary" id="btn-open-folder" style="width: 100%; padding: 10px;">
                         📁 选择文件夹
                     </button>
                     <div class="folder-info" id="folder-path"></div>
@@ -1955,6 +1955,12 @@ const StorageManager = (function() {
         `;
 
         document.body.insertAdjacentHTML('beforeend', html);
+        
+        // 绑定打开文件夹按钮事件
+        const openFolderBtn = document.getElementById('btn-open-folder');
+        if (openFolderBtn) {
+            openFolderBtn.addEventListener('click', openFolder);
+        }
     }
 
     /**
