@@ -132,22 +132,24 @@ https://github.com/你的用户名/openrouter-browser-agent/releases/latest/down
 当你更新了代码,想发布新版本时:
 
 ```bash
-# 1. 更新 agent.user.js 中的版本号
-# 编辑文件,修改: // @version      2.0.1
-
-# 2. 提交更改
+# 1. 提交更改
 git add .
 git commit -m "Update to v2.0.1"
 
-# 3. 创建新标签
+# 2. 创建新标签
 git tag v2.0.1
 
-# 4. 推送
+# 3. 推送
 git push
 git push origin v2.0.1
 ```
 
-GitHub Actions 会自动创建新的 Release!
+**GitHub Actions 会自动:**
+- ✅ 提取版本号 `2.0.1` (从 tag `v2.0.1`)
+- ✅ 更新 `agent.user.js` 中的 `@version`
+- ✅ 创建新的 Release
+
+**不需要手动修改任何文件!**
 
 ---
 
@@ -181,9 +183,17 @@ A: 检查:
 
 ### Q: 如何修改版本号?
 
-A: 编辑 `agent.user.js`:
-```javascript
-// @version      2.0.1  // 修改这个数字
+A: **不需要手动修改!** GitHub Actions 会自动从 tag 提取版本号。
+
+只需创建正确的 tag:
+```bash
+git tag v2.0.1  # Actions 会自动设置为 2.0.1
+```
+
+如果你想验证,可以查看发布后的文件:
+```bash
+curl -L https://github.com/你的用户名/webagentcli/releases/download/v2.0.1/agent.user.js | grep "@version"
+# 输出: // @version      2.0.1
 ```
 
 ### Q: 可以回滚到旧版本吗?

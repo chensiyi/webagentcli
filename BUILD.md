@@ -96,23 +96,35 @@ Copy-Item dist\agent.user.js agent.user.js
 
 ### 发布新版本
 
+**本地构建 (测试):**
 ```bash
-# 1. 更新版本号
-$env:VERSION="2.1.0"; node build.js
+# 1. 构建
+node build.js
 
 # 2. 复制到根目录
 Copy-Item dist\agent.user.js agent.user.js
 
-# 3. 提交代码
+# 3. 提交
 git add .
 git commit -m "Release v2.1.0"
+```
 
-# 4. 创建标签
+**发布到 GitHub (自动更新版本号):**
+```bash
+# 1. 创建标签
 git tag v2.1.0
+
+# 2. 推送
+git push
 git push origin v2.1.0
 ```
 
-GitHub Actions 会自动创建 Release!
+**GitHub Actions 会自动:**
+- ✅ 提取版本号 `2.1.0` (从 tag)
+- ✅ 更新 `agent.user.js` 中的 `@version`
+- ✅ 创建 Release
+
+**不需要手动指定版本号!**
 
 ---
 

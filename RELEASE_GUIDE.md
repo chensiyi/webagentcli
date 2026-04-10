@@ -18,48 +18,55 @@ openrouter-browser-agent/
 
 ## 🚀 发布新版本
 
-### 方法 1: 手动发布 (推荐)
+### ✨ 完全自动化! (推荐)
 
-#### 步骤 1: 更新版本号
+**只需 3 步,无需手动修改任何代码!**
 
-编辑 `agent.user.js`,修改头部版本号:
-
-```javascript
-// @version      2.0.1  // 改为你想要的版本号
-```
-
-#### 步骤 2: 提交代码
+#### 步骤 1: 提交代码
 
 ```bash
 git add .
 git commit -m "Release v2.0.1: 更新说明"
-git push
 ```
 
-#### 步骤 3: 创建 Git Tag
+#### 步骤 2: 创建并推送标签
 
 ```bash
 git tag v2.0.1
+git push
 git push origin v2.0.1
 ```
 
-#### 步骤 4: 自动发布
+#### 步骤 3: 等待自动发布
 
-推送 tag 后,GitHub Actions 会自动:
-1. 创建 GitHub Release
-2. 上传 `agent.user.js` 作为发布资源
-3. 生成发布说明
+GitHub Actions 会自动:
+1. ✅ **提取版本号** - 从 tag `v2.0.1` 提取 `2.0.1`
+2. ✅ **更新脚本** - 自动修改 `agent.user.js` 中的 `@version`
+3. ✅ **创建 Release** - 生成 GitHub Release 页面
+4. ✅ **上传文件** - 将 `agent.user.js` 作为发布资源
+
+**就这么简单!不需要手动修改任何文件!** 🎉
 
 ---
 
-### 方法 2: GitHub Web 界面
+### 🔍 工作原理
 
-1. 访问仓库的 **Releases** 页面
-2. 点击 **Draft a new release**
-3. 选择或创建新 tag (如 `v2.0.1`)
-4. 填写发布说明
-5. 上传 `agent.user.js` 文件
-6. 点击 **Publish release**
+当你推送 tag 时,GitHub Actions 会执行:
+
+```yaml
+# 1. 从 tag 提取版本号
+VERSION=${GITHUB_REF#refs/tags/v}  # v2.0.1 → 2.0.1
+
+# 2. 自动更新脚本中的 @version
+sed -i "s/@version.*/@version      $VERSION/" agent.user.js
+
+# 3. 创建 Release 并上传
+```
+
+**示例:**
+- Tag: `v2.0.1`
+- 自动更新: `// @version      2.0.1`
+- Release: `Release v2.0.1`
 
 ---
 
@@ -144,8 +151,7 @@ const CONFIG = {
 发布新版本前,请确认:
 
 - [ ] 测试所有核心功能正常
-- [ ] 更新 `agent.user.js` 中的版本号
-- [ ] 更新 README 中的变更记录
+- [ ] ~~更新 `agent.user.js` 中的版本号~~ **✅ 已自动化!**
 - [ ] 提交所有更改
 - [ ] 创建并推送 Git tag
 - [ ] 检查 GitHub Actions 是否成功
