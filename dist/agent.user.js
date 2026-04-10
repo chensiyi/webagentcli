@@ -630,6 +630,7 @@ const UIManager = (function() {
         document.body.appendChild(assistant);
         
         setupEventListeners();
+        setupChatEventDelegation(); // 调用事件委托，使代码执行按钮生效
         
         return assistant;
     }
