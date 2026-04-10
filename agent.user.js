@@ -1510,7 +1510,7 @@ const SettingsManager = (function() {
     /**
      * 保存设置
      */
-    async function saveSettings() {
+    function saveSettings() {
         const apiKey = document.getElementById('setting-api-key').value.trim();
         const model = document.getElementById('setting-model').value;
         const temperature = parseFloat(document.getElementById('setting-temperature').value);
@@ -1518,23 +1518,13 @@ const SettingsManager = (function() {
         const maxTokens = parseInt(document.getElementById('setting-max-tokens').value);
         const jsEnabled = document.getElementById('setting-js-enabled').checked;
 
-        // 保存到配置管理器
+        // 保存到配置管理器 (浏览器存储)
         ConfigManager.set('apiKey', apiKey);
         ConfigManager.set('model', model);
         ConfigManager.set('temperature', temperature);
         ConfigManager.set('topP', topP);
         ConfigManager.set('maxTokens', maxTokens);
         ConfigManager.set('jsExecutionEnabled', jsEnabled);
-
-        // 同步到工作空间 (如果是文件夹工作空间)
-        await syncSettingsToWorkspace({
-            apiKey: apiKey,
-            model: model,
-            temperature: temperature,
-            topP: topP,
-            maxTokens: maxTokens,
-            jsExecutionEnabled: jsEnabled
-        });
 
         closeModal();
         
@@ -1549,47 +1539,6 @@ const SettingsManager = (function() {
                 </div>
             </div>
         `);
-    }
-
-    /**
-     * 同步设置到工作空间
-     */
-    async function syncSettingsToWorkspace(settings) {
-        try {
-            // 获取当前工作空间
-            const currentWs = StorageManager.getCurrentWorkspace();
-            if (!currentWs || !currentWs.folderHandle) {
-                // 不是文件夹工作空间,只保存到浏览器
-                return;
-            }
-
-            // 使用工作空间数据中的 folderHandle
-            const dirHandle = currentWs.folderHandle;
-            
-            // 获取已有配置
-            const configFile = await dirHandle.getFileHandle('.workspace.json', { create: false });
-            const file = await configFile.getFile();
-            const content = await file.text();
-            const wsData = JSON.parse(content);
-            
-            if (wsData) {
-                // 更新配置
-                wsData.data.settings = {
-                    ...wsData.data.settings,
-                    ...settings
-                };
-                wsData.updatedAt = Date.now();
-
-                // 保存回文件夹
-                const writable = await configFile.createWritable();
-                await writable.write(JSON.stringify(wsData, null, 2));
-                await writable.close();
-
-                console.log('✅ 设置已同步到工作空间文件夹');
-            }
-        } catch (error) {
-            console.error('同步设置到工作空间失败:', error);
-        }
     }
 
     /**
