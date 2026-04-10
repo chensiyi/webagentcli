@@ -16,10 +16,10 @@ const VERSION = process.env.VERSION || '2.0.0';
 // UserScript 头部模板
 const USERSCRIPT_HEADER = `// ==UserScript==
 // @name         OpenRouter Free AI Agent
-// @namespace    http://tampermonkey.net/
+// @namespace    https://github.com/chensiyi1994
 // @version      ${VERSION}
 // @description  基于 OpenRouter 免费模型的浏览器 AI 助手,支持 JS 执行,完全免费
-// @author       OpenRouter Agent
+// @author       chensiyi1994
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_addStyle
@@ -27,7 +27,6 @@ const USERSCRIPT_HEADER = `// ==UserScript==
 // @grant        GM_setValue
 // @grant        unsafeWindow
 // @connect      openrouter.ai
-// @icon         https://openrouter.ai/favicon.ico
 // @run-at       document-end
 // ==/UserScript==
 
