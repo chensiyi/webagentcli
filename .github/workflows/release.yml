@@ -19,7 +19,22 @@ jobs:
     
     - name: Update version in script
       run: |
-        sed -i "s/@version.*/@version      ${{ steps.get_version.outputs.VERSION }}/" agent.user.js
+        # 从 tag 获取版本号 (去掉 v 前缀)
+        VERSION=${GITHUB_REF#refs/tags/v}
+        echo "Updating version to: $VERSION"
+        
+        # 使用 sed 更新 @version
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+          # macOS
+          sed -i '' "s/@version.*/@version      $VERSION/" agent.user.js
+        else
+          # Linux
+          sed -i "s/@version.*/@version      $VERSION/" agent.user.js
+        fi
+        
+        # 验证更新
+        echo "Updated version line:"
+        grep "@version" agent.user.js
     
     - name: Create Release
       id: create_release
