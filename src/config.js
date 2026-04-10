@@ -109,6 +109,27 @@ const ConfigManager = (function() {
         if (gmKey) {
             GM_setValue(gmKey, value);
         }
+        
+        // 同时保存到当前工作空间的 settings 中
+        try {
+            if (StorageManager && typeof StorageManager.getCurrentWorkspace === 'function') {
+                const currentWs = StorageManager.getCurrentWorkspace();
+                if (currentWs && currentWs.folderHandle) {
+                    // 更新工作空间中的 settings
+                    const settings = currentWs.data.settings || {};
+                    settings[key] = value;
+                    currentWs.data.settings = settings;
+                    currentWs.updatedAt = Date.now();
+                    
+                    // 保存到文件夹
+                    StorageManager.saveToWorkspace('settings', settings).then(() => {
+                        console.log(`💾 已同步配置 ${key} 到工作空间`);
+                    });
+                }
+            }
+        } catch (error) {
+            console.warn('同步配置到工作空间失败:', error);
+        }
     }
 
     function getAll() {

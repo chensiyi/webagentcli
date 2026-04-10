@@ -129,6 +129,27 @@ const ConfigManager = (function() {
         if (gmKey) {
             GM_setValue(gmKey, value);
         }
+        
+        // 同时保存到当前工作空间的 settings 中
+        try {
+            if (StorageManager && typeof StorageManager.getCurrentWorkspace === 'function') {
+                const currentWs = StorageManager.getCurrentWorkspace();
+                if (currentWs && currentWs.folderHandle) {
+                    // 更新工作空间中的 settings
+                    const settings = currentWs.data.settings || {};
+                    settings[key] = value;
+                    currentWs.data.settings = settings;
+                    currentWs.updatedAt = Date.now();
+                    
+                    // 保存到文件夹
+                    StorageManager.saveToWorkspace('settings', settings).then(() => {
+                        console.log(`💾 已同步配置 ${key} 到工作空间`);
+                    });
+                }
+            }
+        } catch (error) {
+            console.warn('同步配置到工作空间失败:', error);
+        }
     }
 
     function getAll() {
@@ -1067,6 +1088,10 @@ const ChatManager = (function() {
         }
 
         try {
+            // 先检查代码是否有明显的语法错误
+            new Function(code);
+            
+            // 执行代码
             const result = unsafeWindow.eval(code);
             
             const resultStr = typeof result === 'object' 
@@ -1090,13 +1115,32 @@ const ChatManager = (function() {
             ConfigManager.saveConversationHistory(history);
             
         } catch (error) {
+            // 分析错误类型
+            let errorType = '未知错误';
+            let suggestion = '';
+            
+            if (error instanceof SyntaxError) {
+                errorType = '语法错误';
+                suggestion = '<br><br>💡 <strong>建议:</strong> 请让 AI 重新生成代码,并检查:<br>• 字符串是否使用了正确的引号<br>• 模板字符串是否使用了反引号 (`)<br>• 括号是否匹配';
+            } else if (error instanceof ReferenceError) {
+                errorType = '引用错误';
+                suggestion = '<br><br>💡 <strong>建议:</strong> 变量或函数未定义,请检查代码中的变量名是否正确';
+            } else if (error instanceof TypeError) {
+                errorType = '类型错误';
+                suggestion = '<br><br>💡 <strong>建议:</strong> 调用了不存在的方法或属性,请检查对象是否存在';
+            }
+            
             UIManager.appendMessage(`
                 <div class="execution-result execution-error">
-                    <strong>❌ 执行失败</strong>
+                    <strong>❌ 执行失败 (${errorType})</strong>
                     <br>
                     <pre style="margin-top: 8px;">${escapeHtml(error.toString())}</pre>
+                    ${suggestion}
                 </div>
             `);
+            
+            console.error('❌ 代码执行失败:', error);
+            console.log('📝 尝试执行的代码:', code);
         }
     }
 
