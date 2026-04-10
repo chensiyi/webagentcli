@@ -417,10 +417,25 @@ const UIManager = (function() {
             const assistantMessage = target.closest('.assistant-message');
             if (!assistantMessage) return;
 
-            const codeBlock = assistantMessage.querySelector('.code-block pre');
+            const codeBlock = assistantMessage.querySelector('.code-block');
             if (!codeBlock) return;
 
-            const code = codeBlock.textContent;
+            // 优先从 data-code 属性中获取原始代码（base64 编码）
+            let code;
+            if (codeBlock.dataset.code) {
+                try {
+                    code = decodeURIComponent(escape(atob(codeBlock.dataset.code)));
+                } catch (error) {
+                    console.error('解码代码失败:', error);
+                    // 降级方案：从 pre 标签中提取
+                    const pre = codeBlock.querySelector('pre');
+                    code = pre ? pre.textContent : '';
+                }
+            } else {
+                // 兼容旧版本：从 pre 标签中提取
+                const pre = codeBlock.querySelector('pre');
+                code = pre ? pre.textContent : '';
+            }
 
             if (action === 'execute-code') {
                 // 派发自定义事件,由 main.js 处理

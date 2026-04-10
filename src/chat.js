@@ -182,9 +182,11 @@ const ChatManager = (function() {
         formatted = formatted.replace(/__CODE_BLOCK_(\d+)__/g, (match, index) => {
             const block = codeBlocks[parseInt(index)];
             const escapedCode = escapeHtml(block.code);
+            // 将原始代码编码为 base64，存储在 data 属性中
+            const encodedCode = btoa(unescape(encodeURIComponent(block.code)));
             
             return `
-                <div class="code-block">
+                <div class="code-block" data-code="${encodedCode}">
                     <div class="code-language">${block.lang}</div>
                     <pre>${escapedCode}</pre>
                 </div>
