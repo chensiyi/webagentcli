@@ -755,7 +755,12 @@ const StorageManager = (function() {
      * 保存到本地存储
      */
     function saveWorkspaces() {
-        GM_setValue(WORKSPACE_KEY, JSON.stringify(workspaces));
+        // 注意: folderHandle 不能序列化,保存前需要排除
+        const workspacesToSave = workspaces.map(ws => {
+            const { folderHandle, ...rest } = ws;
+            return rest;
+        });
+        GM_setValue(WORKSPACE_KEY, JSON.stringify(workspacesToSave));
     }
 
     // 暴露全局函数 (供 HTML 中的 onclick 使用)

@@ -1563,8 +1563,14 @@ const SettingsManager = (function() {
                 return;
             }
 
+            // 使用工作空间数据中的 folderHandle
+            const dirHandle = currentWs.folderHandle;
+            
             // 获取已有配置
-            const wsData = await StorageManager.loadWorkspaceConfigFromFolder(currentWs.folderHandle);
+            const configFile = await dirHandle.getFileHandle('.workspace.json', { create: false });
+            const file = await configFile.getFile();
+            const content = await file.text();
+            const wsData = JSON.parse(content);
             
             if (wsData) {
                 // 更新配置
@@ -1575,7 +1581,6 @@ const SettingsManager = (function() {
                 wsData.updatedAt = Date.now();
 
                 // 保存回文件夹
-                const configFile = await currentWs.folderHandle.getFileHandle('.workspace.json', { create: true });
                 const writable = await configFile.createWritable();
                 await writable.write(JSON.stringify(wsData, null, 2));
                 await writable.close();
@@ -2361,7 +2366,12 @@ const StorageManager = (function() {
      * 保存到本地存储
      */
     function saveWorkspaces() {
-        GM_setValue(WORKSPACE_KEY, JSON.stringify(workspaces));
+        // 注意: folderHandle 不能序列化,保存前需要排除
+        const workspacesToSave = workspaces.map(ws => {
+            const { folderHandle, ...rest } = ws;
+            return rest;
+        });
+        GM_setValue(WORKSPACE_KEY, JSON.stringify(workspacesToSave));
     }
 
     // 暴露全局函数 (供 HTML 中的 onclick 使用)
