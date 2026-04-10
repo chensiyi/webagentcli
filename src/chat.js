@@ -141,20 +141,31 @@ const ChatManager = (function() {
      * 格式化消息(支持代码块)
      */
     function formatMessage(text) {
-        // 转义 HTML
-        let formatted = escapeHtml(text);
+        // 先处理代码块,避免被转义
+        let formatted = text;
         
-        // 处理代码块
+        // 处理代码块 - 先提取代码块并标记占位符
+        const codeBlocks = [];
         formatted = formatted.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
-            const language = lang || 'text';
-            const escapedCode = code.trim();
+            const index = codeBlocks.length;
+            codeBlocks.push({ lang: lang || 'text', code: code.trim() });
+            return `__CODE_BLOCK_${index}__`;
+        });
+        
+        // 转义普通文本
+        formatted = escapeHtml(formatted);
+        
+        // 恢复代码块
+        formatted = formatted.replace(/__CODE_BLOCK_(\d+)__/g, (match, index) => {
+            const block = codeBlocks[parseInt(index)];
+            const escapedCode = escapeHtml(block.code);
             
             return `
                 <div class="code-block">
-                    <div class="code-language">${language}</div>
+                    <div class="code-language">${block.lang}</div>
                     <pre>${escapedCode}</pre>
                 </div>
-                ${language === 'javascript' || language === 'js' ? `
+                ${block.lang === 'javascript' || block.lang === 'js' ? `
                     <div class="code-actions">
                         <button class="code-btn execute" data-action="execute-code">▶ 执行代码</button>
                         <button class="code-btn" data-action="copy-code">📋 复制</button>

@@ -29,6 +29,32 @@ const ConfigManager = (function() {
     let config = {};
 
     async function init() {
+        // 数据迁移: 从旧 key 迁移到新 key
+        const oldModelKey = 'openrouter_model';
+        const oldApiKeyKey = 'openrouter_api_key';
+        const oldEndpointKey = 'openrouter_endpoint';
+        
+        // 迁移 model
+        if (GM_getValue(oldModelKey, undefined) !== undefined && GM_getValue(CONFIG_KEYS.MODEL, undefined) === undefined) {
+            const oldModel = GM_getValue(oldModelKey);
+            GM_setValue(CONFIG_KEYS.MODEL, oldModel);
+            console.log('✅ 已迁移 model 配置');
+        }
+        
+        // 迁移 apiKey
+        if (GM_getValue(oldApiKeyKey, undefined) !== undefined && GM_getValue(CONFIG_KEYS.API_KEY, undefined) === undefined) {
+            const oldApiKey = GM_getValue(oldApiKeyKey);
+            GM_setValue(CONFIG_KEYS.API_KEY, oldApiKey);
+            console.log('✅ 已迁移 api_key 配置');
+        }
+        
+        // 迁移 endpoint
+        if (GM_getValue(oldEndpointKey, undefined) !== undefined && GM_getValue(CONFIG_KEYS.ENDPOINT, undefined) === undefined) {
+            const oldEndpoint = GM_getValue(oldEndpointKey);
+            GM_setValue(CONFIG_KEYS.ENDPOINT, oldEndpoint);
+            console.log('✅ 已迁移 endpoint 配置');
+        }
+        
         config = {
             apiKey: GM_getValue(CONFIG_KEYS.API_KEY, DEFAULTS.apiKey),
             model: GM_getValue(CONFIG_KEYS.MODEL, DEFAULTS.model),

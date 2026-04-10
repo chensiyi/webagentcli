@@ -9,7 +9,9 @@
 // @grant        GM_addStyle
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_deleteValue
 // @grant        unsafeWindow
+// @connect      openrouter.ai
 // @run-at       document-end
 // ==/UserScript==
 
@@ -47,6 +49,32 @@ const ConfigManager = (function() {
     let config = {};
 
     async function init() {
+        // 数据迁移: 从旧 key 迁移到新 key
+        const oldModelKey = 'openrouter_model';
+        const oldApiKeyKey = 'openrouter_api_key';
+        const oldEndpointKey = 'openrouter_endpoint';
+        
+        // 迁移 model
+        if (GM_getValue(oldModelKey, undefined) !== undefined && GM_getValue(CONFIG_KEYS.MODEL, undefined) === undefined) {
+            const oldModel = GM_getValue(oldModelKey);
+            GM_setValue(CONFIG_KEYS.MODEL, oldModel);
+            console.log('✅ 已迁移 model 配置');
+        }
+        
+        // 迁移 apiKey
+        if (GM_getValue(oldApiKeyKey, undefined) !== undefined && GM_getValue(CONFIG_KEYS.API_KEY, undefined) === undefined) {
+            const oldApiKey = GM_getValue(oldApiKeyKey);
+            GM_setValue(CONFIG_KEYS.API_KEY, oldApiKey);
+            console.log('✅ 已迁移 api_key 配置');
+        }
+        
+        // 迁移 endpoint
+        if (GM_getValue(oldEndpointKey, undefined) !== undefined && GM_getValue(CONFIG_KEYS.ENDPOINT, undefined) === undefined) {
+            const oldEndpoint = GM_getValue(oldEndpointKey);
+            GM_setValue(CONFIG_KEYS.ENDPOINT, oldEndpoint);
+            console.log('✅ 已迁移 endpoint 配置');
+        }
+        
         config = {
             apiKey: GM_getValue(CONFIG_KEYS.API_KEY, DEFAULTS.apiKey),
             model: GM_getValue(CONFIG_KEYS.MODEL, DEFAULTS.model),
@@ -1138,20 +1166,31 @@ const ChatManager = (function() {
      * 格式化消息(支持代码块)
      */
     function formatMessage(text) {
-        // 转义 HTML
-        let formatted = escapeHtml(text);
+        // 先处理代码块,避免被转义
+        let formatted = text;
         
-        // 处理代码块
+        // 处理代码块 - 先提取代码块并标记占位符
+        const codeBlocks = [];
         formatted = formatted.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
-            const language = lang || 'text';
-            const escapedCode = code.trim();
+            const index = codeBlocks.length;
+            codeBlocks.push({ lang: lang || 'text', code: code.trim() });
+            return `__CODE_BLOCK_${index}__`;
+        });
+        
+        // 转义普通文本
+        formatted = escapeHtml(formatted);
+        
+        // 恢复代码块
+        formatted = formatted.replace(/__CODE_BLOCK_(\d+)__/g, (match, index) => {
+            const block = codeBlocks[parseInt(index)];
+            const escapedCode = escapeHtml(block.code);
             
             return `
                 <div class="code-block">
-                    <div class="code-language">${language}</div>
+                    <div class="code-language">${block.lang}</div>
                     <pre>${escapedCode}</pre>
                 </div>
-                ${language === 'javascript' || language === 'js' ? `
+                ${block.lang === 'javascript' || block.lang === 'js' ? `
                     <div class="code-actions">
                         <button class="code-btn execute" data-action="execute-code">▶ 执行代码</button>
                         <button class="code-btn" data-action="copy-code">📋 复制</button>

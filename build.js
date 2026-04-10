@@ -25,7 +25,9 @@ const USERSCRIPT_HEADER = `// ==UserScript==
 // @grant        GM_addStyle
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_deleteValue
 // @grant        unsafeWindow
+// @connect      openrouter.ai
 // @run-at       document-end
 // ==/UserScript==
 
