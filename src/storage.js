@@ -142,8 +142,15 @@ const StorageManager = (function() {
         saveWorkspaces();
         
         // 如果是文件夹工作空间,同步保存到文件夹
-        if (currentWorkspace.folderHandle) {
-            await saveWorkspaceConfigToFolder(currentWorkspace, currentWorkspace.folderHandle);
+        // 注意: 页面刷新后 folderHandle 会失效,需要检查是否是有效的 File System Access API 对象
+        if (currentWorkspace.folderHandle && 
+            typeof currentWorkspace.folderHandle.getFileHandle === 'function' &&
+            typeof currentWorkspace.folderHandle.createWritable === 'function') {
+            try {
+                await saveWorkspaceConfigToFolder(currentWorkspace, currentWorkspace.folderHandle);
+            } catch (error) {
+                console.warn('⚠️ 同步到文件夹失败（页面刷新后句柄已失效，请重新打开文件夹）:', error.message);
+            }
         }
         
         return true;

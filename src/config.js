@@ -114,16 +114,23 @@ const ConfigManager = (function() {
         try {
             if (StorageManager && typeof StorageManager.getCurrentWorkspace === 'function') {
                 const currentWs = StorageManager.getCurrentWorkspace();
-                if (currentWs && currentWs.folderHandle) {
+                // 只有当工作空间有有效的 folderHandle 时才同步到文件夹
+                const hasValidFolderHandle = currentWs && 
+                    currentWs.folderHandle && 
+                    typeof currentWs.folderHandle.getFileHandle === 'function';
+                
+                if (hasValidFolderHandle) {
                     // 更新工作空间中的 settings
                     const settings = currentWs.data.settings || {};
                     settings[key] = value;
                     currentWs.data.settings = settings;
                     currentWs.updatedAt = Date.now();
                     
-                    // 保存到文件夹
+                    // 保存到文件夹（saveToWorkspace 内部会再次检查 folderHandle 是否有效）
                     StorageManager.saveToWorkspace('settings', settings).then(() => {
                         console.log(`💾 已同步配置 ${key} 到工作空间`);
+                    }).catch(err => {
+                        console.warn(`⚠️ 同步配置 ${key} 失败:`, err.message);
                     });
                 }
             }
