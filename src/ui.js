@@ -10,7 +10,7 @@ const UIManager = (function() {
      */
     function addStyles() {
         GM_addStyle(`
-            #openrouter-agent {
+            #ai-agent {
                 position: fixed;
                 bottom: 20px;
                 right: 20px;
@@ -26,7 +26,7 @@ const UIManager = (function() {
                 border: 1px solid #e0e0e0;
                 transition: all 0.3s ease;
             }
-            #openrouter-agent.minimized {
+            #ai-agent.minimized {
                 height: 50px;
                 overflow: hidden;
             }
@@ -266,12 +266,12 @@ const UIManager = (function() {
      */
     function createAssistant(config) {
         assistant = document.createElement('div');
-        assistant.id = 'openrouter-agent';
+        assistant.id = 'ai-agent';
         assistant.innerHTML = `
             <div id="agent-header">
                 <div id="agent-title">
                     <span>✨</span>
-                    <span>OpenRouter AI</span>
+                    <span>AI 助手</span>
                     ${config.apiKey ? '<span class="status-badge status-active">已配置</span>' : '<span class="status-badge status-inactive">未配置</span>'}
                 </div>
                 <div id="agent-controls">

@@ -7,7 +7,7 @@
      * 初始化应用
      */
     async function init() {
-        console.log('🚀 OpenRouter AI Agent 正在启动...');
+        console.log('🚀 AI Agent 正在启动...');
         
         try {
             // 1. 初始化工作空间管理器
@@ -30,7 +30,7 @@
             setupEventListeners();
             console.log('✅ 事件监听已设置');
             
-            console.log('🎉 OpenRouter AI Agent 启动成功!');
+            console.log('🎉 AI Agent 启动成功!');
             
         } catch (error) {
             console.error('❌ 启动失败:', error);

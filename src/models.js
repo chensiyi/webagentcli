@@ -20,7 +20,7 @@ const ModelManager = (function() {
     ];
 
     /**
-     * 从 OpenRouter API 获取免费模型列表
+     * 从 API 获取免费模型列表
      */
     function fetchFreeModels() {
         return new Promise((resolve, reject) => {

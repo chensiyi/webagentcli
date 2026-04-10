@@ -141,7 +141,7 @@ const SettingsManager = (function() {
         const modalHTML = `
             <div class="modal-overlay" id="settings-modal">
                 <div class="modal-content">
-                    <div class="modal-title">⚙️ OpenRouter 设置</div>
+                    <div class="modal-title">⚙️ 设置</div>
                     
                     <div class="form-group">
                         <label class="form-label">API Key *</label>

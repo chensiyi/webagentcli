@@ -4,7 +4,7 @@ const APIManager = (function() {
     let isProcessing = false;
 
     /**
-     * 调用 OpenRouter API
+     * 调用 AI API
      */
     async function callAPI(userMessage, conversationHistory, config) {
         if (isProcessing) return null;
@@ -89,7 +89,7 @@ const APIManager = (function() {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${apiKey}`,
                     'HTTP-Referer': window.location.href,
-                    'X-Title': 'OpenRouter Browser Agent'
+                    'X-Title': 'AI Browser Agent'
                 },
                 data: JSON.stringify(requestBody),
                 onload: (response) => {

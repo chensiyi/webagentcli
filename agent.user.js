@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         OpenRouter Free AI Agent
+// @name         Free Web AI Agent
 // @namespace    https://github.com/chensiyi1994
 // @version      2.1.0
-// @description  基于 OpenRouter 免费模型的浏览器 AI 助手,支持 JS 执行,完全免费
+// @description  基于ai模型的Web AI 助手,支持 JS 执行
 // @author       chensiyi1994
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest
@@ -21,9 +21,9 @@
 
 const ConfigManager = (function() {
     const CONFIG_KEYS = {
-        API_KEY: 'openrouter_api_key',
+        API_KEY: 'api_key',
         MODEL: 'model',
-        ENDPOINT: 'openrouter_endpoint',
+        ENDPOINT: 'endpoint',
         TEMPERATURE: 'temperature',
         TOP_P: 'top_p',
         MAX_TOKENS: 'max_tokens',
@@ -41,7 +41,7 @@ const ConfigManager = (function() {
         topP: 0.95,
         maxTokens: 2048,
         jsExecutionEnabled: true,
-        userId: 'openrouter_user_' + Date.now(),
+        userId: 'user_' + Date.now(),
         conversationHistory: []
     };
 
@@ -156,7 +156,7 @@ const ModelManager = (function() {
     ];
 
     /**
-     * 从 OpenRouter API 获取免费模型列表
+     * 从 API 获取免费模型列表
      */
     function fetchFreeModels() {
         return new Promise((resolve, reject) => {
@@ -357,7 +357,7 @@ const UIManager = (function() {
      */
     function addStyles() {
         GM_addStyle(`
-            #openrouter-agent {
+            #ai-agent {
                 position: fixed;
                 bottom: 20px;
                 right: 20px;
@@ -373,7 +373,7 @@ const UIManager = (function() {
                 border: 1px solid #e0e0e0;
                 transition: all 0.3s ease;
             }
-            #openrouter-agent.minimized {
+            #ai-agent.minimized {
                 height: 50px;
                 overflow: hidden;
             }
@@ -613,12 +613,12 @@ const UIManager = (function() {
      */
     function createAssistant(config) {
         assistant = document.createElement('div');
-        assistant.id = 'openrouter-agent';
+        assistant.id = 'ai-agent';
         assistant.innerHTML = `
             <div id="agent-header">
                 <div id="agent-title">
                     <span>✨</span>
-                    <span>OpenRouter AI</span>
+                    <span>AI 助手</span>
                     ${config.apiKey ? '<span class="status-badge status-active">已配置</span>' : '<span class="status-badge status-inactive">未配置</span>'}
                 </div>
                 <div id="agent-controls">
@@ -874,7 +874,7 @@ const APIManager = (function() {
     let isProcessing = false;
 
     /**
-     * 调用 OpenRouter API
+     * 调用 AI API
      */
     async function callAPI(userMessage, conversationHistory, config) {
         if (isProcessing) return null;
@@ -959,7 +959,7 @@ const APIManager = (function() {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${apiKey}`,
                     'HTTP-Referer': window.location.href,
-                    'X-Title': 'OpenRouter Browser Agent'
+                    'X-Title': 'AI Browser Agent'
                 },
                 data: JSON.stringify(requestBody),
                 onload: (response) => {
@@ -1204,10 +1204,10 @@ const ChatManager = (function() {
         const welcomeHTML = `
             <div class="assistant-message">
                 <div class="message-content">
-                    👋 你好!我是基于 <strong>OpenRouter 免费模型</strong> 的浏览器 AI 助手。
+                    👋 你好!我是你的 <strong>浏览器 AI 助手</strong>。
                     
 <strong>功能特性:</strong>
-• 💬 智能对话 - 使用 OpenRouter 免费模型
+• 💬 智能对话 - 支持多种免费模型
 • 💻 代码执行 - 支持 JavaScript 执行
 • 🎯 页面操作 - 可以操作当前页面元素
 • 💾 本地存储 - 对话历史自动保存
@@ -1381,7 +1381,7 @@ const SettingsManager = (function() {
         const modalHTML = `
             <div class="modal-overlay" id="settings-modal">
                 <div class="modal-content">
-                    <div class="modal-title">⚙️ OpenRouter 设置</div>
+                    <div class="modal-title">⚙️ 设置</div>
                     
                     <div class="form-group">
                         <label class="form-label">API Key *</label>
@@ -2537,7 +2537,7 @@ const Utils = (function() {
      * 初始化应用
      */
     async function init() {
-        console.log('🚀 OpenRouter AI Agent 正在启动...');
+        console.log('🚀 AI Agent 正在启动...');
         
         try {
             // 1. 初始化工作空间管理器
@@ -2560,7 +2560,7 @@ const Utils = (function() {
             setupEventListeners();
             console.log('✅ 事件监听已设置');
             
-            console.log('🎉 OpenRouter AI Agent 启动成功!');
+            console.log('🎉 AI Agent 启动成功!');
             
         } catch (error) {
             console.error('❌ 启动失败:', error);

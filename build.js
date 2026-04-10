@@ -15,10 +15,10 @@ const VERSION = process.env.VERSION || '2.1.0';
 
 // UserScript 头部模板
 const USERSCRIPT_HEADER = `// ==UserScript==
-// @name         OpenRouter Free AI Agent
+// @name         Free Web AI Agent
 // @namespace    https://github.com/chensiyi1994
 // @version      ${VERSION}
-// @description  基于 OpenRouter 免费模型的浏览器 AI 助手,支持 JS 执行,完全免费
+// @description  基于ai模型的Web AI 助手,支持 JS 执行
 // @author       chensiyi1994
 // @match        *://*/*
 // @grant        GM_xmlhttpRequest

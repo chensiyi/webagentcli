@@ -206,10 +206,10 @@ const ChatManager = (function() {
         const welcomeHTML = `
             <div class="assistant-message">
                 <div class="message-content">
-                    👋 你好!我是基于 <strong>OpenRouter 免费模型</strong> 的浏览器 AI 助手。
+                    👋 你好!我是你的 <strong>浏览器 AI 助手</strong>。
                     
 <strong>功能特性:</strong>
-• 💬 智能对话 - 使用 OpenRouter 免费模型
+• 💬 智能对话 - 支持多种免费模型
 • 💻 代码执行 - 支持 JavaScript 执行
 • 🎯 页面操作 - 可以操作当前页面元素
 • 💾 本地存储 - 对话历史自动保存

@@ -2,9 +2,9 @@
 
 const ConfigManager = (function() {
     const CONFIG_KEYS = {
-        API_KEY: 'openrouter_api_key',
+        API_KEY: 'api_key',
         MODEL: 'model',
-        ENDPOINT: 'openrouter_endpoint',
+        ENDPOINT: 'endpoint',
         TEMPERATURE: 'temperature',
         TOP_P: 'top_p',
         MAX_TOKENS: 'max_tokens',
@@ -22,7 +22,7 @@ const ConfigManager = (function() {
         topP: 0.95,
         maxTokens: 2048,
         jsExecutionEnabled: true,
-        userId: 'openrouter_user_' + Date.now(),
+        userId: 'user_' + Date.now(),
         conversationHistory: []
     };
 
