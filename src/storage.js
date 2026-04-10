@@ -131,7 +131,7 @@ const StorageManager = (function() {
     /**
      * 保存数据到当前工作空间
      */
-    function saveToWorkspace(key, value) {
+    async function saveToWorkspace(key, value) {
         if (!currentWorkspace) {
             console.error('没有激活的工作空间');
             return false;
@@ -140,6 +140,12 @@ const StorageManager = (function() {
         currentWorkspace.data[key] = value;
         currentWorkspace.updatedAt = Date.now();
         saveWorkspaces();
+        
+        // 如果是文件夹工作空间,同步保存到文件夹
+        if (currentWorkspace.folderHandle) {
+            await saveWorkspaceConfigToFolder(currentWorkspace, currentWorkspace.folderHandle);
+        }
+        
         return true;
     }
 
@@ -552,17 +558,59 @@ const StorageManager = (function() {
                 startIn: 'documents'
             });
 
-            // 保存文件夹句柄
             const folderName = dirHandle.name;
-            GM_setValue('workspace_folder_handle', dirHandle);
             
+            // 检查工作空间配置文件
+            let workspaceData = null;
+            try {
+                const configFile = await dirHandle.getFileHandle('.workspace.json', { create: false });
+                const file = await configFile.getFile();
+                const content = await file.text();
+                workspaceData = JSON.parse(content);
+                console.log('✅ 找到工作空间配置文件');
+            } catch (error) {
+                console.log('ℹ️ 未找到配置文件,将创建新的工作空间');
+            }
+
             // 创建工作空间
-            const workspace = createWorkspace(folderName, `本地文件夹: ${folderName}`);
+            let workspace;
+            if (workspaceData) {
+                // 使用已有配置
+                workspace = {
+                    id: workspaceData.id || generateId(),
+                    name: workspaceData.name || folderName,
+                    description: workspaceData.description || `本地文件夹: ${folderName}`,
+                    createdAt: workspaceData.createdAt || Date.now(),
+                    updatedAt: Date.now(),
+                    data: workspaceData.data || {
+                        conversations: [],
+                        settings: {},
+                        customData: {}
+                    },
+                    folderPath: folderName,
+                    folderHandle: dirHandle
+                };
+                
+                // 检查工作空间是否已存在
+                const existingIndex = workspaces.findIndex(ws => ws.id === workspace.id);
+                if (existingIndex > -1) {
+                    // 更新现有工作空间
+                    workspaces[existingIndex] = workspace;
+                } else {
+                    workspaces.push(workspace);
+                }
+            } else {
+                // 创建新工作空间
+                workspace = createWorkspace(folderName, `本地文件夹: ${folderName}`);
+                workspace.folderPath = folderName;
+                workspace.folderHandle = dirHandle;
+                
+                // 保存初始配置到文件夹
+                await saveWorkspaceConfigToFolder(workspace, dirHandle);
+            }
             
-            // 保存文件夹信息到工作空间
-            workspace.data.folderPath = folderName;
-            workspace.data.folderHandle = dirHandle;
             saveWorkspaces();
+            loadWorkspace(workspace.id);
 
             // 显示路径
             const pathDiv = document.getElementById('folder-path');
@@ -585,6 +633,48 @@ const StorageManager = (function() {
                 console.error('打开文件夹失败:', error);
                 alert(`❌ 打开文件夹失败: ${error.message}`);
             }
+        }
+    }
+
+    /**
+     * 保存工作空间配置到文件夹
+     */
+    async function saveWorkspaceConfigToFolder(workspace, dirHandle) {
+        try {
+            const configData = {
+                version: '1.0.0',
+                id: workspace.id,
+                name: workspace.name,
+                description: workspace.description,
+                createdAt: workspace.createdAt,
+                updatedAt: Date.now(),
+                data: workspace.data
+            };
+
+            // 创建或更新配置文件
+            const configFile = await dirHandle.getFileHandle('.workspace.json', { create: true });
+            const writable = await configFile.createWritable();
+            await writable.write(JSON.stringify(configData, null, 2));
+            await writable.close();
+
+            console.log('✅ 工作空间配置已保存到文件夹');
+        } catch (error) {
+            console.error('保存配置失败:', error);
+        }
+    }
+
+    /**
+     * 从文件夹加载工作空间配置
+     */
+    async function loadWorkspaceConfigFromFolder(dirHandle) {
+        try {
+            const configFile = await dirHandle.getFileHandle('.workspace.json', { create: false });
+            const file = await configFile.getFile();
+            const content = await file.text();
+            return JSON.parse(content);
+        } catch (error) {
+            console.error('加载配置失败:', error);
+            return null;
         }
     }
 
