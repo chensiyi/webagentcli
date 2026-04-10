@@ -114,10 +114,14 @@ const ConfigManager = (function() {
         try {
             if (StorageManager && typeof StorageManager.getCurrentWorkspace === 'function') {
                 const currentWs = StorageManager.getCurrentWorkspace();
-                // 只有当工作空间有有效的 folderHandle 时才同步到文件夹
-                const hasValidFolderHandle = currentWs && 
-                    currentWs.folderHandle && 
-                    typeof currentWs.folderHandle.getFileHandle === 'function';
+                
+                console.log('🔍 调试 - 当前工作空间:', currentWs ? {
+                    id: currentWs.id,
+                    name: currentWs.name,
+                    hasFolderHandle: !!currentWs.folderHandle,
+                    folderHandleType: currentWs.folderHandle ? typeof currentWs.folderHandle : 'none',
+                    hasGetFileHandle: currentWs.folderHandle && typeof currentWs.folderHandle.getFileHandle === 'function'
+                } : 'null');
                 
                 // 更新内存中的工作空间配置（总是执行）
                 if (currentWs) {
@@ -125,22 +129,27 @@ const ConfigManager = (function() {
                     settings[key] = value;
                     currentWs.data.settings = settings;
                     currentWs.updatedAt = Date.now();
+                    
+                    console.log(`💾 配置 ${key} 已更新到内存`);
                 }
                 
                 // 同步到文件夹（只有在 folderHandle 有效时才执行）
-                if (hasValidFolderHandle) {
+                if (currentWs && currentWs.folderHandle && 
+                    typeof currentWs.folderHandle.getFileHandle === 'function' &&
+                    typeof currentWs.folderHandle.createWritable === 'function') {
+                    console.log('📁 检测到有效 folderHandle，开始同步到文件夹...');
                     // 保存到文件夹（saveToWorkspace 内部会再次检查 folderHandle 是否有效）
                     StorageManager.saveToWorkspace('settings', currentWs.data.settings).then(() => {
-                        console.log(`💾 已同步配置 ${key} 到工作空间文件夹`);
+                        console.log(`✅ 已同步配置 ${key} 到工作空间文件夹`);
                     }).catch(err => {
-                        console.warn(`⚠️ 同步配置 ${key} 到文件夹失败:`, err.message);
+                        console.warn(`❌ 同步配置 ${key} 到文件夹失败:`, err);
                     });
                 } else if (currentWs) {
-                    console.log(`💾 已保存配置 ${key} 到工作空间（浏览器存储）`);
+                    console.log(`⚠️ folderHandle 无效，配置 ${key} 仅保存到浏览器存储`);
                 }
             }
         } catch (error) {
-            console.warn('同步配置到工作空间失败:', error);
+            console.warn('❌ 同步配置到工作空间失败:', error);
         }
     }
 
