@@ -367,7 +367,7 @@ const StorageManager = (function() {
             <div class="workspace-manager" id="workspace-manager-modal">
                 <div class="workspace-header">
                     <div class="workspace-title">📁 工作空间管理</div>
-                    <button class="ws-btn ws-btn-secondary" onclick="StorageManager.closeWorkspaceManager()">关闭</button>
+                    <button class="ws-btn ws-btn-secondary" id="btn-close-ws">关闭</button>
                 </div>
                 
                 <div class="workspace-list">
@@ -387,10 +387,10 @@ const StorageManager = (function() {
                         </div>
                     </div>
                     <div class="workspace-actions">
-                        ${!ws.isCurrent ? `<button class="ws-btn ws-btn-primary" onclick="StorageManager.switchWorkspace('${ws.id}')">切换</button>` : ''}
-                        <button class="ws-btn ws-btn-secondary" onclick="StorageManager.renameWorkspacePrompt('${ws.id}', '${escapeHtml(ws.name)}')">重命名</button>
-                        <button class="ws-btn ws-btn-secondary" onclick="StorageManager.exportWorkspaceFile('${ws.id}')">导出</button>
-                        ${workspacesList.length > 1 ? `<button class="ws-btn ws-btn-danger" onclick="StorageManager.deleteWorkspaceConfirm('${ws.id}')">删除</button>` : ''}
+                        ${!ws.isCurrent ? `<button class="ws-btn ws-btn-primary ws-btn-switch" data-ws-id="${ws.id}">切换</button>` : ''}
+                        <button class="ws-btn ws-btn-secondary ws-btn-rename" data-ws-id="${ws.id}" data-ws-name="${escapeHtml(ws.name)}">重命名</button>
+                        <button class="ws-btn ws-btn-secondary ws-btn-export" data-ws-id="${ws.id}">导出</button>
+                        ${workspacesList.length > 1 ? `<button class="ws-btn ws-btn-danger ws-btn-delete" data-ws-id="${ws.id}">删除</button>` : ''}
                     </div>
                 </div>
             `;
@@ -403,7 +403,7 @@ const StorageManager = (function() {
                     <h3 style="margin-bottom: 12px; color: #1f2937;">➕ 创建工作空间</h3>
                     <input type="text" class="form-input" id="new-workspace-name" placeholder="工作空间名称">
                     <input type="text" class="form-input" id="new-workspace-desc" placeholder="描述 (可选)">
-                    <button class="ws-btn ws-btn-primary" onclick="StorageManager.createNewWorkspace()" style="width: 100%; padding: 10px;">
+                    <button class="ws-btn ws-btn-primary" id="btn-create-ws" style="width: 100%; padding: 10px;">
                         创建工作空间
                     </button>
                 </div>
@@ -421,18 +421,69 @@ const StorageManager = (function() {
                 
                 <div style="margin-top: 20px; padding-top: 20px; border-top: 2px solid #e5e7eb;">
                     <h3 style="margin-bottom: 12px; color: #1f2937;">📥 导入工作空间</h3>
-                    <input type="file" class="form-input" id="import-workspace-file" accept=".json" onchange="StorageManager.handleImport(this)">
+                    <input type="file" class="form-input" id="import-workspace-file" accept=".json">
                 </div>
             </div>
         `;
 
         document.body.insertAdjacentHTML('beforeend', html);
         
-        // 绑定打开文件夹按钮事件
+        // 绑定所有按钮事件
+        bindWorkspaceEvents();
+    }
+
+    /**
+     * 绑定工作空间管理器事件
+     */
+    function bindWorkspaceEvents() {
+        // 关闭按钮
+        const closeBtn = document.getElementById('btn-close-ws');
+        if (closeBtn) closeBtn.addEventListener('click', closeWorkspaceManager);
+        
+        // 创建工作空间按钮
+        const createBtn = document.getElementById('btn-create-ws');
+        if (createBtn) createBtn.addEventListener('click', createNewWorkspace);
+        
+        // 打开文件夹按钮
         const openFolderBtn = document.getElementById('btn-open-folder');
-        if (openFolderBtn) {
-            openFolderBtn.addEventListener('click', openFolder);
-        }
+        if (openFolderBtn) openFolderBtn.addEventListener('click', openFolder);
+        
+        // 导入文件按钮
+        const importFile = document.getElementById('import-workspace-file');
+        if (importFile) importFile.addEventListener('change', (e) => handleImport(e.target));
+        
+        // 切换按钮
+        document.querySelectorAll('.ws-btn-switch').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const wsId = e.target.dataset.wsId;
+                switchWorkspace(wsId);
+            });
+        });
+        
+        // 重命名按钮
+        document.querySelectorAll('.ws-btn-rename').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const wsId = e.target.dataset.wsId;
+                const wsName = e.target.dataset.wsName;
+                renameWorkspacePrompt(wsId, wsName);
+            });
+        });
+        
+        // 导出按钮
+        document.querySelectorAll('.ws-btn-export').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const wsId = e.target.dataset.wsId;
+                exportWorkspaceFile(wsId);
+            });
+        });
+        
+        // 删除按钮
+        document.querySelectorAll('.ws-btn-delete').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const wsId = e.target.dataset.wsId;
+                deleteWorkspaceConfirm(wsId);
+            });
+        });
     }
 
     /**
@@ -707,7 +758,7 @@ const StorageManager = (function() {
         GM_setValue(WORKSPACE_KEY, JSON.stringify(workspaces));
     }
 
-    // 暴露全局函数
+    // 暴露全局函数 (供 HTML 中的 onclick 使用)
     window.StorageManager = {
         showWorkspaceManager,
         closeWorkspaceManager,
