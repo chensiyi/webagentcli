@@ -420,21 +420,13 @@ const UIManager = (function() {
             const codeBlock = assistantMessage.querySelector('.code-block');
             if (!codeBlock) return;
 
-            // 优先从 data-code 属性中获取原始代码（base64 编码）
-            let code;
-            if (codeBlock.dataset.code) {
-                try {
-                    code = decodeURIComponent(escape(atob(codeBlock.dataset.code)));
-                } catch (error) {
-                    console.error('解码代码失败:', error);
-                    // 降级方案：从 pre 标签中提取
-                    const pre = codeBlock.querySelector('pre');
-                    code = pre ? pre.textContent : '';
-                }
-            } else {
-                // 兼容旧版本：从 pre 标签中提取
-                const pre = codeBlock.querySelector('pre');
-                code = pre ? pre.textContent : '';
+            // 从全局存储中获取代码（避免 HTML 转义问题）
+            const blockId = codeBlock.dataset.codeId;
+            const code = ChatManager.getCodeFromStore(blockId);
+            
+            if (!code) {
+                console.error('未找到代码块:', blockId);
+                return;
             }
 
             if (action === 'execute-code') {

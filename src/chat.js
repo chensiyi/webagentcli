@@ -161,6 +161,26 @@ const ChatManager = (function() {
     }
 
     /**
+     * 全局代码块存储（避免 HTML 转义问题）
+     */
+    const codeBlockStore = {};
+    let codeBlockIndex = 0;
+    
+    /**
+     * 获取存储的代码（供 UI 模块调用）
+     */
+    function getCodeFromStore(blockId) {
+        return codeBlockStore[blockId] || '';
+    }
+    
+    /**
+     * 获取存储的代码（供 UI 模块调用）
+     */
+    function getCodeFromStore(blockId) {
+        return codeBlockStore[blockId] || '';
+    }
+
+    /**
      * 格式化消息(支持代码块)
      */
     function formatMessage(text) {
@@ -178,29 +198,21 @@ const ChatManager = (function() {
         // 转义普通文本
         formatted = escapeHtml(formatted);
         
-        // 恢复代码块
+        // 恢复代码块 - 使用全局存储 + ID 引用
         formatted = formatted.replace(/__CODE_BLOCK_(\d+)__/g, (match, index) => {
             const block = codeBlocks[parseInt(index)];
-            const escapedCode = escapeHtml(block.code);
-            // 将原始代码编码为 base64，存储在 data 属性中
-            const encodedCode = btoa(unescape(encodeURIComponent(block.code)));
             
-            return `
-                <div class="code-block" data-code="${encodedCode}">
-                    <div class="code-language">${block.lang}</div>
-                    <pre>${escapedCode}</pre>
-                </div>
-                ${block.lang === 'javascript' || block.lang === 'js' ? `
-                    <div class="code-actions">
-                        <button class="code-btn execute" data-action="execute-code">▶ 执行代码</button>
-                        <button class="code-btn" data-action="copy-code">📋 复制</button>
-                    </div>
-                ` : `
-                    <div class="code-actions">
-                        <button class="code-btn" data-action="copy-code">📋 复制</button>
-                    </div>
-                `}
-            `;
+            // 生成唯一 ID 并存储到全局
+            const blockId = 'code_' + Date.now() + '_' + (++codeBlockIndex);
+            codeBlockStore[blockId] = block.code;
+            
+            const isJs = block.lang === 'javascript' || block.lang === 'js';
+            
+            // 只存储 ID，不存储代码内容
+            return `<div class="code-block" data-code-id="${blockId}" data-lang="${block.lang}"></div>` +
+                   `<div class="code-actions">${isJs ? 
+                     '<button class="code-btn execute" data-action="execute-code">▶ 执行代码</button>' : ''}` +
+                     '<button class="code-btn" data-action="copy-code">📋 复制</button></div>';
         });
         
         // 处理行内代码
@@ -269,6 +281,7 @@ ${!config.apiKey ? '<strong style="color: #ef4444;">⚠️ 请先在设置中配
         addAssistantMessage,
         clearChat,
         showWelcomeMessage,
-        executeJavaScript
+        executeJavaScript,
+        getCodeFromStore
     };
 })();
