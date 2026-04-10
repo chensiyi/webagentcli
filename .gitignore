@@ -1,6 +1,9 @@
 # Tampermonkey 备份文件
 *.user.js.backup
 
+# 构建输出 (可选,根据需求决定是否提交)
+# /dist/
+
 # 编辑器配置
 .vscode/
 .idea/
@@ -26,3 +29,6 @@ temp/
 config.local.js
 .env
 .env.local
+
+# Node modules (如果使用构建系统)
+node_modules/
