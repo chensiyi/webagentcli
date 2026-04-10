@@ -139,19 +139,24 @@ const ConfigManager = (function() {
                     currentWs.folderHandle && 
                     typeof currentWs.folderHandle.getFileHandle === 'function';
                 
-                if (hasValidFolderHandle) {
-                    // 更新工作空间中的 settings
+                // 更新内存中的工作空间配置（总是执行）
+                if (currentWs) {
                     const settings = currentWs.data.settings || {};
                     settings[key] = value;
                     currentWs.data.settings = settings;
                     currentWs.updatedAt = Date.now();
-                    
+                }
+                
+                // 同步到文件夹（只有在 folderHandle 有效时才执行）
+                if (hasValidFolderHandle) {
                     // 保存到文件夹（saveToWorkspace 内部会再次检查 folderHandle 是否有效）
-                    StorageManager.saveToWorkspace('settings', settings).then(() => {
-                        console.log(`💾 已同步配置 ${key} 到工作空间`);
+                    StorageManager.saveToWorkspace('settings', currentWs.data.settings).then(() => {
+                        console.log(`💾 已同步配置 ${key} 到工作空间文件夹`);
                     }).catch(err => {
-                        console.warn(`⚠️ 同步配置 ${key} 失败:`, err.message);
+                        console.warn(`⚠️ 同步配置 ${key} 到文件夹失败:`, err.message);
                     });
+                } else if (currentWs) {
+                    console.log(`💾 已保存配置 ${key} 到工作空间（浏览器存储）`);
                 }
             }
         } catch (error) {
@@ -1232,13 +1237,6 @@ const ChatManager = (function() {
     function getCodeFromStore(blockId) {
         return codeBlockStore[blockId] || '';
     }
-    
-    /**
-     * 获取存储的代码（供 UI 模块调用）
-     */
-    function getCodeFromStore(blockId) {
-        return codeBlockStore[blockId] || '';
-    }
 
     /**
      * 格式化消息(支持代码块)
@@ -1258,18 +1256,21 @@ const ChatManager = (function() {
         // 转义普通文本
         formatted = escapeHtml(formatted);
         
-        // 恢复代码块 - 使用全局存储 + ID 引用
+        // 恢复代码块 - 同时存储到全局和 HTML 中
         formatted = formatted.replace(/__CODE_BLOCK_(\d+)__/g, (match, index) => {
             const block = codeBlocks[parseInt(index)];
             
-            // 生成唯一 ID 并存储到全局
+            // 生成唯一 ID 并存储到全局（用于执行/复制）
             const blockId = 'code_' + Date.now() + '_' + (++codeBlockIndex);
             codeBlockStore[blockId] = block.code;
             
             const isJs = block.lang === 'javascript' || block.lang === 'js';
             
-            // 只存储 ID，不存储代码内容
-            return `<div class="code-block" data-code-id="${blockId}" data-lang="${block.lang}"></div>` +
+            // HTML 中显示代码（用于视觉展示）
+            return `<div class="code-block" data-code-id="${blockId}" data-lang="${block.lang}">` +
+                   `<div class="code-language">${block.lang}</div>` +
+                   `<pre>${escapeHtml(block.code)}</pre>` +
+                   `</div>` +
                    `<div class="code-actions">${isJs ? 
                      '<button class="code-btn execute" data-action="execute-code">▶ 执行代码</button>' : ''}` +
                      '<button class="code-btn" data-action="copy-code">📋 复制</button></div>';

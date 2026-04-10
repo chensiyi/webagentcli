@@ -172,13 +172,6 @@ const ChatManager = (function() {
     function getCodeFromStore(blockId) {
         return codeBlockStore[blockId] || '';
     }
-    
-    /**
-     * 获取存储的代码（供 UI 模块调用）
-     */
-    function getCodeFromStore(blockId) {
-        return codeBlockStore[blockId] || '';
-    }
 
     /**
      * 格式化消息(支持代码块)
@@ -198,18 +191,21 @@ const ChatManager = (function() {
         // 转义普通文本
         formatted = escapeHtml(formatted);
         
-        // 恢复代码块 - 使用全局存储 + ID 引用
+        // 恢复代码块 - 同时存储到全局和 HTML 中
         formatted = formatted.replace(/__CODE_BLOCK_(\d+)__/g, (match, index) => {
             const block = codeBlocks[parseInt(index)];
             
-            // 生成唯一 ID 并存储到全局
+            // 生成唯一 ID 并存储到全局（用于执行/复制）
             const blockId = 'code_' + Date.now() + '_' + (++codeBlockIndex);
             codeBlockStore[blockId] = block.code;
             
             const isJs = block.lang === 'javascript' || block.lang === 'js';
             
-            // 只存储 ID，不存储代码内容
-            return `<div class="code-block" data-code-id="${blockId}" data-lang="${block.lang}"></div>` +
+            // HTML 中显示代码（用于视觉展示）
+            return `<div class="code-block" data-code-id="${blockId}" data-lang="${block.lang}">` +
+                   `<div class="code-language">${block.lang}</div>` +
+                   `<pre>${escapeHtml(block.code)}</pre>` +
+                   `</div>` +
                    `<div class="code-actions">${isJs ? 
                      '<button class="code-btn execute" data-action="execute-code">▶ 执行代码</button>' : ''}` +
                      '<button class="code-btn" data-action="copy-code">📋 复制</button></div>';

@@ -119,19 +119,24 @@ const ConfigManager = (function() {
                     currentWs.folderHandle && 
                     typeof currentWs.folderHandle.getFileHandle === 'function';
                 
-                if (hasValidFolderHandle) {
-                    // 更新工作空间中的 settings
+                // 更新内存中的工作空间配置（总是执行）
+                if (currentWs) {
                     const settings = currentWs.data.settings || {};
                     settings[key] = value;
                     currentWs.data.settings = settings;
                     currentWs.updatedAt = Date.now();
-                    
+                }
+                
+                // 同步到文件夹（只有在 folderHandle 有效时才执行）
+                if (hasValidFolderHandle) {
                     // 保存到文件夹（saveToWorkspace 内部会再次检查 folderHandle 是否有效）
-                    StorageManager.saveToWorkspace('settings', settings).then(() => {
-                        console.log(`💾 已同步配置 ${key} 到工作空间`);
+                    StorageManager.saveToWorkspace('settings', currentWs.data.settings).then(() => {
+                        console.log(`💾 已同步配置 ${key} 到工作空间文件夹`);
                     }).catch(err => {
-                        console.warn(`⚠️ 同步配置 ${key} 失败:`, err.message);
+                        console.warn(`⚠️ 同步配置 ${key} 到文件夹失败:`, err.message);
                     });
+                } else if (currentWs) {
+                    console.log(`💾 已保存配置 ${key} 到工作空间（浏览器存储）`);
                 }
             }
         } catch (error) {
