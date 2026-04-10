@@ -22,7 +22,7 @@
 const ConfigManager = (function() {
     const CONFIG_KEYS = {
         API_KEY: 'openrouter_api_key',
-        MODEL: 'openrouter_model',
+        MODEL: 'model',
         ENDPOINT: 'openrouter_endpoint',
         TEMPERATURE: 'temperature',
         TOP_P: 'top_p',
