@@ -36,6 +36,30 @@ jobs:
         echo "Updated version line:"
         grep "@version" agent.user.js
     
+    - name: Build script
+      run: |
+        # 安装 Node.js (如果需要)
+        if ! command -v node &> /dev/null; then
+          echo "Node.js not found, using system default"
+        fi
+        
+        # 运行构建 (如果 build.js 存在)
+        if [ -f build.js ]; then
+          echo "Running build..."
+          node build.js || echo "Build failed, using existing agent.user.js"
+          
+          # 如果构建成功,复制 dist 文件到根目录
+          if [ -f dist/agent.user.js ]; then
+            cp dist/agent.user.js agent.user.js
+            echo "Using built version from dist/"
+          fi
+        else
+          echo "No build.js found, using existing agent.user.js"
+        fi
+        
+        # 显示文件大小
+        ls -lh agent.user.js
+    
     - name: Create Release
       id: create_release
       uses: actions/create-release@v1
