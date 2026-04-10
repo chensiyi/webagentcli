@@ -75,8 +75,8 @@
             UIManager.appendMessage(`
                 <div class="assistant-message">
                     <div class="message-content" style="color: #ef4444;">
-                        ⚠️ 请先在设置中配置 OpenRouter API Key<br><br>
-                        💡 获取免费 API Key: <a href="https://openrouter.ai/keys" target="_blank">https://openrouter.ai/keys</a>
+                        ⚠️ 请先在设置中配置 API Key<br><br>
+                        💡 获取免费 API Key: <a href="https://openrouter.ai/keys" target="_blank">点击获取</a>
                     </div>
                 </div>
             `);

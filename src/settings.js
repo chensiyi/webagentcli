@@ -147,7 +147,7 @@ const SettingsManager = (function() {
                         <label class="form-label">API Key *</label>
                         <input type="password" class="form-input" id="setting-api-key" 
                                value="${config.apiKey}" 
-                               placeholder="输入你的 OpenRouter API Key">
+                               placeholder="输入你的 API Key">
                         <div class="form-hint">
                             从 <a href="https://openrouter.ai/keys" target="_blank">OpenRouter Keys</a> 获取免费 API Key
                         </div>

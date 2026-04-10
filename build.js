@@ -26,7 +26,6 @@ const USERSCRIPT_HEADER = `// ==UserScript==
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        unsafeWindow
-// @connect      openrouter.ai
 // @run-at       document-end
 // ==/UserScript==
 
@@ -37,7 +36,7 @@ if (!fs.existsSync(DIST_DIR)) {
     fs.mkdirSync(DIST_DIR, { recursive: true });
 }
 
-console.log('🔨 开始构建 OpenRouter AI Agent...');
+console.log('🔨 开始构建 AI Agent...');
 console.log(`📦 版本: ${VERSION}`);
 
 // 读取所有源文件

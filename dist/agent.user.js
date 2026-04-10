@@ -10,7 +10,6 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        unsafeWindow
-// @connect      openrouter.ai
 // @run-at       document-end
 // ==/UserScript==
 
@@ -1387,7 +1386,7 @@ const SettingsManager = (function() {
                         <label class="form-label">API Key *</label>
                         <input type="password" class="form-input" id="setting-api-key" 
                                value="${config.apiKey}" 
-                               placeholder="输入你的 OpenRouter API Key">
+                               placeholder="输入你的 API Key">
                         <div class="form-hint">
                             从 <a href="https://openrouter.ai/keys" target="_blank">OpenRouter Keys</a> 获取免费 API Key
                         </div>
@@ -2605,8 +2604,8 @@ const Utils = (function() {
             UIManager.appendMessage(`
                 <div class="assistant-message">
                     <div class="message-content" style="color: #ef4444;">
-                        ⚠️ 请先在设置中配置 OpenRouter API Key<br><br>
-                        💡 获取免费 API Key: <a href="https://openrouter.ai/keys" target="_blank">https://openrouter.ai/keys</a>
+                        ⚠️ 请先在设置中配置 API Key<br><br>
+                        💡 获取免费 API Key: <a href="https://openrouter.ai/keys" target="_blank">点击获取</a>
                     </div>
                 </div>
             `);
