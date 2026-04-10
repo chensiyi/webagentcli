@@ -341,6 +341,18 @@ const StorageManager = (function() {
                 background: #d1fae5;
                 color: #065f46;
             }
+            .folder-section {
+                margin-top: 20px;
+                padding: 16px;
+                background: #f9fafb;
+                border-radius: 8px;
+                border: 2px dashed #d1d5db;
+            }
+            .folder-info {
+                font-size: 13px;
+                color: #6b7280;
+                margin-top: 8px;
+            }
         `);
 
         const workspacesList = getAllWorkspaces();
@@ -388,6 +400,17 @@ const StorageManager = (function() {
                     <button class="ws-btn ws-btn-primary" onclick="StorageManager.createNewWorkspace()" style="width: 100%; padding: 10px;">
                         创建工作空间
                     </button>
+                </div>
+                
+                <div class="folder-section">
+                    <h3 style="margin-bottom: 12px; color: #1f2937;">📂 打开本地文件夹</h3>
+                    <p style="font-size: 13px; color: #6b7280; margin-bottom: 12px;">
+                        选择一个本地文件夹作为工作空间,数据将保存在该文件夹中
+                    </p>
+                    <button class="ws-btn ws-btn-primary" onclick="StorageManager.openFolder()" style="width: 100%; padding: 10px;">
+                        📁 选择文件夹
+                    </button>
+                    <div class="folder-info" id="folder-path"></div>
                 </div>
                 
                 <div style="margin-top: 20px; padding-top: 20px; border-top: 2px solid #e5e7eb;">
@@ -513,6 +536,59 @@ const StorageManager = (function() {
     }
 
     /**
+     * 打开本地文件夹 (使用 File System Access API)
+     */
+    async function openFolder() {
+        try {
+            // 检查浏览器支持
+            if (!('showDirectoryPicker' in window)) {
+                alert('❌ 您的浏览器不支持文件夹访问功能\n\n请使用 Chrome 86+ 或 Edge 86+ 浏览器');
+                return;
+            }
+
+            // 打开文件夹选择对话框
+            const dirHandle = await window.showDirectoryPicker({
+                mode: 'readwrite',
+                startIn: 'documents'
+            });
+
+            // 保存文件夹句柄
+            const folderName = dirHandle.name;
+            GM_setValue('workspace_folder_handle', dirHandle);
+            
+            // 创建工作空间
+            const workspace = createWorkspace(folderName, `本地文件夹: ${folderName}`);
+            
+            // 保存文件夹信息到工作空间
+            workspace.data.folderPath = folderName;
+            workspace.data.folderHandle = dirHandle;
+            saveWorkspaces();
+
+            // 显示路径
+            const pathDiv = document.getElementById('folder-path');
+            if (pathDiv) {
+                pathDiv.innerHTML = `<span style="color: #10b981;">✅ 已打开: ${folderName}</span>`;
+            }
+
+            // 关闭并重新打开管理器
+            setTimeout(() => {
+                closeWorkspaceManager();
+                showWorkspaceManager();
+            }, 500);
+
+            alert(`✅ 已成功打开文件夹: ${folderName}\n\n该文件夹将作为新的工作空间`);
+
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                console.log('用户取消了选择');
+            } else {
+                console.error('打开文件夹失败:', error);
+                alert(`❌ 打开文件夹失败: ${error.message}`);
+            }
+        }
+    }
+
+    /**
      * 生成唯一 ID
      */
     function generateId() {
@@ -544,7 +620,8 @@ const StorageManager = (function() {
         renameWorkspacePrompt,
         deleteWorkspaceConfirm,
         exportWorkspaceFile,
-        handleImport
+        handleImport,
+        openFolder
     };
 
     return {
