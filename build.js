@@ -11,7 +11,7 @@ const path = require('path');
 const SRC_DIR = path.join(__dirname, 'src');
 const DIST_DIR = path.join(__dirname, 'dist');
 const OUTPUT_FILE = path.join(DIST_DIR, 'agent.user.js');
-const VERSION = process.env.VERSION || '2.0.0';
+const VERSION = process.env.VERSION || '2.1.0';
 
 // UserScript 头部模板
 const USERSCRIPT_HEADER = `// ==UserScript==

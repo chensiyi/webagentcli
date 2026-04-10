@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         OpenRouter Free AI Agent
 // @namespace    https://github.com/chensiyi1994
-// @version      2.0.0
+// @version      2.1.0
 // @description  基于 OpenRouter 免费模型的浏览器 AI 助手,支持 JS 执行,完全免费
 // @author       chensiyi1994
 // @match        *://*/*
