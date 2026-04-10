@@ -2366,7 +2366,8 @@ const StorageManager = (function() {
      * 保存到本地存储
      */
     function saveWorkspaces() {
-        // 注意: folderHandle 不能序列化,保存前需要排除
+        // 注意: folderHandle 是 File System Access API 对象，不能 JSON 序列化
+        // 保存到 GM 存储时需要排除，但保留在内存中的 workspaces 对象里
         const workspacesToSave = workspaces.map(ws => {
             const { folderHandle, ...rest } = ws;
             return rest;
