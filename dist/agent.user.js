@@ -47,7 +47,7 @@ const ConfigManager = (function() {
 
     let config = {};
 
-    function init() {
+    async function init() {
         config = {
             apiKey: GM_getValue(CONFIG_KEYS.API_KEY, DEFAULTS.apiKey),
             model: GM_getValue(CONFIG_KEYS.MODEL, DEFAULTS.model),
@@ -59,6 +59,26 @@ const ConfigManager = (function() {
             userId: GM_getValue(CONFIG_KEYS.USER_ID, DEFAULTS.userId),
             conversationHistory: GM_getValue(CONFIG_KEYS.HISTORY, DEFAULTS.conversationHistory)
         };
+
+        // 如果当前有文件夹工作空间,尝试从 .workspace.json 加载配置
+        try {
+            const currentWs = StorageManager ? StorageManager.getCurrentWorkspace() : null;
+            if (currentWs && currentWs.folderHandle && currentWs.data.settings) {
+                // 从工作空间加载设置
+                const wsSettings = currentWs.data.settings;
+                if (wsSettings.apiKey !== undefined) config.apiKey = wsSettings.apiKey;
+                if (wsSettings.model !== undefined) config.model = wsSettings.model;
+                if (wsSettings.temperature !== undefined) config.temperature = wsSettings.temperature;
+                if (wsSettings.topP !== undefined) config.topP = wsSettings.topP;
+                if (wsSettings.maxTokens !== undefined) config.maxTokens = wsSettings.maxTokens;
+                if (wsSettings.jsExecutionEnabled !== undefined) config.jsExecutionEnabled = wsSettings.jsExecutionEnabled;
+                
+                console.log('✅ 已从工作空间加载配置');
+            }
+        } catch (error) {
+            console.warn('加载工作空间配置失败:', error);
+        }
+
         return config;
     }
 
@@ -1490,7 +1510,7 @@ const SettingsManager = (function() {
     /**
      * 保存设置
      */
-    function saveSettings() {
+    async function saveSettings() {
         const apiKey = document.getElementById('setting-api-key').value.trim();
         const model = document.getElementById('setting-model').value;
         const temperature = parseFloat(document.getElementById('setting-temperature').value);
@@ -1506,6 +1526,16 @@ const SettingsManager = (function() {
         ConfigManager.set('maxTokens', maxTokens);
         ConfigManager.set('jsExecutionEnabled', jsEnabled);
 
+        // 同步到工作空间 (如果是文件夹工作空间)
+        await syncSettingsToWorkspace({
+            apiKey: apiKey,
+            model: model,
+            temperature: temperature,
+            topP: topP,
+            maxTokens: maxTokens,
+            jsExecutionEnabled: jsEnabled
+        });
+
         closeModal();
         
         // 更新 UI 状态徽章
@@ -1519,6 +1549,42 @@ const SettingsManager = (function() {
                 </div>
             </div>
         `);
+    }
+
+    /**
+     * 同步设置到工作空间
+     */
+    async function syncSettingsToWorkspace(settings) {
+        try {
+            // 获取当前工作空间
+            const currentWs = StorageManager.getCurrentWorkspace();
+            if (!currentWs || !currentWs.folderHandle) {
+                // 不是文件夹工作空间,只保存到浏览器
+                return;
+            }
+
+            // 获取已有配置
+            const wsData = await StorageManager.loadWorkspaceConfigFromFolder(currentWs.folderHandle);
+            
+            if (wsData) {
+                // 更新配置
+                wsData.data.settings = {
+                    ...wsData.data.settings,
+                    ...settings
+                };
+                wsData.updatedAt = Date.now();
+
+                // 保存回文件夹
+                const configFile = await currentWs.folderHandle.getFileHandle('.workspace.json', { create: true });
+                const writable = await configFile.createWritable();
+                await writable.write(JSON.stringify(wsData, null, 2));
+                await writable.close();
+
+                console.log('✅ 设置已同步到工作空间文件夹');
+            }
+        } catch (error) {
+            console.error('同步设置到工作空间失败:', error);
+        }
     }
 
     /**
@@ -2327,7 +2393,8 @@ const StorageManager = (function() {
         loadCustomSettings,
         exportWorkspace,
         importWorkspace,
-        showWorkspaceManager
+        showWorkspaceManager,
+        loadWorkspaceConfigFromFolder
     };
 })();
 

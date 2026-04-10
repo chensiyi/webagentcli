@@ -28,7 +28,7 @@ const ConfigManager = (function() {
 
     let config = {};
 
-    function init() {
+    async function init() {
         config = {
             apiKey: GM_getValue(CONFIG_KEYS.API_KEY, DEFAULTS.apiKey),
             model: GM_getValue(CONFIG_KEYS.MODEL, DEFAULTS.model),
@@ -40,6 +40,26 @@ const ConfigManager = (function() {
             userId: GM_getValue(CONFIG_KEYS.USER_ID, DEFAULTS.userId),
             conversationHistory: GM_getValue(CONFIG_KEYS.HISTORY, DEFAULTS.conversationHistory)
         };
+
+        // 如果当前有文件夹工作空间,尝试从 .workspace.json 加载配置
+        try {
+            const currentWs = StorageManager ? StorageManager.getCurrentWorkspace() : null;
+            if (currentWs && currentWs.folderHandle && currentWs.data.settings) {
+                // 从工作空间加载设置
+                const wsSettings = currentWs.data.settings;
+                if (wsSettings.apiKey !== undefined) config.apiKey = wsSettings.apiKey;
+                if (wsSettings.model !== undefined) config.model = wsSettings.model;
+                if (wsSettings.temperature !== undefined) config.temperature = wsSettings.temperature;
+                if (wsSettings.topP !== undefined) config.topP = wsSettings.topP;
+                if (wsSettings.maxTokens !== undefined) config.maxTokens = wsSettings.maxTokens;
+                if (wsSettings.jsExecutionEnabled !== undefined) config.jsExecutionEnabled = wsSettings.jsExecutionEnabled;
+                
+                console.log('✅ 已从工作空间加载配置');
+            }
+        } catch (error) {
+            console.warn('加载工作空间配置失败:', error);
+        }
+
         return config;
     }
 

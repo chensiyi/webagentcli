@@ -787,6 +787,7 @@ const StorageManager = (function() {
         loadCustomSettings,
         exportWorkspace,
         importWorkspace,
-        showWorkspaceManager
+        showWorkspaceManager,
+        loadWorkspaceConfigFromFolder
     };
 })();
