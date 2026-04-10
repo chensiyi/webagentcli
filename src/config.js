@@ -69,9 +69,19 @@ const ConfigManager = (function() {
 
     function set(key, value) {
         config[key] = value;
-        const configKey = Object.keys(CONFIG_KEYS).find(k => CONFIG_KEYS[k] === key);
-        if (configKey) {
-            GM_setValue(CONFIG_KEYS[configKey], value);
+        // 直接映射 key 到 GM 存储的 key
+        const keyMap = {
+            'apiKey': CONFIG_KEYS.API_KEY,
+            'model': CONFIG_KEYS.MODEL,
+            'endpoint': CONFIG_KEYS.ENDPOINT,
+            'temperature': CONFIG_KEYS.TEMPERATURE,
+            'topP': CONFIG_KEYS.TOP_P,
+            'maxTokens': CONFIG_KEYS.MAX_TOKENS,
+            'jsExecutionEnabled': CONFIG_KEYS.JS_ENABLED
+        };
+        const gmKey = keyMap[key];
+        if (gmKey) {
+            GM_setValue(gmKey, value);
         }
     }
 
