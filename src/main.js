@@ -10,19 +10,23 @@
         console.log('🚀 OpenRouter AI Agent 正在启动...');
         
         try {
-            // 1. 初始化配置
+            // 1. 初始化工作空间管理器
+            StorageManager.init();
+            console.log('✅ 工作空间已加载');
+            
+            // 2. 初始化配置
             const config = ConfigManager.init();
             console.log('✅ 配置已加载');
             
-            // 2. 创建 UI
+            // 3. 创建 UI
             UIManager.createAssistant(config);
             console.log('✅ UI 已创建');
             
-            // 3. 显示欢迎消息
+            // 4. 显示欢迎消息
             ChatManager.showWelcomeMessage();
             console.log('✅ 欢迎消息已显示');
             
-            // 4. 设置事件监听
+            // 5. 设置事件监听
             setupEventListeners();
             console.log('✅ 事件监听已设置');
             

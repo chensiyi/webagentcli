@@ -283,6 +283,7 @@ const UIManager = (function() {
             <div id="agent-input-area">
                 <textarea id="agent-input" placeholder="输入消息...&#10;使用 /js 执行代码,例如: /js alert('Hello')"></textarea>
                 <div id="agent-controls-bar">
+                    <button class="control-btn" id="agent-workspace" title="工作空间">📁</button>
                     <button class="control-btn" id="agent-settings">⚙️ 设置</button>
                     <button class="control-btn" id="agent-clear">🗑️ 清空</button>
                     <button id="agent-send">发送 ➤</button>
@@ -306,6 +307,7 @@ const UIManager = (function() {
         const minimizeBtn = document.getElementById('agent-minimize');
         const settingsBtn = document.getElementById('agent-settings');
         const clearBtn = document.getElementById('agent-clear');
+        const workspaceBtn = document.getElementById('agent-workspace');
 
         // 发送按钮点击
         sendBtn.addEventListener('click', () => {
@@ -338,6 +340,11 @@ const UIManager = (function() {
         minimizeBtn.addEventListener('click', () => {
             assistant.classList.toggle('minimized');
             minimizeBtn.textContent = assistant.classList.contains('minimized') ? '□' : '−';
+        });
+
+        // 工作空间按钮
+        workspaceBtn.addEventListener('click', () => {
+            StorageManager.showWorkspaceManager();
         });
 
         // 设置按钮

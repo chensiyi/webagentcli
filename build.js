@@ -48,6 +48,7 @@ const modules = [
     'api.js', 
     'chat.js',
     'settings.js',
+    'storage.js',
     'utils.js',
     'main.js'
 ];
