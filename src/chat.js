@@ -52,11 +52,14 @@ const ChatManager = (function() {
                 ? JSON.stringify(result, null, 2) 
                 : String(result);
             
+            // 直接插入到聊天区域，不使用 addAssistantMessage（避免二次格式化）
             UIManager.appendMessage(`
-                <div class="execution-result execution-success">
-                    <strong>✅ 执行成功</strong>
-                    <br>
-                    <pre style="margin-top: 8px;">${escapeHtml(resultStr)}</pre>
+                <div class="assistant-message">
+                    <div class="execution-result execution-success">
+                        <strong>✅ 执行成功</strong>
+                        <br>
+                        <pre style="margin-top: 8px; white-space: pre-wrap; word-wrap: break-word;">${escapeHtml(resultStr)}</pre>
+                    </div>
                 </div>
             `);
             
@@ -201,14 +204,20 @@ const ChatManager = (function() {
             
             const isJs = block.lang === 'javascript' || block.lang === 'js';
             
+            // 对代码进行 HTML 转义用于显示
+            const safeCode = escapeHtml(block.code);
+            
             // HTML 中显示代码（用于视觉展示）
-            return `<div class="code-block" data-code-id="${blockId}" data-lang="${block.lang}">` +
-                   `<div class="code-language">${block.lang}</div>` +
-                   `<pre>${escapeHtml(block.code)}</pre>` +
-                   `</div>` +
-                   `<div class="code-actions">${isJs ? 
-                     '<button class="code-btn execute" data-action="execute-code">▶ 执行代码</button>' : ''}` +
-                     '<button class="code-btn" data-action="copy-code">📋 复制</button></div>';
+            return [
+                `<div class="code-block" data-code-id="${blockId}" data-lang="${block.lang}">`,
+                `<div class="code-language">${block.lang}</div>`,
+                `<pre>${safeCode}</pre>`,
+                `</div>`,
+                `<div class="code-actions">`,
+                isJs ? '<button class="code-btn execute" data-action="execute-code">▶ 执行代码</button>' : '',
+                '<button class="code-btn" data-action="copy-code">📋 复制</button>',
+                `</div>`
+            ].join('');
         });
         
         // 处理行内代码
