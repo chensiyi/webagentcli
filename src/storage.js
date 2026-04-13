@@ -27,6 +27,22 @@ const StorageManager = (function() {
             } else {
                 loadWorkspace(workspaces[0].id);
             }
+            
+            // 检查工作空间的 folderHandle 是否有效
+            if (currentWorkspace && currentWorkspace.folderPath && !currentWorkspace.folderHandle) {
+                console.warn('⚠️ 工作空间文件夹句柄已失效，需要重新打开文件夹');
+                // 清除无效的 folderHandle 引用，保留 folderPath 用于提示
+                currentWorkspace.folderHandle = null;
+                
+                // 显示提示信息
+                setTimeout(() => {
+                    alert(`⚠️ 检测到工作空间 "${currentWorkspace.name}" 关联了本地文件夹
+
+由于浏览器安全限制，页面刷新后需要重新授权访问文件夹。
+
+请点击 "📂 打开文件夹" 按钮重新选择该文件夹以恢复功能。`);
+                }, 1000);
+            }
         } catch (error) {
             console.error('初始化工作空间失败:', error);
             workspaces = [];
