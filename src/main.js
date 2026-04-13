@@ -11,7 +11,7 @@
         
         try {
             // 1. 初始化工作空间管理器
-            StorageManager.init();
+            await StorageManager.init();
             console.log('✅ 工作空间已加载');
             
             // 2. 初始化配置 (必须 await，因为 init 是 async)

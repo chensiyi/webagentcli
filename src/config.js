@@ -133,12 +133,11 @@ const ConfigManager = (function() {
                     console.log(`💾 配置 ${key} 已更新到内存`);
                 }
                 
-                // 同步到文件夹（只有在 folderHandle 有效时才执行）
+                // 同步到文件夹（只要 folderHandle 存在且是有效的 DirectoryHandle）
                 if (currentWs && currentWs.folderHandle && 
-                    typeof currentWs.folderHandle.getFileHandle === 'function' &&
-                    typeof currentWs.folderHandle.createWritable === 'function') {
+                    currentWs.folderHandle.kind === 'directory') {
                     console.log('📁 检测到有效 folderHandle，开始同步到文件夹...');
-                    // 保存到文件夹（saveToWorkspace 内部会再次检查 folderHandle 是否有效）
+                    // 保存到文件夹（saveToWorkspace 内部会执行实际的写入操作）
                     StorageManager.saveToWorkspace('settings', currentWs.data.settings).then(() => {
                         console.log(`✅ 已同步配置 ${key} 到工作空间文件夹`);
                     }).catch(err => {
@@ -146,6 +145,8 @@ const ConfigManager = (function() {
                     });
                 } else if (currentWs) {
                     console.log(`⚠️ folderHandle 无效，配置 ${key} 仅保存到浏览器存储`);
+                    console.log('🔍 调试 - currentWs.folderHandle:', currentWs.folderHandle);
+                    console.log('🔍 调试 - folderHandle.kind:', currentWs.folderHandle?.kind);
                 }
             }
         } catch (error) {

@@ -153,12 +153,11 @@ const ConfigManager = (function() {
                     console.log(`💾 配置 ${key} 已更新到内存`);
                 }
                 
-                // 同步到文件夹（只有在 folderHandle 有效时才执行）
+                // 同步到文件夹（只要 folderHandle 存在且是有效的 DirectoryHandle）
                 if (currentWs && currentWs.folderHandle && 
-                    typeof currentWs.folderHandle.getFileHandle === 'function' &&
-                    typeof currentWs.folderHandle.createWritable === 'function') {
+                    currentWs.folderHandle.kind === 'directory') {
                     console.log('📁 检测到有效 folderHandle，开始同步到文件夹...');
-                    // 保存到文件夹（saveToWorkspace 内部会再次检查 folderHandle 是否有效）
+                    // 保存到文件夹（saveToWorkspace 内部会执行实际的写入操作）
                     StorageManager.saveToWorkspace('settings', currentWs.data.settings).then(() => {
                         console.log(`✅ 已同步配置 ${key} 到工作空间文件夹`);
                     }).catch(err => {
@@ -166,6 +165,8 @@ const ConfigManager = (function() {
                     });
                 } else if (currentWs) {
                     console.log(`⚠️ folderHandle 无效，配置 ${key} 仅保存到浏览器存储`);
+                    console.log('🔍 调试 - currentWs.folderHandle:', currentWs.folderHandle);
+                    console.log('🔍 调试 - folderHandle.kind:', currentWs.folderHandle?.kind);
                 }
             }
         } catch (error) {
@@ -1703,13 +1704,93 @@ const SettingsManager = (function() {
 
 const StorageManager = (function() {
     const WORKSPACE_KEY = 'agent_workspaces';
+    const HANDLE_STORE_KEY = 'agent_directory_handles';
     let currentWorkspace = null;
     let workspaces = [];
 
     /**
+     * 从 IndexedDB 恢复 directory handle
+     */
+    async function restoreDirectoryHandle(workspaceId) {
+        try {
+            const db = await openHandleDB();
+            const transaction = db.transaction(HANDLE_STORE_KEY, 'readonly');
+            const store = transaction.objectStore(HANDLE_STORE_KEY);
+            const handle = await new Promise((resolve, reject) => {
+                const request = store.get(workspaceId);
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            });
+            
+            if (handle) {
+                console.log('✅ 从 IndexedDB 恢复了 folderHandle');
+                // 检查权限是否仍然有效
+                try {
+                    const permission = await handle.queryPermission({ mode: 'readwrite' });
+                    if (permission === 'granted') {
+                        console.log('✅ folderHandle 权限有效，可直接使用');
+                        return handle;
+                    } else {
+                        console.warn('⚠️ folderHandle 权限未授予，需要用户点击授权');
+                        // 不自动调用 requestPermission，因为需要用户手势
+                        // 返回 null，触发 promptReopenFolder 提示
+                    }
+                } catch (e) {
+                    console.warn('⚠️ 查询权限失败，句柄可能已损坏:', e);
+                }
+            }
+            
+            return null;
+        } catch (error) {
+            console.error('恢复 folderHandle 失败:', error);
+            return null;
+        }
+    }
+
+    /**
+     * 将 directory handle 保存到 IndexedDB
+     */
+    async function persistDirectoryHandle(workspaceId, dirHandle) {
+        try {
+            const db = await openHandleDB();
+            const transaction = db.transaction(HANDLE_STORE_KEY, 'readwrite');
+            const store = transaction.objectStore(HANDLE_STORE_KEY);
+            
+            await new Promise((resolve, reject) => {
+                const request = store.put(dirHandle, workspaceId);
+                request.onsuccess = () => resolve();
+                request.onerror = () => reject(request.error);
+            });
+            
+            console.log('✅ folderHandle 已保存到 IndexedDB');
+        } catch (error) {
+            console.error('保存 folderHandle 失败:', error);
+        }
+    }
+
+    /**
+     * 打开 IndexedDB
+     */
+    function openHandleDB() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open('AgentDirectoryHandles', 1);
+            
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains(HANDLE_STORE_KEY)) {
+                    db.createObjectStore(HANDLE_STORE_KEY);
+                }
+            };
+            
+            request.onsuccess = (event) => resolve(event.target.result);
+            request.onerror = (event) => reject(event.target.error);
+        });
+    }
+
+    /**
      * 初始化工作空间
      */
-    function init() {
+    async function init() {
         try {
             const saved = GM_getValue(WORKSPACE_KEY, null);
             if (saved) {
@@ -1724,14 +1805,48 @@ const StorageManager = (function() {
             // 加载最后一个使用的工作空间
             const lastUsed = GM_getValue('last_workspace', null);
             if (lastUsed) {
-                loadWorkspace(lastUsed);
+                await loadWorkspace(lastUsed);
             } else {
-                loadWorkspace(workspaces[0].id);
+                await loadWorkspace(workspaces[0].id);
+            }
+            
+            // 尝试恢复 folderHandle
+            if (currentWorkspace && currentWorkspace.folderPath) {
+                const restoredHandle = await restoreDirectoryHandle(currentWorkspace.id);
+                if (restoredHandle) {
+                    currentWorkspace.folderHandle = restoredHandle;
+                    console.log('✅ 成功恢复 folderHandle');
+                } else {
+                    console.warn('⚠️ 无法恢复 folderHandle，需要用户重新授权');
+                    // 延迟提示，等待 UI 初始化完成
+                    setTimeout(() => {
+                        promptReopenFolder();
+                    }, 1500);
+                }
             }
         } catch (error) {
             console.error('初始化工作空间失败:', error);
             workspaces = [];
             createWorkspace('Default Workspace', '默认工作空间');
+        }
+    }
+
+    /**
+     * 提示用户重新打开文件夹
+     */
+    function promptReopenFolder() {
+        if (!currentWorkspace || !currentWorkspace.folderPath) return;
+        
+        const shouldReopen = confirm(
+            `⚠️ 工作空间 "${currentWorkspace.name}" 关联了本地文件夹\n\n` +
+            `文件夹路径: ${currentWorkspace.folderPath}\n\n` +
+            `由于浏览器安全限制，需要重新授权访问。\n\n` +
+            `是否现在重新打开该文件夹？`
+        );
+        
+        if (shouldReopen) {
+            // 调用 openFolder，但需要用户手动选择相同的文件夹
+            openFolder();
         }
     }
 
@@ -1798,13 +1913,30 @@ const StorageManager = (function() {
     /**
      * 加载工作空间
      */
-    function loadWorkspace(id) {
+    async function loadWorkspace(id) {
+        console.log('🔍 调试 loadWorkspace - 开始加载工作空间:', id);
         const workspace = workspaces.find(ws => ws.id === id);
         if (workspace) {
             currentWorkspace = workspace;
             GM_setValue('last_workspace', id);
+            console.log('🔍 调试 loadWorkspace - 找到工作空间, folderHandle:', workspace.folderHandle);
+            console.log('🔍 调试 loadWorkspace - currentWorkspace.folderHandle:', currentWorkspace.folderHandle);
+            
+            // 如果工作空间有关联的文件夹路径但没有 handle，尝试恢复
+            if (workspace.folderPath && !workspace.folderHandle) {
+                console.log('⚠️ loadWorkspace - 需要恢复 folderHandle');
+                const restoredHandle = await restoreDirectoryHandle(workspace.id);
+                if (restoredHandle) {
+                    workspace.folderHandle = restoredHandle;
+                    currentWorkspace.folderHandle = restoredHandle;
+                    console.log('✅ loadWorkspace - 成功恢复 folderHandle');
+                }
+            }
+            
+            console.log('🔍 调试 loadWorkspace - 最终 folderHandle:', currentWorkspace.folderHandle);
             return workspace;
         }
+        console.warn('🔍 调试 loadWorkspace - 未找到工作空间:', id);
         return null;
     }
 
@@ -1838,13 +1970,41 @@ const StorageManager = (function() {
             return false;
         }
         
+        console.log('🔍 调试 saveToWorkspace - 保存前 currentWorkspace.folderHandle:', currentWorkspace.folderHandle);
+        
         currentWorkspace.data[key] = value;
         currentWorkspace.updatedAt = Date.now();
         saveWorkspaces();
         
-        // 注意: folderHandle 只在当前会话有效，刷新页面后会丢失
-        // 配置数据已经通过 GM_setValue 保存到浏览器存储，这是主要的持久化方式
-        // folderHandle 仅用于可选的文件夹同步功能
+        console.log('🔍 调试 saveToWorkspace - 保存后 currentWorkspace.folderHandle:', currentWorkspace.folderHandle);
+        
+        // 同步到文件夹
+        if (currentWorkspace.folderHandle && currentWorkspace.folderHandle.kind === 'directory') {
+            try {
+                console.log('📁 saveToWorkspace - 开始同步到文件夹...');
+                await saveWorkspaceConfigToFolder(currentWorkspace, currentWorkspace.folderHandle);
+                console.log('✅ saveToWorkspace - 已同步到文件夹');
+            } catch (error) {
+                console.error('❌ saveToWorkspace - 同步到文件夹失败:', error);
+                
+                // handle 失效了，清除它
+                currentWorkspace.folderHandle = null;
+                
+                // 如果有 folderPath，提示用户重新授权
+                if (currentWorkspace.folderPath) {
+                    console.warn('⚠️ folderHandle 已失效，需要重新授权');
+                    setTimeout(() => {
+                        promptReopenFolder();
+                    }, 500);
+                }
+            }
+        } else if (currentWorkspace.folderPath && !currentWorkspace.folderHandle) {
+            // 有关联的文件夹路径但没有 handle，提示用户重新授权
+            console.warn('⚠️ 工作空间关联了文件夹但 handle 无效，提示重新授权');
+            setTimeout(() => {
+                promptReopenFolder();
+            }, 500);
+        }
         
         return true;
     }
@@ -2366,8 +2526,21 @@ const StorageManager = (function() {
                 await saveWorkspaceConfigToFolder(workspace, dirHandle);
             }
             
+            // 持久化 folderHandle 到 IndexedDB
+            await persistDirectoryHandle(workspace.id, dirHandle);
+            
+            console.log('🔍 调试 openFolder - workspace.folderHandle:', workspace.folderHandle);
+            console.log('🔍 调试 openFolder - workspace 完整对象:', JSON.stringify(workspace, (key, value) => {
+                if (key === 'folderHandle') return '[FileSystemDirectoryHandle]';
+                return value;
+            }, 2));
+            
             saveWorkspaces();
-            loadWorkspace(workspace.id);
+            await loadWorkspace(workspace.id);
+            
+            console.log('🔍 调试 openFolder - 调用 loadWorkspace 后');
+            console.log('🔍 调试 openFolder - currentWorkspace:', currentWorkspace);
+            console.log('🔍 调试 openFolder - currentWorkspace.folderHandle:', currentWorkspace?.folderHandle);
 
             // 显示路径
             const pathDiv = document.getElementById('folder-path');
@@ -2455,6 +2628,11 @@ const StorageManager = (function() {
      * 保存到本地存储
      */
     function saveWorkspaces() {
+        console.log('🔍 调试 saveWorkspaces - 保存前 workspaces 数组:');
+        workspaces.forEach((ws, index) => {
+            console.log(`  [${index}] id: ${ws.id}, folderHandle:`, ws.folderHandle);
+        });
+        
         // 注意: folderHandle 是 File System Access API 对象，不能 JSON 序列化
         // 保存到 GM 存储时需要排除，但保留在内存中的 workspaces 对象里
         const workspacesToSave = workspaces.map(ws => {
@@ -2462,6 +2640,11 @@ const StorageManager = (function() {
             return rest;
         });
         GM_setValue(WORKSPACE_KEY, JSON.stringify(workspacesToSave));
+        
+        console.log('🔍 调试 saveWorkspaces - 保存后 workspaces 数组:');
+        workspaces.forEach((ws, index) => {
+            console.log(`  [${index}] id: ${ws.id}, folderHandle:`, ws.folderHandle);
+        });
     }
 
     // 暴露全局函数 (供 HTML 中的 onclick 使用)
@@ -2670,7 +2853,7 @@ const Utils = (function() {
         
         try {
             // 1. 初始化工作空间管理器
-            StorageManager.init();
+            await StorageManager.init();
             console.log('✅ 工作空间已加载');
             
             // 2. 初始化配置 (必须 await，因为 init 是 async)
