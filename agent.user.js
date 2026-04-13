@@ -1728,22 +1728,6 @@ const StorageManager = (function() {
             } else {
                 loadWorkspace(workspaces[0].id);
             }
-            
-            // 检查工作空间的 folderHandle 是否有效
-            if (currentWorkspace && currentWorkspace.folderPath && !currentWorkspace.folderHandle) {
-                console.warn('⚠️ 工作空间文件夹句柄已失效，需要重新打开文件夹');
-                // 清除无效的 folderHandle 引用，保留 folderPath 用于提示
-                currentWorkspace.folderHandle = null;
-                
-                // 显示提示信息
-                setTimeout(() => {
-                    alert(`⚠️ 检测到工作空间 "${currentWorkspace.name}" 关联了本地文件夹
-
-由于浏览器安全限制，页面刷新后需要重新授权访问文件夹。
-
-请点击 "📂 打开文件夹" 按钮重新选择该文件夹以恢复功能。`);
-                }, 1000);
-            }
         } catch (error) {
             console.error('初始化工作空间失败:', error);
             workspaces = [];
@@ -1858,17 +1842,9 @@ const StorageManager = (function() {
         currentWorkspace.updatedAt = Date.now();
         saveWorkspaces();
         
-        // 如果是文件夹工作空间,同步保存到文件夹
-        // 注意: 页面刷新后 folderHandle 会失效,需要检查是否是有效的 File System Access API 对象
-        if (currentWorkspace.folderHandle && 
-            typeof currentWorkspace.folderHandle.getFileHandle === 'function' &&
-            typeof currentWorkspace.folderHandle.createWritable === 'function') {
-            try {
-                await saveWorkspaceConfigToFolder(currentWorkspace, currentWorkspace.folderHandle);
-            } catch (error) {
-                console.warn('⚠️ 同步到文件夹失败（页面刷新后句柄已失效，请重新打开文件夹）:', error.message);
-            }
-        }
+        // 注意: folderHandle 只在当前会话有效，刷新页面后会丢失
+        // 配置数据已经通过 GM_setValue 保存到浏览器存储，这是主要的持久化方式
+        // folderHandle 仅用于可选的文件夹同步功能
         
         return true;
     }
