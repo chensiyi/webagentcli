@@ -1114,6 +1114,24 @@ const StorageManager = (function() {
                 cursor: pointer;
                 font-size: 13px;
             ">➕ 新建文件</button>
+            <button id="new-folder" style="
+                padding: 8px 16px;
+                background: #f59e0b;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 13px;
+            ">📁 新建文件夹</button>
+            <button id="upload-file" style="
+                padding: 8px 16px;
+                background: #8b5cf6;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 13px;
+            ">⬆️ 上传文件</button>
         `;
 
         // 文件列表区域
@@ -1188,6 +1206,12 @@ const StorageManager = (function() {
 
         // 新建文件按钮
         document.getElementById('new-file').onclick = () => createNewFile(currentWs.folderHandle, fileListContainer);
+        
+        // 新建文件夹按钮
+        document.getElementById('new-folder').onclick = () => createNewFolder(currentWs.folderHandle, fileListContainer);
+        
+        // 上传文件按钮
+        document.getElementById('upload-file').onclick = () => uploadFiles(currentWs.folderHandle, fileListContainer);
 
         // 保存文件按钮
         document.getElementById('save-file').onclick = () => saveEditedFile();
@@ -1243,11 +1267,64 @@ const StorageManager = (function() {
                 item.innerHTML = `
                     <span style="font-size: 20px;">${icon}</span>
                     <span style="color: #e2e8f0; font-size: 14px; flex: 1;">${escapeHtml(file.name)}</span>
+                    <div style="display: flex; gap: 6px;" onclick="event.stopPropagation()">
+                        ${file.kind === 'file' ? `
+                        <button class="file-action-btn" data-action="edit" title="编辑" style="
+                            padding: 4px 8px;
+                            background: #3b82f6;
+                            color: white;
+                            border: none;
+                            border-radius: 4px;
+                            cursor: pointer;
+                            font-size: 12px;
+                        ">✏️</button>
+                        <button class="file-action-btn" data-action="download" title="下载" style="
+                            padding: 4px 8px;
+                            background: #8b5cf6;
+                            color: white;
+                            border: none;
+                            border-radius: 4px;
+                            cursor: pointer;
+                            font-size: 12px;
+                        ">⬇️</button>
+                        ` : ''}
+                        <button class="file-action-btn" data-action="rename" title="重命名" style="
+                            padding: 4px 8px;
+                            background: #f59e0b;
+                            color: white;
+                            border: none;
+                            border-radius: 4px;
+                            cursor: pointer;
+                            font-size: 12px;
+                        ">✍️</button>
+                        <button class="file-action-btn" data-action="delete" title="删除" style="
+                            padding: 4px 8px;
+                            background: #ef4444;
+                            color: white;
+                            border: none;
+                            border-radius: 4px;
+                            cursor: pointer;
+                            font-size: 12px;
+                        ">🗑️</button>
+                    </div>
                 `;
                 
+                // 点击文件名或图标打开编辑
+                const nameSpan = item.querySelector('span:nth-child(2)');
+                const iconSpan = item.querySelector('span:nth-child(1)');
                 if (file.kind === 'file') {
-                    item.onclick = () => openFileForEdit(file.handle, file.name);
+                    nameSpan.onclick = () => openFileForEdit(file.handle, file.name);
+                    iconSpan.onclick = () => openFileForEdit(file.handle, file.name);
                 }
+                
+                // 绑定操作按钮事件
+                item.querySelectorAll('.file-action-btn').forEach(btn => {
+                    btn.onclick = (e) => {
+                        e.stopPropagation();
+                        const action = btn.dataset.action;
+                        handleFileAction(action, file, dirHandle, fileListContainer);
+                    };
+                });
                 
                 container.appendChild(item);
             });
@@ -1352,6 +1429,174 @@ const StorageManager = (function() {
     }
 
     /**
+     * 创建新文件夹
+     */
+    async function createNewFolder(dirHandle, fileListContainer) {
+        const folderName = prompt('请输入文件夹名称:');
+        if (!folderName) return;
+        
+        try {
+            const newFolderHandle = await dirHandle.getDirectoryHandle(folderName, { create: true });
+            alert(`✅ 文件夹 "${folderName}" 已创建`);
+            
+            // 刷新文件列表
+            await loadFileList(fileListContainer, dirHandle);
+        } catch (error) {
+            alert(`❌ 创建文件夹失败: ${error.message}`);
+        }
+    }
+
+    /**
+     * 上传文件
+     */
+    async function uploadFiles(dirHandle, fileListContainer) {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.multiple = true;
+        
+        input.onchange = async (e) => {
+            const files = Array.from(e.target.files);
+            if (files.length === 0) return;
+            
+            let successCount = 0;
+            let failCount = 0;
+            
+            for (const file of files) {
+                try {
+                    const content = await readFileAsText(file);
+                    await createFileInFolder(dirHandle, file.name, content);
+                    successCount++;
+                } catch (error) {
+                    console.error(`上传文件 ${file.name} 失败:`, error);
+                    failCount++;
+                }
+            }
+            
+            if (successCount > 0) {
+                alert(`✅ 成功上传 ${successCount} 个文件${failCount > 0 ? `, ${failCount} 个失败` : ''}`);
+            } else {
+                alert('❌ 所有文件上传失败');
+            }
+            
+            // 刷新文件列表
+            await loadFileList(fileListContainer, dirHandle);
+        };
+        
+        input.click();
+    }
+
+    /**
+     * 读取文件为文本
+     */
+    function readFileAsText(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = (e) => reject(e);
+            reader.readAsText(file);
+        });
+    }
+
+    /**
+     * 处理文件操作（编辑、下载、重命名、删除）
+     */
+    async function handleFileAction(action, file, dirHandle, fileListContainer) {
+        switch (action) {
+            case 'edit':
+                if (file.kind === 'file') {
+                    openFileForEdit(file.handle, file.name);
+                }
+                break;
+                
+            case 'download':
+                if (file.kind === 'file') {
+                    downloadFile(file.handle, file.name);
+                }
+                break;
+                
+            case 'rename':
+                await renameFileOrFolder(file, dirHandle, fileListContainer);
+                break;
+                
+            case 'delete':
+                await deleteFileOrFolder(file, dirHandle, fileListContainer);
+                break;
+                
+            default:
+                console.warn('未知操作:', action);
+        }
+    }
+
+    /**
+     * 下载文件
+     */
+    async function downloadFile(fileHandle, fileName) {
+        try {
+            const content = await readFileContent(fileHandle);
+            const blob = new Blob([content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } catch (error) {
+            alert(`❌ 下载文件失败: ${error.message}`);
+        }
+    }
+
+    /**
+     * 重命名文件或文件夹
+     */
+    async function renameFileOrFolder(file, dirHandle, fileListContainer) {
+        const newName = prompt(`输入新的名称:`, file.name);
+        if (!newName || newName === file.name) return;
+        
+        try {
+            if (file.kind === 'file') {
+                // 文件重命名：读取内容 -> 创建新文件 -> 删除旧文件
+                const content = await readFileContent(file.handle);
+                await createFileInFolder(dirHandle, newName, content);
+                await dirHandle.removeEntry(file.name);
+                alert(`✅ 文件已重命名为 "${newName}"`);
+            } else {
+                // 文件夹重命名：File System Access API 不直接支持
+                // 需要提示用户手动操作
+                alert('⚠️ 文件夹重命名功能暂不支持\n\n请在文件资源管理器中手动重命名');
+                return;
+            }
+            
+            // 刷新文件列表
+            await loadFileList(fileListContainer, dirHandle);
+        } catch (error) {
+            alert(`❌ 重命名失败: ${error.message}`);
+        }
+    }
+
+    /**
+     * 删除文件或文件夹
+     */
+    async function deleteFileOrFolder(file, dirHandle, fileListContainer) {
+        const confirmMsg = file.kind === 'directory' 
+            ? `确定要删除文件夹 "${file.name}" 及其所有内容吗？`
+            : `确定要删除文件 "${file.name}" 吗？`;
+            
+        if (!confirm(confirmMsg)) return;
+        
+        try {
+            await dirHandle.removeEntry(file.name, { recursive: true });
+            alert(`✅ ${file.kind === 'directory' ? '文件夹' : '文件'} "${file.name}" 已删除`);
+            
+            // 刷新文件列表
+            await loadFileList(fileListContainer, dirHandle);
+        } catch (error) {
+            alert(`❌ 删除失败: ${error.message}`);
+        }
+    }
+
+    /**
      * 关闭文件管理器
      */
     function closeFileManager() {
@@ -1435,6 +1680,12 @@ const StorageManager = (function() {
         showFileManager,
         listFilesInFolder,
         readFileContent,
-        writeFileContent
+        writeFileContent,
+        createFileInFolder,
+        createNewFolder,
+        uploadFiles,
+        downloadFile,
+        renameFileOrFolder,
+        deleteFileOrFolder
     };
 })();
