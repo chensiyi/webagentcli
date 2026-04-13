@@ -915,6 +915,10 @@ const StorageManager = (function() {
         }
     }
 
+    // 文件句柄缓存（用于编辑器）
+    const fileHandleCache = new Map();
+    let currentEditFileName = '';
+
     /**
      * 列出文件夹中的所有文件和子目录
      */
@@ -1369,9 +1373,13 @@ const StorageManager = (function() {
             const editingFileName = document.getElementById('editing-file-name');
             const fileEditor = document.getElementById('file-editor');
             
+            // 缓存 fileHandle（使用 Map 而不是 JSON 序列化）
+            currentEditFileName = fileName;
+            fileHandleCache.set(fileName, fileHandle);
+            
             editingFileName.textContent = fileName;
             fileEditor.value = content;
-            fileEditor.dataset.currentFileHandle = JSON.stringify(fileHandle); // 临时存储 handle
+            fileEditor.dataset.currentFileName = fileName; // 只存储文件名
             
             fileListContainer.style.display = 'none';
             document.getElementById('refresh-files').parentElement.style.display = 'none';
@@ -1389,8 +1397,13 @@ const StorageManager = (function() {
             const fileEditor = document.getElementById('file-editor');
             const content = fileEditor.value;
             
-            // 从 dataset 恢复 fileHandle
-            const fileHandle = JSON.parse(fileEditor.dataset.currentFileHandle);
+            // 从缓存中获取 fileHandle
+            const fileName = fileEditor.dataset.currentFileName;
+            const fileHandle = fileHandleCache.get(fileName);
+            
+            if (!fileHandle) {
+                throw new Error('文件句柄丢失，请重新打开文件');
+            }
             
             await writeFileContent(fileHandle, content);
             
@@ -1560,6 +1573,14 @@ const StorageManager = (function() {
                 const content = await readFileContent(file.handle);
                 await createFileInFolder(dirHandle, newName, content);
                 await dirHandle.removeEntry(file.name);
+                
+                // 更新缓存中的文件名
+                if (fileHandleCache.has(file.name)) {
+                    const handle = fileHandleCache.get(file.name);
+                    fileHandleCache.delete(file.name);
+                    fileHandleCache.set(newName, handle);
+                }
+                
                 alert(`✅ 文件已重命名为 "${newName}"`);
             } else {
                 // 文件夹重命名：File System Access API 不直接支持
@@ -1604,6 +1625,10 @@ const StorageManager = (function() {
         const overlay = document.getElementById('file-manager-overlay');
         if (panel) panel.remove();
         if (overlay) overlay.remove();
+        
+        // 清理缓存
+        fileHandleCache.clear();
+        currentEditFileName = '';
     }
 
     /**
