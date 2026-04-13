@@ -3028,7 +3028,7 @@ const StorageManager = (function() {
                     btn.onclick = (e) => {
                         e.stopPropagation();
                         const action = btn.dataset.action;
-                        handleFileAction(action, file, dirHandle, fileListContainer);
+                        handleFileAction(action, file, dirHandle, container);
                     };
                 });
                 
