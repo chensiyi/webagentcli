@@ -18,15 +18,30 @@
             const config = await ConfigManager.init();
             console.log('✅ 配置已加载:', config);
             
-            // 3. 创建 UI
+            // 3. 基于域名加载会话历史
+            const history = ConfigManager.loadConversationHistory();
+            console.log(`✅ 已加载 ${history.length} 条对话历史`);
+            
+            // 4. 创建 UI
             UIManager.createAssistant(config);
             console.log('✅ UI 已创建');
             
-            // 4. 显示欢迎消息
-            ChatManager.showWelcomeMessage();
-            console.log('✅ 欢迎消息已显示');
+            // 5. 根据域名恢复聊天窗口显示状态
+            const isVisible = ConfigManager.getChatVisibility();
+            if (!isVisible) {
+                UIManager.hide();
+                console.log('👁️ 聊天窗口已隐藏（根据上次状态）');
+            } else {
+                // 6. 显示欢迎消息（如果窗口可见且有历史记录，则不显示欢迎消息）
+                if (history.length === 0) {
+                    ChatManager.showWelcomeMessage();
+                    console.log('✅ 欢迎消息已显示');
+                } else {
+                    console.log('💬 已有对话历史，跳过欢迎消息');
+                }
+            }
             
-            // 5. 设置事件监听
+            // 7. 设置事件监听
             setupEventListeners();
             console.log('✅ 事件监听已设置');
             
@@ -151,11 +166,91 @@
         return div.innerHTML;
     }
 
+    /**
+     * 创建启动按钮
+     */
+    function createLauncherButton() {
+        // 检查是否已存在启动按钮
+        if (document.getElementById('agent-launcher-btn')) {
+            console.log('🔘 启动按钮已存在，跳过创建');
+            return;
+        }
+
+        setTimeout(() => {
+            const badge = document.createElement('div');
+            badge.id = 'agent-launcher-btn';
+            badge.style.cssText = `
+                position: fixed;
+                bottom: 20px;
+                right: 20px;
+                width: 56px;
+                height: 56px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                border-radius: 50%;
+                font-size: 24px;
+                font-family: -apple-system, sans-serif;
+                z-index: 999998;
+                box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.3s ease;
+                border: none;
+            `;
+            badge.textContent = '🤖';
+            badge.title = '点击打开 AI Agent';
+            
+            // 悬停效果
+            badge.addEventListener('mouseenter', () => {
+                badge.style.transform = 'scale(1.1)';
+                badge.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.6)';
+            });
+            
+            badge.addEventListener('mouseleave', () => {
+                badge.style.transform = 'scale(1)';
+                badge.style.boxShadow = '0 4px 16px rgba(102, 126, 234, 0.4)';
+            });
+            
+            badge.addEventListener('click', () => {
+                // 触发打开 Agent 的事件
+                window.dispatchEvent(new CustomEvent('open-ai-agent'));
+                
+                // 点击后隐藏按钮（Agent 打开后不需要显示）
+                badge.style.transition = 'all 0.3s ease';
+                badge.style.transform = 'scale(0)';
+                badge.style.opacity = '0';
+                setTimeout(() => {
+                    badge.style.display = 'none';
+                }, 300);
+            });
+            
+            document.body.appendChild(badge);
+            
+            // 监听 Agent 关闭事件，重新显示按钮
+            window.addEventListener('agent-closed', () => {
+                badge.style.display = 'flex';
+                badge.style.transition = 'all 0.3s ease';
+                badge.style.transform = 'scale(1)';
+                badge.style.opacity = '1';
+            }, { once: false });
+            
+            console.log('🔘 AI Agent 启动按钮已创建（右下角圆形按钮）');
+        }, 1000);
+    }
+
     // 页面加载完成后启动
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
+        document.addEventListener('DOMContentLoaded', () => {
+            init();
+            // 创建启动按钮
+            createLauncherButton();
+        });
     } else {
         init();
+        // 创建启动按钮
+        createLauncherButton();
     }
 
 })();

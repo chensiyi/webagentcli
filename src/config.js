@@ -11,7 +11,8 @@ const ConfigManager = (function() {
         JS_ENABLED: 'js_execution_enabled',
         USER_ID: 'user_id',
         HISTORY: 'conversation_history',
-        CACHED_MODELS: 'cached_models'
+        CACHED_MODELS: 'cached_models',
+        CHAT_VISIBILITY: 'chat_visibility'  // 新增：聊天窗口显示状态
     };
 
     const DEFAULTS = {
@@ -154,6 +155,25 @@ const ConfigManager = (function() {
         }
     }
 
+    /**
+     * 获取当前域名（用于区分不同网站的会话）
+     */
+    function getCurrentDomain() {
+        try {
+            return window.location.hostname || 'unknown';
+        } catch (e) {
+            return 'unknown';
+        }
+    }
+
+    /**
+     * 获取基于域名的存储 key
+     */
+    function getDomainKey(baseKey) {
+        const domain = getCurrentDomain();
+        return `${baseKey}_${domain}`;
+    }
+
     function getAll() {
         return { ...config };
     }
@@ -164,7 +184,39 @@ const ConfigManager = (function() {
             history = history.slice(-50);
         }
         config.conversationHistory = history;
-        GM_setValue(CONFIG_KEYS.HISTORY, history);
+        
+        // 基于域名保存会话历史
+        const domainKey = getDomainKey(CONFIG_KEYS.HISTORY);
+        GM_setValue(domainKey, history);
+        
+        console.log(`💾 已保存 ${history.length} 条对话到域名: ${getCurrentDomain()}`);
+    }
+
+    function loadConversationHistory() {
+        // 基于域名加载会话历史
+        const domainKey = getDomainKey(CONFIG_KEYS.HISTORY);
+        const history = GM_getValue(domainKey, []);
+        config.conversationHistory = history;
+        
+        console.log(`📂 已加载 ${history.length} 条对话从域名: ${getCurrentDomain()}`);
+        return history;
+    }
+
+    function saveChatVisibility(isVisible) {
+        // 基于域名保存聊天窗口显示状态
+        const domainKey = getDomainKey(CONFIG_KEYS.CHAT_VISIBILITY);
+        GM_setValue(domainKey, isVisible);
+        
+        console.log(`👁️ 已保存聊天窗口状态 (${isVisible ? '显示' : '隐藏'}) 到域名: ${getCurrentDomain()}`);
+    }
+
+    function getChatVisibility() {
+        // 基于域名加载聊天窗口显示状态，默认为 false（隐藏，需要用户主动打开）
+        const domainKey = getDomainKey(CONFIG_KEYS.CHAT_VISIBILITY);
+        const isVisible = GM_getValue(domainKey, false);
+        
+        console.log(`🔍 读取聊天窗口状态 (${isVisible ? '显示' : '隐藏'}) 从域名: ${getCurrentDomain()}`);
+        return isVisible;
     }
 
     function getConfigKeys() {
@@ -177,6 +229,9 @@ const ConfigManager = (function() {
         set,
         getAll,
         saveConversationHistory,
+        loadConversationHistory,  // 新增
+        saveChatVisibility,       // 新增
+        getChatVisibility,        // 新增
         getConfigKeys
     };
 })();

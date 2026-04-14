@@ -125,42 +125,71 @@
     }
 
     /**
-     * 显示版本信息
+     * 显示版本信息（持久浮动按钮）
      */
     function showVersionInfo(version) {
-        // 在页面角落显示小徽章
+        // 在页面右下角显示持久浮动按钮
         setTimeout(() => {
             const badge = document.createElement('div');
+            badge.id = 'agent-launcher-btn';
             badge.style.cssText = `
                 position: fixed;
-                bottom: 10px;
-                left: 10px;
+                bottom: 20px;
+                right: 20px;
+                width: 56px;
+                height: 56px;
                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                 color: white;
-                padding: 6px 12px;
-                border-radius: 20px;
-                font-size: 12px;
+                border-radius: 50%;
+                font-size: 24px;
                 font-family: -apple-system, sans-serif;
                 z-index: 999998;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+                box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
                 cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.3s ease;
+                border: none;
             `;
-            badge.textContent = `🤖 AI Agent v${version}`;
-            badge.title = '点击打开 OpenRouter AI Agent';
+            badge.textContent = '🤖';
+            badge.title = '点击打开 AI Agent';
+            
+            // 悬停效果
+            badge.addEventListener('mouseenter', () => {
+                badge.style.transform = 'scale(1.1)';
+                badge.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.6)';
+            });
+            
+            badge.addEventListener('mouseleave', () => {
+                badge.style.transform = 'scale(1)';
+                badge.style.boxShadow = '0 4px 16px rgba(102, 126, 234, 0.4)';
+            });
             
             badge.addEventListener('click', () => {
                 // 触发打开 Agent 的事件
                 window.dispatchEvent(new CustomEvent('open-ai-agent'));
+                
+                // 点击后隐藏按钮（Agent 打开后不需要显示）
+                badge.style.transition = 'all 0.3s ease';
+                badge.style.transform = 'scale(0)';
+                badge.style.opacity = '0';
+                setTimeout(() => {
+                    badge.style.display = 'none';
+                }, 300);
             });
             
             document.body.appendChild(badge);
             
-            // 5秒后自动隐藏
-            setTimeout(() => {
-                badge.style.transition = 'opacity 0.5s';
-                badge.style.opacity = '0';
-                setTimeout(() => badge.remove(), 500);
-            }, 5000);
+            // 监听 Agent 关闭事件，重新显示按钮
+            window.addEventListener('agent-closed', () => {
+                badge.style.display = 'flex';
+                badge.style.transition = 'all 0.3s ease';
+                badge.style.transform = 'scale(1)';
+                badge.style.opacity = '1';
+            }, { once: false });
+            
+            console.log('🔘 AI Agent 启动按钮已显示（右下角圆形按钮）');
         }, 1000);
     }
 

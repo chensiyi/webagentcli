@@ -108,24 +108,48 @@ const StorageManager = (function() {
                 await loadWorkspace(workspaces[0].id);
             }
             
-            // 尝试恢复 folderHandle
+            // 尝试恢复 folderHandle（但不检查权限，等待用户展开侧边栏时再检查）
             if (currentWorkspace && currentWorkspace.folderPath) {
-                const restoredHandle = await restoreDirectoryHandle(currentWorkspace.id);
+                const restoredHandle = await restoreDirectoryHandleWithoutCheck(currentWorkspace.id);
                 if (restoredHandle) {
                     currentWorkspace.folderHandle = restoredHandle;
-                    console.log('✅ 成功恢复 folderHandle');
+                    console.log('✅ 成功恢复 folderHandle（权限将在需要时检查）');
                 } else {
-                    console.warn('⚠️ 无法恢复 folderHandle，需要用户重新授权');
-                    // 延迟提示，等待 UI 初始化完成
-                    setTimeout(() => {
-                        promptReopenFolder();
-                    }, 1500);
+                    console.log('ℹ️ folderHandle 将在首次展开侧边栏时恢复');
+                    // 不在页面加载时提示，等待用户展开侧边栏时再提示
                 }
             }
         } catch (error) {
             console.error('初始化工作空间失败:', error);
             workspaces = [];
             createWorkspace('Default Workspace', '默认工作空间');
+        }
+    }
+    
+    /**
+     * 从 IndexedDB 恢复 directory handle（不检查权限）
+     * 用于页面初始化时快速加载，避免弹出授权对话框
+     */
+    async function restoreDirectoryHandleWithoutCheck(workspaceId) {
+        try {
+            const db = await openHandleDB();
+            const transaction = db.transaction(HANDLE_STORE_KEY, 'readonly');
+            const store = transaction.objectStore(HANDLE_STORE_KEY);
+            const handle = await new Promise((resolve, reject) => {
+                const request = store.get(workspaceId);
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            });
+            
+            if (handle) {
+                console.log('✅ 从 IndexedDB 恢复了 folderHandle（未验证权限）');
+                return handle;
+            }
+            
+            return null;
+        } catch (error) {
+            console.error('恢复 folderHandle 失败:', error);
+            return null;
         }
     }
 
@@ -220,14 +244,14 @@ const StorageManager = (function() {
             console.log('🔍 调试 loadWorkspace - 找到工作空间, folderHandle:', workspace.folderHandle);
             console.log('🔍 调试 loadWorkspace - currentWorkspace.folderHandle:', currentWorkspace.folderHandle);
             
-            // 如果工作空间有关联的文件夹路径但没有 handle，尝试恢复
+            // 如果工作空间有关联的文件夹路径但没有 handle，尝试恢复（不检查权限）
             if (workspace.folderPath && !workspace.folderHandle) {
                 console.log('⚠️ loadWorkspace - 需要恢复 folderHandle');
-                const restoredHandle = await restoreDirectoryHandle(workspace.id);
+                const restoredHandle = await restoreDirectoryHandleWithoutCheck(workspace.id);
                 if (restoredHandle) {
                     workspace.folderHandle = restoredHandle;
                     currentWorkspace.folderHandle = restoredHandle;
-                    console.log('✅ loadWorkspace - 成功恢复 folderHandle');
+                    console.log('✅ loadWorkspace - 成功恢复 folderHandle（权限将在需要时检查）');
                 }
             }
             
@@ -862,6 +886,11 @@ const StorageManager = (function() {
             }, 500);
 
             alert(`✅ 已成功打开文件夹: ${folderName}\n\n该文件夹将作为新的工作空间`);
+            
+            // 刷新侧边栏（如果存在）
+            if (typeof UIManager !== 'undefined' && UIManager.loadWorkspaceList) {
+                UIManager.loadWorkspaceList();
+            }
 
         } catch (error) {
             if (error.name === 'AbortError') {
@@ -869,6 +898,23 @@ const StorageManager = (function() {
             } else {
                 console.error('打开文件夹失败:', error);
                 alert(`❌ 打开文件夹失败: ${error.message}`);
+            }
+        }
+    }
+    
+    /**
+     * 显示文件管理器 UI（现在在侧边栏中打开）
+     */
+    function showFileManager() {
+        // 打开侧边栏
+        if (typeof UIManager !== 'undefined' && UIManager.loadWorkspaceList) {
+            const sidebar = document.getElementById('agent-sidebar');
+            const workspaceBtn = document.getElementById('sidebar-workspace');
+            
+            if (sidebar && !sidebar.classList.contains('expanded')) {
+                sidebar.classList.add('expanded');
+                workspaceBtn?.classList.add('active');
+                UIManager.loadWorkspaceList();
             }
         }
     }
@@ -915,54 +961,74 @@ const StorageManager = (function() {
         }
     }
 
-    // 文件句柄缓存（用于编辑器）
-    const fileHandleCache = new Map();
-    let currentEditFileName = '';
+    // 文件管理器状态（参考优秀实践）
+    let currentDirectory = null; // 当前目录句柄
+    let currentDirPath = []; // 当前路径数组 [根目录句柄, 子目录1, 子目录2, ...]
+    
+    // 目录历史记录（参考浏览器 History API）
+    class FileSystemHistory {
+        constructor(init) {
+            this.stack = [init];
+            this.forwardStack = [];
+        }
+        push(handle) {
+            this.stack.push(handle);
+            this.forwardStack = [];
+        }
+        back() {
+            if (this.stack.length === 1) return this.stack[this.stack.length - 1];
+            const back = this.stack.pop();
+            this.forwardStack.push(back);
+            return this.stack[this.stack.length - 1];
+        }
+        forward() {
+            if (this.forwardStack.length === 0) return this.stack[this.stack.length - 1];
+            const forward = this.forwardStack.pop();
+            this.stack.push(forward);
+            return forward;
+        }
+        canBack() {
+            return this.stack.length > 1;
+        }
+        canForward() {
+            return this.forwardStack.length > 0;
+        }
+    }
+    
+    let dirHistory = null; // 目录历史记录
 
     /**
-     * 列出文件夹中的所有文件和子目录
+     * 获取当前目录下的文件列表
      */
-    async function listFilesInFolder(dirHandle, path = '') {
-        try {
-            const files = [];
+    async function getDirectoryList(dirHandle) {
+        const asyncIterator = dirHandle.entries();
+        const directories = [];
+        const files = [];
+        
+        for await (const [key, value] of asyncIterator) {
+            // 跳过 .workspace.json 配置文件
+            if (key === '.workspace.json') continue;
             
-            for await (const entry of dirHandle.values()) {
-                const entryPath = path ? `${path}/${entry.name}` : entry.name;
-                
-                if (entry.kind === 'file') {
-                    // 跳过 .workspace.json 配置文件
-                    if (entry.name !== '.workspace.json') {
-                        files.push({
-                            name: entry.name,
-                            path: entryPath,
-                            kind: 'file',
-                            handle: entry
-                        });
-                    }
-                } else if (entry.kind === 'directory') {
-                    // 递归获取子目录内容（可选，暂时只显示第一层）
-                    files.push({
-                        name: entry.name,
-                        path: entryPath,
-                        kind: 'directory',
-                        handle: entry
-                    });
-                }
+            if (value.kind === 'directory') {
+                directories.push({
+                    type: 'directory',
+                    name: key,
+                    handle: value
+                });
+            } else if (value.kind === 'file') {
+                files.push({
+                    type: 'file',
+                    name: key,
+                    handle: value
+                });
             }
-            
-            // 按名称排序，目录在前
-            files.sort((a, b) => {
-                if (a.kind !== b.kind) {
-                    return a.kind === 'directory' ? -1 : 1;
-                }
-                return a.name.localeCompare(b.name);
-            });
-            
-            return files;
-        } catch (error) {
-            console.error('列出文件失败:', error);
-            return [];
         }
+        
+        // 按名称排序，目录在前
+        directories.sort((a, b) => a.name.localeCompare(b.name));
+        files.sort((a, b) => a.name.localeCompare(b.name));
+        
+        return directories.concat(files);
     }
 
     /**
@@ -1100,6 +1166,23 @@ const StorageManager = (function() {
             background: #1e293b;
         `;
         toolbar.innerHTML = `
+            <button id="back-button" style="
+                padding: 6px 12px;
+                background: #64748b;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 13px;
+            " title="返回上级目录">⬅️ 后退</button>
+            <span id="current-path" style="
+                flex: 1;
+                color: #94a3b8;
+                font-size: 13px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            ">根目录</span>
             <button id="refresh-files" style="
                 padding: 8px 16px;
                 background: #3b82f6;
@@ -1205,8 +1288,11 @@ const StorageManager = (function() {
         document.getElementById('close-file-manager').onclick = closeFileManager;
         overlay.onclick = closeFileManager;
 
+        // 后退按钮事件
+        document.getElementById('back-button').onclick = () => goBack();
+        
         // 刷新按钮
-        document.getElementById('refresh-files').onclick = () => loadFileList(fileListContainer, currentWs.folderHandle);
+        document.getElementById('refresh-files').onclick = () => loadFileList(fileListContainer, currentDirectory || currentWs.folderHandle);
 
         // 新建文件按钮
         document.getElementById('new-file').onclick = () => createNewFile(currentWs.folderHandle, fileListContainer);
@@ -1232,15 +1318,19 @@ const StorageManager = (function() {
     }
 
     /**
-     * 加载文件列表
+     * 加载文件列表（使用扁平列表结构）
      */
     async function loadFileList(container, dirHandle) {
         container.innerHTML = '<div style="text-align: center; padding: 40px; color: #94a3b8;">加载中...</div>';
         
         try {
-            const files = await listFilesInFolder(dirHandle);
+            // 更新当前目录
+            currentDirectory = dirHandle;
             
-            if (files.length === 0) {
+            // 获取当前目录下的文件和文件夹列表
+            const items = await getDirectoryList(dirHandle);
+            
+            if (items.length === 0) {
                 container.innerHTML = `
                     <div style="text-align: center; padding: 60px 20px; color: #64748b;">
                         <div style="font-size: 48px; margin-bottom: 16px;">📂</div>
@@ -1251,93 +1341,169 @@ const StorageManager = (function() {
             }
 
             container.innerHTML = '';
-            files.forEach(file => {
-                const item = document.createElement('div');
-                item.style.cssText = `
-                    padding: 12px 16px;
-                    margin-bottom: 4px;
-                    background: ${file.kind === 'directory' ? '#1e3a5f' : '#1e293b'};
-                    border-radius: 6px;
-                    cursor: pointer;
-                    display: flex;
-                    align-items: center;
-                    gap: 12px;
-                    transition: background 0.2s;
-                `;
-                item.onmouseover = () => item.style.background = file.kind === 'directory' ? '#254a75' : '#334155';
-                item.onmouseout = () => item.style.background = file.kind === 'directory' ? '#1e3a5f' : '#1e293b';
-                
-                const icon = file.kind === 'directory' ? '📁' : getFileIcon(file.name);
-                item.innerHTML = `
-                    <span style="font-size: 20px;">${icon}</span>
-                    <span style="color: #e2e8f0; font-size: 14px; flex: 1;">${escapeHtml(file.name)}</span>
-                    <div style="display: flex; gap: 6px;" onclick="event.stopPropagation()">
-                        ${file.kind === 'file' ? `
-                        <button class="file-action-btn" data-action="edit" title="编辑" style="
-                            padding: 4px 8px;
-                            background: #3b82f6;
-                            color: white;
-                            border: none;
-                            border-radius: 4px;
-                            cursor: pointer;
-                            font-size: 12px;
-                        ">✏️</button>
-                        <button class="file-action-btn" data-action="download" title="下载" style="
-                            padding: 4px 8px;
-                            background: #8b5cf6;
-                            color: white;
-                            border: none;
-                            border-radius: 4px;
-                            cursor: pointer;
-                            font-size: 12px;
-                        ">⬇️</button>
-                        ` : ''}
-                        <button class="file-action-btn" data-action="rename" title="重命名" style="
-                            padding: 4px 8px;
-                            background: #f59e0b;
-                            color: white;
-                            border: none;
-                            border-radius: 4px;
-                            cursor: pointer;
-                            font-size: 12px;
-                        ">✍️</button>
-                        <button class="file-action-btn" data-action="delete" title="删除" style="
-                            padding: 4px 8px;
-                            background: #ef4444;
-                            color: white;
-                            border: none;
-                            border-radius: 4px;
-                            cursor: pointer;
-                            font-size: 12px;
-                        ">🗑️</button>
-                    </div>
-                `;
-                
-                // 点击文件名或图标打开编辑
-                const nameSpan = item.querySelector('span:nth-child(2)');
-                const iconSpan = item.querySelector('span:nth-child(1)');
-                if (file.kind === 'file') {
-                    nameSpan.onclick = () => openFileForEdit(file.handle, file.name);
-                    iconSpan.onclick = () => openFileForEdit(file.handle, file.name);
-                }
-                
-                // 绑定操作按钮事件
-                item.querySelectorAll('.file-action-btn').forEach(btn => {
-                    btn.onclick = (e) => {
-                        e.stopPropagation();
-                        const action = btn.dataset.action;
-                        handleFileAction(action, file, dirHandle, container);
-                    };
-                });
-                
-                container.appendChild(item);
-            });
+            
+            // 渲染文件列表
+            renderFileList(items, container, dirHandle);
+            
         } catch (error) {
             container.innerHTML = `
                 <div style="text-align: center; padding: 40px; color: #ef4444;">
                     ❌ 加载文件列表失败: ${escapeHtml(error.message)}
                 </div>
             `;
+        }
+    }
+
+    /**
+     * 渲染文件列表（扁平结构）
+     */
+    function renderFileList(items, container, dirHandle) {
+        items.forEach(item => {
+            const itemDiv = document.createElement('div');
+            const isDir = item.type === 'directory';
+            
+            itemDiv.style.cssText = `
+                padding: 8px 16px;
+                background: ${isDir ? '#1e3a5f' : '#1e293b'};
+                border-radius: 4px;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                transition: background 0.2s;
+                margin-bottom: 2px;
+            `;
+            itemDiv.onmouseover = () => itemDiv.style.background = isDir ? '#254a75' : '#334155';
+            itemDiv.onmouseout = () => itemDiv.style.background = isDir ? '#1e3a5f' : '#1e293b';
+            
+            const icon = isDir ? '📁' : getFileIcon(item.name);
+            
+            itemDiv.innerHTML = `
+                <span style="font-size: 16px;">${icon}</span>
+                <span style="color: #e2e8f0; font-size: 14px; flex: 1;">${escapeHtml(item.name)}</span>
+                ${!isDir ? `
+                <div style="display: flex; gap: 4px;" onclick="event.stopPropagation()">
+                    <button class="file-action-btn" data-action="edit" title="编辑" style="
+                        padding: 2px 6px;
+                        background: #3b82f6;
+                        color: white;
+                        border: none;
+                        border-radius: 3px;
+                        cursor: pointer;
+                        font-size: 11px;
+                    ">✏️</button>
+                    <button class="file-action-btn" data-action="download" title="下载" style="
+                        padding: 2px 6px;
+                        background: #8b5cf6;
+                        color: white;
+                        border: none;
+                        border-radius: 3px;
+                        cursor: pointer;
+                        font-size: 11px;
+                    ">⬇️</button>
+                </div>
+                ` : ''}
+                <div style="display: flex; gap: 4px;" onclick="event.stopPropagation()">
+                    <button class="file-action-btn" data-action="rename" title="重命名" style="
+                        padding: 2px 6px;
+                        background: #f59e0b;
+                        color: white;
+                        border: none;
+                        border-radius: 3px;
+                        cursor: pointer;
+                        font-size: 11px;
+                    ">✍️</button>
+                    <button class="file-action-btn" data-action="delete" title="删除" style="
+                        padding: 2px 6px;
+                        background: #ef4444;
+                        color: white;
+                        border: none;
+                        border-radius: 3px;
+                        cursor: pointer;
+                        font-size: 11px;
+                    ">🗑️</button>
+                </div>
+            `;
+            
+            // 点击文件名打开编辑（仅文件）或进入目录
+            const nameSpan = itemDiv.querySelector('span:nth-child(2)');
+            nameSpan.onclick = () => {
+                if (isDir) {
+                    // 双击进入子目录
+                    enterDirectory(item.handle, item.name);
+                } else {
+                    openFileForEdit(item.handle, item.name);
+                }
+            };
+            
+            // 绑定操作按钮
+            itemDiv.querySelectorAll('.file-action-btn').forEach(btn => {
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    const action = btn.dataset.action;
+                    handleFileAction(action, { 
+                        name: item.name, 
+                        kind: item.type,
+                        handle: item.handle 
+                    }, dirHandle, container);
+                };
+            });
+            
+            container.appendChild(itemDiv);
+        });
+    }
+
+    /**
+     * 进入子目录
+     */
+    async function enterDirectory(subDirHandle, dirName) {
+        try {
+            // 更新历史记录
+            if (!dirHistory) {
+                dirHistory = new FileSystemHistory(currentDirectory);
+            }
+            dirHistory.push(subDirHandle);
+            
+            // 更新路径显示
+            currentDirPath.push(dirName);
+            updatePathDisplay();
+            
+            // 加载新目录内容
+            const fileListContainer = document.getElementById('file-list-container');
+            await loadFileList(fileListContainer, subDirHandle);
+        } catch (error) {
+            alert(`❌ 进入目录失败: ${error.message}`);
+        }
+    }
+
+    /**
+     * 返回上级目录
+     */
+    async function goBack() {
+        if (!dirHistory || !dirHistory.canBack()) {
+            alert('已经是最顶层目录了');
+            return;
+        }
+        
+        try {
+            const parentDir = dirHistory.back();
+            currentDirPath.pop();
+            updatePathDisplay();
+            
+            const fileListContainer = document.getElementById('file-list-container');
+            await loadFileList(fileListContainer, parentDir);
+        } catch (error) {
+            alert(`❌ 返回失败: ${error.message}`);
+        }
+    }
+
+    /**
+     * 更新路径显示
+     */
+    function updatePathDisplay() {
+        const pathElement = document.getElementById('current-path');
+        if (pathElement) {
+            pathElement.textContent = currentDirPath.join(' / ') || '根目录';
         }
     }
 
@@ -1373,13 +1539,11 @@ const StorageManager = (function() {
             const editingFileName = document.getElementById('editing-file-name');
             const fileEditor = document.getElementById('file-editor');
             
-            // 缓存 fileHandle（使用 Map 而不是 JSON 序列化）
-            currentEditFileName = fileName;
-            fileHandleCache.set(fileName, fileHandle);
+            // 直接保存 fileHandle 引用
+            currentFileInstance = fileHandle;
             
             editingFileName.textContent = fileName;
             fileEditor.value = content;
-            fileEditor.dataset.currentFileName = fileName; // 只存储文件名
             
             fileListContainer.style.display = 'none';
             document.getElementById('refresh-files').parentElement.style.display = 'none';
@@ -1397,15 +1561,11 @@ const StorageManager = (function() {
             const fileEditor = document.getElementById('file-editor');
             const content = fileEditor.value;
             
-            // 从缓存中获取 fileHandle
-            const fileName = fileEditor.dataset.currentFileName;
-            const fileHandle = fileHandleCache.get(fileName);
-            
-            if (!fileHandle) {
+            if (!currentFileInstance) {
                 throw new Error('文件句柄丢失，请重新打开文件');
             }
             
-            await writeFileContent(fileHandle, content);
+            await writeFileContent(currentFileInstance, content);
             
             alert('✅ 文件已保存');
             
@@ -1626,9 +1786,9 @@ const StorageManager = (function() {
         if (panel) panel.remove();
         if (overlay) overlay.remove();
         
-        // 清理缓存
-        fileHandleCache.clear();
-        currentEditFileName = '';
+        // 清理状态
+        currentFileInstance = null;
+        currentDirHandle = null;
     }
 
     /**
@@ -1690,6 +1850,7 @@ const StorageManager = (function() {
         deleteWorkspace,
         renameWorkspace,
         loadWorkspace,
+        switchWorkspace: loadWorkspace,  // 别名，用于侧边栏切换
         getCurrentWorkspace,
         getAllWorkspaces,
         saveToWorkspace,
@@ -1703,7 +1864,7 @@ const StorageManager = (function() {
         showWorkspaceManager,
         loadWorkspaceConfigFromFolder,
         showFileManager,
-        listFilesInFolder,
+        openFolder,
         readFileContent,
         writeFileContent,
         createFileInFolder,
