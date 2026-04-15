@@ -252,6 +252,25 @@ const ChatManager = (function() {
     }
 
     /**
+     * 渲染历史记录到界面
+     */
+    function renderHistory(history) {
+        const chat = document.getElementById('agent-chat');
+        if (!chat) return;
+        
+        // 清空当前聊天区域（保留欢迎语逻辑）
+        chat.innerHTML = '';
+        
+        history.forEach(msg => {
+            if (msg.role === 'user') {
+                addUserMessage(msg.content);
+            } else if (msg.role === 'assistant') {
+                addAssistantMessage(msg.content);
+            }
+        });
+    }
+
+    /**
      * 显示欢迎消息
      */
     function showWelcomeMessage() {
@@ -286,6 +305,7 @@ ${!config.apiKey ? '<strong style="color: #ef4444;">⚠️ 请先在设置中配
         addAssistantMessage,
         clearChat,
         showWelcomeMessage,
+        renderHistory,  // 新增
         executeJavaScript,
         getCodeFromStore
     };
