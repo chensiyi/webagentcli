@@ -84,6 +84,51 @@ const StorageManager = (function() {
     }
 
     /**
+     * 保存聊天记录到工作空间 (agent_chat.json)
+     */
+    async function saveChatToWorkspace(history) {
+        if (!currentWorkspace || !currentWorkspace.folderHandle) {
+            console.log('⚠️ 未关联工作空间，跳过聊天记录同步');
+            return;
+        }
+
+        try {
+            const fileName = 'agent_chat.json';
+            const content = JSON.stringify(history, null, 2);
+            
+            // 使用现有的文件写入逻辑
+            await writeFileInFolder(currentWorkspace.folderHandle, fileName, content);
+            console.log(`✅ 已同步 ${history.length} 条聊天记录到工作空间: ${fileName}`);
+        } catch (error) {
+            console.error('❌ 同步聊天记录到工作空间失败:', error);
+        }
+    }
+
+    /**
+     * 从工作空间加载聊天记录 (agent_chat.json)
+     */
+    async function loadChatFromWorkspace() {
+        if (!currentWorkspace || !currentWorkspace.folderHandle) {
+            return null;
+        }
+
+        try {
+            const fileName = 'agent_chat.json';
+            const content = await readFileFromFolder(currentWorkspace.folderHandle, fileName);
+            
+            if (content) {
+                const history = JSON.parse(content);
+                console.log(`📂 已从工作空间加载 ${history.length} 条聊天记录`);
+                return history;
+            }
+            return null;
+        } catch (error) {
+            console.warn('⚠️ 从工作空间加载聊天记录失败:', error);
+            return null;
+        }
+    }
+
+    /**
      * 初始化工作空间
      */
     async function init() {
@@ -167,25 +212,6 @@ const StorageManager = (function() {
         } catch (error) {
             console.error('恢复 folderHandle 失败:', error);
             return null;
-        }
-    }
-
-    /**
-     * 提示用户重新打开文件夹
-     */
-    function promptReopenFolder() {
-        if (!currentWorkspace || !currentWorkspace.folderPath) return;
-        
-        const shouldReopen = confirm(
-            `⚠️ 工作空间 "${currentWorkspace.name}" 关联了本地文件夹\n\n` +
-            `文件夹路径: ${currentWorkspace.folderPath}\n\n` +
-            `由于浏览器安全限制，需要重新授权访问。\n\n` +
-            `是否现在重新打开该文件夹？`
-        );
-        
-        if (shouldReopen) {
-            // 调用 openFolder，但需要用户手动选择相同的文件夹
-            openFolder();
         }
     }
 
@@ -1643,6 +1669,8 @@ const StorageManager = (function() {
         uploadFiles,
         downloadFile,
         renameFileOrFolder,
-        deleteFileOrFolder
+        deleteFileOrFolder,
+        saveChatToWorkspace,   // 新增：保存聊天记录到工作空间
+        loadChatFromWorkspace  // 新增：从工作空间加载聊天记录
     };
 })();

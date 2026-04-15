@@ -95,9 +95,12 @@
                 console.log('👁️ 聊天窗口已隐藏（根据上次状态）');
             }
             
-            // 显示欢迎消息
-            const history = configManager.getConversationHistory();
-            if (history.length === 0 && isVisible) {
+            // 加载聊天记录 (双重存储逻辑)
+            const history = await configManager.loadConversationHistory();
+            if (history.length > 0) {
+                ChatManager.renderHistory(history);
+                console.log(`✅ 已加载 ${history.length} 条历史消息`);
+            } else if (isVisible) {
                 ChatManager.showWelcomeMessage();
                 console.log('✅ 欢迎消息已显示');
             }
