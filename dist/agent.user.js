@@ -3747,25 +3747,6 @@ const UIManager = (function() {
             isDragging = false;
             assistant.style.cursor = '';
         });
-
-        // 监听打开 Agent 事件 (来自 version-loader)
-        window.addEventListener('open-ai-agent', () => {
-            assistant.style.display = 'flex';
-            // 保存显示状态
-            if (typeof ConfigManager !== 'undefined' && ConfigManager.saveChatVisibility) {
-                ConfigManager.saveChatVisibility(true);
-            }
-            // 隐藏启动按钮
-            const badge = document.getElementById('agent-launcher-btn');
-            if (badge) {
-                badge.style.transition = 'all 0.3s ease';
-                badge.style.transform = 'scale(0)';
-                badge.style.opacity = '0';
-                setTimeout(() => {
-                    badge.style.display = 'none';
-                }, 300);
-            }
-        });
     }
     
     /**
@@ -4954,6 +4935,15 @@ const Utils = (function() {
             ModuleManager.getModule('ChatManager')?.executeJavaScript?.(code);
         });
         
+        // 打开/关闭 Agent 窗口事件
+        eventManager.on(EventTypes.AGENT_OPEN, () => {
+            ModuleManager.getModule('UIManager')?.show?.();
+        });
+        
+        eventManager.on(EventTypes.AGENT_CLOSE, () => {
+            ModuleManager.getModule('UIManager')?.hide?.();
+        });
+        
         // 兼容旧事件（逐步迁移）
         window.addEventListener('agent-message-sent', async (e) => {
             eventManager.emit(EventTypes.CHAT_MESSAGE_SENT, e.detail);
@@ -4969,6 +4959,11 @@ const Utils = (function() {
         
         window.addEventListener('agent-execute-code', (e) => {
             eventManager.emit('agent-execute-code', e.detail);
+        });
+        
+        // 兼容旧的 open-ai-agent 事件（来自 version-loader 或其他地方）
+        window.addEventListener('open-ai-agent', () => {
+            eventManager.emit(EventTypes.AGENT_OPEN);
         });
         
         console.log('🔌 事件监听器已设置');

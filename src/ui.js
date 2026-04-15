@@ -805,25 +805,6 @@ const UIManager = (function() {
             isDragging = false;
             assistant.style.cursor = '';
         });
-
-        // 监听打开 Agent 事件 (来自 version-loader)
-        window.addEventListener('open-ai-agent', () => {
-            assistant.style.display = 'flex';
-            // 保存显示状态
-            if (typeof ConfigManager !== 'undefined' && ConfigManager.saveChatVisibility) {
-                ConfigManager.saveChatVisibility(true);
-            }
-            // 隐藏启动按钮
-            const badge = document.getElementById('agent-launcher-btn');
-            if (badge) {
-                badge.style.transition = 'all 0.3s ease';
-                badge.style.transform = 'scale(0)';
-                badge.style.opacity = '0';
-                setTimeout(() => {
-                    badge.style.display = 'none';
-                }, 300);
-            }
-        });
     }
     
     /**

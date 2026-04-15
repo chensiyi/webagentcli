@@ -135,6 +135,15 @@
             ModuleManager.getModule('ChatManager')?.executeJavaScript?.(code);
         });
         
+        // 打开/关闭 Agent 窗口事件
+        eventManager.on(EventTypes.AGENT_OPEN, () => {
+            ModuleManager.getModule('UIManager')?.show?.();
+        });
+        
+        eventManager.on(EventTypes.AGENT_CLOSE, () => {
+            ModuleManager.getModule('UIManager')?.hide?.();
+        });
+        
         // 兼容旧事件（逐步迁移）
         window.addEventListener('agent-message-sent', async (e) => {
             eventManager.emit(EventTypes.CHAT_MESSAGE_SENT, e.detail);
@@ -150,6 +159,11 @@
         
         window.addEventListener('agent-execute-code', (e) => {
             eventManager.emit('agent-execute-code', e.detail);
+        });
+        
+        // 兼容旧的 open-ai-agent 事件（来自 version-loader 或其他地方）
+        window.addEventListener('open-ai-agent', () => {
+            eventManager.emit(EventTypes.AGENT_OPEN);
         });
         
         console.log('🔌 事件监听器已设置');
