@@ -11,7 +11,7 @@ const path = require('path');
 const SRC_DIR = path.join(__dirname, 'src');
 const DIST_DIR = path.join(__dirname, 'dist');
 const OUTPUT_FILE = path.join(DIST_DIR, 'agent.user.js');
-const VERSION = process.env.VERSION || '2.1.0';
+const VERSION = process.env.VERSION || '3.1.0';
 
 // UserScript 头部模板
 const USERSCRIPT_HEADER = `// ==UserScript==
@@ -41,15 +41,20 @@ if (!fs.existsSync(DIST_DIR)) {
 console.log('🔨 开始构建 AI Agent...');
 console.log(`📦 版本: ${VERSION}`);
 
-// 读取所有源文件
+// 读取所有源文件（按依赖顺序）
 const modules = [
-    'config.js',
+    // 核心基础模块
+    'core/ModuleManager.js',
+    'core/EventManager.js',
+    'core/ConfigManager.js',
+    
+    // 业务模块（按依赖顺序）
     'models.js',
-    'ui.js',
-    'api.js', 
+    'api.js',
     'chat.js',
-    'settings.js',
     'storage.js',
+    'ui.js',
+    'settings.js',
     'utils.js',
     'main.js'
 ];
@@ -64,7 +69,16 @@ modules.forEach(module => {
         combinedCode += content + '\n';
         console.log(`✅ 已添加: ${module}`);
     } else {
-        console.warn(`⚠️  未找到: ${module}`);
+        // 尝试在 src 目录下查找
+        const altModulePath = path.join(__dirname, 'src', module);
+        if (fs.existsSync(altModulePath)) {
+            const content = fs.readFileSync(altModulePath, 'utf-8');
+            combinedCode += `\n// ==================== ${module} ====================\n\n`;
+            combinedCode += content + '\n';
+            console.log(`✅ 已添加: ${module}`);
+        } else {
+            console.warn(`⚠️  未找到: ${module}`);
+        }
     }
 });
 

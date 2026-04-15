@@ -563,6 +563,7 @@ const UIManager = (function() {
                         <div class="sidebar-header">
                             <span>资源管理器</span>
                             <div class="sidebar-header-actions">
+                                <button class="sidebar-header-btn" id="btn-reopen-workspace" title="重新打开工作空间">📂</button>
                                 <button class="sidebar-header-btn" id="btn-refresh" title="刷新">🔄</button>
                                 <button class="sidebar-header-btn" id="btn-new-file" title="新建文件">📄+</button>
                                 <button class="sidebar-header-btn" id="btn-new-folder" title="新建文件夹">📁+</button>
@@ -639,6 +640,7 @@ const UIManager = (function() {
         const sidebar = document.getElementById('agent-sidebar');
         
         // 侧边栏工具栏按钮
+        const btnReopenWorkspace = document.getElementById('btn-reopen-workspace');
         const btnRefresh = document.getElementById('btn-refresh');
         const btnNewFile = document.getElementById('btn-new-file');
         const btnNewFolder = document.getElementById('btn-new-folder');
@@ -690,6 +692,12 @@ const UIManager = (function() {
         sidebarCollapse.addEventListener('click', () => {
             sidebar.classList.remove('expanded');
             sidebarWorkspaceBtn.classList.remove('active');
+        });
+        
+        // 侧边栏 - 重新打开工作空间按钮
+        btnReopenWorkspace?.addEventListener('click', () => {
+            // 重新打开工作空间
+            StorageManager.openFolder();
         });
         
         // 侧边栏 - 刷新按钮
