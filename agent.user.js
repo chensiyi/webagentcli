@@ -16,12 +16,326 @@
 // ==/UserScript==
 
 
-// ==================== config.js ====================
+// ==================== core/ModuleManager.js ====================
 
-// ==================== 配置管理模块 ====================
+// ==================== 模块管理器 (核心) ====================
+// 负责模块的初始化、注册、依赖管理和通信
+
+const ModuleManager = (function() {
+    'use strict';
+    
+    // 模块注册表
+    const modules = {};
+    
+    // 模块状态
+    const moduleStates = {};
+    
+    // 事件中心
+    const eventCenter = {
+        listeners: {},
+        
+        // 注册事件监听器
+        on(eventName, callback) {
+            if (!this.listeners[eventName]) {
+                this.listeners[eventName] = [];
+            }
+            this.listeners[eventName].push(callback);
+        },
+        
+        // 触发事件
+        emit(eventName, data) {
+            const listeners = this.listeners[eventName];
+            if (listeners) {
+                listeners.forEach(callback => {
+                    try {
+                        callback(data);
+                    } catch (error) {
+                        console.error(`Error in event listener for ${eventName}:`, error);
+                    }
+                });
+            }
+        },
+        
+        // 移除事件监听器
+        off(eventName, callback) {
+            const listeners = this.listeners[eventName];
+            if (listeners) {
+                const index = listeners.indexOf(callback);
+                if (index > -1) {
+                    listeners.splice(index, 1);
+                }
+            }
+        }
+    };
+    
+    /**
+     * 注册模块
+     * @param {string} name - 模块名称
+     * @param {Object} module - 模块对象
+     */
+    function registerModule(name, module) {
+        modules[name] = module;
+        moduleStates[name] = 'registered';
+        console.log(`📦 模块已注册: ${name}`);
+    }
+    
+    /**
+     * 初始化所有模块
+     */
+    async function initAll() {
+        const moduleNames = Object.keys(modules);
+        
+        for (const name of moduleNames) {
+            if (modules[name].init && typeof modules[name].init === 'function') {
+                try {
+                    await modules[name].init();
+                    moduleStates[name] = 'initialized';
+                    console.log(`✅ 模块已初始化: ${name}`);
+                } catch (error) {
+                    console.error(`❌ 模块初始化失败: ${name}`, error);
+                    moduleStates[name] = 'error';
+                }
+            }
+        }
+    }
+    
+    /**
+     * 获取模块实例
+     * @param {string} name - 模块名称
+     * @returns {Object} 模块实例
+     */
+    function getModule(name) {
+        if (!modules[name]) {
+            throw new Error(`Module ${name} not found`);
+        }
+        return modules[name];
+    }
+    
+    /**
+     * 获取模块状态
+     * @param {string} name - 模块名称
+     * @returns {string} 模块状态
+     */
+    function getModuleState(name) {
+        return moduleStates[name] || 'unknown';
+    }
+    
+    /**
+     * 获取事件中心
+     * @returns {Object} 事件中心
+     */
+    function getEventCenter() {
+        return eventCenter;
+    }
+    
+    /**
+     * 模块间调用（依赖注入方式）
+     * @param {string} moduleName - 目标模块名
+     * @param {string} methodName - 方法名
+     * @param {...any} args - 参数
+     */
+    function callModule(moduleName, methodName, ...args) {
+        const module = getModule(moduleName);
+        if (!module[methodName]) {
+            throw new Error(`Method ${methodName} not found in module ${moduleName}`);
+        }
+        return module[methodName](...args);
+    }
+    
+    /**
+     * 创建模块代理（用于模块间调用）
+     * @param {string} moduleName - 模块名称
+     * @returns {Object} 模块代理
+     */
+    function createModuleProxy(moduleName) {
+        return new Proxy({}, {
+            get(target, methodName) {
+                return function(...args) {
+                    return callModule(moduleName, methodName, ...args);
+                };
+            }
+        });
+    }
+    
+    // 导出公共接口
+    return {
+        registerModule,
+        initAll,
+        getModule,
+        getModuleState,
+        getEventCenter,
+        callModule,
+        createModuleProxy
+    };
+})();
+
+// ==================== core/EventManager.js ====================
+
+// ==================== 事件管理器 ====================
+// 统一的事件通信系统，替换 window 全局事件
+
+const EventManager = (function() {
+    'use strict';
+    
+    const listeners = new Map();
+    
+    /**
+     * 标准化事件类型
+     */
+    const EventTypes = {
+        // UI 相关
+        UI_SHOW: 'ui:show',
+        UI_HIDE: 'ui:hide',
+        UI_TOGGLE: 'ui:toggle',
+        
+        // 聊天相关
+        CHAT_MESSAGE_SENT: 'chat:message:sent',
+        CHAT_MESSAGE_RECEIVED: 'chat:message:received',
+        CHAT_CLEAR: 'chat:clear',
+        
+        // 配置相关
+        CONFIG_UPDATED: 'config:updated',
+        SETTINGS_OPEN: 'settings:open',
+        SETTINGS_SAVED: 'settings:saved',
+        
+        // 文件操作相关
+        FILE_OPENED: 'file:opened',
+        FILE_SAVED: 'file:saved',
+        FILE_DELETED: 'file:deleted',
+        FOLDER_OPENED: 'folder:opened',
+        
+        // 工作空间相关
+        WORKSPACE_CHANGED: 'workspace:changed',
+        WORKSPACE_LOADED: 'workspace:loaded',
+        
+        // API 相关
+        API_CALL_START: 'api:call:start',
+        API_CALL_SUCCESS: 'api:call:success',
+        API_CALL_ERROR: 'api:call:error',
+        
+        // 系统级
+        APP_STARTED: 'app:started',
+        APP_ERROR: 'app:error',
+        AGENT_OPEN: 'agent:open',
+        AGENT_CLOSE: 'agent:close'
+    };
+    
+    /**
+     * 注册事件监听器
+     * @param {string} eventType - 事件类型
+     * @param {Function} callback - 回调函数
+     * @returns {Function} 移除监听器的函数
+     */
+    function on(eventType, callback) {
+        if (!listeners.has(eventType)) {
+            listeners.set(eventType, []);
+        }
+        
+        const callbacks = listeners.get(eventType);
+        callbacks.push(callback);
+        
+        // 返回移除函数
+        return () => {
+            const idx = callbacks.indexOf(callback);
+            if (idx > -1) {
+                callbacks.splice(idx, 1);
+            }
+        };
+    }
+    
+    /**
+     * 一次性事件监听器
+     * @param {string} eventType - 事件类型
+     * @param {Function} callback - 回调函数
+     */
+    function once(eventType, callback) {
+        const removeListener = on(eventType, (data) => {
+            removeListener();
+            callback(data);
+        });
+    }
+    
+    /**
+     * 触发事件
+     * @param {string} eventType - 事件类型
+     * @param {any} data - 事件数据
+     */
+    function emit(eventType, data = null) {
+        console.log(`📡 事件触发: ${eventType}`, data);
+        
+        // 兼容性：同时触发全局事件（暂时保留）
+        try {
+            window.dispatchEvent(new CustomEvent(eventType.replace(':', '-'), { detail: data }));
+        } catch (error) {
+            console.warn('全局事件触发失败:', error);
+        }
+        
+        // 触发内部事件
+        const callbacks = listeners.get(eventType);
+        if (callbacks) {
+            callbacks.forEach(callback => {
+                try {
+                    callback(data);
+                } catch (error) {
+                    console.error(`事件监听器错误 (${eventType}):`, error);
+                }
+            });
+        }
+    }
+    
+    /**
+     * 移除事件监听器
+     * @param {string} eventType - 事件类型
+     * @param {Function} callback - 回调函数
+     */
+    function off(eventType, callback) {
+        const callbacks = listeners.get(eventType);
+        if (callbacks) {
+            const idx = callbacks.indexOf(callback);
+            if (idx > -1) {
+                callbacks.splice(idx, 1);
+            }
+        }
+    }
+    
+    /**
+     * 清除所有事件监听器
+     */
+    function clearAll() {
+        listeners.clear();
+    }
+    
+    /**
+     * 获取事件类型常量
+     */
+    function getEventTypes() {
+        return { ...EventTypes };
+    }
+    
+    // 导出公共接口
+    return {
+        on,
+        once,
+        emit,
+        off,
+        clearAll,
+        getEventTypes,
+        
+        // 事件类型常量（方便使用）
+        EventTypes
+    };
+})();
+
+// ==================== core/ConfigManager.js ====================
+
+// ==================== 配置管理器 (重构版) ====================
+// 提供统一的配置管理接口，降低耦合度
 
 const ConfigManager = (function() {
-    const CONFIG_KEYS = {
+    'use strict';
+    
+    // 配置键名枚举
+    const ConfigKeys = {
         API_KEY: 'api_key',
         MODEL: 'model',
         ENDPOINT: 'endpoint',
@@ -32,10 +346,12 @@ const ConfigManager = (function() {
         USER_ID: 'user_id',
         HISTORY: 'conversation_history',
         CACHED_MODELS: 'cached_models',
-        CHAT_VISIBILITY: 'chat_visibility'  // 新增：聊天窗口显示状态
+        CHAT_VISIBILITY: 'chat_visibility',
+        CACHED_MODELS_LAST_UPDATE: 'cached_models_last_update'
     };
-
-    const DEFAULTS = {
+    
+    // 默认配置
+    const Defaults = {
         apiKey: '',
         model: 'google/gemma-3-12b-it:free',
         endpoint: 'https://openrouter.ai/api/v1/chat/completions',
@@ -46,216 +362,294 @@ const ConfigManager = (function() {
         userId: 'user_' + Date.now(),
         conversationHistory: []
     };
-
-    let config = {};
-
-    async function init() {
-        // 数据迁移: 从旧 key 迁移到新 key
-        const oldModelKey = 'openrouter_model';
-        const oldApiKeyKey = 'openrouter_api_key';
-        const oldEndpointKey = 'openrouter_endpoint';
-        
-        // 迁移 model
-        if (GM_getValue(oldModelKey, undefined) !== undefined && GM_getValue(CONFIG_KEYS.MODEL, undefined) === undefined) {
-            const oldModel = GM_getValue(oldModelKey);
-            GM_setValue(CONFIG_KEYS.MODEL, oldModel);
-            console.log('✅ 已迁移 model 配置');
+    
+    // 配置缓存
+    let configCache = {};
+    let isInitialized = false;
+    
+    // 依赖引用（通过依赖注入）
+    let eventManager = null;
+    let storageManager = null;
+    
+    /**
+     * 初始化配置管理器
+     * @param {Object} dependencies - 依赖对象
+     * @returns {Promise<Object>} 当前配置
+     */
+    async function init(dependencies = {}) {
+        if (isInitialized) {
+            console.log('⚠️ 配置管理器已初始化');
+            return configCache;
         }
         
-        // 迁移 apiKey
-        if (GM_getValue(oldApiKeyKey, undefined) !== undefined && GM_getValue(CONFIG_KEYS.API_KEY, undefined) === undefined) {
-            const oldApiKey = GM_getValue(oldApiKeyKey);
-            GM_setValue(CONFIG_KEYS.API_KEY, oldApiKey);
-            console.log('✅ 已迁移 api_key 配置');
+        // 注入依赖
+        if (dependencies.eventManager) {
+            eventManager = dependencies.eventManager;
+        }
+        if (dependencies.storageManager) {
+            storageManager = dependencies.storageManager;
         }
         
-        // 迁移 endpoint
-        if (GM_getValue(oldEndpointKey, undefined) !== undefined && GM_getValue(CONFIG_KEYS.ENDPOINT, undefined) === undefined) {
-            const oldEndpoint = GM_getValue(oldEndpointKey);
-            GM_setValue(CONFIG_KEYS.ENDPOINT, oldEndpoint);
-            console.log('✅ 已迁移 endpoint 配置');
+        console.log('🔄 初始化配置管理器...');
+        
+        // 执行数据迁移
+        await migrateOldConfig();
+        
+        // 加载配置
+        await loadAllConfig();
+        
+        isInitialized = true;
+        console.log('✅ 配置管理器初始化完成');
+        
+        // 触发初始化完成事件
+        if (eventManager) {
+            eventManager.emit(eventManager.EventTypes.CONFIG_UPDATED, configCache);
         }
         
-        config = {
-            apiKey: GM_getValue(CONFIG_KEYS.API_KEY, DEFAULTS.apiKey),
-            model: GM_getValue(CONFIG_KEYS.MODEL, DEFAULTS.model),
-            endpoint: GM_getValue(CONFIG_KEYS.ENDPOINT, DEFAULTS.endpoint),
-            temperature: GM_getValue(CONFIG_KEYS.TEMPERATURE, DEFAULTS.temperature),
-            topP: GM_getValue(CONFIG_KEYS.TOP_P, DEFAULTS.topP),
-            maxTokens: GM_getValue(CONFIG_KEYS.MAX_TOKENS, DEFAULTS.maxTokens),
-            jsExecutionEnabled: GM_getValue(CONFIG_KEYS.JS_ENABLED, DEFAULTS.jsExecutionEnabled),
-            userId: GM_getValue(CONFIG_KEYS.USER_ID, DEFAULTS.userId),
-            conversationHistory: GM_getValue(CONFIG_KEYS.HISTORY, DEFAULTS.conversationHistory)
+        return configCache;
+    }
+    
+    /**
+     * 迁移旧配置（兼容性）
+     */
+    async function migrateOldConfig() {
+        const oldMappings = {
+            'openrouter_model': ConfigKeys.MODEL,
+            'openrouter_api_key': ConfigKeys.API_KEY,
+            'openrouter_endpoint': ConfigKeys.ENDPOINT
         };
-
-        // 如果当前有文件夹工作空间,尝试从 .workspace.json 加载配置
-        try {
-            const currentWs = StorageManager ? StorageManager.getCurrentWorkspace() : null;
-            if (currentWs && currentWs.folderHandle && currentWs.data.settings) {
-                // 从工作空间加载设置
-                const wsSettings = currentWs.data.settings;
-                if (wsSettings.apiKey !== undefined) config.apiKey = wsSettings.apiKey;
-                if (wsSettings.model !== undefined) config.model = wsSettings.model;
-                if (wsSettings.temperature !== undefined) config.temperature = wsSettings.temperature;
-                if (wsSettings.topP !== undefined) config.topP = wsSettings.topP;
-                if (wsSettings.maxTokens !== undefined) config.maxTokens = wsSettings.maxTokens;
-                if (wsSettings.jsExecutionEnabled !== undefined) config.jsExecutionEnabled = wsSettings.jsExecutionEnabled;
-                
-                console.log('✅ 已从工作空间加载配置');
+        
+        for (const [oldKey, newKey] of Object.entries(oldMappings)) {
+            const oldValue = GM_getValue(oldKey, undefined);
+            const newValue = GM_getValue(newKey, undefined);
+            
+            if (oldValue !== undefined && newValue === undefined) {
+                GM_setValue(newKey, oldValue);
+                console.log(`✅ 已迁移配置: ${oldKey} -> ${newKey}`);
             }
-        } catch (error) {
-            console.warn('加载工作空间配置失败:', error);
         }
-
-        return config;
     }
-
-    function get(key) {
-        return config[key];
-    }
-
-    function set(key, value) {
-        config[key] = value;
-        // 直接映射 key 到 GM 存储的 key
-        const keyMap = {
-            'apiKey': CONFIG_KEYS.API_KEY,
-            'model': CONFIG_KEYS.MODEL,
-            'endpoint': CONFIG_KEYS.ENDPOINT,
-            'temperature': CONFIG_KEYS.TEMPERATURE,
-            'topP': CONFIG_KEYS.TOP_P,
-            'maxTokens': CONFIG_KEYS.MAX_TOKENS,
-            'jsExecutionEnabled': CONFIG_KEYS.JS_ENABLED
+    
+    /**
+     * 加载所有配置
+     */
+    async function loadAllConfig() {
+        configCache = {
+            apiKey: GM_getValue(ConfigKeys.API_KEY, Defaults.apiKey),
+            model: GM_getValue(ConfigKeys.MODEL, Defaults.model),
+            endpoint: GM_getValue(ConfigKeys.ENDPOINT, Defaults.endpoint),
+            temperature: GM_getValue(ConfigKeys.TEMPERATURE, Defaults.temperature),
+            topP: GM_getValue(ConfigKeys.TOP_P, Defaults.topP),
+            maxTokens: GM_getValue(ConfigKeys.MAX_TOKENS, Defaults.maxTokens),
+            jsExecutionEnabled: GM_getValue(ConfigKeys.JS_ENABLED, Defaults.jsExecutionEnabled),
+            userId: GM_getValue(ConfigKeys.USER_ID, Defaults.userId),
+            conversationHistory: GM_getValue(ConfigKeys.HISTORY, Defaults.conversationHistory)
         };
-        const gmKey = keyMap[key];
+        
+        // 尝试从工作空间加载配置（如果 storageManager 可用）
+        if (storageManager && typeof storageManager.getCurrentWorkspace === 'function') {
+            try {
+                const currentWs = storageManager.getCurrentWorkspace();
+                if (currentWs?.folderHandle?.kind === 'directory' && currentWs.data?.settings) {
+                    const wsSettings = currentWs.data.settings;
+                    Object.assign(configCache, wsSettings);
+                    console.log('✅ 已从工作空间加载配置');
+                }
+            } catch (error) {
+                console.warn('加载工作空间配置失败:', error);
+            }
+        }
+    }
+    
+    /**
+     * 获取所有配置
+     * @returns {Object} 配置对象
+     */
+    function getAll() {
+        return { ...configCache };
+    }
+    
+    /**
+     * 获取单个配置项
+     * @param {string} key - 配置键
+     * @returns {any} 配置值
+     */
+    function get(key) {
+        if (key in configCache) {
+            return configCache[key];
+        }
+        console.warn(`⚠️ 未知配置键: ${key}`);
+        return undefined;
+    }
+    
+    /**
+     * 设置配置项
+     * @param {string} key - 配置键
+     * @param {any} value - 配置值
+     */
+    function set(key, value) {
+        if (!(key in configCache)) {
+            console.warn(`⚠️ 尝试设置未知配置键: ${key}`);
+            return;
+        }
+        
+        configCache[key] = value;
+        
+        // 保存到 GM 存储
+        const keyMappings = {
+            apiKey: ConfigKeys.API_KEY,
+            model: ConfigKeys.MODEL,
+            endpoint: ConfigKeys.ENDPOINT,
+            temperature: ConfigKeys.TEMPERATURE,
+            topP: ConfigKeys.TOP_P,
+            maxTokens: ConfigKeys.MAX_TOKENS,
+            jsExecutionEnabled: ConfigKeys.JS_ENABLED,
+            userId: ConfigKeys.USER_ID,
+            conversationHistory: ConfigKeys.HISTORY
+        };
+        
+        const gmKey = keyMappings[key];
         if (gmKey) {
             GM_setValue(gmKey, value);
         }
         
-        // 同时保存到当前工作空间的 settings 中
-        try {
-            if (StorageManager && typeof StorageManager.getCurrentWorkspace === 'function') {
-                const currentWs = StorageManager.getCurrentWorkspace();
-                
-                console.log('🔍 调试 - 当前工作空间:', currentWs ? {
-                    id: currentWs.id,
-                    name: currentWs.name,
-                    hasFolderHandle: !!currentWs.folderHandle,
-                    folderHandleType: currentWs.folderHandle ? typeof currentWs.folderHandle : 'none',
-                    hasGetFileHandle: currentWs.folderHandle && typeof currentWs.folderHandle.getFileHandle === 'function'
-                } : 'null');
-                
-                // 更新内存中的工作空间配置（总是执行）
-                if (currentWs) {
-                    const settings = currentWs.data.settings || {};
-                    settings[key] = value;
-                    currentWs.data.settings = settings;
-                    currentWs.updatedAt = Date.now();
-                    
-                    console.log(`💾 配置 ${key} 已更新到内存`);
-                }
-                
-                // 同步到文件夹（只要 folderHandle 存在且是有效的 DirectoryHandle）
-                if (currentWs && currentWs.folderHandle && 
-                    currentWs.folderHandle.kind === 'directory') {
-                    console.log('📁 检测到有效 folderHandle，开始同步到文件夹...');
-                    // 保存到文件夹（saveToWorkspace 内部会执行实际的写入操作）
-                    StorageManager.saveToWorkspace('settings', currentWs.data.settings).then(() => {
-                        console.log(`✅ 已同步配置 ${key} 到工作空间文件夹`);
-                    }).catch(err => {
-                        console.warn(`❌ 同步配置 ${key} 到文件夹失败:`, err);
-                    });
-                } else if (currentWs) {
-                    console.log(`⚠️ folderHandle 无效，配置 ${key} 仅保存到浏览器存储`);
-                    console.log('🔍 调试 - currentWs.folderHandle:', currentWs.folderHandle);
-                    console.log('🔍 调试 - folderHandle.kind:', currentWs.folderHandle?.kind);
-                }
+        // 保存到工作空间（如果可用）
+        if (storageManager && typeof storageManager.updateWorkspaceSettings === 'function') {
+            try {
+                storageManager.updateWorkspaceSettings({ [key]: value });
+            } catch (error) {
+                console.warn('保存到工作空间失败:', error);
             }
-        } catch (error) {
-            console.warn('❌ 同步配置到工作空间失败:', error);
+        }
+        
+        // 触发配置更新事件
+        if (eventManager) {
+            eventManager.emit(eventManager.EventTypes.CONFIG_UPDATED, { [key]: value });
+        }
+        
+        console.log(`⚙️ 配置已更新: ${key} = ${value}`);
+    }
+    
+    /**
+     * 批量更新配置
+     * @param {Object} updates - 配置更新对象
+     */
+    function update(updates) {
+        Object.entries(updates).forEach(([key, value]) => {
+            set(key, value);
+        });
+    }
+    
+    /**
+     * 重置配置到默认值
+     * @param {string|null} key - 指定键，为 null 则重置所有
+     */
+    function reset(key = null) {
+        if (key === null) {
+            // 重置所有配置
+            Object.keys(configCache).forEach(k => {
+                set(k, Defaults[k] || '');
+            });
+        } else if (key in Defaults) {
+            // 重置指定配置
+            set(key, Defaults[key]);
         }
     }
-
+    
     /**
-     * 获取当前域名（用于区分不同网站的会话）
+     * 获取对话历史
+     * @returns {Array} 对话历史
      */
-    function getCurrentDomain() {
-        try {
-            return window.location.hostname || 'unknown';
-        } catch (e) {
-            return 'unknown';
-        }
+    function getConversationHistory() {
+        return get('conversationHistory') || [];
     }
-
+    
     /**
-     * 获取基于域名的存储 key
+     * 保存对话历史
+     * @param {Array} history - 对话历史
      */
-    function getDomainKey(baseKey) {
-        const domain = getCurrentDomain();
-        return `${baseKey}_${domain}`;
-    }
-
-    function getAll() {
-        return { ...config };
-    }
-
     function saveConversationHistory(history) {
-        // 只保留最近 50 条消息
-        if (history.length > 50) {
-            history = history.slice(-50);
-        }
-        config.conversationHistory = history;
-        
-        // 基于域名保存会话历史
-        const domainKey = getDomainKey(CONFIG_KEYS.HISTORY);
-        GM_setValue(domainKey, history);
-        
-        console.log(`💾 已保存 ${history.length} 条对话到域名: ${getCurrentDomain()}`);
+        set('conversationHistory', history);
     }
-
-    function loadConversationHistory() {
-        // 基于域名加载会话历史
-        const domainKey = getDomainKey(CONFIG_KEYS.HISTORY);
-        const history = GM_getValue(domainKey, []);
-        config.conversationHistory = history;
-        
-        console.log(`📂 已加载 ${history.length} 条对话从域名: ${getCurrentDomain()}`);
-        return history;
-    }
-
-    function saveChatVisibility(isVisible) {
-        // 基于域名保存聊天窗口显示状态
-        const domainKey = getDomainKey(CONFIG_KEYS.CHAT_VISIBILITY);
-        GM_setValue(domainKey, isVisible);
-        
-        console.log(`👁️ 已保存聊天窗口状态 (${isVisible ? '显示' : '隐藏'}) 到域名: ${getCurrentDomain()}`);
-    }
-
+    
+    /**
+     * 获取聊天窗口可见性
+     * @returns {boolean} 是否可见
+     */
     function getChatVisibility() {
-        // 基于域名加载聊天窗口显示状态，默认为 false（隐藏，需要用户主动打开）
-        const domainKey = getDomainKey(CONFIG_KEYS.CHAT_VISIBILITY);
-        const isVisible = GM_getValue(domainKey, false);
+        const visibility = GM_getValue(ConfigKeys.CHAT_VISIBILITY, true);
+        return visibility !== false;
+    }
+    
+    /**
+     * 保存聊天窗口可见性
+     * @param {boolean} isVisible - 是否可见
+     */
+    function saveChatVisibility(isVisible) {
+        GM_setValue(ConfigKeys.CHAT_VISIBILITY, isVisible);
+    }
+    
+    /**
+     * 验证配置是否完整
+     * @returns {boolean} 是否配置完整
+     */
+    function isConfigured() {
+        return !!configCache.apiKey && !!configCache.model;
+    }
+    
+    /**
+     * 导出配置
+     * @returns {Object} 可导出的配置对象
+     */
+    function exportConfig() {
+        return {
+            ...configCache,
+            // 排除敏感信息
+            apiKey: configCache.apiKey ? '[HIDDEN]' : ''
+        };
+    }
+    
+    /**
+     * 导入配置
+     * @param {Object} imported - 导入的配置对象
+     */
+    function importConfig(imported) {
+        const safeUpdates = {};
         
-        console.log(`🔍 读取聊天窗口状态 (${isVisible ? '显示' : '隐藏'}) 从域名: ${getCurrentDomain()}`);
-        return isVisible;
+        // 只导入安全的字段
+        const safeFields = ['model', 'endpoint', 'temperature', 'topP', 'maxTokens', 'jsExecutionEnabled'];
+        
+        safeFields.forEach(field => {
+            if (field in imported) {
+                safeUpdates[field] = imported[field];
+            }
+        });
+        
+        update(safeUpdates);
+        console.log('✅ 配置导入完成');
     }
-
-    function getConfigKeys() {
-        return CONFIG_KEYS;
-    }
-
+    
+    // 导出公共接口
     return {
         init,
+        getAll,
         get,
         set,
-        getAll,
+        update,
+        reset,
+        getConversationHistory,
         saveConversationHistory,
-        loadConversationHistory,  // 新增
-        saveChatVisibility,       // 新增
-        getChatVisibility,        // 新增
-        getConfigKeys
+        getChatVisibility,
+        saveChatVisibility,
+        isConfigured,
+        exportConfig,
+        importConfig,
+        
+        // 常量导出（只读）
+        ConfigKeys,
+        Defaults
     };
 })();
-
 
 // ==================== models.js ====================
 
@@ -4644,11 +5038,16 @@ const Utils = (function() {
 
 // ==================== main.js ====================
 
-// ==================== 主入口模块 ====================
+// ==================== 主入口模块 (重构版) ====================
+// 使用模块化架构，降低耦合度
 
 (function() {
     'use strict';
-
+    
+    // 模块管理器引用
+    let moduleManager = null;
+    let eventManager = null;
+    
     /**
      * 初始化应用
      */
@@ -4656,84 +5055,174 @@ const Utils = (function() {
         console.log('🚀 AI Agent 正在启动...');
         
         try {
-            // 1. 初始化工作空间管理器
-            await StorageManager.init();
-            console.log('✅ 工作空间已加载');
+            // 1. 初始化核心模块
+            await initCoreModules();
+            console.log('✅ 核心模块已初始化');
             
-            // 2. 初始化配置 (必须 await，因为 init 是 async)
-            const config = await ConfigManager.init();
-            console.log('✅ 配置已加载:', config);
+            // 2. 初始化业务模块
+            await initBusinessModules();
+            console.log('✅ 业务模块已初始化');
             
-            // 3. 基于域名加载会话历史
-            const history = ConfigManager.loadConversationHistory();
-            console.log(`✅ 已加载 ${history.length} 条对话历史`);
-            
-            // 4. 创建 UI
-            UIManager.createAssistant(config);
-            console.log('✅ UI 已创建');
-            
-            // 5. 根据域名恢复聊天窗口显示状态
-            const isVisible = ConfigManager.getChatVisibility();
-            if (!isVisible) {
-                UIManager.hide();
-                console.log('👁️ 聊天窗口已隐藏（根据上次状态）');
-            } else {
-                // 6. 显示欢迎消息（如果窗口可见且有历史记录，则不显示欢迎消息）
-                if (history.length === 0) {
-                    ChatManager.showWelcomeMessage();
-                    console.log('✅ 欢迎消息已显示');
-                } else {
-                    console.log('💬 已有对话历史，跳过欢迎消息');
-                }
-            }
-            
-            // 7. 设置事件监听
+            // 3. 设置事件监听
             setupEventListeners();
             console.log('✅ 事件监听已设置');
             
+            // 4. 创建启动按钮
+            createLauncherButton();
+            console.log('✅ 启动按钮已创建');
+            
+            // 5. 启动应用
+            startApplication();
             console.log('🎉 AI Agent 启动成功!');
             
         } catch (error) {
             console.error('❌ 启动失败:', error);
+            eventManager?.emit(eventManager.EventTypes.APP_ERROR, { error });
+        }
+    }
+    
+    /**
+     * 初始化核心模块
+     */
+    async function initCoreModules() {
+        // 注册和初始化模块管理器
+        ModuleManager.registerModule('ModuleManager', ModuleManager);
+        
+        // 初始化事件管理器
+        eventManager = EventManager;
+        ModuleManager.registerModule('EventManager', eventManager);
+        
+        // 初始化配置管理器（带依赖注入）
+        const configManager = ConfigManager;
+        await configManager.init({
+            eventManager: eventManager,
+            // storageManager 将在业务模块中注入
+        });
+        ModuleManager.registerModule('ConfigManager', configManager);
+        
+        console.log('✅ 核心模块加载完成');
+    }
+    
+    /**
+     * 初始化业务模块
+     */
+    async function initBusinessModules() {
+        const configManager = ModuleManager.getModule('ConfigManager');
+        const config = configManager.getAll();
+        
+        // 注意：这里使用旧的模块名称保持兼容性
+        // 实际项目中会重构这些模块
+        
+        // 注册其他业务模块
+        ModuleManager.registerModule('UIManager', UIManager);
+        ModuleManager.registerModule('ChatManager', ChatManager);
+        ModuleManager.registerModule('APIManager', APIManager);
+        ModuleManager.registerModule('StorageManager', StorageManager);
+        ModuleManager.registerModule('SettingsManager', SettingsManager);
+        ModuleManager.registerModule('ModelManager', ModelManager);
+        ModuleManager.registerModule('Utils', Utils);
+        
+        // 初始化各模块（简化版，实际需重构各模块的init方法）
+        try {
+            // 初始化UI
+            UIManager.createAssistant(config);
+            console.log('✅ UI 已创建');
+            
+            // 检查聊天窗口状态
+            const isVisible = configManager.getChatVisibility();
+            if (!isVisible) {
+                UIManager.hide();
+                console.log('👁️ 聊天窗口已隐藏（根据上次状态）');
+            }
+            
+            // 显示欢迎消息
+            const history = configManager.getConversationHistory();
+            if (history.length === 0 && isVisible) {
+                ChatManager.showWelcomeMessage();
+                console.log('✅ 欢迎消息已显示');
+            }
+            
+        } catch (error) {
+            console.error('❌ 业务模块初始化失败:', error);
+            throw error;
         }
     }
 
     /**
-     * 设置全局事件监听
+     * 设置全局事件监听（使用新的事件系统）
      */
     function setupEventListeners() {
-        // 发送消息事件
-        window.addEventListener('agent-message-sent', async (e) => {
-            const message = e.detail;
+        // 使用新的事件管理器
+        const { EventTypes } = eventManager;
+        
+        // 聊天消息发送事件
+        eventManager.on(EventTypes.CHAT_MESSAGE_SENT, async (message) => {
             await handleUserMessage(message);
         });
-
+        
         // 打开设置事件
-        window.addEventListener('agent-open-settings', () => {
-            SettingsManager.showSettings();
+        eventManager.on(EventTypes.SETTINGS_OPEN, () => {
+            ModuleManager.getModule('SettingsManager')?.showSettings?.();
         });
-
+        
         // 清空聊天事件
+        eventManager.on(EventTypes.CHAT_CLEAR, () => {
+            ModuleManager.getModule('ChatManager')?.clearChat?.();
+        });
+        
+        // 执行代码事件
+        eventManager.on('agent-execute-code', (code) => {
+            ModuleManager.getModule('ChatManager')?.executeJavaScript?.(code);
+        });
+        
+        // 兼容旧事件（逐步迁移）
+        window.addEventListener('agent-message-sent', async (e) => {
+            eventManager.emit(EventTypes.CHAT_MESSAGE_SENT, e.detail);
+        });
+        
+        window.addEventListener('agent-open-settings', () => {
+            eventManager.emit(EventTypes.SETTINGS_OPEN);
+        });
+        
         window.addEventListener('agent-clear-chat', () => {
-            ChatManager.clearChat();
+            eventManager.emit(EventTypes.CHAT_CLEAR);
         });
-
-        // 执行代码事件 (来自代码块按钮)
+        
         window.addEventListener('agent-execute-code', (e) => {
-            const code = e.detail;
-            ChatManager.executeJavaScript(code);
+            eventManager.emit('agent-execute-code', e.detail);
         });
+        
+        console.log('🔌 事件监听器已设置');
     }
 
     /**
-     * 处理用户消息
+     * 启动应用逻辑
+     */
+    function startApplication() {
+        const configManager = ModuleManager.getModule('ConfigManager');
+        const config = configManager.getAll();
+        
+        // 触发应用启动事件
+        eventManager.emit(eventManager.EventTypes.APP_STARTED, {
+            config: configManager.exportConfig(),
+            timestamp: Date.now()
+        });
+        
+        console.log('🎯 应用已启动，等待用户交互...');
+    }
+    
+    /**
+     * 处理用户消息（使用模块化架构）
      */
     async function handleUserMessage(message) {
-        const config = ConfigManager.getAll();
+        const configManager = ModuleManager.getModule('ConfigManager');
+        const uiManager = ModuleManager.getModule('UIManager');
+        const chatManager = ModuleManager.getModule('ChatManager');
+        const config = configManager.getAll();
         
         // 检查 API Key
         if (!config.apiKey) {
-            UIManager.appendMessage(`
+            uiManager.appendMessage(`
                 <div class="assistant-message">
                     <div class="message-content" style="color: #ef4444;">
                         ⚠️ 请先在设置中配置 API Key<br><br>
@@ -4744,55 +5233,86 @@ const Utils = (function() {
             return;
         }
 
-        // 添加用户消息到界面
-        ChatManager.addUserMessage(message);
+        // 触发 API 调用开始事件
+        eventManager.emit(eventManager.EventTypes.API_CALL_START, { message });
         
-        // 处理快捷命令
-        const result = await ChatManager.handleMessage(message, config);
-        
-        // 如果不是命令,调用 API
-        if (result.type === 'chat') {
-            await callAPIAndRespond(message, config);
+        try {
+            // 添加用户消息到界面
+            chatManager.addUserMessage(message);
+            
+            // 处理快捷命令
+            const result = await chatManager.handleMessage(message, config);
+            
+            // 如果不是命令,调用 API
+            if (result.type === 'chat') {
+                await callAPIAndRespond(message, config);
+            }
+        } catch (error) {
+            console.error('消息处理失败:', error);
+            eventManager.emit(eventManager.EventTypes.APP_ERROR, { 
+                context: 'handleUserMessage',
+                error 
+            });
         }
     }
 
     /**
-     * 调用 API 并显示回复
+     * 调用 API 并显示回复（使用模块化架构）
      */
     async function callAPIAndRespond(userMessage, config) {
+        const uiManager = ModuleManager.getModule('UIManager');
+        const apiManager = ModuleManager.getModule('APIManager');
+        const chatManager = ModuleManager.getModule('ChatManager');
+        const configManager = ModuleManager.getModule('ConfigManager');
+        
         // 显示打字指示器
-        UIManager.showTypingIndicator();
-        UIManager.updateSendButtonState(true);
+        uiManager.showTypingIndicator();
+        uiManager.updateSendButtonState(true);
         
         try {
-            const history = ConfigManager.get('conversationHistory');
-            const response = await APIManager.callAPI(userMessage, history, config);
+            const history = configManager.getConversationHistory();
+            const response = await apiManager.callAPI(userMessage, history, config);
             
             // 隐藏打字指示器
-            UIManager.hideTypingIndicator();
-            UIManager.updateSendButtonState(false);
+            uiManager.hideTypingIndicator();
+            uiManager.updateSendButtonState(false);
             
             if (response.success) {
-                ChatManager.addAssistantMessage(response.message);
+                chatManager.addAssistantMessage(response.message);
+                eventManager.emit(eventManager.EventTypes.API_CALL_SUCCESS, {
+                    message: userMessage,
+                    response: response.message
+                });
             } else {
                 showError(response.error);
+                eventManager.emit(eventManager.EventTypes.API_CALL_ERROR, {
+                    message: userMessage,
+                    error: response.error
+                });
             }
             
         } catch (error) {
-            UIManager.hideTypingIndicator();
-            UIManager.updateSendButtonState(false);
+            uiManager.hideTypingIndicator();
+            uiManager.updateSendButtonState(false);
             showError(error.message);
+            eventManager.emit(eventManager.EventTypes.API_CALL_ERROR, {
+                message: userMessage,
+                error: error.message
+            });
         }
     }
 
     /**
-     * 显示错误信息
+     * 显示错误信息（使用事件系统）
      */
     function showError(errorMessage) {
-        UIManager.appendMessage(`
+        const uiManager = ModuleManager.getModule('UIManager');
+        const utils = ModuleManager.getModule('Utils');
+        
+        uiManager.appendMessage(`
             <div class="assistant-message">
                 <div class="message-content" style="color: #ef4444;">
-                    ❌ 请求失败: ${escapeHtml(errorMessage)}<br><br>
+                    ❌ 请求失败: ${utils?.escapeHtml?.(errorMessage) || escapeHtml(errorMessage)}<br><br>
                     💡 可能的原因:<br>
                     • API Key 无效或已过期<br>
                     • 网络连接问题<br>
@@ -4804,7 +5324,7 @@ const Utils = (function() {
     }
 
     /**
-     * HTML 转义
+     * HTML 转义（兼容性函数）
      */
     function escapeHtml(text) {
         const div = document.createElement('div');
@@ -4860,8 +5380,8 @@ const Utils = (function() {
             });
             
             badge.addEventListener('click', () => {
-                // 触发打开 Agent 的事件
-                window.dispatchEvent(new CustomEvent('open-ai-agent'));
+                // 使用新的事件系统打开 Agent
+                eventManager.emit(eventManager.EventTypes.AGENT_OPEN);
                 
                 // 点击后隐藏按钮（Agent 打开后不需要显示）
                 badge.style.transition = 'all 0.3s ease';
@@ -4875,12 +5395,12 @@ const Utils = (function() {
             document.body.appendChild(badge);
             
             // 监听 Agent 关闭事件，重新显示按钮
-            window.addEventListener('agent-closed', () => {
+            eventManager.on(eventManager.EventTypes.AGENT_CLOSE, () => {
                 badge.style.display = 'flex';
                 badge.style.transition = 'all 0.3s ease';
                 badge.style.transform = 'scale(1)';
                 badge.style.opacity = '1';
-            }, { once: false });
+            });
             
             console.log('🔘 AI Agent 启动按钮已创建（右下角圆形按钮）');
         }, 1000);
