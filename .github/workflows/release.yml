@@ -50,15 +50,8 @@ jobs:
         body: |
           ## Free Web AI Agent v${{ steps.get_version.outputs.VERSION }}
           
-          ### ✨ 更新内容
-          查看 [RELEASE_${{ steps.get_version.outputs.VERSION }}.md](https://github.com/${{ github.repository }}/blob/main/RELEASE_${{ steps.get_version.outputs.VERSION }}.md)
-          
           ### 📦 安装
           直接下载 `agent.user.js` 并安装到 Tampermonkey
-          
-          ### 🔗 链接
-          - [架构文档](https://github.com/${{ github.repository }}/blob/main/ARCHITECTURE.md)
-          - [更新计划](https://github.com/${{ github.repository }}/blob/main/UPDATE_PLAN.md)
         files: |
           dist/agent.user.js
         draft: false
