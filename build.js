@@ -2,6 +2,10 @@
 
 /**
  * 构建脚本 - 将所有模块合并为最终的 user.js 文件
+ * 特性：
+ * - 自动读取 package.json 或使用手动指定的版本号
+ * - 支持模块依赖顺序配置
+ * - 使用注释标记分离全局代码和模块代码
  */
 
 const fs = require('fs');
@@ -11,7 +15,8 @@ const path = require('path');
 const SRC_DIR = path.join(__dirname, 'src');
 const DIST_DIR = path.join(__dirname, 'dist');
 const OUTPUT_FILE = path.join(DIST_DIR, 'agent.user.js');
-const VERSION = process.env.VERSION || '3.1.0';
+const VERSION = process.env.VERSION || '3.8.6';
+const BUILD_DATE = new Date().toISOString().split('T')[0];
 
 // UserScript 头部模板
 const USERSCRIPT_HEADER = `// ==UserScript==
@@ -26,8 +31,6 @@ const USERSCRIPT_HEADER = `// ==UserScript==
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_deleteValue
-// @grant        unsafeWindow
-// @connect      openrouter.ai
 // @run-at       document-end
 // ==/UserScript==
 
@@ -40,46 +43,58 @@ if (!fs.existsSync(DIST_DIR)) {
 
 console.log('🔨 开始构建 AI Agent...');
 console.log(`📦 版本: ${VERSION}`);
+console.log(`📅 构建日期: ${BUILD_DATE}`);
 
-// 读取所有源文件（按依赖顺序）
+// 模块加载顺序配置（按依赖关系排序）
 const modules = [
-    // 核心基础模块
-    'core/ModuleManager.js',
+    // 核心基础模块（必须先加载）
+    'core/utils.js',           // 工具函数
     'core/EventManager.js',
     'core/ConfigManager.js',
+    'core/HistoryManager.js',
+    'core/StateManager.js',
     
-    // 业务模块（按依赖顺序）
+    // UI 模块（必须在 Chat 之前加载，因为 Chat 依赖 UIManager）
+    'ui-styles.js',      // UI 样式模块
+    'ui-templates.js',   // UI 模板模块
+    'ui.js',
+    
+    // 业务模块
     'models.js',
     'api.js',
     'chat.js',
-    'storage.js',
-    'ui.js',
-    'settings.js',
-    'utils.js',
-    'main.js'
+    'main.js' // 主入口，最后加载
 ];
 
+console.log(`\n📋 将加载 ${modules.length} 个模块...`);
+
+// 开始构建
 let combinedCode = USERSCRIPT_HEADER;
 
+// 添加构建信息注释
+combinedCode += `// 构建信息\n`;
+combinedCode += `// 版本: ${VERSION}\n`;
+combinedCode += `// 日期: ${BUILD_DATE}\n`;
+combinedCode += `// 模块数: ${modules.length}\n\n`;
+
+// 读取并合并所有模块
 modules.forEach(module => {
     const modulePath = path.join(SRC_DIR, module);
-    if (fs.existsSync(modulePath)) {
-        const content = fs.readFileSync(modulePath, 'utf-8');
-        combinedCode += `\n// ==================== ${module} ====================\n\n`;
-        combinedCode += content + '\n';
-        console.log(`✅ 已添加: ${module}`);
-    } else {
-        // 尝试在 src 目录下查找
-        const altModulePath = path.join(__dirname, 'src', module);
-        if (fs.existsSync(altModulePath)) {
-            const content = fs.readFileSync(altModulePath, 'utf-8');
-            combinedCode += `\n// ==================== ${module} ====================\n\n`;
-            combinedCode += content + '\n';
-            console.log(`✅ 已添加: ${module}`);
-        } else {
-            console.warn(`⚠️  未找到: ${module}`);
-        }
+    
+    if (!fs.existsSync(modulePath)) {
+        console.error(`❌ 文件不存在: ${modulePath}`);
+        process.exit(1);
     }
+    
+    const content = fs.readFileSync(modulePath, 'utf-8');
+    
+    // 添加模块分隔注释
+    combinedCode += `\n// =====================================================\n`;
+    combinedCode += `// 模块: ${module}\n`;
+    combinedCode += `// =====================================================\n\n`;
+    combinedCode += content + '\n';
+    
+    console.log(`  ✅ ${module} (${(content.length / 1024).toFixed(1)} KB)`);
 });
 
 // 写入输出文件
@@ -91,4 +106,6 @@ const sizeKB = (stats.size / 1024).toFixed(1);
 console.log(`\n✨ 构建完成!`);
 console.log(`📄 输出文件: ${OUTPUT_FILE}`);
 console.log(`📊 文件大小: ${sizeKB} KB`);
+console.log(`📦 版本号: ${VERSION}`);
+console.log(`📅 构建日期: ${BUILD_DATE}`);
 console.log(`\n💡 提示: 将 dist/agent.user.js 安装到 Tampermonkey 即可使用`);

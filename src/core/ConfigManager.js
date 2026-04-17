@@ -13,11 +13,7 @@ const ConfigManager = (function() {
         TOP_P: 'top_p',
         MAX_TOKENS: 'max_tokens',
         JS_ENABLED: 'js_execution_enabled',
-        USER_ID: 'user_id',
-        HISTORY: 'conversation_history',
-        CACHED_MODELS: 'cached_models',
-        CHAT_VISIBILITY: 'chat_visibility',
-        CACHED_MODELS_LAST_UPDATE: 'cached_models_last_update'
+        USER_ID: 'user_id'
     };
     
     // 默认配置
@@ -29,8 +25,7 @@ const ConfigManager = (function() {
         topP: 0.95,
         maxTokens: 2048,
         jsExecutionEnabled: true,
-        userId: 'user_' + Date.now(),
-        conversationHistory: []
+        userId: 'user_' + Date.now()
     };
     
     // 配置缓存
@@ -39,7 +34,6 @@ const ConfigManager = (function() {
     
     // 依赖引用（通过依赖注入）
     let eventManager = null;
-    let storageManager = null;
     
     /**
      * 初始化配置管理器
@@ -55,9 +49,6 @@ const ConfigManager = (function() {
         // 注入依赖
         if (dependencies.eventManager) {
             eventManager = dependencies.eventManager;
-        }
-        if (dependencies.storageManager) {
-            storageManager = dependencies.storageManager;
         }
         
         console.log('🔄 初始化配置管理器...');
@@ -112,23 +103,10 @@ const ConfigManager = (function() {
             topP: GM_getValue(ConfigKeys.TOP_P, Defaults.topP),
             maxTokens: GM_getValue(ConfigKeys.MAX_TOKENS, Defaults.maxTokens),
             jsExecutionEnabled: GM_getValue(ConfigKeys.JS_ENABLED, Defaults.jsExecutionEnabled),
-            userId: GM_getValue(ConfigKeys.USER_ID, Defaults.userId),
-            conversationHistory: GM_getValue(ConfigKeys.HISTORY, Defaults.conversationHistory)
+            userId: GM_getValue(ConfigKeys.USER_ID, Defaults.userId)
         };
-        
-        // 尝试从工作空间加载配置（如果 storageManager 可用）
-        if (storageManager && typeof storageManager.getCurrentWorkspace === 'function') {
-            try {
-                const currentWs = storageManager.getCurrentWorkspace();
-                if (currentWs?.folderHandle?.kind === 'directory' && currentWs.data?.settings) {
-                    const wsSettings = currentWs.data.settings;
-                    Object.assign(configCache, wsSettings);
-                    console.log('✅ 已从工作空间加载配置');
-                }
-            } catch (error) {
-                console.warn('加载工作空间配置失败:', error);
-            }
-        }
+
+        console.log('✅ 配置已加载');
     }
     
     /**
@@ -174,8 +152,7 @@ const ConfigManager = (function() {
             topP: ConfigKeys.TOP_P,
             maxTokens: ConfigKeys.MAX_TOKENS,
             jsExecutionEnabled: ConfigKeys.JS_ENABLED,
-            userId: ConfigKeys.USER_ID,
-            conversationHistory: ConfigKeys.HISTORY
+            userId: ConfigKeys.USER_ID
         };
         
         const gmKey = keyMappings[key];
@@ -183,21 +160,10 @@ const ConfigManager = (function() {
             GM_setValue(gmKey, value);
         }
         
-        // 保存到工作空间（如果可用）
-        if (storageManager && typeof storageManager.updateWorkspaceSettings === 'function') {
-            try {
-                storageManager.updateWorkspaceSettings({ [key]: value });
-            } catch (error) {
-                console.warn('保存到工作空间失败:', error);
-            }
-        }
-        
         // 触发配置更新事件
         if (eventManager) {
             eventManager.emit(eventManager.EventTypes.CONFIG_UPDATED, { [key]: value });
         }
-        
-        console.log(`⚙️ 配置已更新: ${key} = ${value}`);
     }
     
     /**
@@ -224,39 +190,6 @@ const ConfigManager = (function() {
             // 重置指定配置
             set(key, Defaults[key]);
         }
-    }
-    
-    /**
-     * 获取对话历史
-     * @returns {Array} 对话历史
-     */
-    function getConversationHistory() {
-        return get('conversationHistory') || [];
-    }
-    
-    /**
-     * 保存对话历史
-     * @param {Array} history - 对话历史
-     */
-    function saveConversationHistory(history) {
-        set('conversationHistory', history);
-    }
-    
-    /**
-     * 获取聊天窗口可见性
-     * @returns {boolean} 是否可见
-     */
-    function getChatVisibility() {
-        const visibility = GM_getValue(ConfigKeys.CHAT_VISIBILITY, true);
-        return visibility !== false;
-    }
-    
-    /**
-     * 保存聊天窗口可见性
-     * @param {boolean} isVisible - 是否可见
-     */
-    function saveChatVisibility(isVisible) {
-        GM_setValue(ConfigKeys.CHAT_VISIBILITY, isVisible);
     }
     
     /**
@@ -307,10 +240,6 @@ const ConfigManager = (function() {
         set,
         update,
         reset,
-        getConversationHistory,
-        saveConversationHistory,
-        getChatVisibility,
-        saveChatVisibility,
         isConfigured,
         exportConfig,
         importConfig,

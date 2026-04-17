@@ -153,13 +153,20 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 
 ## 📦 版本管理
 
-本项目使用 GitHub Releases 进行版本管理:
+本项目使用 GitHub Releases 进行版本管理：
 
 - **最新版本**: [Releases 页面](https://github.com/你的用户名/openrouter-browser-agent/releases/latest)
 - **历史版本**: [所有 Releases](https://github.com/你的用户名/openrouter-browser-agent/releases)
 - **版本加载器**: 使用 `version-loader.user.js` 自动管理版本
 
 详细说明请查看: [RELEASE_GUIDE.md](RELEASE_GUIDE.md)
+
+## 📚 文档
+
+- **[架构文档](ARCHITECTURE.md)** - 完整的系统架构说明
+- **[构建指南](BUILD.md)** - 如何从源码构建
+- **[模块说明](MODULES.md)** - 各模块功能详解
+- **[架构维护指南](ARCHITECTURE_MAINTENANCE_GUIDE.md)** - 如何维护架构文档
 
 ---
 

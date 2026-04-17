@@ -1,85 +1,79 @@
 // ==================== 事件管理器 ====================
-// 统一的事件通信系统，替换 window 全局事件
+// 统一的事件总线，支持监听器 ID 管理和防重复注册
 
 const EventManager = (function() {
     'use strict';
     
-    const listeners = new Map();
-    
     /**
-     * 标准化事件类型
+     * 事件类型常量
      */
     const EventTypes = {
         // UI 相关
-        UI_SHOW: 'ui:show',
-        UI_HIDE: 'ui:hide',
-        UI_TOGGLE: 'ui:toggle',
+        UI_SHOW: 'agent:ui:show',
+        UI_HIDE: 'agent:ui:hide',
+        UI_TOGGLE: 'agent:ui:toggle',
         
         // 聊天相关
-        CHAT_MESSAGE_SENT: 'chat:message:sent',
-        CHAT_MESSAGE_RECEIVED: 'chat:message:received',
-        CHAT_CLEAR: 'chat:clear',
+        CHAT_MESSAGE_SENT: 'agent:chat:message:sent',
+        CHAT_MESSAGE_RECEIVED: 'agent:chat:message:received',
+        CHAT_CLEAR: 'agent:chat:clear',
         
         // 配置相关
-        CONFIG_UPDATED: 'config:updated',
-        SETTINGS_OPEN: 'settings:open',
-        SETTINGS_SAVED: 'settings:saved',
-        
-        // 文件操作相关
-        FILE_OPENED: 'file:opened',
-        FILE_SAVED: 'file:saved',
-        FILE_DELETED: 'file:deleted',
-        FOLDER_OPENED: 'folder:opened',
-        
-        // 工作空间相关
-        WORKSPACE_CHANGED: 'workspace:changed',
-        WORKSPACE_LOADED: 'workspace:loaded',
+        CONFIG_UPDATED: 'agent:config:updated',
+        SETTINGS_OPEN: 'agent:settings:open',
+        SETTINGS_SAVED: 'agent:settings:saved',
         
         // API 相关
-        API_CALL_START: 'api:call:start',
-        API_CALL_SUCCESS: 'api:call:success',
-        API_CALL_ERROR: 'api:call:error',
+        API_CALL_START: 'agent:api:call:start',
+        API_CALL_SUCCESS: 'agent:api:call:success',
+        API_CALL_ERROR: 'agent:api:call:error',
         
         // 系统级
-        APP_STARTED: 'app:started',
-        APP_ERROR: 'app:error',
+        APP_STARTED: 'agent:app:started',
+        APP_ERROR: 'agent:app:error',
         AGENT_OPEN: 'agent:open',
         AGENT_CLOSE: 'agent:close'
     };
+    
+    // 监听器注册表：eventType -> Map<listenerId, {callback, handler}>
+    const listenerRegistry = new Map();
+    let nextListenerId = 1;
     
     /**
      * 注册事件监听器
      * @param {string} eventType - 事件类型
      * @param {Function} callback - 回调函数
-     * @returns {Function} 移除监听器的函数
+     * @returns {number} 监听器 ID，用于移除监听器
      */
     function on(eventType, callback) {
-        if (!listeners.has(eventType)) {
-            listeners.set(eventType, []);
+        if (typeof callback !== 'function') {
+            console.error('❌ EventManager.on: callback 必须是函数');
+            return -1;
         }
         
-        const callbacks = listeners.get(eventType);
-        callbacks.push(callback);
+        // 为每个监听器创建唯一的 ID
+        const listenerId = nextListenerId++;
         
-        // 返回移除函数
-        return () => {
-            const idx = callbacks.indexOf(callback);
-            if (idx > -1) {
-                callbacks.splice(idx, 1);
+        // 创建包装函数（用于接收 CustomEvent）
+        const handler = (e) => {
+            try {
+                callback(e.detail);
+            } catch (error) {
+                console.error(`❌ 事件处理器错误 [${eventType}][ID:${listenerId}]:`, error);
             }
         };
-    }
-    
-    /**
-     * 一次性事件监听器
-     * @param {string} eventType - 事件类型
-     * @param {Function} callback - 回调函数
-     */
-    function once(eventType, callback) {
-        const removeListener = on(eventType, (data) => {
-            removeListener();
-            callback(data);
-        });
+        
+        // 注册到内部表
+        if (!listenerRegistry.has(eventType)) {
+            listenerRegistry.set(eventType, new Map());
+        }
+        listenerRegistry.get(eventType).set(listenerId, { callback, handler });
+        
+        // 注册到 window
+        window.addEventListener(eventType, handler);
+        
+        // 返回监听器 ID
+        return listenerId;
     }
     
     /**
@@ -88,48 +82,80 @@ const EventManager = (function() {
      * @param {any} data - 事件数据
      */
     function emit(eventType, data = null) {
-        console.log(`📡 事件触发: ${eventType}`, data);
-        
-        // 兼容性：同时触发全局事件（暂时保留）
-        try {
-            window.dispatchEvent(new CustomEvent(eventType.replace(':', '-'), { detail: data }));
-        } catch (error) {
-            console.warn('全局事件触发失败:', error);
-        }
-        
-        // 触发内部事件
-        const callbacks = listeners.get(eventType);
-        if (callbacks) {
-            callbacks.forEach(callback => {
-                try {
-                    callback(data);
-                } catch (error) {
-                    console.error(`事件监听器错误 (${eventType}):`, error);
-                }
-            });
-        }
+        window.dispatchEvent(new CustomEvent(eventType, { detail: data }));
     }
     
     /**
      * 移除事件监听器
      * @param {string} eventType - 事件类型
-     * @param {Function} callback - 回调函数
+     * @param {number} listenerId - 监听器 ID（由 on() 返回）
+     * @returns {boolean} 是否成功移除
      */
-    function off(eventType, callback) {
-        const callbacks = listeners.get(eventType);
-        if (callbacks) {
-            const idx = callbacks.indexOf(callback);
-            if (idx > -1) {
-                callbacks.splice(idx, 1);
+    function off(eventType, listenerId) {
+        if (listenerRegistry.has(eventType)) {
+            const listeners = listenerRegistry.get(eventType);
+            if (listeners.has(listenerId)) {
+                const { handler } = listeners.get(listenerId);
+                
+                // 从 window 移除
+                window.removeEventListener(eventType, handler);
+                
+                // 从内部表移除
+                listeners.delete(listenerId);
+                
+                // 如果没有监听器了，清理事件类型
+                if (listeners.size === 0) {
+                    listenerRegistry.delete(eventType);
+                }
+                
+                return true;
             }
         }
+        
+        console.warn(`⚠️ 事件监听器未找到 [${eventType}][ID:${listenerId}]`);
+        return false;
     }
     
     /**
-     * 清除所有事件监听器
+     * 移除指定事件类型的所有监听器
+     * @param {string} eventType - 事件类型
+     * @returns {number} 移除的监听器数量
      */
-    function clearAll() {
-        listeners.clear();
+    function offAll(eventType) {
+        if (listenerRegistry.has(eventType)) {
+            const listeners = listenerRegistry.get(eventType);
+            let removedCount = 0;
+            
+            listeners.forEach(({ handler }, listenerId) => {
+                window.removeEventListener(eventType, handler);
+                removedCount++;
+            });
+            
+            listenerRegistry.delete(eventType);
+            
+            return removedCount;
+        }
+        
+        return 0;
+    }
+    
+    /**
+     * 获取所有注册的监听器统计信息
+     * @returns {Object} 监听器统计
+     */
+    function getListenerStats() {
+        const stats = {
+            totalListeners: 0,
+            eventTypes: listenerRegistry.size,
+            details: {}
+        };
+        
+        listenerRegistry.forEach((listeners, eventType) => {
+            stats.totalListeners += listeners.size;
+            stats.details[eventType] = listeners.size;
+        });
+        
+        return stats;
     }
     
     /**
@@ -142,10 +168,10 @@ const EventManager = (function() {
     // 导出公共接口
     return {
         on,
-        once,
         emit,
         off,
-        clearAll,
+        offAll,
+        getListenerStats,
         getEventTypes,
         
         // 事件类型常量（方便使用）

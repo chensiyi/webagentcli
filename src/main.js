@@ -4,14 +4,20 @@
 (function() {
     'use strict';
     
-    // 模块管理器引用
-    let moduleManager = null;
-    let eventManager = null;
+    // 标记是否已经初始化
+    let isInitialized = false;
     
     /**
      * 初始化应用
      */
     async function init() {
+        // 防止重复初始化
+        if (isInitialized) {
+            console.log('⚠️ 应用已初始化，跳过');
+            return;
+        }
+        isInitialized = true;
+        
         console.log('🚀 AI Agent 正在启动...');
         
         try {
@@ -37,7 +43,7 @@
             
         } catch (error) {
             console.error('❌ 启动失败:', error);
-            eventManager?.emit(eventManager.EventTypes.APP_ERROR, { error });
+            EventManager?.emit(EventManager.EventTypes.APP_ERROR, { error });
         }
     }
     
@@ -45,20 +51,16 @@
      * 初始化核心模块
      */
     async function initCoreModules() {
-        // 注册和初始化模块管理器
-        ModuleManager.registerModule('ModuleManager', ModuleManager);
-        
-        // 初始化事件管理器
-        eventManager = EventManager;
-        ModuleManager.registerModule('EventManager', eventManager);
-        
         // 初始化配置管理器（带依赖注入）
-        const configManager = ConfigManager;
-        await configManager.init({
-            eventManager: eventManager,
-            // storageManager 将在业务模块中注入
+        await ConfigManager.init({
+            eventManager: EventManager
         });
-        ModuleManager.registerModule('ConfigManager', configManager);
+        
+        // 初始化历史管理器
+        await HistoryManager.init();
+        
+        // 初始化状态管理器
+        await StateManager.init();
         
         console.log('✅ 核心模块加载完成');
     }
@@ -67,42 +69,29 @@
      * 初始化业务模块
      */
     async function initBusinessModules() {
-        const configManager = ModuleManager.getModule('ConfigManager');
-        const config = configManager.getAll();
+        const config = ConfigManager.getAll();
         
-        // 注意：这里使用旧的模块名称保持兼容性
-        // 实际项目中会重构这些模块
-        
-        // 注册其他业务模块
-        ModuleManager.registerModule('UIManager', UIManager);
-        ModuleManager.registerModule('ChatManager', ChatManager);
-        ModuleManager.registerModule('APIManager', APIManager);
-        ModuleManager.registerModule('StorageManager', StorageManager);
-        ModuleManager.registerModule('SettingsManager', SettingsManager);
-        ModuleManager.registerModule('ModelManager', ModelManager);
-        ModuleManager.registerModule('Utils', Utils);
-        
-        // 初始化各模块（简化版，实际需重构各模块的init方法）
+        // 初始化各模块
         try {
-            // 初始化UI
-            UIManager.createAssistant(config);
-            console.log('✅ UI 已创建');
+            // 先加载对话历史，判断是否首次使用
+            const history = HistoryManager.getHistory();
+            const isFirstUse = history.length === 0;
             
             // 检查聊天窗口状态
-            const isVisible = configManager.getChatVisibility();
-            if (!isVisible) {
-                UIManager.hide();
-                console.log('👁️ 聊天窗口已隐藏（根据上次状态）');
-            }
+            const cachedVisibility = StateManager.getChatVisibility();
             
-            // 加载聊天记录 (双重存储逻辑)
-            const history = await configManager.loadConversationHistory();
-            if (history.length > 0) {
+            // 初始化UI
+            UIManager.createAssistant(config);
+            
+            // 根据状态显示/隐藏聊天窗口
+            // 默认隐藏，需要用户点击按钮唤醒
+            if (cachedVisibility) {
+                // 状态为打开：显示 + 加载历史
+                UIManager.show();
                 ChatManager.renderHistory(history);
-                console.log(`✅ 已加载 ${history.length} 条历史消息`);
-            } else if (isVisible) {
-                ChatManager.showWelcomeMessage();
-                console.log('✅ 欢迎消息已显示');
+            } else {
+                // 默认隐藏（包括首次使用）
+                UIManager.hide();
             }
             
         } catch (error) {
@@ -112,211 +101,97 @@
     }
 
     /**
-     * 设置全局事件监听（使用新的事件系统）
+     * 设置全局事件监听（简化版）
+     * @returns {Array<number>} 监听器 ID 列表
      */
     function setupEventListeners() {
-        // 使用新的事件管理器
-        const { EventTypes } = eventManager;
+        const { EventTypes } = EventManager;
+        const listenerIds = [];
         
-        // 聊天消息发送事件
-        eventManager.on(EventTypes.CHAT_MESSAGE_SENT, async (message) => {
-            await handleUserMessage(message);
-        });
+        // 聊天消息发送事件 - 直接调用 ChatManager.handleMessage
+        listenerIds.push(
+            EventManager.on(EventTypes.CHAT_MESSAGE_SENT, async (message) => {
+                await ChatManager.handleMessage(message);
+            })
+        );
         
         // 打开设置事件
-        eventManager.on(EventTypes.SETTINGS_OPEN, () => {
-            ModuleManager.getModule('SettingsManager')?.showSettings?.();
-        });
+        listenerIds.push(
+            EventManager.on(EventTypes.SETTINGS_OPEN, () => {
+                UIManager.showSettings();
+            })
+        );
         
         // 清空聊天事件
-        eventManager.on(EventTypes.CHAT_CLEAR, () => {
-            ModuleManager.getModule('ChatManager')?.clearChat?.();
-        });
+        listenerIds.push(
+            EventManager.on(EventTypes.CHAT_CLEAR, () => {
+                ChatManager.clearChat();
+            })
+        );
         
         // 执行代码事件
-        eventManager.on('agent-execute-code', (code) => {
-            ModuleManager.getModule('ChatManager')?.executeJavaScript?.(code);
-        });
+        listenerIds.push(
+            EventManager.on('agent:execute:code', (code) => {
+                ChatManager.executeJavaScript(code);
+            })
+        );
+        
+        // 停止请求事件
+        listenerIds.push(
+            EventManager.on('agent:stop:request', () => {
+                ChatManager.stopCurrentRequest();
+            })
+        );
         
         // 打开/关闭 Agent 窗口事件
-        eventManager.on(EventTypes.AGENT_OPEN, () => {
-            ModuleManager.getModule('UIManager')?.show?.();
-        });
+        listenerIds.push(
+            EventManager.on(EventTypes.AGENT_OPEN, async () => {
+                UIManager.show();
+                StateManager.saveChatVisibility(true);
+                
+                // 加载历史记录（如果有的话）
+                const history = HistoryManager.getHistory();
+                if (history.length > 0) {
+                    ChatManager.renderHistory(history);
+                }
+            })
+        );
         
-        eventManager.on(EventTypes.AGENT_CLOSE, () => {
-            ModuleManager.getModule('UIManager')?.hide?.();
-        });
+        listenerIds.push(
+            EventManager.on(EventTypes.AGENT_CLOSE, () => {
+                // 注意：UIManager.hide() 已经在 ui.js 中调用过了，这里不需要再次调用
+                // 只需要保存状态和记录日志
+                StateManager.saveChatVisibility(false);
+            })
+        );
         
-        // 兼容旧事件（逐步迁移）
-        window.addEventListener('agent-message-sent', async (e) => {
-            eventManager.emit(EventTypes.CHAT_MESSAGE_SENT, e.detail);
-        });
-        
-        window.addEventListener('agent-open-settings', () => {
-            eventManager.emit(EventTypes.SETTINGS_OPEN);
-        });
-        
-        window.addEventListener('agent-clear-chat', () => {
-            eventManager.emit(EventTypes.CHAT_CLEAR);
-        });
-        
-        window.addEventListener('agent-execute-code', (e) => {
-            eventManager.emit('agent-execute-code', e.detail);
-        });
-        
-        // 兼容旧的 open-ai-agent 事件（来自 version-loader 或其他地方）
-        window.addEventListener('open-ai-agent', () => {
-            eventManager.emit(EventTypes.AGENT_OPEN);
-        });
-        
-        console.log('🔌 事件监听器已设置');
+        return listenerIds;
     }
 
     /**
      * 启动应用逻辑
      */
     function startApplication() {
-        const configManager = ModuleManager.getModule('ConfigManager');
-        const config = configManager.getAll();
+        const config = ConfigManager.getAll();
         
         // 触发应用启动事件
-        eventManager.emit(eventManager.EventTypes.APP_STARTED, {
-            config: configManager.exportConfig(),
+        EventManager.emit(EventManager.EventTypes.APP_STARTED, {
+            config: ConfigManager.exportConfig(),
             timestamp: Date.now()
         });
         
         console.log('🎯 应用已启动，等待用户交互...');
     }
-    
-    /**
-     * 处理用户消息（使用模块化架构）
-     */
-    async function handleUserMessage(message) {
-        const configManager = ModuleManager.getModule('ConfigManager');
-        const uiManager = ModuleManager.getModule('UIManager');
-        const chatManager = ModuleManager.getModule('ChatManager');
-        const config = configManager.getAll();
-        
-        // 检查 API Key
-        if (!config.apiKey) {
-            uiManager.appendMessage(`
-                <div class="assistant-message">
-                    <div class="message-content" style="color: #ef4444;">
-                        ⚠️ 请先在设置中配置 API Key<br><br>
-                        💡 获取免费 API Key: <a href="https://openrouter.ai/keys" target="_blank">点击获取</a>
-                    </div>
-                </div>
-            `);
-            return;
-        }
-
-        // 触发 API 调用开始事件
-        eventManager.emit(eventManager.EventTypes.API_CALL_START, { message });
-        
-        try {
-            // 添加用户消息到界面
-            chatManager.addUserMessage(message);
-            
-            // 处理快捷命令
-            const result = await chatManager.handleMessage(message, config);
-            
-            // 如果不是命令,调用 API
-            if (result.type === 'chat') {
-                await callAPIAndRespond(message, config);
-            }
-        } catch (error) {
-            console.error('消息处理失败:', error);
-            eventManager.emit(eventManager.EventTypes.APP_ERROR, { 
-                context: 'handleUserMessage',
-                error 
-            });
-        }
-    }
-
-    /**
-     * 调用 API 并显示回复（使用模块化架构）
-     */
-    async function callAPIAndRespond(userMessage, config) {
-        const uiManager = ModuleManager.getModule('UIManager');
-        const apiManager = ModuleManager.getModule('APIManager');
-        const chatManager = ModuleManager.getModule('ChatManager');
-        const configManager = ModuleManager.getModule('ConfigManager');
-        
-        // 显示打字指示器
-        uiManager.showTypingIndicator();
-        uiManager.updateSendButtonState(true);
-        
-        try {
-            const history = configManager.getConversationHistory();
-            const response = await apiManager.callAPI(userMessage, history, config);
-            
-            // 隐藏打字指示器
-            uiManager.hideTypingIndicator();
-            uiManager.updateSendButtonState(false);
-            
-            if (response.success) {
-                chatManager.addAssistantMessage(response.message);
-                eventManager.emit(eventManager.EventTypes.API_CALL_SUCCESS, {
-                    message: userMessage,
-                    response: response.message
-                });
-            } else {
-                showError(response.error);
-                eventManager.emit(eventManager.EventTypes.API_CALL_ERROR, {
-                    message: userMessage,
-                    error: response.error
-                });
-            }
-            
-        } catch (error) {
-            uiManager.hideTypingIndicator();
-            uiManager.updateSendButtonState(false);
-            showError(error.message);
-            eventManager.emit(eventManager.EventTypes.API_CALL_ERROR, {
-                message: userMessage,
-                error: error.message
-            });
-        }
-    }
-
-    /**
-     * 显示错误信息（使用事件系统）
-     */
-    function showError(errorMessage) {
-        const uiManager = ModuleManager.getModule('UIManager');
-        const utils = ModuleManager.getModule('Utils');
-        
-        uiManager.appendMessage(`
-            <div class="assistant-message">
-                <div class="message-content" style="color: #ef4444;">
-                    ❌ 请求失败: ${utils?.escapeHtml?.(errorMessage) || escapeHtml(errorMessage)}<br><br>
-                    💡 可能的原因:<br>
-                    • API Key 无效或已过期<br>
-                    • 网络连接问题<br>
-                    • 模型暂时不可用 (尝试切换模型)<br>
-                    • 达到速率限制 (稍后重试)
-                </div>
-            </div>
-        `);
-    }
-
-    /**
-     * HTML 转义（兼容性函数）
-     */
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
 
     /**
      * 创建启动按钮
+     * @returns {number|null} 监听器 ID
      */
     function createLauncherButton() {
         // 检查是否已存在启动按钮
         if (document.getElementById('agent-launcher-btn')) {
             console.log('🔘 启动按钮已存在，跳过创建');
-            return;
+            return null;
         }
 
         setTimeout(() => {
@@ -345,6 +220,12 @@
             badge.textContent = '🤖';
             badge.title = '点击打开 AI Agent';
             
+            // 根据聊天窗口状态决定按钮初始显示状态
+            const isChatVisible = StateManager.getChatVisibility();
+            if (isChatVisible) {
+                badge.style.display = 'none';
+            }
+            
             // 悬停效果
             badge.addEventListener('mouseenter', () => {
                 badge.style.transform = 'scale(1.1)';
@@ -357,8 +238,8 @@
             });
             
             badge.addEventListener('click', () => {
-                // 使用新的事件系统打开 Agent
-                eventManager.emit(eventManager.EventTypes.AGENT_OPEN);
+                // 使用事件系统打开 Agent
+                EventManager.emit(EventManager.EventTypes.AGENT_OPEN);
                 
                 // 点击后隐藏按钮（Agent 打开后不需要显示）
                 badge.style.transition = 'all 0.3s ease';
@@ -372,7 +253,7 @@
             document.body.appendChild(badge);
             
             // 监听 Agent 关闭事件，重新显示按钮
-            eventManager.on(eventManager.EventTypes.AGENT_CLOSE, () => {
+            const listenerId = EventManager.on(EventManager.EventTypes.AGENT_CLOSE, () => {
                 badge.style.display = 'flex';
                 badge.style.transition = 'all 0.3s ease';
                 badge.style.transform = 'scale(1)';
@@ -380,6 +261,7 @@
             });
             
             console.log('🔘 AI Agent 启动按钮已创建（右下角圆形按钮）');
+            return listenerId;
         }, 1000);
     }
 
@@ -387,13 +269,13 @@
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
             init();
-            // 创建启动按钮
-            createLauncherButton();
         });
     } else {
-        init();
-        // 创建启动按钮
-        createLauncherButton();
+        // DOM 已经加载完成，直接初始化
+        // 使用 setTimeout 确保在下一个事件循环中执行，避免潜在的问题
+        setTimeout(() => {
+            init();
+        }, 0);
     }
 
 })();

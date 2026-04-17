@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Free Web AI Agent
 // @namespace    https://github.com/chensiyi1994
-// @version      3.1.0
+// @version      3.8.6
 // @description  基于ai模型的Web AI 助手,支持 JS 执行
 // @author       chensiyi1994
 // @match        *://*/*
@@ -10,249 +10,135 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_deleteValue
-// @grant        unsafeWindow
-// @connect      openrouter.ai
 // @run-at       document-end
 // ==/UserScript==
 
+// 构建信息
+// 版本: 3.8.6
+// 日期: 2026-04-17
+// 模块数: 12
 
-// ==================== core/ModuleManager.js ====================
 
-// ==================== 模块管理器 (核心) ====================
-// 负责模块的初始化、注册、依赖管理和通信
+// =====================================================
+// 模块: core/utils.js
+// =====================================================
 
-const ModuleManager = (function() {
+// ==================== 工具函数模块 ====================
+// 提供通用的工具函数，避免代码重复
+
+const Utils = (function() {
     'use strict';
     
-    // 模块注册表
-    const modules = {};
-    
-    // 模块状态
-    const moduleStates = {};
-    
-    // 事件中心
-    const eventCenter = {
-        listeners: {},
-        
-        // 注册事件监听器
-        on(eventName, callback) {
-            if (!this.listeners[eventName]) {
-                this.listeners[eventName] = [];
-            }
-            this.listeners[eventName].push(callback);
-        },
-        
-        // 触发事件
-        emit(eventName, data) {
-            const listeners = this.listeners[eventName];
-            if (listeners) {
-                listeners.forEach(callback => {
-                    try {
-                        callback(data);
-                    } catch (error) {
-                        console.error(`Error in event listener for ${eventName}:`, error);
-                    }
-                });
-            }
-        },
-        
-        // 移除事件监听器
-        off(eventName, callback) {
-            const listeners = this.listeners[eventName];
-            if (listeners) {
-                const index = listeners.indexOf(callback);
-                if (index > -1) {
-                    listeners.splice(index, 1);
-                }
-            }
-        }
-    };
-    
     /**
-     * 注册模块
-     * @param {string} name - 模块名称
-     * @param {Object} module - 模块对象
+     * 获取当前域名
+     * @returns {string} 域名
      */
-    function registerModule(name, module) {
-        modules[name] = module;
-        moduleStates[name] = 'registered';
-        console.log(`📦 模块已注册: ${name}`);
-    }
-    
-    /**
-     * 初始化所有模块
-     */
-    async function initAll() {
-        const moduleNames = Object.keys(modules);
-        
-        for (const name of moduleNames) {
-            if (modules[name].init && typeof modules[name].init === 'function') {
-                try {
-                    await modules[name].init();
-                    moduleStates[name] = 'initialized';
-                    console.log(`✅ 模块已初始化: ${name}`);
-                } catch (error) {
-                    console.error(`❌ 模块初始化失败: ${name}`, error);
-                    moduleStates[name] = 'error';
-                }
-            }
+    function getCurrentDomain() {
+        try {
+            return window.location.hostname || 'unknown';
+        } catch (e) {
+            return 'unknown';
         }
     }
     
     /**
-     * 获取模块实例
-     * @param {string} name - 模块名称
-     * @returns {Object} 模块实例
+     * 获取基于域名的存储 key
+     * @param {string} baseKey - 基础键名
+     * @returns {string} 带域名的键名
      */
-    function getModule(name) {
-        if (!modules[name]) {
-            throw new Error(`Module ${name} not found`);
-        }
-        return modules[name];
-    }
-    
-    /**
-     * 获取模块状态
-     * @param {string} name - 模块名称
-     * @returns {string} 模块状态
-     */
-    function getModuleState(name) {
-        return moduleStates[name] || 'unknown';
-    }
-    
-    /**
-     * 获取事件中心
-     * @returns {Object} 事件中心
-     */
-    function getEventCenter() {
-        return eventCenter;
-    }
-    
-    /**
-     * 模块间调用（依赖注入方式）
-     * @param {string} moduleName - 目标模块名
-     * @param {string} methodName - 方法名
-     * @param {...any} args - 参数
-     */
-    function callModule(moduleName, methodName, ...args) {
-        const module = getModule(moduleName);
-        if (!module[methodName]) {
-            throw new Error(`Method ${methodName} not found in module ${moduleName}`);
-        }
-        return module[methodName](...args);
-    }
-    
-    /**
-     * 创建模块代理（用于模块间调用）
-     * @param {string} moduleName - 模块名称
-     * @returns {Object} 模块代理
-     */
-    function createModuleProxy(moduleName) {
-        return new Proxy({}, {
-            get(target, methodName) {
-                return function(...args) {
-                    return callModule(moduleName, methodName, ...args);
-                };
-            }
-        });
+    function getDomainKey(baseKey) {
+        const domain = getCurrentDomain();
+        return `${baseKey}_${domain}`;
     }
     
     // 导出公共接口
     return {
-        registerModule,
-        initAll,
-        getModule,
-        getModuleState,
-        getEventCenter,
-        callModule,
-        createModuleProxy
+        getCurrentDomain,
+        getDomainKey
     };
 })();
 
-// ==================== core/EventManager.js ====================
+
+// =====================================================
+// 模块: core/EventManager.js
+// =====================================================
 
 // ==================== 事件管理器 ====================
-// 统一的事件通信系统，替换 window 全局事件
+// 统一的事件总线，支持监听器 ID 管理和防重复注册
 
 const EventManager = (function() {
     'use strict';
     
-    const listeners = new Map();
-    
     /**
-     * 标准化事件类型
+     * 事件类型常量
      */
     const EventTypes = {
         // UI 相关
-        UI_SHOW: 'ui:show',
-        UI_HIDE: 'ui:hide',
-        UI_TOGGLE: 'ui:toggle',
+        UI_SHOW: 'agent:ui:show',
+        UI_HIDE: 'agent:ui:hide',
+        UI_TOGGLE: 'agent:ui:toggle',
         
         // 聊天相关
-        CHAT_MESSAGE_SENT: 'chat:message:sent',
-        CHAT_MESSAGE_RECEIVED: 'chat:message:received',
-        CHAT_CLEAR: 'chat:clear',
+        CHAT_MESSAGE_SENT: 'agent:chat:message:sent',
+        CHAT_MESSAGE_RECEIVED: 'agent:chat:message:received',
+        CHAT_CLEAR: 'agent:chat:clear',
         
         // 配置相关
-        CONFIG_UPDATED: 'config:updated',
-        SETTINGS_OPEN: 'settings:open',
-        SETTINGS_SAVED: 'settings:saved',
-        
-        // 文件操作相关
-        FILE_OPENED: 'file:opened',
-        FILE_SAVED: 'file:saved',
-        FILE_DELETED: 'file:deleted',
-        FOLDER_OPENED: 'folder:opened',
-        
-        // 工作空间相关
-        WORKSPACE_CHANGED: 'workspace:changed',
-        WORKSPACE_LOADED: 'workspace:loaded',
+        CONFIG_UPDATED: 'agent:config:updated',
+        SETTINGS_OPEN: 'agent:settings:open',
+        SETTINGS_SAVED: 'agent:settings:saved',
         
         // API 相关
-        API_CALL_START: 'api:call:start',
-        API_CALL_SUCCESS: 'api:call:success',
-        API_CALL_ERROR: 'api:call:error',
+        API_CALL_START: 'agent:api:call:start',
+        API_CALL_SUCCESS: 'agent:api:call:success',
+        API_CALL_ERROR: 'agent:api:call:error',
         
         // 系统级
-        APP_STARTED: 'app:started',
-        APP_ERROR: 'app:error',
+        APP_STARTED: 'agent:app:started',
+        APP_ERROR: 'agent:app:error',
         AGENT_OPEN: 'agent:open',
         AGENT_CLOSE: 'agent:close'
     };
+    
+    // 监听器注册表：eventType -> Map<listenerId, {callback, handler}>
+    const listenerRegistry = new Map();
+    let nextListenerId = 1;
     
     /**
      * 注册事件监听器
      * @param {string} eventType - 事件类型
      * @param {Function} callback - 回调函数
-     * @returns {Function} 移除监听器的函数
+     * @returns {number} 监听器 ID，用于移除监听器
      */
     function on(eventType, callback) {
-        if (!listeners.has(eventType)) {
-            listeners.set(eventType, []);
+        if (typeof callback !== 'function') {
+            console.error('❌ EventManager.on: callback 必须是函数');
+            return -1;
         }
         
-        const callbacks = listeners.get(eventType);
-        callbacks.push(callback);
+        // 为每个监听器创建唯一的 ID
+        const listenerId = nextListenerId++;
         
-        // 返回移除函数
-        return () => {
-            const idx = callbacks.indexOf(callback);
-            if (idx > -1) {
-                callbacks.splice(idx, 1);
+        // 创建包装函数（用于接收 CustomEvent）
+        const handler = (e) => {
+            try {
+                callback(e.detail);
+            } catch (error) {
+                console.error(`❌ 事件处理器错误 [${eventType}][ID:${listenerId}]:`, error);
             }
         };
-    }
-    
-    /**
-     * 一次性事件监听器
-     * @param {string} eventType - 事件类型
-     * @param {Function} callback - 回调函数
-     */
-    function once(eventType, callback) {
-        const removeListener = on(eventType, (data) => {
-            removeListener();
-            callback(data);
-        });
+        
+        // 注册到内部表
+        if (!listenerRegistry.has(eventType)) {
+            listenerRegistry.set(eventType, new Map());
+        }
+        listenerRegistry.get(eventType).set(listenerId, { callback, handler });
+        
+        // 注册到 window
+        window.addEventListener(eventType, handler);
+        
+        // 返回监听器 ID
+        return listenerId;
     }
     
     /**
@@ -261,48 +147,80 @@ const EventManager = (function() {
      * @param {any} data - 事件数据
      */
     function emit(eventType, data = null) {
-        console.log(`📡 事件触发: ${eventType}`, data);
-        
-        // 兼容性：同时触发全局事件（暂时保留）
-        try {
-            window.dispatchEvent(new CustomEvent(eventType.replace(':', '-'), { detail: data }));
-        } catch (error) {
-            console.warn('全局事件触发失败:', error);
-        }
-        
-        // 触发内部事件
-        const callbacks = listeners.get(eventType);
-        if (callbacks) {
-            callbacks.forEach(callback => {
-                try {
-                    callback(data);
-                } catch (error) {
-                    console.error(`事件监听器错误 (${eventType}):`, error);
-                }
-            });
-        }
+        window.dispatchEvent(new CustomEvent(eventType, { detail: data }));
     }
     
     /**
      * 移除事件监听器
      * @param {string} eventType - 事件类型
-     * @param {Function} callback - 回调函数
+     * @param {number} listenerId - 监听器 ID（由 on() 返回）
+     * @returns {boolean} 是否成功移除
      */
-    function off(eventType, callback) {
-        const callbacks = listeners.get(eventType);
-        if (callbacks) {
-            const idx = callbacks.indexOf(callback);
-            if (idx > -1) {
-                callbacks.splice(idx, 1);
+    function off(eventType, listenerId) {
+        if (listenerRegistry.has(eventType)) {
+            const listeners = listenerRegistry.get(eventType);
+            if (listeners.has(listenerId)) {
+                const { handler } = listeners.get(listenerId);
+                
+                // 从 window 移除
+                window.removeEventListener(eventType, handler);
+                
+                // 从内部表移除
+                listeners.delete(listenerId);
+                
+                // 如果没有监听器了，清理事件类型
+                if (listeners.size === 0) {
+                    listenerRegistry.delete(eventType);
+                }
+                
+                return true;
             }
         }
+        
+        console.warn(`⚠️ 事件监听器未找到 [${eventType}][ID:${listenerId}]`);
+        return false;
     }
     
     /**
-     * 清除所有事件监听器
+     * 移除指定事件类型的所有监听器
+     * @param {string} eventType - 事件类型
+     * @returns {number} 移除的监听器数量
      */
-    function clearAll() {
-        listeners.clear();
+    function offAll(eventType) {
+        if (listenerRegistry.has(eventType)) {
+            const listeners = listenerRegistry.get(eventType);
+            let removedCount = 0;
+            
+            listeners.forEach(({ handler }, listenerId) => {
+                window.removeEventListener(eventType, handler);
+                removedCount++;
+            });
+            
+            listenerRegistry.delete(eventType);
+            
+            return removedCount;
+        }
+        
+        return 0;
+    }
+    
+    /**
+     * 获取所有注册的监听器统计信息
+     * @returns {Object} 监听器统计
+     */
+    function getListenerStats() {
+        const stats = {
+            totalListeners: 0,
+            eventTypes: listenerRegistry.size,
+            details: {}
+        };
+        
+        listenerRegistry.forEach((listeners, eventType) => {
+            stats.totalListeners += listeners.size;
+            stats.details[eventType] = listeners.size;
+        });
+        
+        return stats;
     }
     
     /**
@@ -315,10 +233,10 @@ const EventManager = (function() {
     // 导出公共接口
     return {
         on,
-        once,
         emit,
         off,
-        clearAll,
+        offAll,
+        getListenerStats,
         getEventTypes,
         
         // 事件类型常量（方便使用）
@@ -326,7 +244,9 @@ const EventManager = (function() {
     };
 })();
 
-// ==================== core/ConfigManager.js ====================
+// =====================================================
+// 模块: core/ConfigManager.js
+// =====================================================
 
 // ==================== 配置管理器 (重构版) ====================
 // 提供统一的配置管理接口，降低耦合度
@@ -343,11 +263,7 @@ const ConfigManager = (function() {
         TOP_P: 'top_p',
         MAX_TOKENS: 'max_tokens',
         JS_ENABLED: 'js_execution_enabled',
-        USER_ID: 'user_id',
-        HISTORY: 'conversation_history',
-        CACHED_MODELS: 'cached_models',
-        CHAT_VISIBILITY: 'chat_visibility',
-        CACHED_MODELS_LAST_UPDATE: 'cached_models_last_update'
+        USER_ID: 'user_id'
     };
     
     // 默认配置
@@ -359,8 +275,7 @@ const ConfigManager = (function() {
         topP: 0.95,
         maxTokens: 2048,
         jsExecutionEnabled: true,
-        userId: 'user_' + Date.now(),
-        conversationHistory: []
+        userId: 'user_' + Date.now()
     };
     
     // 配置缓存
@@ -369,7 +284,6 @@ const ConfigManager = (function() {
     
     // 依赖引用（通过依赖注入）
     let eventManager = null;
-    let storageManager = null;
     
     /**
      * 初始化配置管理器
@@ -385,9 +299,6 @@ const ConfigManager = (function() {
         // 注入依赖
         if (dependencies.eventManager) {
             eventManager = dependencies.eventManager;
-        }
-        if (dependencies.storageManager) {
-            storageManager = dependencies.storageManager;
         }
         
         console.log('🔄 初始化配置管理器...');
@@ -442,23 +353,10 @@ const ConfigManager = (function() {
             topP: GM_getValue(ConfigKeys.TOP_P, Defaults.topP),
             maxTokens: GM_getValue(ConfigKeys.MAX_TOKENS, Defaults.maxTokens),
             jsExecutionEnabled: GM_getValue(ConfigKeys.JS_ENABLED, Defaults.jsExecutionEnabled),
-            userId: GM_getValue(ConfigKeys.USER_ID, Defaults.userId),
-            conversationHistory: GM_getValue(ConfigKeys.HISTORY, Defaults.conversationHistory)
+            userId: GM_getValue(ConfigKeys.USER_ID, Defaults.userId)
         };
-        
-        // 尝试从工作空间加载配置（如果 storageManager 可用）
-        if (storageManager && typeof storageManager.getCurrentWorkspace === 'function') {
-            try {
-                const currentWs = storageManager.getCurrentWorkspace();
-                if (currentWs?.folderHandle?.kind === 'directory' && currentWs.data?.settings) {
-                    const wsSettings = currentWs.data.settings;
-                    Object.assign(configCache, wsSettings);
-                    console.log('✅ 已从工作空间加载配置');
-                }
-            } catch (error) {
-                console.warn('加载工作空间配置失败:', error);
-            }
-        }
+
+        console.log('✅ 配置已加载');
     }
     
     /**
@@ -504,8 +402,7 @@ const ConfigManager = (function() {
             topP: ConfigKeys.TOP_P,
             maxTokens: ConfigKeys.MAX_TOKENS,
             jsExecutionEnabled: ConfigKeys.JS_ENABLED,
-            userId: ConfigKeys.USER_ID,
-            conversationHistory: ConfigKeys.HISTORY
+            userId: ConfigKeys.USER_ID
         };
         
         const gmKey = keyMappings[key];
@@ -513,21 +410,10 @@ const ConfigManager = (function() {
             GM_setValue(gmKey, value);
         }
         
-        // 保存到工作空间（如果可用）
-        if (storageManager && typeof storageManager.updateWorkspaceSettings === 'function') {
-            try {
-                storageManager.updateWorkspaceSettings({ [key]: value });
-            } catch (error) {
-                console.warn('保存到工作空间失败:', error);
-            }
-        }
-        
         // 触发配置更新事件
         if (eventManager) {
             eventManager.emit(eventManager.EventTypes.CONFIG_UPDATED, { [key]: value });
         }
-        
-        console.log(`⚙️ 配置已更新: ${key} = ${value}`);
     }
     
     /**
@@ -554,39 +440,6 @@ const ConfigManager = (function() {
             // 重置指定配置
             set(key, Defaults[key]);
         }
-    }
-    
-    /**
-     * 获取对话历史
-     * @returns {Array} 对话历史
-     */
-    function getConversationHistory() {
-        return get('conversationHistory') || [];
-    }
-    
-    /**
-     * 保存对话历史
-     * @param {Array} history - 对话历史
-     */
-    function saveConversationHistory(history) {
-        set('conversationHistory', history);
-    }
-    
-    /**
-     * 获取聊天窗口可见性
-     * @returns {boolean} 是否可见
-     */
-    function getChatVisibility() {
-        const visibility = GM_getValue(ConfigKeys.CHAT_VISIBILITY, true);
-        return visibility !== false;
-    }
-    
-    /**
-     * 保存聊天窗口可见性
-     * @param {boolean} isVisible - 是否可见
-     */
-    function saveChatVisibility(isVisible) {
-        GM_setValue(ConfigKeys.CHAT_VISIBILITY, isVisible);
     }
     
     /**
@@ -637,10 +490,6 @@ const ConfigManager = (function() {
         set,
         update,
         reset,
-        getConversationHistory,
-        saveConversationHistory,
-        getChatVisibility,
-        saveChatVisibility,
         isConfigured,
         exportConfig,
         importConfig,
@@ -651,7 +500,2017 @@ const ConfigManager = (function() {
     };
 })();
 
-// ==================== models.js ====================
+
+// =====================================================
+// 模块: core/HistoryManager.js
+// =====================================================
+
+// ==================== 历史管理器 ====================
+// 负责对话历史的加载、保存和管理
+
+const HistoryManager = (function() {
+    'use strict';
+    
+    // 配置键
+    const HISTORY_KEY = 'conversation_history';
+    const MAX_HISTORY_LENGTH = 50; // 最多保留 50 条消息
+    
+    // 缓存
+    let historyCache = [];
+    let isInitialized = false;
+    
+    /**
+     * 初始化历史管理器
+     */
+    function init() {
+        if (isInitialized) {
+            console.log('⚠️ 历史管理器已初始化');
+            return historyCache;
+        }
+        
+        console.log('🔄 初始化历史管理器...');
+        loadConversationHistory();
+        
+        isInitialized = true;
+        console.log('✅ 历史管理器初始化完成');
+        
+        return historyCache;
+    }
+    
+    /**
+     * 加载对话历史
+     * @returns {Array} 对话历史
+     */
+    function loadConversationHistory() {
+        const domainKey = Utils.getDomainKey(HISTORY_KEY);
+        historyCache = GM_getValue(domainKey, []);
+        return historyCache;
+    }
+    
+    /**
+     * 获取对话历史
+     * @returns {Array} 对话历史
+     */
+    function getHistory() {
+        return [...historyCache];
+    }
+    
+    /**
+     * 保存对话历史
+     * @param {Array} history - 对话历史
+     */
+    function saveConversationHistory(history) {
+        // 创建副本，避免外部修改影响缓存
+        const historyCopy = Array.isArray(history) ? [...history] : [];
+        
+        // 只保留最近 50 条消息
+        if (historyCopy.length > MAX_HISTORY_LENGTH) {
+            historyCopy.splice(0, historyCopy.length - MAX_HISTORY_LENGTH);
+        }
+        
+        historyCache = historyCopy;
+        
+        // 保存到浏览器缓存
+        const domainKey = Utils.getDomainKey(HISTORY_KEY);
+        GM_setValue(domainKey, historyCopy);
+    }
+    
+    /**
+     * 添加消息到历史
+     * @param {Object} message - 消息对象 {role, content}
+     */
+    function addMessage(message) {
+        historyCache.push(message);
+        saveConversationHistory(historyCache);
+    }
+    
+    /**
+     * 清空历史
+     */
+    function clearHistory() {
+        historyCache = [];
+        const domainKey = Utils.getDomainKey(HISTORY_KEY);
+        GM_setValue(domainKey, []);
+    }
+    
+    // 导出公共接口
+    return {
+        init,
+        getHistory,
+        loadConversationHistory,
+        saveConversationHistory,
+        addMessage,
+        clearHistory
+    };
+})();
+
+
+// =====================================================
+// 模块: core/StateManager.js
+// =====================================================
+
+// ==================== 状态管理器 ====================
+// 负责 UI 状态管理（窗口可见性等）
+
+const StateManager = (function() {
+    'use strict';
+    
+    // 配置键
+    const CHAT_VISIBILITY_KEY = 'chat_visibility';
+    
+    // 缓存
+    let stateCache = null;
+    let isInitialized = false;
+    
+    /**
+     * 初始化状态管理器
+     */
+    function init() {
+        if (isInitialized) {
+            return stateCache;
+        }
+        
+        // 先加载，再设置
+        const visibility = loadChatVisibility();
+        stateCache = {
+            chatVisibility: visibility
+        };
+        
+        isInitialized = true;
+        
+        return stateCache;
+    }
+    
+
+    /**
+     * 加载聊天窗口可见性
+     */
+    function loadChatVisibility() {
+        const domainKey = Utils.getDomainKey(CHAT_VISIBILITY_KEY);
+        return GM_getValue(domainKey, false);
+    }
+    
+    /**
+     * 获取聊天窗口可见性
+     * @returns {boolean} 是否可见
+     */
+    function getChatVisibility() {
+        if (!isInitialized) {
+            return false;
+        }
+        return stateCache.chatVisibility;
+    }
+    
+    /**
+     * 保存聊天窗口可见性
+     * @param {boolean} isVisible - 是否可见
+     */
+    function saveChatVisibility(isVisible) {
+        if (!isInitialized) {
+            stateCache = { chatVisibility: isVisible };
+            isInitialized = true;
+        } else {
+            stateCache.chatVisibility = isVisible;
+        }
+        
+        const domainKey = Utils.getDomainKey(CHAT_VISIBILITY_KEY);
+        GM_setValue(domainKey, isVisible);
+    }
+    
+    /**
+     * 切换聊天窗口可见性
+     */
+    function toggleChatVisibility() {
+        const newState = !stateCache.chatVisibility;
+        saveChatVisibility(newState);
+        return newState;
+    }
+    
+    // 导出公共接口
+    return {
+        init,
+        getChatVisibility,
+        saveChatVisibility,
+        toggleChatVisibility,
+        loadChatVisibility
+    };
+})();
+
+
+// =====================================================
+// 模块: ui-styles.js
+// =====================================================
+
+// ==================== UI 样式模块 ====================
+// 集中管理所有 UI 相关的 CSS 样式
+
+const UIStyles = (function() {
+    'use strict';
+
+    /**
+     * 获取主界面样式
+     */
+    function getMainStyles() {
+        return `
+            #ai-agent {
+                position: fixed;
+                bottom: 20px;
+                right: 20px;
+                width: 450px;
+                height: 500px;
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+                z-index: 2147483647 !important;
+                display: flex;
+                flex-direction: column;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                border: 1px solid #e0e0e0;
+                transition: all 0.3s ease;
+                pointer-events: auto !important;
+            }
+            
+            /* 主内容区域 */
+            #agent-main {
+                display: flex;
+                flex-direction: column;
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+                pointer-events: auto !important;
+            }
+            #agent-header {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 12px 16px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                cursor: move;
+                min-height: 44px;
+                flex-shrink: 0;
+                pointer-events: auto !important;
+                position: relative;
+                z-index: 2;
+            }
+            #agent-title { 
+                font-weight: 600; 
+                font-size: 15px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                pointer-events: auto !important;
+            }
+            #agent-controls {
+                display: flex;
+                gap: 6px;
+                pointer-events: auto !important;
+            }
+            .header-btn {
+                background: rgba(255,255,255,0.2);
+                border: none;
+                color: white;
+                width: 24px;
+                height: 24px;
+                border-radius: 6px;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 16px;
+                transition: background 0.2s;
+                pointer-events: auto !important;
+                position: relative;
+                z-index: 3;
+            }
+            .header-btn:hover { background: rgba(255,255,255,0.3); }
+            #agent-chat {
+                flex: 1;
+                overflow-y: auto;
+                padding: 16px;
+                background: #f5f7fa;
+                scroll-behavior: smooth;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                min-height: 0;
+            }
+            .message { 
+                margin: 10px 0;
+                animation: fadeIn 0.3s ease;
+            }
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translateY(10px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+            .user-message {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 10px 14px;
+                border-radius: 16px 16px 6px 16px;
+                margin-left: auto;
+                max-width: 85%;
+                word-wrap: break-word;
+                align-self: flex-end;
+            }
+            .assistant-message {
+                background: white;
+                border: 1px solid #e0e0e0;
+                padding: 10px 14px;
+                border-radius: 16px 16px 16px 6px;
+                max-width: 85%;
+                word-wrap: break-word;
+                align-self: flex-start;
+            }
+            .message-content { 
+                line-height: 1.5; 
+                font-size: 14px;
+                white-space: pre-wrap;
+            }
+            .code-block {
+                background: #282c34;
+                color: #abb2bf;
+                padding: 12px;
+                border-radius: 8px;
+                margin: 8px 0;
+                font-family: 'SF Mono', 'Fira Code', monospace;
+                font-size: 12px;
+                overflow-x: auto;
+                position: relative;
+            }
+            .code-language {
+                position: absolute;
+                top: 4px;
+                right: 8px;
+                font-size: 10px;
+                color: #5c6370;
+                text-transform: uppercase;
+            }
+            .code-actions { 
+                margin-top: 8px;
+                display: flex;
+                gap: 6px;
+            }
+            .code-btn {
+                background: #667eea;
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 6px;
+                font-size: 12px;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+            .code-btn:hover { 
+                background: #5568d3;
+                transform: translateY(-1px);
+            }
+            .code-btn.execute { background: #10b981; }
+            .code-btn.execute:hover { background: #059669; }
+            #agent-input-area { 
+                border-top: 1px solid #e0e0e0; 
+                padding: 12px;
+                background: white;
+                border-radius: 0 0 12px 12px;
+                flex-shrink: 0;
+            }
+            #agent-input {
+                width: 100%;
+                min-height: 60px;
+                max-height: 150px;
+                padding: 10px;
+                border: 1px solid #ddd;
+                border-radius: 8px;
+                resize: vertical;
+                font-size: 14px;
+                font-family: inherit;
+                transition: border-color 0.2s;
+            }
+            #agent-input:focus { 
+                outline: none; 
+                border-color: #667eea;
+            }
+            #agent-controls-bar {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-top: 8px;
+                gap: 8px;
+            }
+            .control-btn {
+                background: #f5f7fa;
+                border: 1px solid #e0e0e0;
+                padding: 6px 12px;
+                border-radius: 6px;
+                font-size: 12px;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+            .control-btn:hover {
+                background: #e5e7eb;
+            }
+            #agent-send {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                border: none;
+                padding: 8px 20px;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 500;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+            #agent-send:hover {
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+            }
+            #agent-send:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+                transform: none;
+            }
+            
+            /* 设置对话框 */
+            #agent-settings-dialog {
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                z-index: 2147483647;
+                width: 90%;
+                max-width: 600px;
+                max-height: 80vh;
+                overflow-y: auto;
+                padding: 24px;
+            }
+            .settings-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0,0,0,0.5);
+                z-index: 2147483646;
+            }
+            .settings-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 20px;
+                padding-bottom: 12px;
+                border-bottom: 2px solid #e0e0e0;
+            }
+            .settings-title {
+                font-size: 20px;
+                font-weight: 600;
+                color: #1f2937;
+            }
+            .settings-close {
+                background: none;
+                border: none;
+                font-size: 24px;
+                cursor: pointer;
+                color: #6b7280;
+                padding: 0;
+                width: 32px;
+                height: 32px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 6px;
+                transition: all 0.2s;
+            }
+            .settings-close:hover {
+                background: #f3f4f6;
+                color: #1f2937;
+            }
+            .settings-section {
+                margin-bottom: 20px;
+            }
+            .settings-section-title {
+                font-size: 14px;
+                font-weight: 600;
+                color: #374151;
+                margin-bottom: 12px;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+            }
+            .settings-field {
+                margin-bottom: 16px;
+            }
+            .settings-label {
+                display: block;
+                font-size: 13px;
+                font-weight: 500;
+                color: #4b5563;
+                margin-bottom: 6px;
+            }
+            .settings-input {
+                width: 100%;
+                padding: 8px 12px;
+                border: 1px solid #d1d5db;
+                border-radius: 6px;
+                font-size: 14px;
+                transition: all 0.2s;
+            }
+            .settings-input:focus {
+                outline: none;
+                border-color: #667eea;
+                box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            }
+            .settings-select {
+                width: 100%;
+                padding: 8px 12px;
+                border: 1px solid #d1d5db;
+                border-radius: 6px;
+                font-size: 14px;
+                background: white;
+                cursor: pointer;
+            }
+            .settings-slider {
+                width: 100%;
+                margin: 8px 0;
+            }
+            .settings-value {
+                display: inline-block;
+                margin-left: 8px;
+                font-weight: 500;
+                color: #667eea;
+            }
+            .settings-checkbox {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                cursor: pointer;
+            }
+            .settings-checkbox input[type="checkbox"] {
+                width: 18px;
+                height: 18px;
+                cursor: pointer;
+            }
+            .settings-actions {
+                display: flex;
+                justify-content: flex-end;
+                gap: 12px;
+                margin-top: 24px;
+                padding-top: 16px;
+                border-top: 1px solid #e0e0e0;
+            }
+            .settings-btn {
+                padding: 8px 16px;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: 500;
+                cursor: pointer;
+                transition: all 0.2s;
+                border: none;
+            }
+            .settings-btn-primary {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+            }
+            .settings-btn-primary:hover {
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+            }
+            .settings-btn-secondary {
+                background: #f3f4f6;
+                color: #374151;
+                border: 1px solid #d1d5db;
+            }
+            .settings-btn-secondary:hover {
+                background: #e5e7eb;
+            }
+            
+            /* 代码执行结果 */
+            .execution-result {
+                margin: 8px 0;
+                padding: 12px;
+                border-radius: 8px;
+                font-family: 'SF Mono', monospace;
+                font-size: 12px;
+                line-height: 1.5;
+            }
+            .execution-success { 
+                background: #d1fae5; 
+                border-left: 4px solid #10b981;
+                color: #065f46;
+            }
+            .execution-error { 
+                background: #fee2e2; 
+                border-left: 4px solid #ef4444;
+                color: #991b1b;
+            }
+            
+            /* 打字指示器 */
+            .typing { 
+                display: flex; 
+                gap: 4px; 
+                padding: 12px;
+                align-items: center;
+            }
+            .typing-dot {
+                width: 8px;
+                height: 8px;
+                background: #667eea;
+                border-radius: 50%;
+                animation: typing 1.4s infinite ease-in-out;
+            }
+            .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+            .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+            @keyframes typing {
+                0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+                40% { transform: scale(1); opacity: 1; }
+            }
+            
+            /* 状态徽章 */
+            .status-badge {
+                display: inline-block;
+                padding: 4px 8px;
+                border-radius: 12px;
+                font-size: 11px;
+                font-weight: 500;
+                margin-left: 8px;
+            }
+            .status-active {
+                background: #d1fae5;
+                color: #065f46;
+            }
+            .status-inactive {
+                background: #fee2e2;
+                color: #991b1b;
+            }
+        `;
+    }
+
+    // 导出公共接口
+    return {
+        getMainStyles
+    };
+})();
+
+
+// =====================================================
+// 模块: ui-templates.js
+// =====================================================
+
+// ==================== UI 模板模块 ====================
+// 集中管理所有 HTML 模板
+
+const UITemplates = (function() {
+    'use strict';
+
+    /**
+     * 构建主界面 HTML
+     * @param {Object} config - 配置对象
+     * @returns {string} HTML 字符串
+     */
+    function buildMainHTML(config) {
+        const statusBadge = config.apiKey 
+            ? '<span class="status-badge status-active">已配置</span>' 
+            : '<span class="status-badge status-inactive">未配置</span>';
+        
+        return `
+            <div id="agent-main">
+                <div id="agent-header">
+                    <div id="agent-title">
+                        <span>✨</span>
+                        <span>AI 助手</span>
+                        ${statusBadge}
+                    </div>
+                    <div id="agent-controls">
+                        <button class="header-btn" id="agent-close" title="关闭">×</button>
+                    </div>
+                </div>
+                <div id="agent-chat"></div>
+                <div id="agent-input-area">
+                    <textarea id="agent-input" placeholder="输入消息...&#10;使用 /js 执行代码,例如: /js alert('Hello')"></textarea>
+                    <div id="agent-controls-bar">
+                        <button class="control-btn" id="agent-settings">⚙️ 设置</button>
+                        <button class="control-btn" id="agent-clear">🗑️ 清空</button>
+                        <button id="agent-send">发送 ➤</button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    /**
+     * 构建打字指示器 HTML
+     * @returns {string} HTML 字符串
+     */
+    function buildTypingIndicatorHTML() {
+        return `
+            <div class="typing" id="typing-indicator">
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+            </div>
+        `;
+    }
+
+    /**
+     * 构建用户消息 HTML
+     * @param {string} content - 消息内容
+     * @returns {string} HTML 字符串
+     */
+    function buildUserMessageHTML(content) {
+        return `
+            <div class="user-message">
+                <div class="message-content">${escapeHtml(content)}</div>
+            </div>
+        `;
+    }
+
+    /**
+     * 构建助手消息 HTML
+     * @param {string} content - 格式化后的内容
+     * @returns {string} HTML 字符串
+     */
+    function buildAssistantMessageHTML(content) {
+        return `
+            <div class="assistant-message">
+                <div class="message-content">${content}</div>
+            </div>
+        `;
+    }
+
+    /**
+     * 构建代码块 HTML
+     * @param {string} code - 代码内容
+     * @param {string} language - 语言标识
+     * @param {string} blockId - 代码块 ID
+     * @returns {string} HTML 字符串
+     */
+    function buildCodeBlockHTML(code, language, blockId) {
+        return `
+            <div class="code-block" data-code-id="${blockId}">
+                <div class="code-language">${language || 'text'}</div>
+                <pre><code>${escapeHtml(code)}</code></pre>
+                <div class="code-actions">
+                    <button class="code-btn copy" data-action="copy-code">📋 复制</button>
+                    <button class="code-btn execute" data-action="execute-code">▶️ 执行</button>
+                </div>
+            </div>
+        `;
+    }
+
+    /**
+     * 构建执行结果 HTML
+     * @param {boolean} success - 是否成功
+     * @param {string} content - 结果内容
+     * @returns {string} HTML 字符串
+     */
+    function buildExecutionResultHTML(success, content) {
+        const className = success ? 'execution-success' : 'execution-error';
+        const icon = success ? '✅ 执行成功' : '❌ 执行失败';
+        
+        return `
+            <div class="execution-result ${className}">
+                <strong>${icon}</strong>
+                <br>
+                <pre style="margin-top: 8px; white-space: pre-wrap; word-wrap: break-word;">${escapeHtml(content)}</pre>
+            </div>
+        `;
+    }
+
+    /**
+     * 构建高危代码警告 HTML
+     * @param {string} code - 代码内容
+     * @param {number} index - 代码块索引
+     * @returns {string} HTML 字符串
+     */
+    function buildHighRiskWarningHTML(code, index) {
+        return `
+            <div class="assistant-message">
+                <div class="execution-result execution-error">
+                    <strong>⚠️ 检测到高危代码 (第 ${index} 个代码块)</strong>
+                    <br><br>
+                    <div style="background: #fee2e2; padding: 12px; border-radius: 6px; margin: 8px 0;">
+                        <strong>该代码可能包含危险操作，请仔细检查：</strong>
+                        <pre style="margin-top: 8px; background: #fef2f2; padding: 8px; border-radius: 4px;">${escapeHtml(code)}</pre>
+                    </div>
+                    <br>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="code-btn execute" onclick="window.confirmAndExecute('${index}')">
+                            ⚠️ 我已确认安全，执行代码
+                        </button>
+                        <button class="code-btn" onclick="window.cancelExecution('${index}')" style="background: #6b7280;">
+                            ❌ 取消执行
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    /**
+     * 构建欢迎消息 HTML
+     * @returns {string} HTML 字符串
+     */
+    function buildWelcomeMessageHTML() {
+        const welcomeMessage = `
+<strong>👋 欢迎使用 AI Agent!</strong>
+
+我可以帮你:
+• 💬 智能对话 - 回答各种问题
+• 🔧 执行 JavaScript 代码
+• 🎨 操作当前页面
+• 📊 提取页面信息
+
+<strong>快捷命令:</strong>
+• <code>/js [代码]</code> - 执行代码
+• <code>/clear</code> - 清空历史
+• <code>/help</code> - 显示帮助
+
+试试对我说: "帮我修改页面背景色"
+        `;
+        
+        return `
+            <div class="assistant-message">
+                <div class="message-content">${welcomeMessage}</div>
+            </div>
+        `;
+    }
+
+    /**
+     * 构建设置对话框 HTML
+     * @param {Object} config - 当前配置
+     * @param {Array} models - 可用模型列表
+     * @returns {string} HTML 字符串
+     */
+    function buildSettingsDialogHTML(config, models) {
+        const modelOptions = models.map(model => 
+            `<option value="${model.id}" ${config.model === model.id ? 'selected' : ''}>${model.name}</option>`
+        ).join('');
+
+        return `
+            <div class="settings-overlay" id="settings-overlay"></div>
+            <div id="agent-settings-dialog">
+                <div class="settings-header">
+                    <h2 class="settings-title">⚙️ 设置</h2>
+                    <button class="settings-close" id="settings-close">×</button>
+                </div>
+                
+                <div class="settings-section">
+                    <div class="settings-section-title">API 配置</div>
+                    
+                    <div class="settings-field">
+                        <label class="settings-label">API Key</label>
+                        <input type="password" class="settings-input" id="setting-api-key" 
+                               value="${escapeHtml(config.apiKey || '')}" 
+                               placeholder="输入你的 API Key">
+                    </div>
+                    
+                    <div class="settings-field">
+                        <label class="settings-label">Endpoint</label>
+                        <input type="text" class="settings-input" id="setting-endpoint" 
+                               value="${escapeHtml(config.endpoint || '')}" 
+                               placeholder="API 端点地址">
+                    </div>
+                    
+                    <div class="settings-field">
+                        <label class="settings-label">模型</label>
+                        <select class="settings-select" id="setting-model">
+                            ${modelOptions}
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="settings-section">
+                    <div class="settings-section-title">生成参数</div>
+                    
+                    <div class="settings-field">
+                        <label class="settings-label">
+                            Temperature: <span class="settings-value" id="temp-value">${config.temperature}</span>
+                        </label>
+                        <input type="range" class="settings-slider" id="setting-temperature" 
+                               min="0" max="2" step="0.1" value="${config.temperature}">
+                    </div>
+                    
+                    <div class="settings-field">
+                        <label class="settings-label">
+                            Top P: <span class="settings-value" id="topp-value">${config.topP}</span>
+                        </label>
+                        <input type="range" class="settings-slider" id="setting-top-p" 
+                               min="0" max="1" step="0.05" value="${config.topP}">
+                    </div>
+                    
+                    <div class="settings-field">
+                        <label class="settings-label">Max Tokens</label>
+                        <input type="number" class="settings-input" id="setting-max-tokens" 
+                               value="${config.maxTokens}" min="1" max="8192">
+                    </div>
+                </div>
+                
+                <div class="settings-section">
+                    <div class="settings-section-title">高级选项</div>
+                    
+                    <div class="settings-field">
+                        <label class="settings-checkbox">
+                            <input type="checkbox" id="setting-js-enabled" 
+                                   ${config.jsExecutionEnabled ? 'checked' : ''}>
+                            <span>允许自动执行 JavaScript 代码</span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="settings-actions">
+                    <button class="settings-btn settings-btn-secondary" id="settings-cancel">取消</button>
+                    <button class="settings-btn settings-btn-primary" id="settings-save">保存</button>
+                </div>
+            </div>
+        `;
+    }
+
+    /**
+     * HTML 转义工具函数
+     * @param {string} text - 原始文本
+     * @returns {string} 转义后的文本
+     */
+    function escapeHtml(text) {
+        if (typeof text !== 'string') return String(text);
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // 导出公共接口
+    return {
+        buildMainHTML,
+        buildTypingIndicatorHTML,
+        buildUserMessageHTML,
+        buildAssistantMessageHTML,
+        buildCodeBlockHTML,
+        buildExecutionResultHTML,
+        buildHighRiskWarningHTML,
+        buildWelcomeMessageHTML,
+        buildSettingsDialogHTML,
+        escapeHtml
+    };
+})();
+
+
+// =====================================================
+// 模块: ui.js
+// =====================================================
+
+// ==================== UI 界面模块 (重构版) ====================
+// 职责：UI 交互逻辑、事件处理、DOM 操作
+// 样式已分离到 ui-styles.js
+// 模板已分离到 ui-templates.js
+
+const UIManager = (function() {
+    'use strict';
+    
+    // ========== 状态管理 ==========
+    let assistant = null;
+    let isDragging = false;
+    let dragOffset = { x: 0, y: 0 };
+    let rafId = null; // requestAnimationFrame ID
+    let currentMousePos = { x: 0, y: 0 }; // 当前鼠标位置
+    let escapeHandler = null; // ESC 键处理器
+
+    // ========== CSS 样式管理 ==========
+
+    /**
+     * 添加所有样式（从 UIStyles 模块获取）
+     */
+    function addStyles() {
+        GM_addStyle(UIStyles.getMainStyles());
+        GM_addStyle(getSettingsStyles()); // 设置对话框样式保留在此
+    }
+
+    /**
+     * 获取主界面样式
+     */
+    function getMainStyles() {
+        return `
+            #ai-agent {
+                position: fixed;
+                bottom: 20px;
+                right: 20px;
+                width: 450px;
+                height: 500px;
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+                z-index: 2147483647 !important;
+                display: flex;
+                flex-direction: column;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                border: 1px solid #e0e0e0;
+                transition: all 0.3s ease;
+                pointer-events: auto !important;
+            }
+            
+            /* 主内容区域 */
+            #agent-main {
+                display: flex;
+                flex-direction: column;
+                width: 100%;
+                height: 100%;
+                overflow: hidden;
+                pointer-events: auto !important;
+            }
+            #agent-header {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 12px 16px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                cursor: move;
+                min-height: 44px;
+                flex-shrink: 0;
+                pointer-events: auto !important;
+                position: relative;
+                z-index: 2;
+            }
+            #agent-title { 
+                font-weight: 600; 
+                font-size: 15px;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                pointer-events: auto !important;
+            }
+            #agent-controls {
+                display: flex;
+                gap: 6px;
+                pointer-events: auto !important;
+            }
+            .header-btn {
+                background: rgba(255,255,255,0.2);
+                border: none;
+                color: white;
+                width: 24px;
+                height: 24px;
+                border-radius: 6px;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 16px;
+                transition: background 0.2s;
+                pointer-events: auto !important;
+                position: relative;
+                z-index: 3;
+            }
+            .header-btn:hover { background: rgba(255,255,255,0.3); }
+            #agent-chat {
+                flex: 1;
+                overflow-y: auto;
+                padding: 16px;
+                background: #f5f7fa;
+                scroll-behavior: smooth;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                min-height: 0;
+            }
+            .message { 
+                margin: 10px 0;
+                animation: fadeIn 0.3s ease;
+            }
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translateY(10px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+            .user-message {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 10px 14px;
+                border-radius: 16px 16px 6px 16px;
+                margin-left: auto;
+                max-width: 85%;
+                word-wrap: break-word;
+                align-self: flex-end;
+            }
+            .assistant-message {
+                background: white;
+                border: 1px solid #e0e0e0;
+                padding: 10px 14px;
+                border-radius: 16px 16px 16px 6px;
+                max-width: 85%;
+                word-wrap: break-word;
+                align-self: flex-start;
+            }
+            .message-content { 
+                line-height: 1.5; 
+                font-size: 14px;
+                white-space: pre-wrap;
+            }
+            .code-block {
+                background: #282c34;
+                color: #abb2bf;
+                padding: 12px;
+                border-radius: 8px;
+                margin: 8px 0;
+                font-family: 'SF Mono', 'Fira Code', monospace;
+                font-size: 12px;
+                overflow-x: auto;
+                position: relative;
+            }
+            .code-language {
+                position: absolute;
+                top: 4px;
+                right: 8px;
+                font-size: 10px;
+                color: #5c6370;
+                text-transform: uppercase;
+            }
+            .code-actions { 
+                margin-top: 8px;
+                display: flex;
+                gap: 6px;
+            }
+            .code-btn {
+                background: #667eea;
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 6px;
+                font-size: 12px;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+            .code-btn:hover { 
+                background: #5568d3;
+                transform: translateY(-1px);
+            }
+            .code-btn.execute { background: #10b981; }
+            .code-btn.execute:hover { background: #059669; }
+            #agent-input-area { 
+                border-top: 1px solid #e0e0e0; 
+                padding: 12px;
+                background: white;
+                border-radius: 0 0 12px 12px;
+                flex-shrink: 0;
+            }
+            #agent-input {
+                width: 100%;
+                min-height: 60px;
+                max-height: 150px;
+                padding: 10px;
+                border: 1px solid #ddd;
+                border-radius: 8px;
+                resize: vertical;
+                font-size: 14px;
+                font-family: inherit;
+                transition: border-color 0.2s;
+            }
+            #agent-input:focus { 
+                outline: none; 
+                border-color: #667eea;
+                box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            }
+            #agent-controls-bar { 
+                display: flex; 
+                gap: 8px; 
+                margin-top: 10px;
+                align-items: center;
+                z-index: 999;
+                position: relative;
+            }
+            #agent-send {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 8px;
+                cursor: pointer;
+                font-size: 14px;
+                font-weight: 500;
+                transition: all 0.2s;
+                z-index: 999;
+            }
+            #agent-send:hover {
+                transform: translateY(-1px);
+                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+            }
+            #agent-send:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+                transform: none;
+            }
+            .control-btn {
+                background: #f5f7fa;
+                border: 1px solid #ddd;
+                padding: 8px 12px;
+                border-radius: 8px;
+                cursor: pointer;
+                font-size: 13px;
+                transition: all 0.2s;
+                z-index: 999;
+            }
+            .control-btn:hover {
+                background: #e8ecf1;
+                border-color: #667eea;
+            }
+            .execution-result {
+                margin-top: 10px;
+                padding: 10px;
+                border-radius: 8px;
+                font-family: 'SF Mono', monospace;
+                font-size: 12px;
+                line-height: 1.5;
+            }
+            .execution-success { 
+                background: #d1fae5; 
+                border-left: 4px solid #10b981;
+                color: #065f46;
+            }
+            .execution-error { 
+                background: #fee2e2; 
+                border-left: 4px solid #ef4444;
+                color: #991b1b;
+            }
+            .typing { 
+                display: flex; 
+                gap: 4px; 
+                padding: 12px;
+                align-items: center;
+            }
+            .typing-dot {
+                width: 8px;
+                height: 8px;
+                background: #667eea;
+                border-radius: 50%;
+                animation: typing 1.4s infinite ease-in-out;
+            }
+            .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+            .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+            @keyframes typing {
+                0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+                40% { transform: scale(1); opacity: 1; }
+            }
+            .status-badge {
+                display: inline-block;
+                padding: 4px 8px;
+                border-radius: 12px;
+                font-size: 11px;
+                font-weight: 500;
+                margin-left: 8px;
+            }
+            .status-active {
+                background: #d1fae5;
+                color: #065f46;
+            }
+            .status-inactive {
+                background: #fee2e2;
+                color: #991b1b;
+            }
+        `;
+    }
+
+    // ========== DOM 创建 ==========
+
+    /**
+     * 创建主界面
+     */
+    function createAssistant(config) {
+        assistant = document.createElement('div');
+        assistant.id = 'ai-agent';
+        assistant.innerHTML = buildMainHTML(config);
+        document.body.appendChild(assistant);
+        
+        setupEventListeners();
+        setupChatEventDelegation();
+        
+        return assistant;
+    }
+
+    /**
+     * 构建主界面 HTML（从 UITemplates 模块获取）
+     */
+    function buildMainHTML(config) {
+        return UITemplates.buildMainHTML(config);
+    }
+
+    // ========== 事件处理 ==========
+
+    /**
+     * 设置事件监听
+     */
+    function setupEventListeners() {
+        setupInputEvents();
+        setupButtonEvents();
+        setupDragEvents();
+    }
+
+    /**
+     * 设置输入框事件
+     */
+    function setupInputEvents() {
+        const sendBtn = document.getElementById('agent-send');
+        const input = document.getElementById('agent-input');
+        
+        if (!sendBtn) {
+            console.error('❌ 发送按钮未找到！DOM 元素可能尚未创建');
+            return;
+        }
+        
+        console.log('✅ 发送按钮已找到，绑定点击事件');
+        
+        // 发送按钮点击
+        sendBtn.addEventListener('click', () => {
+            console.log('📨 发送按钮被点击');
+            
+            // 检查是否是停止按钮
+            if (sendBtn.textContent.includes('停止')) {
+                console.log('⏹ 用户请求停止');
+                EventManager.emit('agent:stop:request');
+                return;
+            }
+            
+            const message = input.value.trim();
+            if (!message) return; // 空消息不发送
+            
+            console.log('📨 消息内容:', message);
+            EventManager.emit(EventManager.EventTypes.CHAT_MESSAGE_SENT, message);
+            // 发送成功后清空输入框
+            input.value = '';
+        });
+        
+        // 回车发送
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                EventManager.emit(EventManager.EventTypes.CHAT_MESSAGE_SENT, input.value.trim());
+                // 发送成功后清空输入框
+                input.value = '';
+            }
+        });
+    }
+
+    /**
+     * 设置按钮事件
+     */
+    function setupButtonEvents() {
+        const closeBtn = document.getElementById('agent-close');
+        const settingsBtn = document.getElementById('agent-settings');
+        const clearBtn = document.getElementById('agent-clear');
+
+        // 关闭按钮
+        closeBtn.addEventListener('click', () => {
+            hide();
+        });
+
+        // 设置按钮
+        settingsBtn.addEventListener('click', () => {
+            EventManager.emit(EventManager.EventTypes.SETTINGS_OPEN);
+        });
+
+        // 清空按钮
+        clearBtn.addEventListener('click', () => {
+            if (confirm('确定要清空所有对话记录吗?')) {
+                EventManager.emit(EventManager.EventTypes.CHAT_CLEAR);
+            }
+        });
+    }
+
+    /**
+     * 设置拖拽事件（优化版：使用 requestAnimationFrame）
+     */
+    function setupDragEvents() {
+        const header = document.getElementById('agent-header');
+        
+        // mousedown: 开始拖动
+        header.addEventListener('mousedown', (e) => {
+            if (e.target.closest('.header-btn')) return;
+            isDragging = true;
+            dragOffset.x = e.clientX - assistant.offsetLeft;
+            dragOffset.y = e.clientY - assistant.offsetTop;
+            assistant.style.cursor = 'grabbing';
+            
+            // 阻止默认行为，防止文本选择
+            e.preventDefault();
+        });
+
+        // mousemove: 更新鼠标位置，使用 rAF 优化
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            
+            // 更新当前鼠标位置
+            currentMousePos.x = e.clientX;
+            currentMousePos.y = e.clientY;
+            
+            // 如果已经有 pending 的 rAF，跳过
+            if (rafId !== null) return;
+            
+            // 请求下一帧更新位置
+            rafId = requestAnimationFrame(() => {
+                updateAssistantPosition();
+                rafId = null;
+            });
+        });
+
+        // mouseup: 结束拖动
+        document.addEventListener('mouseup', () => {
+            if (!isDragging) return;
+            isDragging = false;
+            assistant.style.cursor = '';
+            
+            // 取消 pending 的 rAF
+            if (rafId !== null) {
+                cancelAnimationFrame(rafId);
+                rafId = null;
+            }
+        });
+    }
+    
+    /**
+     * 更新助手窗口位置（在 rAF 回调中调用）
+     */
+    function updateAssistantPosition() {
+        if (!isDragging || !assistant) return;
+        
+        const newLeft = currentMousePos.x - dragOffset.x;
+        const newTop = currentMousePos.y - dragOffset.y;
+        
+        // 批量更新样式，减少重排
+        assistant.style.left = newLeft + 'px';
+        assistant.style.top = newTop + 'px';
+        assistant.style.right = 'auto';
+        assistant.style.bottom = 'auto';
+    }
+
+    /**
+     * 设置聊天区域事件委托
+     */
+    function setupChatEventDelegation() {
+        const chat = document.getElementById('agent-chat');
+        if (!chat) return;
+
+        // 使用事件委托处理代码块按钮点击
+        chat.addEventListener('click', (e) => {
+            const target = e.target.closest('button[data-action]');
+            if (!target) return;
+
+            handleCodeBlockAction(target);
+        });
+    }
+
+    /**
+     * 处理代码块操作
+     */
+    function handleCodeBlockAction(button) {
+        const action = button.dataset.action;
+        const assistantMessage = button.closest('.assistant-message');
+        if (!assistantMessage) return;
+
+        const codeBlock = assistantMessage.querySelector('.code-block');
+        if (!codeBlock) return;
+
+        // 从全局存储中获取代码（避免 HTML 转义问题）
+        const blockId = codeBlock.dataset.codeId;
+        const code = ChatManager.getCodeFromStore(blockId);
+        
+        if (!code) {
+            console.error('未找到代码块:', blockId);
+            return;
+        }
+
+        if (action === 'execute-code') {
+            // 触发执行代码事件
+            EventManager.emit('agent:execute:code', code);
+        } else if (action === 'copy-code') {
+            copyToClipboard(code, button);
+        }
+    }
+
+    /**
+     * 复制代码到剪贴板
+     */
+    function copyToClipboard(text, button) {
+        navigator.clipboard.writeText(text).then(() => {
+            const originalText = button.textContent;
+            button.textContent = '✓ 已复制';
+            setTimeout(() => {
+                button.textContent = originalText;
+            }, 2000);
+        });
+    }
+
+    // ========== 消息显示 ==========
+
+    /**
+     * 追加消息到聊天区域
+     */
+    function appendMessage(html) {
+        const chat = document.getElementById('agent-chat');
+        if (chat) {
+            chat.insertAdjacentHTML('beforeend', html);
+            chat.scrollTop = chat.scrollHeight;
+        }
+    }
+
+    /**
+     * 显示打字指示器
+     */
+    function showTypingIndicator() {
+        const typingHTML = `
+            <div class="typing" id="typing-indicator">
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+            </div>
+        `;
+        appendMessage(typingHTML);
+    }
+
+    /**
+     * 隐藏打字指示器
+     */
+    function hideTypingIndicator() {
+        const indicator = document.getElementById('typing-indicator');
+        if (indicator) indicator.remove();
+    }
+
+    /**
+     * 更新发送按钮状态
+     */
+    function updateSendButtonState(isProcessing) {
+        const sendBtn = document.getElementById('agent-send');
+        if (sendBtn) {
+            sendBtn.disabled = false; // 始终启用，允许停止
+            if (isProcessing) {
+                sendBtn.textContent = '⏹ 停止';
+                sendBtn.style.background = '#ef4444'; // 红色背景表示可以停止
+            } else {
+                sendBtn.textContent = '发送 ➤';
+                sendBtn.style.background = ''; // 恢复默认渐变
+            }
+        }
+    }
+
+    /**
+     * 更新状态徽章
+     */
+    function updateStatusBadge(hasApiKey) {
+        const badge = document.querySelector('#agent-title .status-badge');
+        if (badge) {
+            if (hasApiKey) {
+                badge.className = 'status-badge status-active';
+                badge.textContent = '已配置';
+            } else {
+                badge.className = 'status-badge status-inactive';
+                badge.textContent = '未配置';
+            }
+        }
+    }
+
+    // ========== 窗口控制 ==========
+
+    /**
+     * 显示助手
+     */
+    function show() {
+        if (assistant) {
+            assistant.style.display = 'flex';
+            
+            // 保存显示状态到当前域名（使用 StateManager）
+            if (typeof StateManager !== 'undefined') {
+                StateManager.saveChatVisibility(true);
+            }
+        }
+    }
+
+    /**
+     * 隐藏助手
+     */
+    function hide() {
+        if (assistant) {
+            assistant.style.display = 'none';
+            // 触发 Agent 关闭事件，让 main.js 处理状态保存和日志记录
+            EventManager.emit(EventManager.EventTypes.AGENT_CLOSE);
+        }
+    }
+
+    // ========== 设置对话框 ==========
+
+    /**
+     * 显示设置对话框
+     */
+    function showSettings() {
+        // 检查是否已经存在设置对话框
+        const existingModal = document.getElementById('settings-modal');
+        if (existingModal) {
+            console.log('⚙️ 设置对话框已存在，跳过创建');
+            return;
+        }
+        
+        const config = ConfigManager.getAll();
+        
+        // 添加设置对话框样式
+        GM_addStyle(getSettingsStyles());
+
+        const modalHTML = buildSettingsHTML(config);
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+        // 初始化模型选择
+        initializeModelSelect(config.model);
+
+        // 绑定事件
+        bindSettingsEvents();
+        
+        // 绑定 ESC 键关闭
+        bindEscapeKey();
+    }
+
+    /**
+     * 获取设置对话框样式
+     */
+    function getSettingsStyles() {
+        return `
+            .modal-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0,0,0,0.5);
+                z-index: 1000000;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .modal-content {
+                background: white;
+                padding: 24px;
+                border-radius: 12px;
+                width: 90%;
+                max-width: 500px;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                max-height: 80vh;
+                overflow-y: auto;
+            }
+            .modal-title {
+                font-size: 18px;
+                font-weight: 600;
+                margin-bottom: 16px;
+                color: #1f2937;
+            }
+            .form-group {
+                margin-bottom: 16px;
+            }
+            .form-label {
+                display: block;
+                margin-bottom: 6px;
+                font-size: 14px;
+                font-weight: 500;
+                color: #374151;
+            }
+            .form-input {
+                width: 100%;
+                padding: 10px;
+                border: 1px solid #d1d5db;
+                border-radius: 6px;
+                font-size: 14px;
+                transition: border-color 0.2s;
+            }
+            .form-input:focus {
+                outline: none;
+                border-color: #667eea;
+                box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            }
+            .form-hint {
+                font-size: 12px;
+                color: #6b7280;
+                margin-top: 4px;
+            }
+            .modal-actions {
+                display: flex;
+                gap: 10px;
+                justify-content: flex-end;
+                margin-top: 20px;
+            }
+            .btn-primary {
+                background: #667eea;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 14px;
+                font-weight: 500;
+            }
+            .btn-secondary {
+                background: #f3f4f6;
+                color: #374151;
+                border: 1px solid #d1d5db;
+                padding: 10px 20px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 14px;
+            }
+            .toggle-switch {
+                position: relative;
+                display: inline-block;
+                width: 48px;
+                height: 24px;
+            }
+            .toggle-switch input {
+                opacity: 0;
+                width: 0;
+                height: 0;
+            }
+            .toggle-slider {
+                position: absolute;
+                cursor: pointer;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background-color: #ccc;
+                transition: .4s;
+                border-radius: 24px;
+            }
+            .toggle-slider:before {
+                position: absolute;
+                content: "";
+                height: 18px;
+                width: 18px;
+                left: 3px;
+                bottom: 3px;
+                background-color: white;
+                transition: .4s;
+                border-radius: 50%;
+            }
+            input:checked + .toggle-slider {
+                background-color: #667eea;
+            }
+            input:checked + .toggle-slider:before {
+                transform: translateX(24px);
+            }
+            .setting-row {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 12px 0;
+                border-bottom: 1px solid #e5e7eb;
+            }
+        `;
+    }
+
+    /**
+     * 构建设置对话框 HTML
+     */
+    function buildSettingsHTML(config) {
+        return `
+            <div class="modal-overlay" id="settings-modal">
+                <div class="modal-content">
+                    <div class="modal-title">⚙️ 设置</div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">API Key *</label>
+                        <input type="password" class="form-input" id="setting-api-key" 
+                               value="${config.apiKey}" 
+                               placeholder="输入你的 API Key">
+                        <div class="form-hint">
+                            从 <a href="https://openrouter.ai/keys" target="_blank">OpenRouter Keys</a> 获取免费 API Key
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">模型选择 (免费)</label>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <select class="form-input" id="setting-model" style="flex: 1;">
+                                <option value="auto">🔄 Auto (自动选择)</option>
+                            </select>
+                            <button class="btn-secondary" id="refresh-models" title="刷新模型列表" style="padding: 8px 12px; white-space: nowrap;">🔄 刷新</button>
+                        </div>
+                        <div class="form-hint">
+                            所有标记 :free 的模型都完全免费 | Auto 会自动选择最佳可用模型 | 点击刷新获取最新列表
+                        </div>
+                        <div id="models-status" style="margin-top: 8px; font-size: 12px; color: #6b7280;"></div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Temperature: <span id="temp-value">${config.temperature}</span></label>
+                        <input type="range" class="form-input" id="setting-temperature" 
+                               min="0" max="1" step="0.1" value="${config.temperature}">
+                        <div class="form-hint">控制回复的随机性 (0=确定, 1=创意)</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Top P: <span id="topp-value">${config.topP}</span></label>
+                        <input type="range" class="form-input" id="setting-top-p" 
+                               min="0" max="1" step="0.1" value="${config.topP}">
+                        <div class="form-hint">核采样参数,控制多样性 (0.95 推荐)</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">最大输出 Token</label>
+                        <input type="number" class="form-input" id="setting-max-tokens" 
+                               value="${config.maxTokens}" min="100" max="4096">
+                    </div>
+
+                    <div class="setting-row">
+                        <div>
+                            <div style="font-weight: 500;">JavaScript 执行</div>
+                            <div style="font-size: 12px; color: #6b7280;">允许执行 AI 生成的代码</div>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="setting-js-enabled" ${config.jsExecutionEnabled ? 'checked' : ''}>
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="modal-actions">
+                        <button class="btn-secondary" id="cancel-settings">取消</button>
+                        <button class="btn-primary" id="save-settings">保存</button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    /**
+     * 绑定设置对话框的事件监听
+     */
+    function bindSettingsEvents() {
+        // 温度滑块实时更新
+        document.getElementById('setting-temperature').addEventListener('input', (e) => {
+            document.getElementById('temp-value').textContent = e.target.value;
+        });
+
+        // Top P 滑块实时更新
+        document.getElementById('setting-top-p').addEventListener('input', (e) => {
+            document.getElementById('topp-value').textContent = e.target.value;
+        });
+
+        // 刷新模型列表
+        setupModelRefresh();
+
+        // 保存设置
+        document.getElementById('save-settings').addEventListener('click', saveSettings);
+
+        // 取消
+        document.getElementById('cancel-settings').addEventListener('click', closeModal);
+        
+        // 点击遮罩层关闭
+        const modalOverlay = document.getElementById('settings-modal');
+        if (modalOverlay) {
+            modalOverlay.addEventListener('click', (e) => {
+                // 只有点击遮罩层本身才关闭，点击内容区域不关闭
+                if (e.target === modalOverlay) {
+                    closeModal();
+                }
+            });
+        }
+    }
+
+    /**
+     * 初始化模型选择
+     */
+    function initializeModelSelect(currentModel) {
+        const cached = ModelManager.loadCachedModels();
+        ModelManager.updateModelSelect(cached.models, currentModel);
+        
+        const modelsStatus = document.getElementById('models-status');
+        if (modelsStatus && !cached.isExpired) {
+            modelsStatus.innerHTML = `<span style="color: #6b7280;">📦 已加载缓存 (${cached.hoursAgo}小时前) | 点击刷新获取最新</span>`;
+        }
+    }
+
+    /**
+     * 设置模型刷新功能
+     */
+    function setupModelRefresh() {
+        const refreshBtn = document.getElementById('refresh-models');
+        const modelsStatus = document.getElementById('models-status');
+        
+        refreshBtn.addEventListener('click', async () => {
+            refreshBtn.disabled = true;
+            refreshBtn.textContent = '🔄 加载中...';
+            modelsStatus.innerHTML = '<span style="color: #3b82f6;">⏳ 正在获取最新模型列表...</span>';
+            
+            try {
+                const result = await ModelManager.refreshModels();
+                
+                if (result.success) {
+                    const select = document.getElementById('setting-model');
+                    const currentModel = select.value;
+                    ModelManager.updateModelSelect(result.models, currentModel);
+                    modelsStatus.innerHTML = `<span style="color: #10b981;">✅ 已更新!找到 ${result.count} 个免费模型 (最后更新: ${new Date().toLocaleTimeString()})</span>`;
+                } else {
+                    throw new Error(result.error);
+                }
+                
+            } catch (error) {
+                console.error('获取模型列表失败:', error);
+                modelsStatus.innerHTML = `<span style="color: #ef4444;">❌ 获取失败: ${error.message}</span><br><span style="color: #6b7280;">提示: Auto 模式仍然可用</span>`;
+            } finally {
+                refreshBtn.disabled = false;
+                refreshBtn.textContent = '🔄 刷新';
+            }
+        });
+    }
+
+    /**
+     * 保存设置
+     */
+    function saveSettings() {
+        const apiKey = document.getElementById('setting-api-key').value.trim();
+        const model = document.getElementById('setting-model').value;
+        const temperature = parseFloat(document.getElementById('setting-temperature').value);
+        const topP = parseFloat(document.getElementById('setting-top-p').value);
+        let maxTokens = parseInt(document.getElementById('setting-max-tokens').value);
+        const jsEnabled = document.getElementById('setting-js-enabled').checked;
+
+        // 验证并限制 maxTokens 范围
+        if (isNaN(maxTokens) || maxTokens < 100) {
+            maxTokens = 2048;
+        } else if (maxTokens > 8192) {
+            maxTokens = 8192;
+            alert('⚠️ maxTokens 已自动限制为 8192，避免超出 API 限制');
+        }
+
+        // 保存到配置管理器 (浏览器存储)
+        ConfigManager.set('apiKey', apiKey);
+        ConfigManager.set('model', model);
+        ConfigManager.set('temperature', temperature);
+        ConfigManager.set('topP', topP);
+        ConfigManager.set('maxTokens', maxTokens);
+        ConfigManager.set('jsExecutionEnabled', jsEnabled);
+
+        closeModal();
+        
+        // 更新 UI 状态徽章
+        updateStatusBadge(apiKey.length > 0);
+        
+        // 显示成功消息
+        appendMessage(`
+            <div class="assistant-message">
+                <div class="message-content" style="color: #10b981;">
+                    ✅ 设置已保存 - 开始免费使用!
+                </div>
+            </div>
+        `);
+    }
+
+    /**
+     * 绑定 ESC 键关闭设置对话框
+     */
+    function bindEscapeKey() {
+        // 先移除旧的监听器（如果存在）
+        if (escapeHandler) {
+            document.removeEventListener('keydown', escapeHandler);
+        }
+        
+        // 创建新的处理器
+        escapeHandler = (e) => {
+            if (e.key === 'Escape' || e.keyCode === 27) {
+                closeModal();
+            }
+        };
+        
+        document.addEventListener('keydown', escapeHandler);
+    }
+
+    /**
+     * 关闭模态框
+     */
+    function closeModal() {
+        const modal = document.getElementById('settings-modal');
+        if (modal) {
+            modal.remove();
+        }
+        
+        // 移除 ESC 键监听器
+        if (escapeHandler) {
+            document.removeEventListener('keydown', escapeHandler);
+            escapeHandler = null;
+        }
+    }
+
+    // ========== 初始化 ==========
+    addStyles();
+
+    // ========== 公共接口 ==========
+    return {
+        createAssistant,
+        appendMessage,
+        showTypingIndicator,
+        hideTypingIndicator,
+        updateSendButtonState,
+        updateStatusBadge,
+        show,
+        hide,
+        showSettings,
+        closeModal
+    };
+})();
+
+
+// =====================================================
+// 模块: models.js
+// =====================================================
 
 // ==================== 模型管理模块 ====================
 
@@ -862,7 +2721,9 @@ const ModelManager = (function() {
 })();
 
 
-// ==================== api.js ====================
+// =====================================================
+// 模块: api.js
+// =====================================================
 
 // ==================== API 调用模块 ====================
 
@@ -872,23 +2733,36 @@ const APIManager = (function() {
     /**
      * 调用 AI API
      */
-    async function callAPI(userMessage, conversationHistory, config) {
+    async function callAPI(userMessage, conversationHistory, config, abortController = null) {
         if (isProcessing) return null;
         
         isProcessing = true;
         
         try {
+            // 验证配置
+            if (!config.apiKey) {
+                throw new Error('API Key 未设置，请在设置中配置 OpenRouter API Key');
+            }
+            if (!config.model) {
+                throw new Error('模型未设置');
+            }
+            
             const messages = buildMessages(userMessage, conversationHistory, config);
             
             const requestBody = {
                 model: config.model,
                 messages: messages,
-                temperature: config.temperature,
-                top_p: config.topP,
-                max_tokens: config.maxTokens
+                temperature: config.temperature || 0.7,
+                top_p: config.topP || 0.95,
+                // 限制 max_tokens 最大值，避免超出 API 限制
+                max_tokens: Math.min(config.maxTokens || 2048, 8192)
             };
-
-            const response = await makeRequest(requestBody, config.apiKey);
+            
+            console.log('📤 API 请求:', { model: config.model, messagesCount: messages.length });
+            
+            const response = await makeRequest(requestBody, config.apiKey, abortController);
+            
+            console.log('📥 API 响应:', response.choices ? '成功' : '失败');
             
             if (response.choices && response.choices.length > 0) {
                 const assistantMessage = response.choices[0].message.content;
@@ -899,6 +2773,12 @@ const APIManager = (function() {
 
         } catch (error) {
             console.error('API 调用失败:', error);
+            
+            // 检查是否是用户主动取消
+            if (error.name === 'AbortError') {
+                return { success: false, cancelled: true, error: '请求已取消' };
+            }
+            
             return { success: false, error: error.message };
         } finally {
             isProcessing = false;
@@ -912,20 +2792,11 @@ const APIManager = (function() {
         // 系统提示词
         const systemMessage = {
             role: 'system',
-            content: `你是一个运行在浏览器中的 AI 助手。你可以:
-1. 回答各种问题
-2. 帮助分析和操作当前网页
-3. 生成和执行 JavaScript 代码
-
-当前页面信息:
-- URL: ${window.location.href}
-- 标题: ${document.title}
-
-请用简洁、实用的方式回答问题。如果需要执行代码,请使用 \`\`\`javascript 代码块包裹。`
+            content: `你是浏览器中的AI助手,发送\`\`\`js\`\`\`包裹的代码块，执行代码，通过return获取结果`
         };
 
         // 获取最近的对话历史(最多保留最近 10 轮)
-        const recentHistory = history.slice(-10);
+        const recentHistory = (history || []).slice(-10);
         
         // 构建完整的消息数组
         const messages = [
@@ -946,9 +2817,9 @@ const APIManager = (function() {
     /**
      * 发起 HTTP 请求
      */
-    function makeRequest(requestBody, apiKey) {
+    function makeRequest(requestBody, apiKey, abortController = null) {
         return new Promise((resolve, reject) => {
-            GM_xmlhttpRequest({
+            const xhr = GM_xmlhttpRequest({
                 method: 'POST',
                 url: 'https://openrouter.ai/api/v1/chat/completions',
                 headers: {
@@ -967,12 +2838,37 @@ const APIManager = (function() {
                             reject(new Error('响应解析失败'));
                         }
                     } else {
-                        reject(new Error(`HTTP ${response.status}: ${response.statusText}`));
+                        // 尝试解析错误详情
+                        let errorDetail = response.statusText;
+                        try {
+                            const errorData = JSON.parse(response.responseText);
+                            if (errorData.error) {
+                                errorDetail = errorData.error.message || errorData.error.code || JSON.stringify(errorData.error);
+                            }
+                        } catch (e) {
+                            errorDetail = response.responseText || response.statusText;
+                        }
+                        reject(new Error(`HTTP ${response.status}: ${errorDetail}`));
                     }
                 },
                 onerror: (error) => reject(error),
-                ontimeout: () => reject(new Error('请求超时'))
+                ontimeout: () => reject(new Error('请求超时')),
+                onreadystatechange: (readyState) => {
+                    // 检查是否被中止
+                    if (abortController && abortController.signal.aborted) {
+                        xhr.abort();
+                        reject(new DOMException('The user aborted a request.', 'AbortError'));
+                    }
+                }
             });
+            
+            // 监听 abort 信号
+            if (abortController) {
+                abortController.signal.addEventListener('abort', () => {
+                    xhr.abort();
+                    reject(new DOMException('The user aborted a request.', 'AbortError'));
+                });
+            }
         });
     }
 
@@ -990,108 +2886,777 @@ const APIManager = (function() {
 })();
 
 
-// ==================== chat.js ====================
+// =====================================================
+// 模块: chat.js
+// =====================================================
 
-// ==================== 聊天逻辑模块 ====================
+// ==================== 聊天逻辑模块 (重构版) ====================
 
 const ChatManager = (function() {
-    /**
-     * 处理用户发送的消息
-     */
-    async function handleMessage(message, config) {
-        // 检查快捷命令
-        if (message.startsWith('/js ')) {
-            const code = message.substring(4);
-            executeJavaScript(code);
-            return { type: 'command', command: 'js' };
-        }
-        
-        if (message === '/clear') {
-            window.dispatchEvent(new CustomEvent('agent-clear-chat'));
-            return { type: 'command', command: 'clear' };
-        }
-        
-        if (message === '/help') {
-            showHelp();
-            return { type: 'command', command: 'help' };
-        }
+    'use strict';
+    
+    // ========== 状态管理 ==========
+    const MAX_CODE_BLOCKS = 100; // 最多保留 100 个代码块
+    
+    const state = {
+        isProcessing: false,
+        codeBlockStore: {},
+        codeBlockIndex: 0,
+        messageQueue: [],
+        currentAbortController: null,  // 当前请求的 AbortController
+        historyLoaded: false  // 标记历史记录是否已加载
+    };
 
-        // 正常对话
-        return { type: 'chat', message: message };
+    // ========== 工具函数 ==========
+    
+    /**
+     * 安全地将对象转换为字符串（处理循环引用）
+     */
+    function safeStringify(result) {
+        try {
+            return typeof result === 'object' 
+                ? JSON.stringify(result, null, 2) 
+                : String(result);
+        } catch (e) {
+            if (typeof result === 'object' && result !== null) {
+                try {
+                    const simpleObj = {};
+                    for (let key in result) {
+                        if (result.hasOwnProperty(key)) {
+                            const val = result[key];
+                            const type = typeof val;
+                            if (type === 'string' || type === 'number' || type === 'boolean') {
+                                simpleObj[key] = val;
+                            } else if (type === 'function') {
+                                simpleObj[key] = '[Function]';
+                            } else if (type === 'object' && val !== null) {
+                                simpleObj[key] = '[Object]';
+                            }
+                        }
+                        if (Object.keys(simpleObj).length >= 20) break;
+                    }
+                    return JSON.stringify(simpleObj, null, 2);
+                } catch (e2) {
+                    return `[${typeof result}] 对象类型（无法完整序列化）`;
+                }
+            } else {
+                return String(result);
+            }
+        }
     }
 
     /**
-     * 执行 JavaScript 代码
+     * HTML 转义
      */
-    function executeJavaScript(code) {
-        if (!ConfigManager.get('jsExecutionEnabled')) {
-            UIManager.appendMessage(`
-                <div class="assistant-message">
-                    <div class="message-content" style="color: #ef4444;">
-                        ⚠️ JavaScript 执行已被禁用,请在设置中启用
-                    </div>
-                </div>
-            `);
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    /**
+     * 从文本中提取所有代码块
+     */
+    function extractCodeBlocks(text) {
+        const codeBlocks = [];
+        const regex = /```(\w*)\n([\s\S]*?)```/g;
+        let match;
+        while ((match = regex.exec(text)) !== null) {
+            codeBlocks.push({
+                lang: match[1] || 'text',
+                code: match[2].trim()
+            });
+        }
+        return codeBlocks;
+    }
+
+    /**
+     * 检查代码是否为高危操作
+     */
+    function isHighRiskCode(code) {
+        const highRiskPatterns = [
+            // 导航/跳转类
+            /window\.location\s*=/,
+            /window\.location\.href\s*=/,
+            /location\.href\s*=/,
+            /location\.replace\s*\(/,
+            /location\.assign\s*\(/,
+            /window\.open\s*\(/,
+            
+            // 数据删除类
+            /localStorage\.clear\s*\(/,
+            /localStorage\.removeItem\s*\(/,
+            /sessionStorage\.clear\s*\(/,
+            /indexedDB\.deleteDatabase\s*\(/,
+            
+            // Cookie 操作
+            /document\.cookie\s*=.*expires/,
+            /document\.cookie\s*=.*max-age=0/,
+            
+            // 危险执行
+            /eval\s*\(/,
+            /Function\s*\(/,
+            /setTimeout\s*\(.*eval/,
+            /setInterval\s*\(.*eval/,
+            
+            // DOM 破坏性操作
+            /document\.body\.innerHTML\s*=\s*['"`]/,
+            /document\.documentElement\.innerHTML\s*=\s*['"`]/,
+            
+            // 弹窗轰炸
+            /while\s*\(.*\)\s*\{\s*alert/,
+            /for\s*\(.*\)\s*\{\s*alert/,
+            
+            // 无限循环
+            /while\s*\(true\)/,
+            /for\s*\(;;\)/,
+            /while\s*\(1\)/,
+        ];
+        
+        return highRiskPatterns.some(pattern => pattern.test(code));
+    }
+
+    /**
+     * 停止当前请求并清空队列
+     */
+    function stopCurrentRequest() {
+        // 1. 取消当前的 API 请求
+        if (state.currentAbortController) {
+            state.currentAbortController.abort();
+            state.currentAbortController = null;
+        }
+        
+        // 2. 清空消息队列
+        state.messageQueue = [];
+        
+        // 3. 重置处理状态
+        state.isProcessing = false;
+        
+        // 4. 隐藏打字指示器
+        UIManager.hideTypingIndicator();
+        
+        // 5. 更新按钮状态
+        UIManager.updateSendButtonState(false);
+        
+        // 6. 添加系统提示
+        addAssistantMessage('⏹ 已停止请求并清空队列');
+    }
+
+    // ========== 消息处理核心 ==========
+
+    /**
+     * 处理用户消息（主入口）
+     */
+    async function handleMessage(message) {
+        // 如果正在处理，将消息加入队列
+        if (state.isProcessing) {
+            state.messageQueue.push(message);
+            console.log('⏳ 消息已加入队列，等待处理');
+            return;
+        }
+        
+        const trimmedMessage = message.trim();
+        if (!trimmedMessage) return;
+
+        // 添加用户消息到界面
+        addUserMessage(trimmedMessage);
+
+        // 检查是否是快捷命令
+        if (trimmedMessage.startsWith('/')) {
+            state.isProcessing = true;
+            try {
+                handleCommand(trimmedMessage);
+            } finally {
+                state.isProcessing = false;
+                processNextMessage();
+            }
             return;
         }
 
+        // 正常对话处理
+        await handleNormalMessage(trimmedMessage);
+    }
+
+    /**
+     * 处理普通对话消息
+     */
+    async function handleNormalMessage(message) {
+        state.isProcessing = true;
+        
         try {
-            // 先检查代码是否有明显的语法错误
-            new Function(code);
+            UIManager.showTypingIndicator();
+            UIManager.updateSendButtonState(true); // 更新按钮为停止状态
+
+            const config = ConfigManager.getAll();
+            const history = HistoryManager.getHistory();
             
-            // 执行代码
+            // 创建 AbortController 用于取消请求
+            state.currentAbortController = new AbortController();
+            
+            const response = await APIManager.callAPI(message, history, config, state.currentAbortController);
+            
+            // 请求完成，清除 AbortController
+            state.currentAbortController = null;
+            
+            UIManager.hideTypingIndicator();
+            UIManager.updateSendButtonState(false); // 恢复按钮状态
+
+            if (response.success) {
+                addAssistantMessage(response.message);
+                
+                // 异步执行代码块（只执行一次，不阻塞主流程）
+                setTimeout(() => executeCodeBlocksFromMessage(response.message), 100);
+            } else {
+                // 检查是否是用户主动取消
+                if (response.cancelled) {
+                    console.log('✅ 请求已被用户取消');
+                    return; // 不显示错误消息，因为已经显示了停止提示
+                }
+                addAssistantMessage(`❌ API 错误: ${response.error}`);
+            }
+
+        } catch (error) {
+            console.error('❌ 消息处理失败:', error);
+            UIManager.hideTypingIndicator();
+            UIManager.updateSendButtonState(false); // 恢复按钮状态
+            
+            // 检查是否是中止错误
+            if (error.name === 'AbortError') {
+                console.log('✅ 请求已中止');
+                return; // 不显示错误消息
+            }
+            
+            addAssistantMessage(`❌ 错误: ${error.message}`);
+        } finally {
+            state.isProcessing = false;
+            state.currentAbortController = null;
+            processNextMessage();
+        }
+    }
+
+    /**
+     * 处理队列中的下一条消息
+     */
+    function processNextMessage() {
+        if (state.messageQueue.length > 0 && !state.isProcessing) {
+            const nextMessage = state.messageQueue.shift();
+            console.log('📤 从队列取出消息处理');
+            handleMessage(nextMessage);
+        }
+    }
+
+    // ========== 消息显示 ==========
+
+    /**
+     * 添加用户消息到界面
+     */
+    function addUserMessage(text) {
+        const messageHTML = `
+            <div class="user-message">
+                <div class="message-content">${escapeHtml(text)}</div>
+            </div>
+        `;
+        UIManager.appendMessage(messageHTML);
+        
+        // 保存到历史
+        saveToHistory({ role: 'user', content: text });
+    }
+
+    /**
+     * 添加助手消息到界面
+     */
+    function addAssistantMessage(text) {
+        const formattedText = formatMessage(text);
+        UIManager.appendMessage(formattedText);
+        
+        // 保存到历史
+        saveToHistory({ role: 'assistant', content: text });
+    }
+
+    /**
+     * 保存消息到历史记录
+     */
+    function saveToHistory(message) {
+        const history = HistoryManager.getHistory();
+        history.push(message);
+        HistoryManager.saveConversationHistory(history);
+    }
+
+    // ========== 代码执行 ==========
+
+    /**
+     * 执行 JavaScript 代码（手动触发）
+     */
+    function executeJavaScript(code) {
+        try {
             const result = unsafeWindow.eval(code);
+            const resultStr = safeStringify(result);
             
-            const resultStr = typeof result === 'object' 
-                ? JSON.stringify(result, null, 2) 
-                : String(result);
+            // 生成唯一 ID 并存储到全局
+            const blockId = 'result_' + Date.now();
+            state.codeBlockStore[blockId] = resultStr;
             
-            // 直接插入到聊天区域，不使用 addAssistantMessage（避免二次格式化）
+            // 使用代码块形式显示执行结果（控制高度）
             UIManager.appendMessage(`
                 <div class="assistant-message">
-                    <div class="execution-result execution-success">
+                    <div style="margin-bottom: 4px; font-size: 13px; color: #10b981;">
                         <strong>✅ 执行成功</strong>
-                        <br>
-                        <pre style="margin-top: 8px; white-space: pre-wrap; word-wrap: break-word;">${escapeHtml(resultStr)}</pre>
+                    </div>
+                    <div class="code-block" data-code-id="${blockId}" data-lang="result" style="max-height: 200px; overflow-y: auto;">
+                        <div class="code-language">RESULT</div>
+                        <pre>${escapeHtml(resultStr)}</pre>
                     </div>
                 </div>
             `);
             
             // 保存执行记录
-            const history = ConfigManager.get('conversationHistory');
-            history.push({ 
+            saveToHistory({ 
                 role: 'system', 
                 content: `[代码执行] ${code}\n结果: ${resultStr}` 
             });
-            ConfigManager.saveConversationHistory(history);
             
         } catch (error) {
-            // 分析错误类型
-            let errorType = '未知错误';
-            let suggestion = '';
+            displayExecutionError(error);
+        }
+    }
+
+    /**
+     * 显示代码执行错误
+     */
+    function displayExecutionError(error) {
+        let errorType = '未知错误';
+        let suggestion = '';
+        
+        if (error instanceof SyntaxError) {
+            errorType = '语法错误';
+            suggestion = '<br><br>💡 <strong>建议:</strong> 请让 AI 重新生成代码,并检查:<br>• 字符串是否使用了正确的引号<br>• 模板字符串是否使用了反引号 (`)<br>• 括号是否匹配';
+        } else if (error instanceof ReferenceError) {
+            errorType = '引用错误';
+            suggestion = '<br><br>💡 <strong>建议:</strong> 变量或函数未定义,请检查代码中的变量名是否正确';
+        } else if (error instanceof TypeError) {
+            errorType = '类型错误';
+            suggestion = '<br><br>💡 <strong>建议:</strong> 调用了不存在的方法或属性,请检查对象是否存在';
+        }
+        
+        // 生成唯一 ID 并存储到全局
+        const blockId = 'error_' + Date.now();
+        state.codeBlockStore[blockId] = error.toString();
+        
+        // 使用代码块形式显示错误（控制高度）
+        UIManager.appendMessage(`
+            <div class="assistant-message">
+                <div style="margin-bottom: 4px; font-size: 13px; color: #ef4444;">
+                    <strong>❌ 执行失败 (${errorType})</strong>
+                </div>
+                <div class="code-block" data-code-id="${blockId}" data-lang="error" style="max-height: 200px; overflow-y: auto; background: #fee2e2; border-left: 4px solid #ef4444;">
+                    <div class="code-language">ERROR</div>
+                    <pre>${escapeHtml(error.toString())}</pre>
+                </div>
+                ${suggestion}
+            </div>
+        `);
+        
+        console.error('❌ 代码执行失败:', error);
+    }
+
+    /**
+     * 执行消息中的代码块（自动执行安全代码，高危代码需要确认）
+     */
+    async function executeCodeBlocksFromMessage(message) {
+        if (state.isProcessing) return;
+        
+        const codeBlocks = extractCodeBlocks(message);
+        const jsCodeBlocks = codeBlocks.filter(block => block.lang === 'javascript' || block.lang === 'js');
+        
+        if (jsCodeBlocks.length === 0) return;
+        
+        state.isProcessing = true;
+        
+        try {
+            // 依次执行所有代码块，收集结果
+            const results = [];
             
-            if (error instanceof SyntaxError) {
-                errorType = '语法错误';
-                suggestion = '<br><br>💡 <strong>建议:</strong> 请让 AI 重新生成代码,并检查:<br>• 字符串是否使用了正确的引号<br>• 模板字符串是否使用了反引号 (`)<br>• 括号是否匹配';
-            } else if (error instanceof ReferenceError) {
-                errorType = '引用错误';
-                suggestion = '<br><br>💡 <strong>建议:</strong> 变量或函数未定义,请检查代码中的变量名是否正确';
-            } else if (error instanceof TypeError) {
-                errorType = '类型错误';
-                suggestion = '<br><br>💡 <strong>建议:</strong> 调用了不存在的方法或属性,请检查对象是否存在';
+            for (let i = 0; i < jsCodeBlocks.length; i++) {
+                const block = jsCodeBlocks[i];
+                const index = i + 1;
+                
+                // 检查是否为高危代码
+                if (isHighRiskCode(block.code)) {
+                    // 高危代码：显示警告，需要手动确认
+                    showHighRiskWarning(block.code, index);
+                    results.push({
+                        index,
+                        status: 'pending',
+                        message: '⚠️ 等待用户确认'
+                    });
+                } else {
+                    // 安全代码：执行并收集结果（最多尝试3次）
+                    const result = await executeWithRetry(block.code, index, 3);
+                    results.push(result);
+                }
             }
             
-            UIManager.appendMessage(`
-                <div class="execution-result execution-error">
-                    <strong>❌ 执行失败 (${errorType})</strong>
-                    <br>
-                    <pre style="margin-top: 8px;">${escapeHtml(error.toString())}</pre>
-                    ${suggestion}
-                </div>
-            `);
+            // 如果有需要执行的代码块，组合结果并反馈给 AI
+            const executableResults = results.filter(r => r.status !== 'pending');
+            if (executableResults.length > 0) {
+                // sendCombinedResultsToAI -> callAPIForFeedback 会自己管理状态
+                await sendCombinedResultsToAI(executableResults);
+            }
             
-            console.error('❌ 代码执行失败:', error);
-            console.log('📝 尝试执行的代码:', code);
+        } catch (error) {
+            console.error('❌ 代码块执行失败:', error);
+        } finally {
+            // 只有在没有进行 API 调用时才重置状态
+            // 如果调用了 callAPIForFeedback，它会在完成后重置状态
+            if (!state.currentAbortController) {
+                state.isProcessing = false;
+                UIManager.updateSendButtonState(false);
+                processNextMessage();
+            }
+            // 如果正在进行 API 调用，processNextMessage 会在 callAPIForFeedback 结束后调用
+        }
+    }
+
+    /**
+     * 带重试的代码执行（最多尝试 maxRetries 次）
+     */
+    async function executeWithRetry(code, index, maxRetries = 3) {
+        let lastError = null;
+        
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                console.log(`🔄 执行代码块 ${index} (尝试 ${attempt}/${maxRetries})`);
+                
+                const result = unsafeWindow.eval(code);
+                const resultStr = safeStringify(result);
+                
+                console.log(`✅ 代码块 ${index} 执行成功 (尝试 ${attempt})`);
+                
+                return {
+                    index,
+                    status: 'success',
+                    result: resultStr,
+                    attempts: attempt
+                };
+                
+            } catch (error) {
+                lastError = error;
+                console.warn(`⚠️ 代码块 ${index} 执行失败 (尝试 ${attempt}/${maxRetries}):`, error.message);
+                
+                // 如果不是最后一次尝试，等待一小段时间再重试
+                if (attempt < maxRetries) {
+                    await sleep(500); // 等待 500ms 后重试
+                }
+            }
+        }
+        
+        // 所有尝试都失败了
+        console.error(`❌ 代码块 ${index} 执行失败，已重试 ${maxRetries} 次`);
+        
+        return {
+            index,
+            status: 'failed',
+            error: lastError.toString(),
+            attempts: maxRetries,
+            errorType: getErrorType(lastError)
+        };
+    }
+
+    /**
+     * 发送组合结果给 AI
+     */
+    async function sendCombinedResultsToAI(results) {
+        // 构建组合结果消息
+        const combinedMessage = buildCombinedResultsMessage(results);
+        
+        // 显示执行结果摘要
+        addAssistantMessage(combinedMessage.summary);
+        
+        // 添加简化的用户消息
+        addUserMessage(combinedMessage.userMessage);
+        
+        // 构建详细的反馈消息发送给 AI
+        const feedbackMessage = combinedMessage.feedbackMessage;
+        
+        // 调用 API 获取 AI 响应
+        await callAPIForFeedback(feedbackMessage);
+    }
+
+    /**
+     * 构建组合结果消息
+     */
+    function buildCombinedResultsMessage(results) {
+        const successCount = results.filter(r => r.status === 'success').length;
+        const failedCount = results.filter(r => r.status === 'failed').length;
+        
+        // 构建详细结果文本（压缩格式）
+        let resultText = `代码执行结果: 总计 ${results.length} 个 | ✅ 成功 ${successCount} 个 | ❌ 失败 ${failedCount} 个\n`;
+        resultText += `${'='.repeat(60)}\n\n`;
+        
+        results.forEach((result, idx) => {
+            resultText += `[代码块 ${result.index}] `;
+            
+            if (result.status === 'success') {
+                resultText += `✅ 成功 (尝试 ${result.attempts} 次)\n`;
+                resultText += `结果: ${result.result}\n`;
+            } else {
+                resultText += `❌ 失败 (${result.errorType}, 尝试 ${result.attempts} 次)\n`;
+                resultText += `错误: ${result.error}\n`;
+            }
+            
+            resultText += `\n${'-'.repeat(60)}\n\n`;
+        });
+        
+        if (failedCount > 0) {
+            resultText += `\n请根据上述结果修正失败的代码或提供其他帮助。`;
+        }
+        
+        // 生成唯一 ID 并存储到全局
+        const blockId = 'exec_result_' + Date.now();
+        state.codeBlockStore[blockId] = resultText;
+        
+        // 构建摘要消息（使用代码块形式）
+        let summaryHTML = '<div class="assistant-message">';
+        summaryHTML += `<div style="margin-bottom: 4px; font-size: 13px; color: #667eea;">`;
+        summaryHTML += `<strong>⚡ 代码执行结果 (${results.length} 个代码块)</strong>`;
+        summaryHTML += `</div>`;
+        summaryHTML += `<div class="code-block" data-code-id="${blockId}" data-lang="execution-result" style="max-height: 200px; overflow-y: auto;">`;
+        summaryHTML += `<div class="code-language">RESULT</div>`;
+        summaryHTML += `<pre>${escapeHtml(resultText)}</pre>`;
+        summaryHTML += `</div></div>`;
+        
+        // 构建用户消息
+        let userMessage = '';
+        if (failedCount === 0) {
+            userMessage = `✅ 所有代码块执行成功 (${results.length} 个)`;
+        } else {
+            userMessage = `⚠️ 部分代码块执行失败 (${successCount}/${results.length} 成功)`;
+        }
+        
+        // 构建详细反馈消息（发送给 AI）
+        let feedbackMessage = resultText;
+        
+        return {
+            summary: summaryHTML,
+            userMessage,
+            feedbackMessage
+        };
+    }
+
+    /**
+     * 获取错误类型
+     */
+    function getErrorType(error) {
+        if (error instanceof SyntaxError) return '语法错误';
+        if (error instanceof ReferenceError) return '引用错误';
+        if (error instanceof TypeError) return '类型错误';
+        if (error.message && (error.message.includes('network') || error.message.includes('Network'))) return '网络错误';
+        return '未知错误';
+    }
+
+    /**
+     * 延迟函数
+     */
+    function sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    /**
+     * 为代码执行反馈调用 API（不显示用户消息）
+     */
+    async function callAPIForFeedback(feedbackMessage) {
+        UIManager.showTypingIndicator();
+        UIManager.updateSendButtonState(true); // 更新按钮为停止状态
+        
+        const config = ConfigManager.getAll();
+        const history = HistoryManager.getHistory();
+        
+        // 创建 AbortController 用于取消请求
+        state.currentAbortController = new AbortController();
+        
+        const response = await APIManager.callAPI(feedbackMessage, history, config, state.currentAbortController);
+        
+        // 请求完成，清除 AbortController
+        state.currentAbortController = null;
+        
+        UIManager.hideTypingIndicator();
+        UIManager.updateSendButtonState(false); // 恢复按钮状态
+        
+        // 重置处理状态
+        state.isProcessing = false;
+        
+        // 显示 AI 回复
+        if (response.success) {
+            addAssistantMessage(response.message);
+            
+            // 检查 AI 回复中是否有新的代码块需要执行
+            setTimeout(() => executeCodeBlocksFromMessage(response.message), 100);
+        } else {
+            // 检查是否是用户主动取消
+            if (response.cancelled) {
+                console.log('✅ 代码执行反馈请求已被用户取消');
+                processNextMessage();
+                return; // 不显示错误消息
+            }
+            addAssistantMessage(`❌ API 错误: ${response.error}`);
+        }
+        
+        // 处理队列中的下一条消息
+        processNextMessage();
+    }
+
+    /**
+     * 显示高危代码警告（需要手动确认执行）
+     */
+    function showHighRiskWarning(code, index) {
+        // 生成唯一 ID 用于手动执行
+        const warningId = 'warning_' + Date.now() + '_' + index;
+        state.codeBlockStore[warningId] = code;
+        
+        // 创建 HTML 元素（不使用 onclick，改用 data 属性）
+        const warningHTML = `
+            <div class="assistant-message">
+                <div class="execution-result execution-error" style="margin-top: 4px;">
+                    <strong>⚠️ 高危代码检测 (代码块 ${index})</strong>
+                    <br>
+                    <span style="font-size: 13px; margin-top: 4px; display: block;">
+                        此代码包含潜在危险操作，需要手动确认后才能执行。
+                    </span>
+                    <div style="margin-top: 8px; display: flex; gap: 6px;">
+                        <button class="code-btn execute warning-execute-btn" data-warning-id="${warningId}" style="background: #f59e0b;">
+                            ⚠️ 确认执行
+                        </button>
+                        <button class="code-btn warning-ignore-btn" style="background: #6b7280;">
+                            ✕ 忽略
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        UIManager.appendMessage(warningHTML);
+        
+        // 等待 DOM 更新后绑定事件
+        setTimeout(() => {
+            // 查找刚添加的按钮并绑定事件
+            const buttons = document.querySelectorAll('.warning-execute-btn, .warning-ignore-btn');
+            buttons.forEach(btn => {
+                if (!btn.dataset.eventBound) {
+                    btn.dataset.eventBound = 'true';
+                    
+                    if (btn.classList.contains('warning-execute-btn')) {
+                        btn.addEventListener('click', () => {
+                            const wid = btn.dataset.warningId;
+                            console.log('⚠️ 用户确认执行高危代码:', wid);
+                            
+                            if (typeof ChatManager !== 'undefined' && ChatManager.getCodeFromStore) {
+                                const code = ChatManager.getCodeFromStore(wid);
+                                if (code) {
+                                    ChatManager.executeJavaScript(code);
+                                    // 移除警告框
+                                    const warningBox = btn.closest('.assistant-message');
+                                    if (warningBox) warningBox.remove();
+                                }
+                            } else {
+                                console.error('❌ ChatManager 未初始化');
+                            }
+                        });
+                    } else if (btn.classList.contains('warning-ignore-btn')) {
+                        btn.addEventListener('click', () => {
+                            const warningBox = btn.closest('.assistant-message');
+                            if (warningBox) warningBox.remove();
+                        });
+                    }
+                }
+            });
+        }, 50);
+    }
+
+    // ========== 消息格式化 ==========
+
+    /**
+     * 格式化消息(支持代码块)
+     */
+    function formatMessage(text) {
+        // 先处理代码块,避免被转义
+        let formatted = text;
+        
+        // 处理代码块 - 先提取代码块并标记占位符
+        const codeBlocks = [];
+        formatted = formatted.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
+            const index = codeBlocks.length;
+            codeBlocks.push({ lang: lang || 'text', code: code.trim() });
+            return `__CODE_BLOCK_${index}__`;
+        });
+        
+        // 恢复代码块 - 同时存储到全局和 HTML 中
+        formatted = formatted.replace(/__CODE_BLOCK_(\d+)__/g, (match, index) => {
+            const block = codeBlocks[parseInt(index)];
+            
+            // 生成唯一 ID 并存储到全局（用于执行/复制）
+            const blockId = 'code_' + Date.now() + '_' + (++state.codeBlockIndex);
+            state.codeBlockStore[blockId] = block.code;
+            
+            // 如果超过限制，删除最旧的 20 个
+            const keys = Object.keys(state.codeBlockStore);
+            if (keys.length > MAX_CODE_BLOCKS) {
+                keys.sort();
+                keys.slice(0, 20).forEach(key => {
+                    delete state.codeBlockStore[key];
+                });
+            }
+            
+            const isJs = block.lang === 'javascript' || block.lang === 'js';
+            
+            // HTML 中显示代码（用于视觉展示）
+            return [
+                `<div class="code-block" data-code-id="${blockId}" data-lang="${block.lang}">`,
+                `<div class="code-language">${block.lang}</div>`,
+                `<pre>${escapeHtml(block.code)}</pre>`,
+                `</div>`,
+                `<div class="code-actions">`,
+                isJs ? '<button class="code-btn execute" data-action="execute-code">▶ 执行代码</button>' : '',
+                '<button class="code-btn" data-action="copy-code">📋 复制</button>',
+                `</div>`
+            ].join('');
+        });
+        
+        // 处理行内代码
+        formatted = formatted.replace(/`([^`]+)`/g, '<code style="background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-family: monospace;">$1</code>');
+        
+        return `
+            <div class="assistant-message">
+                <div class="message-content">${formatted}</div>
+            </div>
+        `;
+    }
+
+    // ========== 快捷命令 ==========
+
+    /**
+     * 处理快捷命令
+     */
+    function handleCommand(command) {
+        const parts = command.split(' ');
+        const cmd = parts[0].toLowerCase();
+        const args = parts.slice(1).join(' ');
+
+        switch (cmd) {
+            case '/js':
+                if (args) {
+                    executeJavaScript(args);
+                } else {
+                    addAssistantMessage('❌ 请提供要执行的 JavaScript 代码\n\n示例: /js document.title');
+                }
+                break;
+            case '/clear':
+                clearChat();
+                break;
+            case '/help':
+                showHelp();
+                break;
+            default:
+                addAssistantMessage(`❌ 未知命令: ${cmd}\n\n输入 /help 查看可用命令`);
         }
     }
 
@@ -1128,112 +3693,6 @@ const ChatManager = (function() {
     }
 
     /**
-     * 添加用户消息到界面
-     */
-    function addUserMessage(text) {
-        const messageHTML = `
-            <div class="user-message">
-                <div class="message-content">${escapeHtml(text)}</div>
-            </div>
-        `;
-        UIManager.appendMessage(messageHTML);
-        
-        // 保存到历史
-        const history = ConfigManager.get('conversationHistory');
-        history.push({ role: 'user', content: text });
-        ConfigManager.saveConversationHistory(history);
-    }
-
-    /**
-     * 添加助手消息到界面
-     */
-    function addAssistantMessage(text) {
-        const formattedText = formatMessage(text);
-        UIManager.appendMessage(formattedText);
-        
-        // 保存到历史
-        const history = ConfigManager.get('conversationHistory');
-        history.push({ role: 'assistant', content: text });
-        ConfigManager.saveConversationHistory(history);
-    }
-
-    /**
-     * 全局代码块存储（避免 HTML 转义问题）
-     */
-    const codeBlockStore = {};
-    let codeBlockIndex = 0;
-    
-    /**
-     * 获取存储的代码（供 UI 模块调用）
-     */
-    function getCodeFromStore(blockId) {
-        return codeBlockStore[blockId] || '';
-    }
-
-    /**
-     * 格式化消息(支持代码块)
-     */
-    function formatMessage(text) {
-        // 先处理代码块,避免被转义
-        let formatted = text;
-        
-        // 处理代码块 - 先提取代码块并标记占位符
-        const codeBlocks = [];
-        formatted = formatted.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
-            const index = codeBlocks.length;
-            codeBlocks.push({ lang: lang || 'text', code: code.trim() });
-            return `__CODE_BLOCK_${index}__`;
-        });
-        
-        // 转义普通文本
-        formatted = escapeHtml(formatted);
-        
-        // 恢复代码块 - 同时存储到全局和 HTML 中
-        formatted = formatted.replace(/__CODE_BLOCK_(\d+)__/g, (match, index) => {
-            const block = codeBlocks[parseInt(index)];
-            
-            // 生成唯一 ID 并存储到全局（用于执行/复制）
-            const blockId = 'code_' + Date.now() + '_' + (++codeBlockIndex);
-            codeBlockStore[blockId] = block.code;
-            
-            const isJs = block.lang === 'javascript' || block.lang === 'js';
-            
-            // 对代码进行 HTML 转义用于显示
-            const safeCode = escapeHtml(block.code);
-            
-            // HTML 中显示代码（用于视觉展示）
-            return [
-                `<div class="code-block" data-code-id="${blockId}" data-lang="${block.lang}">`,
-                `<div class="code-language">${block.lang}</div>`,
-                `<pre>${safeCode}</pre>`,
-                `</div>`,
-                `<div class="code-actions">`,
-                isJs ? '<button class="code-btn execute" data-action="execute-code">▶ 执行代码</button>' : '',
-                '<button class="code-btn" data-action="copy-code">📋 复制</button>',
-                `</div>`
-            ].join('');
-        });
-        
-        // 处理行内代码
-        formatted = formatted.replace(/`([^`]+)`/g, '<code style="background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-family: monospace;">$1</code>');
-        
-        return `
-            <div class="assistant-message">
-                <div class="message-content">${formatted}</div>
-            </div>
-        `;
-    }
-
-    /**
-     * HTML 转义
-     */
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-
-    /**
      * 清空聊天
      */
     function clearChat() {
@@ -1241,3610 +3700,100 @@ const ChatManager = (function() {
         if (chat) {
             chat.innerHTML = '';
         }
-        ConfigManager.saveConversationHistory([]);
+        HistoryManager.clearHistory();
+        
+        // 重置历史记录加载标志
+        state.historyLoaded = false;
+        console.log('🗑️ 聊天记录已清空，重置加载标志');
+        
         showWelcomeMessage();
     }
+
+    // ========== 历史记录 ==========
 
     /**
      * 渲染历史记录到界面
      */
     function renderHistory(history) {
+        // 如果已经加载过历史记录，则不再重复加载
+        if (state.historyLoaded) {
+            console.log('⚠️ 历史记录已加载，跳过重复加载');
+            return;
+        }
+        
+        // 清空当前聊天区域
         const chat = document.getElementById('agent-chat');
-        if (!chat) return;
+        if (chat) {
+            chat.innerHTML = '';
+        }
         
-        // 清空当前聊天区域（保留欢迎语逻辑）
-        chat.innerHTML = '';
-        
-        history.forEach(msg => {
+        // 加载历史消息（不保存，不执行）
+        history.forEach((msg) => {
             if (msg.role === 'user') {
-                addUserMessage(msg.content);
+                const messageHTML = `
+                    <div class="user-message">
+                        <div class="message-content">${escapeHtml(msg.content)}</div>
+                    </div>
+                `;
+                UIManager.appendMessage(messageHTML);
             } else if (msg.role === 'assistant') {
-                addAssistantMessage(msg.content);
+                const formattedText = formatMessage(msg.content);
+                UIManager.appendMessage(formattedText);
             }
         });
+        
+        // 标记为已加载
+        state.historyLoaded = true;
+        console.log(`✅ 历史记录加载完成，共 ${history.length} 条消息`);
     }
 
     /**
      * 显示欢迎消息
      */
     function showWelcomeMessage() {
-        const config = ConfigManager.getAll();
-        const welcomeHTML = `
-            <div class="assistant-message">
-                <div class="message-content">
-                    👋 你好!我是你的 <strong>浏览器 AI 助手</strong>。
-                    
-<strong>功能特性:</strong>
-• 💬 智能对话 - 支持多种免费模型
-• 💻 代码执行 - 支持 JavaScript 执行
-• 🎯 页面操作 - 可以操作当前页面元素
-• 💾 本地存储 - 对话历史自动保存
-• 🆓 完全免费 - 无需付费即可使用
+        const welcomeMessage = `
+<strong>👋 欢迎使用 AI Agent!</strong>
+
+我可以帮你:
+• 💬 智能对话 - 回答各种问题
+• 🔧 执行 JavaScript 代码
+•  操作当前页面
+•  提取页面信息
 
 <strong>快捷命令:</strong>
-• <code>/js [代码]</code> - 执行 JavaScript
-• <code>/clear</code> - 清空对话
+• <code>/js [代码]</code> - 执行代码
+• <code>/clear</code> - 清空历史
 • <code>/help</code> - 显示帮助
 
-${!config.apiKey ? '<strong style="color: #ef4444;">⚠️ 请先在设置中配置 API Key</strong>' : ''}
-                </div>
-            </div>
+试试对我说: "帮我修改页面背景色"
         `;
-        UIManager.appendMessage(welcomeHTML);
+        
+        UIManager.appendMessage(`
+            <div class="assistant-message">
+                <div class="message-content">${welcomeMessage}</div>
+            </div>
+        `);
     }
+
+    // ========== 公共接口 ==========
 
     return {
         handleMessage,
-        addUserMessage,
-        addAssistantMessage,
-        clearChat,
-        showWelcomeMessage,
-        renderHistory,  // 新增
         executeJavaScript,
-        getCodeFromStore
+        clearChat,
+        showHelp,
+        showWelcomeMessage,
+        renderHistory,
+        stopCurrentRequest,  // 添加停止请求功能
+        getCodeFromStore: (blockId) => state.codeBlockStore[blockId] || '',
+        getMessageQueueLength: () => state.messageQueue.length
     };
 })();
 
 
-// ==================== storage.js ====================
-
-﻿// ==================== 存储管理工作空间模块 ====================
-
-const StorageManager = (function() {
-    const HANDLE_STORE_KEY = 'agent_directory_handles';
-    let currentWorkspace = null;
-
-    /**
-     * 从 IndexedDB 恢复 directory handle
-     */
-    async function restoreDirectoryHandle(workspaceId) {
-        try {
-            const db = await openHandleDB();
-            const transaction = db.transaction(HANDLE_STORE_KEY, 'readonly');
-            const store = transaction.objectStore(HANDLE_STORE_KEY);
-            const handle = await new Promise((resolve, reject) => {
-                const request = store.get(workspaceId);
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => reject(request.error);
-            });
-            
-            if (handle) {
-                console.log('✅ 从 IndexedDB 恢复了 folderHandle');
-                // 检查权限是否仍然有效
-                try {
-                    const permission = await handle.queryPermission({ mode: 'readwrite' });
-                    if (permission === 'granted') {
-                        console.log('✅ folderHandle 权限有效，可直接使用');
-                        return handle;
-                    } else {
-                        console.warn('⚠️ folderHandle 权限未授予，需要用户点击授权');
-                        // 不自动调用 requestPermission，因为需要用户手势
-                        // 返回 null，触发 promptReopenFolder 提示
-                    }
-                } catch (e) {
-                    console.warn('⚠️ 查询权限失败，句柄可能已损坏:', e);
-                }
-            }
-            
-            return null;
-        } catch (error) {
-            console.error('恢复 folderHandle 失败:', error);
-            return null;
-        }
-    }
-
-    /**
-     * 将 directory handle 保存到 IndexedDB
-     */
-    async function persistDirectoryHandle(workspaceId, dirHandle) {
-        try {
-            const db = await openHandleDB();
-            const transaction = db.transaction(HANDLE_STORE_KEY, 'readwrite');
-            const store = transaction.objectStore(HANDLE_STORE_KEY);
-            
-            await new Promise((resolve, reject) => {
-                const request = store.put(dirHandle, workspaceId);
-                request.onsuccess = () => resolve();
-                request.onerror = () => reject(request.error);
-            });
-            
-            console.log('✅ folderHandle 已保存到 IndexedDB');
-        } catch (error) {
-            console.error('保存 folderHandle 失败:', error);
-        }
-    }
-
-    /**
-     * 打开 IndexedDB
-     */
-    function openHandleDB() {
-        return new Promise((resolve, reject) => {
-            const request = indexedDB.open('AgentDirectoryHandles', 1);
-            
-            request.onupgradeneeded = (event) => {
-                const db = event.target.result;
-                if (!db.objectStoreNames.contains(HANDLE_STORE_KEY)) {
-                    db.createObjectStore(HANDLE_STORE_KEY);
-                }
-            };
-            
-            request.onsuccess = (event) => resolve(event.target.result);
-            request.onerror = (event) => reject(event.target.error);
-        });
-    }
-
-    /**
-     * 保存聊天记录到工作空间 (agent_chat.json)
-     */
-    async function saveChatToWorkspace(history) {
-        if (!currentWorkspace || !currentWorkspace.folderHandle) {
-            console.log('⚠️ 未关联工作空间，跳过聊天记录同步');
-            return;
-        }
-
-        try {
-            const fileName = 'agent_chat.json';
-            const content = JSON.stringify(history, null, 2);
-            
-            // 使用现有的文件写入逻辑
-            await writeFileInFolder(currentWorkspace.folderHandle, fileName, content);
-            console.log(`✅ 已同步 ${history.length} 条聊天记录到工作空间: ${fileName}`);
-        } catch (error) {
-            console.error('❌ 同步聊天记录到工作空间失败:', error);
-        }
-    }
-
-    /**
-     * 从工作空间加载聊天记录 (agent_chat.json)
-     */
-    async function loadChatFromWorkspace() {
-        if (!currentWorkspace || !currentWorkspace.folderHandle) {
-            return null;
-        }
-
-        try {
-            const fileName = 'agent_chat.json';
-            const content = await readFileFromFolder(currentWorkspace.folderHandle, fileName);
-            
-            if (content) {
-                const history = JSON.parse(content);
-                console.log(`📂 已从工作空间加载 ${history.length} 条聊天记录`);
-                return history;
-            }
-            return null;
-        } catch (error) {
-            console.warn('⚠️ 从工作空间加载聊天记录失败:', error);
-            return null;
-        }
-    }
-
-    /**
-     * 初始化工作空间
-     */
-    async function init() {
-        try {
-            // 单一工作空间：尝试从存储恢复当前工作空间
-            const savedWorkspace = GM_getValue('agent_current_workspace', null);
-            
-            if (savedWorkspace) {
-                currentWorkspace = JSON.parse(savedWorkspace);
-                console.log('✅ 已恢复工作空间:', currentWorkspace.name);
-                
-                // 尝试恢复 folderHandle（但不检查权限，等待用户展开侧边栏时再检查）
-                if (currentWorkspace.folderPath) {
-                    try {
-                        const restoredHandle = await restoreDirectoryHandleWithoutCheck('default_workspace');
-                        if (restoredHandle) {
-                            currentWorkspace.folderHandle = restoredHandle;
-                            console.log('✅ 成功恢复 folderHandle（权限将在需要时检查）');
-                        } else {
-                            console.log('ℹ️ folderHandle 将在首次展开侧边栏时恢复');
-                            // 不在页面加载时提示，等待用户展开侧边栏时再提示
-                        }
-                    } catch (error) {
-                        console.log('ℹ️ folderHandle 恢复失败，等待用户交互');
-                    }
-                }
-            } else {
-                // 没有保存的工作空间，创建一个默认的
-                currentWorkspace = {
-                    id: 'default_workspace',
-                    name: '默认工作空间',
-                    description: '',
-                    createdAt: Date.now(),
-                    updatedAt: Date.now(),
-                    data: {
-                        conversations: [],
-                        settings: {},
-                        customData: {}
-                    }
-                };
-                console.log('✅ 创建默认工作空间');
-            }
-        } catch (error) {
-            console.error('初始化工作空间失败:', error);
-            currentWorkspace = {
-                id: 'default_workspace',
-                name: '默认工作空间',
-                description: '',
-                createdAt: Date.now(),
-                updatedAt: Date.now(),
-                data: {
-                    conversations: [],
-                    settings: {},
-                    customData: {}
-                }
-            };
-        }
-    }
-    
-    /**
-     * 从 IndexedDB 恢复 directory handle（不检查权限）
-     * 用于页面初始化时快速加载，避免弹出授权对话框
-     */
-    async function restoreDirectoryHandleWithoutCheck(workspaceId) {
-        try {
-            const db = await openHandleDB();
-            const transaction = db.transaction(HANDLE_STORE_KEY, 'readonly');
-            const store = transaction.objectStore(HANDLE_STORE_KEY);
-            const handle = await new Promise((resolve, reject) => {
-                const request = store.get(workspaceId);
-                request.onsuccess = () => resolve(request.result);
-                request.onerror = () => reject(request.error);
-            });
-            
-            if (handle) {
-                console.log('✅ 从 IndexedDB 恢复了 folderHandle（未验证权限）');
-                return handle;
-            }
-            
-            return null;
-        } catch (error) {
-            console.error('恢复 folderHandle 失败:', error);
-            return null;
-        }
-    }
-
-    /**
-     * 创建工作空间
-     */
-    function createWorkspace(name, description = '') {
-        const workspace = {
-            id: 'default_workspace',
-            name: name,
-            description: description,
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-            data: {
-                conversations: [],
-                settings: {},
-                customData: {}
-            }
-        };
-        
-        currentWorkspace = workspace;
-        saveCurrentWorkspace();
-        
-        return workspace;
-    }
-
-    /**
-     * 删除工作空间
-     * 简化版：重置工作空间
-     */
-    function deleteWorkspace(id) {
-        if (currentWorkspace && currentWorkspace.id === id) {
-            // 重置工作空间，但保留配置
-            currentWorkspace = {
-                id: 'default_workspace',
-                name: '默认工作空间',
-                description: '',
-                createdAt: Date.now(),
-                updatedAt: Date.now(),
-                data: {
-                    conversations: [],
-                    settings: {},
-                    customData: {}
-                }
-            };
-            saveCurrentWorkspace();
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * 重命名工作空间
-     * 简化版：重命名当前工作空间
-     */
-    function renameWorkspace(id, newName) {
-        if (currentWorkspace && currentWorkspace.id === id) {
-            currentWorkspace.name = newName;
-            currentWorkspace.updatedAt = Date.now();
-            saveCurrentWorkspace();
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * 加载工作空间
-     */
-    async function loadWorkspace(id) {
-        // 简化版：只有默认工作空间
-        if (!currentWorkspace) {
-            console.warn('loadWorkspace - 未找到工作空间');
-            return null;
-        }
-        
-        console.log('✅ 加载工作空间:', currentWorkspace.name);
-        return currentWorkspace;
-    }
-
-    /**
-     * 获取当前工作空间
-     */
-    function getCurrentWorkspace() {
-        return currentWorkspace;
-    }
-
-    /**
-     * 获取所有工作空间列表
-     * 简化版：只返回当前工作空间
-     */
-    function getAllWorkspaces() {
-        if (!currentWorkspace) return [];
-        
-        return [{
-            id: currentWorkspace.id,
-            name: currentWorkspace.name,
-            description: currentWorkspace.description,
-            createdAt: currentWorkspace.createdAt,
-            updatedAt: currentWorkspace.updatedAt,
-            isCurrent: true
-        }];
-    }
-
-    /**
-     * 保存数据到当前工作空间
-     */
-    async function saveToWorkspace(key, value) {
-        if (!currentWorkspace) {
-            console.error('没有激活的工作空间');
-            return false;
-        }
-        
-        console.log('🔍 调试 saveToWorkspace - 保存前 currentWorkspace.folderHandle:', currentWorkspace.folderHandle);
-        
-        currentWorkspace.data[key] = value;
-        currentWorkspace.updatedAt = Date.now();
-        saveWorkspaces();
-        
-        console.log('🔍 调试 saveToWorkspace - 保存后 currentWorkspace.folderHandle:', currentWorkspace.folderHandle);
-        
-        // 同步到文件夹
-        if (currentWorkspace.folderHandle && currentWorkspace.folderHandle.kind === 'directory') {
-            try {
-                console.log('📁 saveToWorkspace - 开始同步到文件夹...');
-                await saveWorkspaceConfigToFolder(currentWorkspace, currentWorkspace.folderHandle);
-                console.log('✅ saveToWorkspace - 已同步到文件夹');
-            } catch (error) {
-                console.error('❌ saveToWorkspace - 同步到文件夹失败:', error);
-                
-                // handle 失效了，清除它
-                currentWorkspace.folderHandle = null;
-                
-                // 如果有 folderPath，提示用户重新授权
-                if (currentWorkspace.folderPath) {
-                    console.warn('⚠️ folderHandle 已失效，需要重新授权');
-                    setTimeout(() => {
-                        promptReopenFolder();
-                    }, 500);
-                }
-            }
-        } else if (currentWorkspace.folderPath && !currentWorkspace.folderHandle) {
-            // 有关联的文件夹路径但没有 handle，提示用户重新授权
-            console.warn('⚠️ 工作空间关联了文件夹但 handle 无效，提示重新授权');
-            setTimeout(() => {
-                promptReopenFolder();
-            }, 500);
-        }
-        
-        return true;
-    }
-
-    /**
-     * 从当前工作空间读取数据
-     */
-    function loadFromWorkspace(key, defaultValue = null) {
-        if (!currentWorkspace) {
-            return defaultValue;
-        }
-        return currentWorkspace.data[key] !== undefined ? currentWorkspace.data[key] : defaultValue;
-    }
-
-    /**
-     * 保存对话历史到工作空间
-     */
-    function saveConversations(conversations) {
-        return saveToWorkspace('conversations', conversations);
-    }
-
-    /**
-     * 加载对话历史
-     */
-    function loadConversations() {
-        return loadFromWorkspace('conversations', []);
-    }
-
-    /**
-     * 保存自定义设置
-     */
-    function saveCustomSettings(settings) {
-        return saveToWorkspace('settings', settings);
-    }
-
-    /**
-     * 加载自定义设置
-     */
-    function loadCustomSettings() {
-        return loadFromWorkspace('settings', {});
-    }
-
-    /**
-     * 导出工作空间为 JSON
-     * 简化版：导出当前工作空间
-     */
-    function exportWorkspace(id) {
-        if (!currentWorkspace) return null;
-        
-        const exportData = {
-            version: '1.0.0',
-            exportedAt: new Date().toISOString(),
-            workspace: currentWorkspace
-        };
-        return JSON.stringify(exportData, null, 2);
-    }
-
-    /**
-     * 从 JSON 导入工作空间
-     * 简化版：替换当前工作空间
-     */
-    function importWorkspace(jsonString) {
-        try {
-            const data = JSON.parse(jsonString);
-            if (data.workspace) {
-                const workspace = data.workspace;
-                
-                // 更新为当前工作空间
-                currentWorkspace = workspace;
-                saveCurrentWorkspace();
-                
-                return workspace;
-            }
-        } catch (error) {
-            console.error('导入失败:', error);
-        }
-        return null;
-    }
-
-    /**
-     * 显示工作空间管理对话框
-     */
-    function showWorkspaceManager() {
-        // 简化版：不再支持多工作空间管理
-        alert('ℹ️ 当前版本已简化工作空间管理，只支持单一工作空间。\n\n如需重新打开文件夹，请点击侧边栏中的 📂 按钮。');
-    }
-
-    /**
-     * 绑定工作空间管理器事件
-     */
-    function bindWorkspaceEvents() {
-        // 关闭按钮
-        const closeBtn = document.getElementById('btn-close-ws');
-        if (closeBtn) closeBtn.addEventListener('click', closeWorkspaceManager);
-        
-        // 创建工作空间按钮
-        const createBtn = document.getElementById('btn-create-ws');
-        if (createBtn) createBtn.addEventListener('click', createNewWorkspace);
-        
-        // 打开文件夹按钮
-        const openFolderBtn = document.getElementById('btn-open-folder');
-        if (openFolderBtn) openFolderBtn.addEventListener('click', openFolder);
-        
-        // 打开文件管理器按钮
-        const fileManagerBtn = document.getElementById('btn-file-manager');
-        if (fileManagerBtn) fileManagerBtn.addEventListener('click', showFileManager);
-        
-        // 导入文件按钮
-        const importFile = document.getElementById('import-workspace-file');
-        if (importFile) importFile.addEventListener('change', (e) => handleImport(e.target));
-        
-        // 切换按钮
-        document.querySelectorAll('.ws-btn-switch').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const wsId = e.target.dataset.wsId;
-                switchWorkspace(wsId);
-            });
-        });
-        
-        // 重命名按钮
-        document.querySelectorAll('.ws-btn-rename').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const wsId = e.target.dataset.wsId;
-                const wsName = e.target.dataset.wsName;
-                renameWorkspacePrompt(wsId, wsName);
-            });
-        });
-        
-        // 导出按钮
-        document.querySelectorAll('.ws-btn-export').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const wsId = e.target.dataset.wsId;
-                exportWorkspaceFile(wsId);
-            });
-        });
-        
-        // 删除按钮
-        document.querySelectorAll('.ws-btn-delete').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const wsId = e.target.dataset.wsId;
-                deleteWorkspaceConfirm(wsId);
-            });
-        });
-    }
-
-    /**
-     * 关闭工作空间管理器
-     */
-    function closeWorkspaceManager() {
-        // 简化版：无操作
-    }
-
-    /**
-     * 切换工作空间
-     * 简化版：只有一个工作空间，所以不执行切换
-     */
-    function switchWorkspace(id) {
-        console.log('ℹ️ 当前只有一个工作空间，无法切换');
-    }
-
-    /**
-     * 创建新工作空间
-     */
-    function createNewWorkspace() {
-        // 简化版：提示用户当前只支持单一工作空间
-        alert('ℹ️ 当前版本只支持单一工作空间。\n\n如需重命名当前工作空间，请点击侧边栏中的设置按钮。');
-    }
-
-    /**
-     * 重命名工作空间提示
-     * 简化版：重命名当前工作空间
-     */
-    function renameWorkspacePrompt(id, currentName) {
-        const newName = prompt('输入新的工作空间名称:', currentName);
-        if (newName && newName.trim()) {
-            renameWorkspace('default_workspace', newName.trim());
-            alert(`工作空间已重命名为: ${newName.trim()}`);
-        }
-    }
-
-    /**
-     * 删除工作空间确认
-     */
-    function deleteWorkspaceConfirm(id) {
-        if (confirm('确定要删除这个工作空间吗?此操作不可恢复!')) {
-            deleteWorkspace(id);
-            closeWorkspaceManager();
-            showWorkspaceManager();
-        }
-    }
-
-    /**
-     * 导出工作空间文件
-     */
-    function exportWorkspaceFile(id) {
-        const jsonData = exportWorkspace(id);
-        if (jsonData) {
-            const workspace = workspaces.find(ws => ws.id === id);
-            const filename = `workspace-${workspace.name}-${Date.now()}.json`;
-            
-            const blob = new Blob([jsonData], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-            
-            alert('工作空间已导出!');
-        }
-    }
-
-    /**
-     * 处理导入文件
-     */
-    function handleImport(fileInput) {
-        const file = fileInput.files[0];
-        if (!file) return;
-        
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const workspace = importWorkspace(e.target.result);
-            if (workspace) {
-                closeWorkspaceManager();
-                showWorkspaceManager();
-                alert(`工作空间 "${workspace.name}" 导入成功!`);
-            } else {
-                alert('导入失败,请检查文件格式');
-            }
-        };
-        reader.readAsText(file);
-    }
-
-    /**
-     * 打开本地文件夹 (使用 File System Access API)
-     */
-    async function openFolder() {
-        try {
-            // 检查浏览器支持
-            if (!('showDirectoryPicker' in window)) {
-                alert('❌ 您的浏览器不支持文件夹访问功能\n\n请使用 Chrome 86+ 或 Edge 86+ 浏览器');
-                return;
-            }
-
-            // 打开文件夹选择对话框
-            const dirHandle = await window.showDirectoryPicker({
-                mode: 'readwrite',
-                startIn: 'documents'
-            });
-
-            const folderName = dirHandle.name;
-            
-            // 检查工作空间配置文件
-            let workspaceData = null;
-            try {
-                const configFile = await dirHandle.getFileHandle('.workspace.json', { create: false });
-                const file = await configFile.getFile();
-                const content = await file.text();
-                workspaceData = JSON.parse(content);
-                console.log('✅ 找到工作空间配置文件');
-            } catch (error) {
-                console.log('ℹ️ 未找到配置文件,将创建新的工作空间');
-            }
-
-            // 创建工作空间
-            let workspace;
-            if (workspaceData) {
-                // 使用已有配置
-                workspace = {
-                    id: workspaceData.id || 'default_workspace',
-                    name: workspaceData.name || folderName,
-                    description: workspaceData.description || `本地文件夹: ${folderName}`,
-                    createdAt: workspaceData.createdAt || Date.now(),
-                    updatedAt: Date.now(),
-                    data: workspaceData.data || {
-                        conversations: [],
-                        settings: {},
-                        customData: {}
-                    },
-                    folderPath: folderName,
-                    folderHandle: dirHandle
-                };
-                
-                // 更新当前工作空间
-                currentWorkspace = workspace;
-            } else {
-                // 创建新工作空间
-                workspace = createWorkspace(folderName, `本地文件夹: ${folderName}`);
-                workspace.folderPath = folderName;
-                workspace.folderHandle = dirHandle;
-                
-                // 保存初始配置到文件夹
-                await saveWorkspaceConfigToFolder(workspace, dirHandle);
-            }
-            
-            // 持久化 folderHandle 到 IndexedDB
-            await persistDirectoryHandle(workspace.id, dirHandle);
-            
-            console.log('🔍 调试 openFolder - workspace.folderHandle:', workspace.folderHandle);
-            console.log('🔍 调试 openFolder - workspace 完整对象:', JSON.stringify(workspace, (key, value) => {
-                if (key === 'folderHandle') return '[FileSystemDirectoryHandle]';
-                return value;
-            }, 2));
-            
-            // 保存到 GM 存储
-            saveCurrentWorkspace();
-            await loadWorkspace(workspace.id);
-            
-            console.log('🔍 调试 openFolder - 调用 loadWorkspace 后');
-            console.log('🔍 调试 openFolder - currentWorkspace:', currentWorkspace);
-            console.log('🔍 调试 openFolder - currentWorkspace.folderHandle:', currentWorkspace?.folderHandle);
-
-            // 显示路径
-            const pathDiv = document.getElementById('folder-path');
-            if (pathDiv) {
-                pathDiv.innerHTML = `<span style="color: #10b981;">✅ 已打开: ${folderName}</span>`;
-            }
-
-            // 关闭并重新打开管理器
-            setTimeout(() => {
-                closeWorkspaceManager();
-                showWorkspaceManager();
-            }, 500);
-
-            alert(`✅ 已成功打开文件夹: ${folderName}\n\n该文件夹将作为新的工作空间`);
-            
-            // 刷新侧边栏（如果存在）
-            if (typeof UIManager !== 'undefined' && UIManager.loadWorkspaceList) {
-                UIManager.loadWorkspaceList();
-            }
-
-        } catch (error) {
-            if (error.name === 'AbortError') {
-                console.log('用户取消了选择');
-            } else {
-                console.error('打开文件夹失败:', error);
-                alert(`❌ 打开文件夹失败: ${error.message}`);
-            }
-        }
-    }
-    
-    /**
-     * 显示文件管理器 UI（现在在侧边栏中打开）
-     */
-    function showFileManager() {
-        // 打开侧边栏
-        if (typeof UIManager !== 'undefined' && UIManager.loadWorkspaceList) {
-            const sidebar = document.getElementById('agent-sidebar');
-            const workspaceBtn = document.getElementById('sidebar-workspace');
-            
-            if (sidebar && !sidebar.classList.contains('expanded')) {
-                sidebar.classList.add('expanded');
-                workspaceBtn?.classList.add('active');
-                UIManager.loadWorkspaceList();
-            }
-        }
-    }
-
-    /**
-     * 保存工作空间配置到文件夹
-     */
-    async function saveWorkspaceConfigToFolder(workspace, dirHandle) {
-        try {
-            const configData = {
-                version: '1.0.0',
-                id: workspace.id,
-                name: workspace.name,
-                description: workspace.description,
-                createdAt: workspace.createdAt,
-                updatedAt: Date.now(),
-                data: workspace.data
-            };
-
-            // 创建或更新配置文件
-            const configFile = await dirHandle.getFileHandle('.workspace.json', { create: true });
-            const writable = await configFile.createWritable();
-            await writable.write(JSON.stringify(configData, null, 2));
-            await writable.close();
-
-            console.log('✅ 工作空间配置已保存到文件夹');
-        } catch (error) {
-            console.error('保存配置失败:', error);
-        }
-    }
-
-    /**
-     * 从文件夹加载工作空间配置
-     */
-    async function loadWorkspaceConfigFromFolder(dirHandle) {
-        try {
-            const configFile = await dirHandle.getFileHandle('.workspace.json', { create: false });
-            const file = await configFile.getFile();
-            const content = await file.text();
-            return JSON.parse(content);
-        } catch (error) {
-            console.error('加载配置失败:', error);
-            return null;
-        }
-    }
-
-    // 文件管理器状态（参考优秀实践）
-    let currentDirectory = null; // 当前目录句柄
-    let currentDirPath = []; // 当前路径数组 [根目录句柄, 子目录1, 子目录2, ...]
-    
-    // 目录历史记录（参考浏览器 History API）
-    class FileSystemHistory {
-        constructor(init) {
-            this.stack = [init];
-            this.forwardStack = [];
-        }
-        push(handle) {
-            this.stack.push(handle);
-            this.forwardStack = [];
-        }
-        back() {
-            if (this.stack.length === 1) return this.stack[this.stack.length - 1];
-            const back = this.stack.pop();
-            this.forwardStack.push(back);
-            return this.stack[this.stack.length - 1];
-        }
-        forward() {
-            if (this.forwardStack.length === 0) return this.stack[this.stack.length - 1];
-            const forward = this.forwardStack.pop();
-            this.stack.push(forward);
-            return forward;
-        }
-        canBack() {
-            return this.stack.length > 1;
-        }
-        canForward() {
-            return this.forwardStack.length > 0;
-        }
-    }
-    
-    let dirHistory = null; // 目录历史记录
-
-    /**
-     * 获取当前目录下的文件列表
-     */
-    async function getDirectoryList(dirHandle) {
-        const asyncIterator = dirHandle.entries();
-        const directories = [];
-        const files = [];
-        
-        for await (const [key, value] of asyncIterator) {
-            // 跳过 .workspace.json 配置文件
-            if (key === '.workspace.json') continue;
-            
-            if (value.kind === 'directory') {
-                directories.push({
-                    type: 'directory',
-                    name: key,
-                    handle: value
-                });
-            } else if (value.kind === 'file') {
-                files.push({
-                    type: 'file',
-                    name: key,
-                    handle: value
-                });
-            }
-        }
-        
-        // 按名称排序，目录在前
-        directories.sort((a, b) => a.name.localeCompare(b.name));
-        files.sort((a, b) => a.name.localeCompare(b.name));
-        
-        return directories.concat(files);
-    }
-
-    /**
-     * 读取文件内容
-     */
-    async function readFileContent(fileHandle) {
-        try {
-            const file = await fileHandle.getFile();
-            const content = await file.text();
-            return content;
-        } catch (error) {
-            console.error('读取文件失败:', error);
-            throw error;
-        }
-    }
-
-    /**
-     * 写入文件内容
-     */
-    async function writeFileContent(fileHandle, content) {
-        try {
-            const writable = await fileHandle.createWritable();
-            await writable.write(content);
-            await writable.close();
-            console.log('✅ 文件已保存');
-        } catch (error) {
-            console.error('写入文件失败:', error);
-            throw error;
-        }
-    }
-
-    /**
-     * 在文件夹中创建新文件
-     */
-    async function createFileInFolder(dirHandle, fileName, content = '') {
-        try {
-            const fileHandle = await dirHandle.getFileHandle(fileName, { create: true });
-            await writeFileContent(fileHandle, content);
-            return fileHandle;
-        } catch (error) {
-            console.error('创建文件失败:', error);
-            throw error;
-        }
-    }
-
-    /**
-     * 显示文件管理器 UI
-     */
-    async function showFileManager() {
-        const currentWs = getCurrentWorkspace();
-        if (!currentWs || !currentWs.folderHandle) {
-            alert('⚠️ 请先打开一个文件夹作为工作空间');
-            return;
-        }
-
-        // 检查权限
-        try {
-            const permission = await currentWs.folderHandle.queryPermission({ mode: 'readwrite' });
-            if (permission !== 'granted') {
-                alert('⚠️ 需要重新授权访问文件夹\n\n请在工作空间中重新打开该文件夹');
-                return;
-            }
-        } catch (e) {
-            alert('⚠️ 文件夹句柄无效，请重新打开');
-            return;
-        }
-
-        // 创建文件管理器面板
-        const overlay = document.createElement('div');
-        overlay.id = 'file-manager-overlay';
-        overlay.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.5);
-            z-index: 99998;
-        `;
-
-        const panel = document.createElement('div');
-        panel.id = 'file-manager-panel';
-        panel.style.cssText = `
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 800px;
-            height: 600px;
-            background: #1e293b;
-            border-radius: 12px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-            display: flex;
-            flex-direction: column;
-            z-index: 99999;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        `;
-
-        // 标题栏
-        const header = document.createElement('div');
-        header.style.cssText = `
-            padding: 16px 20px;
-            border-bottom: 1px solid #334155;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: #0f172a;
-            border-radius: 12px 12px 0 0;
-        `;
-        header.innerHTML = `
-            <div style="color: #f1f5f9; font-size: 16px; font-weight: 600;">
-                📁 文件管理器 - ${escapeHtml(currentWs.name)}
-            </div>
-            <button id="close-file-manager" style="
-                background: transparent;
-                border: none;
-                color: #94a3b8;
-                font-size: 24px;
-                cursor: pointer;
-                padding: 0;
-                width: 32px;
-                height: 32px;
-                line-height: 32px;
-                text-align: center;
-            ">&times;</button>
-        `;
-
-        // 工具栏
-        const toolbar = document.createElement('div');
-        toolbar.style.cssText = `
-            padding: 12px 20px;
-            border-bottom: 1px solid #334155;
-            display: flex;
-            gap: 10px;
-            background: #1e293b;
-        `;
-        toolbar.innerHTML = `
-            <button id="back-button" style="
-                padding: 6px 12px;
-                background: #64748b;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                cursor: pointer;
-                font-size: 13px;
-            " title="返回上级目录">⬅️ 后退</button>
-            <span id="current-path" style="
-                flex: 1;
-                color: #94a3b8;
-                font-size: 13px;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                white-space: nowrap;
-            ">根目录</span>
-            <button id="refresh-files" style="
-                padding: 8px 16px;
-                background: #3b82f6;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                cursor: pointer;
-                font-size: 13px;
-            ">🔄 刷新</button>
-            <button id="new-file" style="
-                padding: 8px 16px;
-                background: #10b981;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                cursor: pointer;
-                font-size: 13px;
-            ">➕ 新建文件</button>
-            <button id="new-folder" style="
-                padding: 8px 16px;
-                background: #f59e0b;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                cursor: pointer;
-                font-size: 13px;
-            ">📁 新建文件夹</button>
-            <button id="upload-file" style="
-                padding: 8px 16px;
-                background: #8b5cf6;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                cursor: pointer;
-                font-size: 13px;
-            ">⬆️ 上传文件</button>
-        `;
-
-        // 文件列表区域
-        const fileListContainer = document.createElement('div');
-        fileListContainer.id = 'file-list-container';
-        fileListContainer.style.cssText = `
-            flex: 1;
-            overflow-y: auto;
-            padding: 12px;
-            background: #0f172a;
-        `;
-
-        // 文件编辑器区域（默认隐藏）
-        const editorContainer = document.createElement('div');
-        editorContainer.id = 'file-editor-container';
-        editorContainer.style.cssText = `
-            flex: 1;
-            display: none;
-            flex-direction: column;
-            background: #1e293b;
-        `;
-        editorContainer.innerHTML = `
-            <div style="padding: 12px 20px; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center;">
-                <span id="editing-file-name" style="color: #f1f5f9; font-weight: 600;"></span>
-                <div style="display: flex; gap: 8px;">
-                    <button id="save-file" style="
-                        padding: 6px 16px;
-                        background: #10b981;
-                        color: white;
-                        border: none;
-                        border-radius: 6px;
-                        cursor: pointer;
-                        font-size: 13px;
-                    ">💾 保存</button>
-                    <button id="cancel-edit" style="
-                        padding: 6px 16px;
-                        background: #64748b;
-                        color: white;
-                        border: none;
-                        border-radius: 6px;
-                        cursor: pointer;
-                        font-size: 13px;
-                    ">✖ 取消</button>
-                </div>
-            </div>
-            <textarea id="file-editor" style="
-                flex: 1;
-                padding: 16px;
-                background: #0f172a;
-                color: #e2e8f0;
-                border: none;
-                resize: none;
-                font-family: 'Consolas', 'Monaco', monospace;
-                font-size: 14px;
-                line-height: 1.6;
-            "></textarea>
-        `;
-
-        panel.appendChild(header);
-        panel.appendChild(toolbar);
-        panel.appendChild(fileListContainer);
-        panel.appendChild(editorContainer);
-        document.body.appendChild(panel);
-        document.body.appendChild(overlay);
-
-        // 关闭按钮事件
-        document.getElementById('close-file-manager').onclick = closeFileManager;
-        overlay.onclick = closeFileManager;
-
-        // 后退按钮事件
-        document.getElementById('back-button').onclick = () => goBack();
-        
-        // 刷新按钮
-        document.getElementById('refresh-files').onclick = () => loadFileList(fileListContainer, currentDirectory || currentWs.folderHandle);
-
-        // 新建文件按钮
-        document.getElementById('new-file').onclick = () => createNewFile(currentWs.folderHandle, fileListContainer);
-        
-        // 新建文件夹按钮
-        document.getElementById('new-folder').onclick = () => createNewFolder(currentWs.folderHandle, fileListContainer);
-        
-        // 上传文件按钮
-        document.getElementById('upload-file').onclick = () => uploadFiles(currentWs.folderHandle, fileListContainer);
-
-        // 保存文件按钮
-        document.getElementById('save-file').onclick = () => saveEditedFile();
-
-        // 取消编辑按钮
-        document.getElementById('cancel-edit').onclick = () => {
-            editorContainer.style.display = 'none';
-            fileListContainer.style.display = 'block';
-            toolbar.style.display = 'flex';
-        };
-
-        // 加载文件列表
-        await loadFileList(fileListContainer, currentWs.folderHandle);
-    }
-
-    /**
-     * 加载文件列表（使用扁平列表结构）
-     */
-    async function loadFileList(container, dirHandle) {
-        container.innerHTML = '<div style="text-align: center; padding: 40px; color: #94a3b8;">加载中...</div>';
-        
-        try {
-            // 更新当前目录
-            currentDirectory = dirHandle;
-            
-            // 获取当前目录下的文件和文件夹列表
-            const items = await getDirectoryList(dirHandle);
-            
-            if (items.length === 0) {
-                container.innerHTML = `
-                    <div style="text-align: center; padding: 60px 20px; color: #64748b;">
-                        <div style="font-size: 48px; margin-bottom: 16px;">📂</div>
-                        <div style="font-size: 14px;">文件夹为空</div>
-                    </div>
-                `;
-                return;
-            }
-
-            container.innerHTML = '';
-            
-            // 渲染文件列表
-            renderFileList(items, container, dirHandle);
-            
-        } catch (error) {
-            container.innerHTML = `
-                <div style="text-align: center; padding: 40px; color: #ef4444;">
-                    ❌ 加载文件列表失败: ${escapeHtml(error.message)}
-                </div>
-            `;
-        }
-    }
-
-    /**
-     * 渲染文件列表（扁平结构）
-     */
-    function renderFileList(items, container, dirHandle) {
-        items.forEach(item => {
-            const itemDiv = document.createElement('div');
-            const isDir = item.type === 'directory';
-            
-            itemDiv.style.cssText = `
-                padding: 8px 16px;
-                background: ${isDir ? '#1e3a5f' : '#1e293b'};
-                border-radius: 4px;
-                cursor: pointer;
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                transition: background 0.2s;
-                margin-bottom: 2px;
-            `;
-            itemDiv.onmouseover = () => itemDiv.style.background = isDir ? '#254a75' : '#334155';
-            itemDiv.onmouseout = () => itemDiv.style.background = isDir ? '#1e3a5f' : '#1e293b';
-            
-            const icon = isDir ? '📁' : getFileIcon(item.name);
-            
-            itemDiv.innerHTML = `
-                <span style="font-size: 16px;">${icon}</span>
-                <span style="color: #e2e8f0; font-size: 14px; flex: 1;">${escapeHtml(item.name)}</span>
-                ${!isDir ? `
-                <div style="display: flex; gap: 4px;" onclick="event.stopPropagation()">
-                    <button class="file-action-btn" data-action="edit" title="编辑" style="
-                        padding: 2px 6px;
-                        background: #3b82f6;
-                        color: white;
-                        border: none;
-                        border-radius: 3px;
-                        cursor: pointer;
-                        font-size: 11px;
-                    ">✏️</button>
-                    <button class="file-action-btn" data-action="download" title="下载" style="
-                        padding: 2px 6px;
-                        background: #8b5cf6;
-                        color: white;
-                        border: none;
-                        border-radius: 3px;
-                        cursor: pointer;
-                        font-size: 11px;
-                    ">⬇️</button>
-                </div>
-                ` : ''}
-                <div style="display: flex; gap: 4px;" onclick="event.stopPropagation()">
-                    <button class="file-action-btn" data-action="rename" title="重命名" style="
-                        padding: 2px 6px;
-                        background: #f59e0b;
-                        color: white;
-                        border: none;
-                        border-radius: 3px;
-                        cursor: pointer;
-                        font-size: 11px;
-                    ">✍️</button>
-                    <button class="file-action-btn" data-action="delete" title="删除" style="
-                        padding: 2px 6px;
-                        background: #ef4444;
-                        color: white;
-                        border: none;
-                        border-radius: 3px;
-                        cursor: pointer;
-                        font-size: 11px;
-                    ">🗑️</button>
-                </div>
-            `;
-            
-            // 点击文件名打开编辑（仅文件）或进入目录
-            const nameSpan = itemDiv.querySelector('span:nth-child(2)');
-            nameSpan.onclick = () => {
-                if (isDir) {
-                    // 双击进入子目录
-                    enterDirectory(item.handle, item.name);
-                } else {
-                    openFileForEdit(item.handle, item.name);
-                }
-            };
-            
-            // 绑定操作按钮
-            itemDiv.querySelectorAll('.file-action-btn').forEach(btn => {
-                btn.onclick = (e) => {
-                    e.stopPropagation();
-                    const action = btn.dataset.action;
-                    handleFileAction(action, { 
-                        name: item.name, 
-                        kind: item.type,
-                        handle: item.handle 
-                    }, dirHandle, container);
-                };
-            });
-            
-            container.appendChild(itemDiv);
-        });
-    }
-
-    /**
-     * 进入子目录
-     */
-    async function enterDirectory(subDirHandle, dirName) {
-        try {
-            // 更新历史记录
-            if (!dirHistory) {
-                dirHistory = new FileSystemHistory(currentDirectory);
-            }
-            dirHistory.push(subDirHandle);
-            
-            // 更新路径显示
-            currentDirPath.push(dirName);
-            updatePathDisplay();
-            
-            // 加载新目录内容
-            const fileListContainer = document.getElementById('file-list-container');
-            await loadFileList(fileListContainer, subDirHandle);
-        } catch (error) {
-            alert(`❌ 进入目录失败: ${error.message}`);
-        }
-    }
-
-    /**
-     * 返回上级目录
-     */
-    async function goBack() {
-        if (!dirHistory || !dirHistory.canBack()) {
-            alert('已经是最顶层目录了');
-            return;
-        }
-        
-        try {
-            const parentDir = dirHistory.back();
-            currentDirPath.pop();
-            updatePathDisplay();
-            
-            const fileListContainer = document.getElementById('file-list-container');
-            await loadFileList(fileListContainer, parentDir);
-        } catch (error) {
-            alert(`❌ 返回失败: ${error.message}`);
-        }
-    }
-
-    /**
-     * 更新路径显示
-     */
-    function updatePathDisplay() {
-        const pathElement = document.getElementById('current-path');
-        if (pathElement) {
-            pathElement.textContent = currentDirPath.join(' / ') || '根目录';
-        }
-    }
-
-    /**
-     * 获取文件图标
-     */
-    function getFileIcon(fileName) {
-        const ext = fileName.split('.').pop().toLowerCase();
-        const icons = {
-            'js': '📜',
-            'ts': '📘',
-            'html': '🌐',
-            'css': '🎨',
-            'json': '📋',
-            'md': '📝',
-            'txt': '📄',
-            'py': '🐍',
-            'java': '☕',
-            'xml': '📰'
-        };
-        return icons[ext] || '📄';
-    }
-
-    /**
-     * 打开文件进行编辑
-     */
-    async function openFileForEdit(fileHandle, fileName) {
-        try {
-            const content = await readFileContent(fileHandle);
-            
-            const fileListContainer = document.getElementById('file-list-container');
-            const editorContainer = document.getElementById('file-editor-container');
-            const editingFileName = document.getElementById('editing-file-name');
-            const fileEditor = document.getElementById('file-editor');
-            
-            // 直接保存 fileHandle 引用
-            currentFileInstance = fileHandle;
-            
-            editingFileName.textContent = fileName;
-            fileEditor.value = content;
-            
-            fileListContainer.style.display = 'none';
-            document.getElementById('refresh-files').parentElement.style.display = 'none';
-            editorContainer.style.display = 'flex';
-        } catch (error) {
-            alert(`❌ 打开文件失败: ${error.message}`);
-        }
-    }
-
-    /**
-     * 保存编辑的文件
-     */
-    async function saveEditedFile() {
-        try {
-            const fileEditor = document.getElementById('file-editor');
-            const content = fileEditor.value;
-            
-            if (!currentFileInstance) {
-                throw new Error('文件句柄丢失，请重新打开文件');
-            }
-            
-            await writeFileContent(currentFileInstance, content);
-            
-            alert('✅ 文件已保存');
-            
-            // 返回文件列表
-            document.getElementById('cancel-edit').click();
-            document.getElementById('refresh-files').parentElement.style.display = 'flex';
-            
-            // 刷新文件列表
-            const currentWs = getCurrentWorkspace();
-            if (currentWs && currentWs.folderHandle) {
-                await loadFileList(document.getElementById('file-list-container'), currentWs.folderHandle);
-            }
-        } catch (error) {
-            alert(`❌ 保存文件失败: ${error.message}`);
-        }
-    }
-
-    /**
-     * 创建新文件
-     */
-    async function createNewFile(dirHandle, fileListContainer) {
-        const fileName = prompt('请输入文件名（包含扩展名）:');
-        if (!fileName) return;
-        
-        try {
-            await createFileInFolder(dirHandle, fileName, '');
-            alert(`✅ 文件 "${fileName}" 已创建`);
-            
-            // 刷新文件列表
-            await loadFileList(fileListContainer, dirHandle);
-        } catch (error) {
-            alert(`❌ 创建文件失败: ${error.message}`);
-        }
-    }
-
-    /**
-     * 创建新文件夹
-     */
-    async function createNewFolder(dirHandle, fileListContainer) {
-        const folderName = prompt('请输入文件夹名称:');
-        if (!folderName) return;
-        
-        try {
-            const newFolderHandle = await dirHandle.getDirectoryHandle(folderName, { create: true });
-            alert(`✅ 文件夹 "${folderName}" 已创建`);
-            
-            // 刷新文件列表
-            await loadFileList(fileListContainer, dirHandle);
-        } catch (error) {
-            alert(`❌ 创建文件夹失败: ${error.message}`);
-        }
-    }
-
-    /**
-     * 上传文件
-     */
-    async function uploadFiles(dirHandle, fileListContainer) {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.multiple = true;
-        
-        input.onchange = async (e) => {
-            const files = Array.from(e.target.files);
-            if (files.length === 0) return;
-            
-            let successCount = 0;
-            let failCount = 0;
-            
-            for (const file of files) {
-                try {
-                    const content = await readFileAsText(file);
-                    await createFileInFolder(dirHandle, file.name, content);
-                    successCount++;
-                } catch (error) {
-                    console.error(`上传文件 ${file.name} 失败:`, error);
-                    failCount++;
-                }
-            }
-            
-            if (successCount > 0) {
-                alert(`✅ 成功上传 ${successCount} 个文件${failCount > 0 ? `, ${failCount} 个失败` : ''}`);
-            } else {
-                alert('❌ 所有文件上传失败');
-            }
-            
-            // 刷新文件列表
-            await loadFileList(fileListContainer, dirHandle);
-        };
-        
-        input.click();
-    }
-
-    /**
-     * 读取文件为文本
-     */
-    function readFileAsText(file) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (e) => resolve(e.target.result);
-            reader.onerror = (e) => reject(e);
-            reader.readAsText(file);
-        });
-    }
-
-    /**
-     * 处理文件操作（编辑、下载、重命名、删除）
-     */
-    async function handleFileAction(action, file, dirHandle, fileListContainer) {
-        switch (action) {
-            case 'edit':
-                if (file.kind === 'file') {
-                    openFileForEdit(file.handle, file.name);
-                }
-                break;
-                
-            case 'download':
-                if (file.kind === 'file') {
-                    downloadFile(file.handle, file.name);
-                }
-                break;
-                
-            case 'rename':
-                await renameFileOrFolder(file, dirHandle, fileListContainer);
-                break;
-                
-            case 'delete':
-                await deleteFileOrFolder(file, dirHandle, fileListContainer);
-                break;
-                
-            default:
-                console.warn('未知操作:', action);
-        }
-    }
-
-    /**
-     * 下载文件
-     */
-    async function downloadFile(fileHandle, fileName) {
-        try {
-            const content = await readFileContent(fileHandle);
-            const blob = new Blob([content], { type: 'text/plain' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = fileName;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        } catch (error) {
-            alert(`❌ 下载文件失败: ${error.message}`);
-        }
-    }
-
-    /**
-     * 重命名文件或文件夹
-     */
-    async function renameFileOrFolder(file, dirHandle, fileListContainer) {
-        const newName = prompt(`输入新的名称:`, file.name);
-        if (!newName || newName === file.name) return;
-        
-        try {
-            if (file.kind === 'file') {
-                // 文件重命名：读取内容 -> 创建新文件 -> 删除旧文件
-                const content = await readFileContent(file.handle);
-                await createFileInFolder(dirHandle, newName, content);
-                await dirHandle.removeEntry(file.name);
-                
-                // 更新缓存中的文件名
-                if (fileHandleCache.has(file.name)) {
-                    const handle = fileHandleCache.get(file.name);
-                    fileHandleCache.delete(file.name);
-                    fileHandleCache.set(newName, handle);
-                }
-                
-                alert(`✅ 文件已重命名为 "${newName}"`);
-            } else {
-                // 文件夹重命名：File System Access API 不直接支持
-                // 需要提示用户手动操作
-                alert('⚠️ 文件夹重命名功能暂不支持\n\n请在文件资源管理器中手动重命名');
-                return;
-            }
-            
-            // 刷新文件列表
-            await loadFileList(fileListContainer, dirHandle);
-        } catch (error) {
-            alert(`❌ 重命名失败: ${error.message}`);
-        }
-    }
-
-    /**
-     * 删除文件或文件夹
-     */
-    async function deleteFileOrFolder(file, dirHandle, fileListContainer) {
-        const confirmMsg = file.kind === 'directory' 
-            ? `确定要删除文件夹 "${file.name}" 及其所有内容吗？`
-            : `确定要删除文件 "${file.name}" 吗？`;
-            
-        if (!confirm(confirmMsg)) return;
-        
-        try {
-            await dirHandle.removeEntry(file.name, { recursive: true });
-            alert(`✅ ${file.kind === 'directory' ? '文件夹' : '文件'} "${file.name}" 已删除`);
-            
-            // 刷新文件列表
-            await loadFileList(fileListContainer, dirHandle);
-        } catch (error) {
-            alert(`❌ 删除失败: ${error.message}`);
-        }
-    }
-
-    /**
-     * 关闭文件管理器
-     */
-    function closeFileManager() {
-        const panel = document.getElementById('file-manager-panel');
-        const overlay = document.getElementById('file-manager-overlay');
-        if (panel) panel.remove();
-        if (overlay) overlay.remove();
-        
-        // 清理状态
-        currentFileInstance = null;
-        currentDirHandle = null;
-    }
-
-    /**
-     * 生成唯一 ID
-     */
-    function generateId() {
-        return 'ws_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-    }
-
-    /**
-     * HTML 转义
-     */
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-
-    /**
-     * 保存到本地存储
-     */
-    function saveCurrentWorkspace() {
-        if (!currentWorkspace) return;
-        
-        // 注意: folderHandle 是 File System Access API 对象，不能 JSON 序列化
-        // 保存到 GM 存储时需要排除，但保留在内存中的 currentWorkspace 对象里
-        const workspaceToSave = { ...currentWorkspace };
-        delete workspaceToSave.folderHandle;
-        
-        GM_setValue('agent_current_workspace', JSON.stringify(workspaceToSave));
-        console.log('✅ 工作空间已保存:', currentWorkspace.name);
-    }
-
-    function saveWorkspaces() {
-        // 简化版：只保存当前工作空间
-        saveCurrentWorkspace();
-    }
-
-    // 暴露全局函数 (供 HTML 中的 onclick 使用)
-    window.StorageManager = {
-        showWorkspaceManager,
-        closeWorkspaceManager,
-        switchWorkspace,
-        createNewWorkspace,
-        renameWorkspacePrompt,
-        deleteWorkspaceConfirm,
-        exportWorkspaceFile,
-        handleImport,
-        openFolder,
-        showFileManager
-    };
-
-    return {
-        init,
-        createWorkspace,
-        deleteWorkspace,
-        renameWorkspace,
-        loadWorkspace,
-        switchWorkspace: loadWorkspace,  // 别名，用于侧边栏切换
-        getCurrentWorkspace,
-        getAllWorkspaces,
-        saveToWorkspace,
-        loadFromWorkspace,
-        saveConversations,
-        loadConversations,
-        saveCustomSettings,
-        loadCustomSettings,
-        exportWorkspace,
-        importWorkspace,
-        showWorkspaceManager,
-        loadWorkspaceConfigFromFolder,
-        showFileManager,
-        openFolder,
-        readFileContent,
-        writeFileContent,
-        createFileInFolder,
-        createNewFolder,
-        uploadFiles,
-        downloadFile,
-        renameFileOrFolder,
-        deleteFileOrFolder,
-        saveChatToWorkspace,   // 新增：保存聊天记录到工作空间
-        loadChatFromWorkspace  // 新增：从工作空间加载聊天记录
-    };
-})();
-
-
-// ==================== ui.js ====================
-
-// ==================== UI 界面模块 ====================
-
-const UIManager = (function() {
-    let assistant = null;
-    let isDragging = false;
-    let offsetX, offsetY;
-
-    /**
-     * 添加样式
-     */
-    function addStyles() {
-        GM_addStyle(`
-            #ai-agent {
-                position: fixed;
-                bottom: 20px;
-                right: 20px;
-                width: 550px;  /* 增加宽度以容纳侧边栏 */
-                height: 550px;
-                background: white;
-                border-radius: 12px;
-                box-shadow: 0 8px 32px rgba(0,0,0,0.12);
-                z-index: 999999;
-                display: flex;
-                flex-direction: row;  /* 改为横向布局 */
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                border: 1px solid #e0e0e0;
-                transition: all 0.3s ease;
-                overflow: hidden;
-            }
-
-            
-            /* 侧边栏样式（VSCode 风格） */
-            #agent-sidebar {
-                width: 40px;
-                background: #2c2c2c;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                padding: 8px 0;
-                gap: 4px;
-                transition: width 0.3s ease;
-                flex-shrink: 0;
-                position: relative;
-            }
-            #agent-sidebar.expanded {
-                width: 320px;
-                align-items: stretch;
-                padding: 0;
-            }
-            .sidebar-btn {
-                width: 36px;
-                height: 36px;
-                background: transparent;
-                border: none;
-                color: #cccccc;
-                cursor: pointer;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 18px;
-                border-radius: 4px;
-                transition: all 0.2s;
-                position: relative;
-            }
-            .sidebar-btn:hover {
-                background: rgba(255,255,255,0.1);
-                color: white;
-            }
-            .sidebar-btn.active {
-                background: rgba(255,255,255,0.15);
-                color: white;
-            }
-            .sidebar-btn::before {
-                content: attr(data-tooltip);
-                position: absolute;
-                left: 45px;
-                background: #333;
-                color: white;
-                padding: 4px 8px;
-                border-radius: 4px;
-                font-size: 12px;
-                white-space: nowrap;
-                opacity: 0;
-                pointer-events: none;
-                transition: opacity 0.2s;
-                z-index: 1000;
-            }
-            .sidebar-btn:hover::before {
-                opacity: 1;
-            }
-            
-            /* 收缩按钮（交界区域） */
-            #sidebar-collapse {
-                position: absolute;
-                right: -12px;
-                top: 50%;
-                transform: translateY(-50%);
-                width: 12px;
-                height: 40px;
-                background: #2c2c2c;
-                border: 1px solid #3a3a3a;
-                border-left: none;
-                border-radius: 0 6px 6px 0;
-                color: #888;
-                font-size: 10px;
-                cursor: pointer;
-                display: none;
-                align-items: center;
-                justify-content: center;
-                z-index: 100;
-                transition: all 0.2s;
-            }
-            #agent-sidebar.expanded #sidebar-collapse {
-                display: flex;
-            }
-            #sidebar-collapse:hover {
-                background: #3a3a3a;
-                color: white;
-                width: 14px;
-            }
-            
-            /* 侧边栏内容区域 */
-            #sidebar-content {
-                display: none;
-                flex: 1;
-                flex-direction: column;
-                background: #252526;
-                overflow: hidden;
-            }
-            #agent-sidebar.expanded #sidebar-content {
-                display: flex;
-            }
-            .sidebar-header {
-                padding: 10px 12px;
-                background: #333;
-                color: white;
-                font-size: 11px;
-                font-weight: 600;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-            }
-            .sidebar-header-actions {
-                display: flex;
-                gap: 6px;
-            }
-            .sidebar-header-btn {
-                background: transparent;
-                border: none;
-                color: #cccccc;
-                cursor: pointer;
-                font-size: 14px;
-                padding: 2px 6px;
-                border-radius: 3px;
-                transition: all 0.2s;
-            }
-            .sidebar-header-btn:hover {
-                background: rgba(255,255,255,0.1);
-                color: white;
-            }
-            #workspace-tree {
-                flex: 1;
-                overflow-y: auto;
-                padding: 8px;
-            }
-            .sidebar-close-btn {
-                background: transparent;
-                border: none;
-                color: #cccccc;
-                cursor: pointer;
-                font-size: 16px;
-                padding: 2px 6px;
-                border-radius: 3px;
-            }
-            .sidebar-close-btn:hover {
-                background: rgba(255,255,255,0.1);
-                color: white;
-            }
-            #workspace-tree {
-                flex: 1;
-                overflow-y: auto;
-                padding: 8px;
-            }
-            .workspace-item {
-                padding: 6px 8px;
-                color: #cccccc;
-                cursor: pointer;
-                border-radius: 4px;
-                font-size: 13px;
-                display: flex;
-                align-items: center;
-                gap: 6px;
-                margin-bottom: 2px;
-            }
-            .workspace-item:hover {
-                background: rgba(255,255,255,0.1);
-                color: white;
-            }
-            .workspace-item.active {
-                background: rgba(102, 126, 234, 0.3);
-                color: white;
-            }
-            .file-tree-item {
-                padding: 4px 8px;
-                padding-left: 20px;
-                color: #cccccc;
-                cursor: pointer;
-                border-radius: 3px;
-                font-size: 12px;
-                display: flex;
-                align-items: center;
-                gap: 6px;
-                margin-bottom: 1px;
-            }
-            .file-tree-item:hover {
-                background: rgba(255,255,255,0.08);
-                color: white;
-            }
-            .file-tree-item.folder {
-                color: #e8e8e8;
-            }
-            .file-tree-item.file {
-                padding-left: 32px;
-            }
-            .file-tree-item .file-actions {
-                display: none;
-                gap: 4px;
-            }
-            .file-tree-item:hover .file-actions {
-                display: flex;
-            }
-            .file-action-btn {
-                background: transparent;
-                border: none;
-                color: #888;
-                cursor: pointer;
-                font-size: 12px;
-                padding: 2px 4px;
-                border-radius: 3px;
-            }
-            .file-action-btn:hover {
-                background: rgba(255,255,255,0.1);
-                color: white;
-            }
-            
-            /* 文件编辑器 */
-            #file-editor-panel {
-                display: none;
-                flex-direction: column;
-                flex: 1;
-                background: #1e1e1e;
-            }
-            #file-editor-panel.active {
-                display: flex;
-            }
-            .editor-header {
-                padding: 8px 12px;
-                background: #2d2d2d;
-                border-bottom: 1px solid #3e3e3e;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-            }
-            .editor-title {
-                color: #cccccc;
-                font-size: 12px;
-                font-weight: 500;
-            }
-            .editor-actions {
-                display: flex;
-                gap: 6px;
-            }
-            .editor-btn {
-                padding: 4px 12px;
-                border: none;
-                border-radius: 4px;
-                cursor: pointer;
-                font-size: 12px;
-                transition: all 0.2s;
-            }
-            .editor-btn.save {
-                background: #0e639c;
-                color: white;
-            }
-            .editor-btn.save:hover {
-                background: #1177bb;
-            }
-            .editor-btn.cancel {
-                background: #3c3c3c;
-                color: #cccccc;
-            }
-            .editor-btn.cancel:hover {
-                background: #505050;
-            }
-            #file-editor-textarea {
-                flex: 1;
-                padding: 12px;
-                background: #1e1e1e;
-                color: #d4d4d4;
-                border: none;
-                resize: none;
-                font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-                font-size: 13px;
-                line-height: 1.5;
-                outline: none;
-            }
-            
-            /* 主内容区域 */
-            #agent-main {
-                flex: 1;
-                display: flex;
-                flex-direction: column;
-                min-width: 0;
-            }
-            #agent-header {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
-                padding: 12px 16px;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                border-radius: 12px 12px 0 0;
-                cursor: move;
-            }
-            #agent-title { 
-                font-weight: 600; 
-                font-size: 15px;
-                display: flex;
-                align-items: center;
-                gap: 8px;
-            }
-            #agent-controls {
-                display: flex;
-                gap: 6px;
-            }
-            .header-btn {
-                background: rgba(255,255,255,0.2);
-                border: none;
-                color: white;
-                width: 24px;
-                height: 24px;
-                border-radius: 6px;
-                cursor: pointer;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 16px;
-                transition: background 0.2s;
-            }
-            .header-btn:hover { background: rgba(255,255,255,0.3); }
-            #agent-chat {
-                flex: 1;
-                overflow-y: auto;
-                padding: 16px;
-                background: #f5f7fa;
-                scroll-behavior: smooth;
-            }
-            .message { 
-                margin: 10px 0;
-                animation: fadeIn 0.3s ease;
-            }
-            @keyframes fadeIn {
-                from { opacity: 0; transform: translateY(10px); }
-                to { opacity: 1; transform: translateY(0); }
-            }
-            .user-message {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
-                padding: 10px 14px;
-                border-radius: 16px 16px 6px 16px;
-                margin-left: auto;
-                max-width: 85%;
-                word-wrap: break-word;
-            }
-            .assistant-message {
-                background: white;
-                border: 1px solid #e0e0e0;
-                padding: 10px 14px;
-                border-radius: 16px 16px 16px 6px;
-                max-width: 85%;
-                word-wrap: break-word;
-            }
-            .message-content { 
-                line-height: 1.5; 
-                font-size: 14px;
-                white-space: pre-wrap;
-            }
-            .code-block {
-                background: #282c34;
-                color: #abb2bf;
-                padding: 12px;
-                border-radius: 8px;
-                margin: 8px 0;
-                font-family: 'SF Mono', 'Fira Code', monospace;
-                font-size: 12px;
-                overflow-x: auto;
-                position: relative;
-            }
-            .code-language {
-                position: absolute;
-                top: 4px;
-                right: 8px;
-                font-size: 10px;
-                color: #5c6370;
-                text-transform: uppercase;
-            }
-            .code-actions { 
-                margin-top: 8px;
-                display: flex;
-                gap: 6px;
-            }
-            .code-btn {
-                background: #667eea;
-                color: white;
-                border: none;
-                padding: 6px 12px;
-                border-radius: 6px;
-                font-size: 12px;
-                cursor: pointer;
-                transition: all 0.2s;
-            }
-            .code-btn:hover { 
-                background: #5568d3;
-                transform: translateY(-1px);
-            }
-            .code-btn.execute { background: #10b981; }
-            .code-btn.execute:hover { background: #059669; }
-            #agent-input-area { 
-                border-top: 1px solid #e0e0e0; 
-                padding: 12px;
-                background: white;
-                border-radius: 0 0 12px 12px;
-            }
-            #agent-input {
-                width: 100%;
-                min-height: 60px;
-                max-height: 150px;
-                padding: 10px;
-                border: 1px solid #ddd;
-                border-radius: 8px;
-                resize: vertical;
-                font-size: 14px;
-                font-family: inherit;
-                transition: border-color 0.2s;
-            }
-            #agent-input:focus { 
-                outline: none; 
-                border-color: #667eea;
-                box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-            }
-            #agent-controls-bar { 
-                display: flex; 
-                gap: 8px; 
-                margin-top: 10px;
-                align-items: center;
-            }
-            #agent-send {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 8px;
-                cursor: pointer;
-                font-size: 14px;
-                font-weight: 500;
-                transition: all 0.2s;
-            }
-            #agent-send:hover {
-                transform: translateY(-1px);
-                box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-            }
-            #agent-send:disabled {
-                opacity: 0.5;
-                cursor: not-allowed;
-                transform: none;
-            }
-            .control-btn {
-                background: #f5f7fa;
-                border: 1px solid #ddd;
-                padding: 8px 12px;
-                border-radius: 8px;
-                cursor: pointer;
-                font-size: 13px;
-                transition: all 0.2s;
-            }
-            .control-btn:hover {
-                background: #e8ecf1;
-                border-color: #667eea;
-            }
-            .execution-result {
-                margin-top: 10px;
-                padding: 10px;
-                border-radius: 8px;
-                font-family: 'SF Mono', monospace;
-                font-size: 12px;
-                line-height: 1.5;
-            }
-            .execution-success { 
-                background: #d1fae5; 
-                border-left: 4px solid #10b981;
-                color: #065f46;
-            }
-            .execution-error { 
-                background: #fee2e2; 
-                border-left: 4px solid #ef4444;
-                color: #991b1b;
-            }
-            .typing { 
-                display: flex; 
-                gap: 4px; 
-                padding: 12px;
-                align-items: center;
-            }
-            .typing-dot {
-                width: 8px;
-                height: 8px;
-                background: #667eea;
-                border-radius: 50%;
-                animation: typing 1.4s infinite ease-in-out;
-            }
-            .typing-dot:nth-child(1) { animation-delay: -0.32s; }
-            .typing-dot:nth-child(2) { animation-delay: -0.16s; }
-            @keyframes typing {
-                0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
-                40% { transform: scale(1); opacity: 1; }
-            }
-            .status-badge {
-                display: inline-block;
-                padding: 4px 8px;
-                border-radius: 12px;
-                font-size: 11px;
-                font-weight: 500;
-                margin-left: 8px;
-            }
-            .status-active {
-                background: #d1fae5;
-                color: #065f46;
-            }
-            .status-inactive {
-                background: #fee2e2;
-                color: #991b1b;
-            }
-        `);
-    }
-
-    /**
-     * 创建主界面
-     */
-    function createAssistant(config) {
-        assistant = document.createElement('div');
-        assistant.id = 'ai-agent';
-        assistant.innerHTML = `
-            <!-- 侧边栏（VSCode 风格） -->
-            <div id="agent-sidebar">
-                <button class="sidebar-btn" id="sidebar-workspace" data-tooltip="工作空间">📁</button>
-                
-                <!-- 侧边栏内容区域 -->
-                <div id="sidebar-content">
-                    <!-- 文件浏览器视图 -->
-                    <div id="file-browser-view" style="display: none; flex-direction: column; flex: 1;">
-                        <div class="sidebar-header">
-                            <span>资源管理器</span>
-                            <div class="sidebar-header-actions">
-                                <button class="sidebar-header-btn" id="btn-reopen-workspace" title="重新打开工作空间">📂</button>
-                                <button class="sidebar-header-btn" id="btn-refresh" title="刷新">🔄</button>
-                                <button class="sidebar-header-btn" id="btn-new-file" title="新建文件">📄+</button>
-                                <button class="sidebar-header-btn" id="btn-new-folder" title="新建文件夹">📁+</button>
-                            </div>
-                        </div>
-                        <div id="workspace-tree">
-                            <div style="padding: 20px; color: #888; text-align: center; font-size: 12px;">
-                                点击 📁 打开文件夹
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- 文件编辑器视图 -->
-                    <div id="file-editor-panel">
-                        <div class="editor-header">
-                            <span class="editor-title" id="editor-file-name">未命名文件</span>
-                            <div class="editor-actions">
-                                <button class="editor-btn save" id="editor-save-btn">💾 保存</button>
-                                <button class="editor-btn cancel" id="editor-cancel-btn">✖ 取消</button>
-                            </div>
-                        </div>
-                        <textarea id="file-editor-textarea" placeholder="编辑文件内容..."></textarea>
-                    </div>
-                </div>
-                
-                <!-- 收缩按钮（交界区域） -->
-                <div id="sidebar-collapse" title="收起侧边栏">◀</div>
-            </div>
-            
-            <!-- 主内容区域 -->
-            <div id="agent-main">
-                <div id="agent-header">
-                    <div id="agent-title">
-                        <span>✨</span>
-                        <span>AI 助手</span>
-                        ${config.apiKey ? '<span class="status-badge status-active">已配置</span>' : '<span class="status-badge status-inactive">未配置</span>'}
-                    </div>
-                    <div id="agent-controls">
-                        <button class="header-btn" id="agent-close" title="关闭">×</button>
-                    </div>
-                </div>
-                <div id="agent-chat"></div>
-                <div id="agent-input-area">
-                    <textarea id="agent-input" placeholder="输入消息...&#10;使用 /js 执行代码,例如: /js alert('Hello')"></textarea>
-                    <div id="agent-controls-bar">
-                        <button class="control-btn" id="agent-settings">⚙️ 设置</button>
-                        <button class="control-btn" id="agent-clear">🗑️ 清空</button>
-                        <button id="agent-send">发送 ➤</button>
-                    </div>
-                </div>
-            </div>
-        `;
-        document.body.appendChild(assistant);
-        
-        setupEventListeners();
-        setupChatEventDelegation(); // 调用事件委托，使代码执行按钮生效
-        
-        return assistant;
-    }
-
-    /**
-     * 设置事件监听
-     */
-    function setupEventListeners() {
-        const sendBtn = document.getElementById('agent-send');
-        const input = document.getElementById('agent-input');
-        const closeBtn = document.getElementById('agent-close');
-        const settingsBtn = document.getElementById('agent-settings');
-        const clearBtn = document.getElementById('agent-clear');
-        
-        // 侧边栏按钮
-        const sidebarWorkspaceBtn = document.getElementById('sidebar-workspace');
-        const sidebarCollapse = document.getElementById('sidebar-collapse');
-        const sidebar = document.getElementById('agent-sidebar');
-        
-        // 侧边栏工具栏按钮
-        const btnReopenWorkspace = document.getElementById('btn-reopen-workspace');
-        const btnRefresh = document.getElementById('btn-refresh');
-        const btnNewFile = document.getElementById('btn-new-file');
-        const btnNewFolder = document.getElementById('btn-new-folder');
-        
-        // 编辑器按钮
-        const editorSaveBtn = document.getElementById('editor-save-btn');
-        const editorCancelBtn = document.getElementById('editor-cancel-btn');
-        const fileEditorPanel = document.getElementById('file-editor-panel');
-
-        // 发送按钮点击
-        sendBtn.addEventListener('click', () => {
-            window.dispatchEvent(new CustomEvent('agent-send-message'));
-        });
-        
-        // 回车发送
-        input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                window.dispatchEvent(new CustomEvent('agent-send-message'));
-            }
-        });
-
-        // 打开监听自定义事件
-        window.addEventListener('agent-send-message', () => {
-            const message = input.value.trim();
-            if (message) {
-                window.dispatchEvent(new CustomEvent('agent-message-sent', { detail: message }));
-                input.value = '';
-            }
-        });
-
-        // 关闭按钮
-        closeBtn.addEventListener('click', () => {
-            assistant.style.display = 'none';
-            // 触发 Agent 关闭事件，显示启动按钮
-            window.dispatchEvent(new CustomEvent('agent-closed'));
-            // 保存隐藏状态
-            if (typeof ConfigManager !== 'undefined' && ConfigManager.saveChatVisibility) {
-                ConfigManager.saveChatVisibility(false);
-            }
-        });
-
-        // 侧边栏 - 工作空间按钮
-        sidebarWorkspaceBtn.addEventListener('click', () => {
-            toggleSidebar();
-        });
-        
-        // 侧边栏 - 收缩按钮
-        sidebarCollapse.addEventListener('click', () => {
-            sidebar.classList.remove('expanded');
-            sidebarWorkspaceBtn.classList.remove('active');
-        });
-        
-        // 侧边栏 - 重新打开工作空间按钮
-        btnReopenWorkspace?.addEventListener('click', () => {
-            // 重新打开工作空间
-            StorageManager.openFolder();
-        });
-        
-        // 侧边栏 - 刷新按钮
-        btnRefresh?.addEventListener('click', () => {
-            loadWorkspaceList();
-        });
-        
-        // 侧边栏 - 新建文件按钮
-        btnNewFile?.addEventListener('click', async () => {
-            const currentWs = StorageManager.getCurrentWorkspace();
-            if (!currentWs || !currentWs.folderHandle) {
-                alert('⚠️ 请先打开一个文件夹');
-                return;
-            }
-            
-            const fileName = prompt('请输入文件名:');
-            if (fileName) {
-                try {
-                    await StorageManager.createFileInFolder(currentWs.folderHandle, fileName, '');
-                    loadWorkspaceList(); // 刷新文件树
-                } catch (error) {
-                    alert(`❌ 创建文件失败: ${error.message}`);
-                }
-            }
-        });
-        
-        // 侧边栏 - 新建文件夹按钮
-        btnNewFolder?.addEventListener('click', async () => {
-            const currentWs = StorageManager.getCurrentWorkspace();
-            if (!currentWs || !currentWs.folderHandle) {
-                alert('⚠️ 请先打开一个文件夹');
-                return;
-            }
-            
-            const folderName = prompt('请输入文件夹名:');
-            if (folderName) {
-                try {
-                    await StorageManager.createNewFolder(currentWs.folderHandle, folderName);
-                    loadWorkspaceList(); // 刷新文件树
-                } catch (error) {
-                    alert(`❌ 创建文件夹失败: ${error.message}`);
-                }
-            }
-        });
-        
-        // 编辑器 - 保存按钮
-        editorSaveBtn?.addEventListener('click', async () => {
-            const fileName = fileEditorPanel.dataset.fileName;
-            const content = document.getElementById('file-editor-textarea').value;
-            const fileHandle = window._currentEditingFileHandle;
-            
-            if (!fileHandle || !fileName) {
-                alert('⚠️ 无法获取文件句柄');
-                return;
-            }
-            
-            try {
-                await StorageManager.writeFileContent(fileHandle, content);
-                alert(`✅ 文件 ${fileName} 已保存`);
-                closeFileEditor();
-                loadWorkspaceList(); // 刷新文件树
-            } catch (error) {
-                alert(`❌ 保存文件失败: ${error.message}`);
-            }
-        });
-        
-        // 编辑器 - 取消按钮
-        editorCancelBtn?.addEventListener('click', () => {
-            if (confirm('确定要放弃未保存的更改吗？')) {
-                closeFileEditor();
-            }
-        });
-
-        // 设置按钮
-        settingsBtn.addEventListener('click', () => {
-            window.dispatchEvent(new CustomEvent('agent-open-settings'));
-        });
-
-        // 清空按钮
-        clearBtn.addEventListener('click', () => {
-            if (confirm('确定要清空所有对话记录吗?')) {
-                window.dispatchEvent(new CustomEvent('agent-clear-chat'));
-            }
-        });
-
-        // 拖拽功能
-        const header = document.getElementById('agent-header');
-        header.addEventListener('mousedown', (e) => {
-            if (e.target.closest('.header-btn')) return;
-            isDragging = true;
-            offsetX = e.clientX - assistant.offsetLeft;
-            offsetY = e.clientY - assistant.offsetTop;
-            assistant.style.cursor = 'grabbing';
-        });
-
-        document.addEventListener('mousemove', (e) => {
-            if (!isDragging) return;
-            assistant.style.left = (e.clientX - offsetX) + 'px';
-            assistant.style.top = (e.clientY - offsetY) + 'px';
-            assistant.style.right = 'auto';
-            assistant.style.bottom = 'auto';
-        });
-
-        document.addEventListener('mouseup', () => {
-            isDragging = false;
-            assistant.style.cursor = '';
-        });
-    }
-    
-    /**
-     * 切换侧边栏显示状态
-     */
-    function toggleSidebar() {
-        const sidebar = document.getElementById('agent-sidebar');
-        const workspaceBtn = document.getElementById('sidebar-workspace');
-        const fileBrowserView = document.getElementById('file-browser-view');
-        const fileEditorPanel = document.getElementById('file-editor-panel');
-        
-        if (sidebar.classList.contains('expanded')) {
-            // 如果已经展开，则关闭
-            sidebar.classList.remove('expanded');
-            workspaceBtn.classList.remove('active');
-        } else {
-            // 展开工作空间
-            sidebar.classList.add('expanded');
-            workspaceBtn.classList.add('active');
-            
-            // 确保显示文件浏览器视图
-            fileBrowserView.style.display = 'flex';
-            fileEditorPanel.classList.remove('active');
-            
-            // 加载工作空间列表
-            loadWorkspaceList();
-        }
-    }
-    
-    /**
-     * 权限检查状态（避免重复检查）
-     */
-    let permissionChecked = false;
-    
-    /**
-     * 加载工作空间列表到侧边栏
-     */
-    async function loadWorkspaceList() {
-        const treeContainer = document.getElementById('workspace-tree');
-        if (!treeContainer) return;
-        
-        try {
-            const currentWs = StorageManager.getCurrentWorkspace();
-            
-            if (!currentWs) {
-                treeContainer.innerHTML = `
-                    <div style="padding: 20px; color: #888; text-align: center; font-size: 12px;">
-                        未设置工作目录<br>
-                        <button id="open-folder-btn" style="
-                            margin-top: 10px;
-                            padding: 6px 12px;
-                            background: #667eea;
-                            color: white;
-                            border: none;
-                            border-radius: 4px;
-                            cursor: pointer;
-                            font-size: 12px;
-                        ">📁 选择文件夹</button>
-                    </div>
-                `;
-                
-                document.getElementById('open-folder-btn')?.addEventListener('click', () => {
-                    StorageManager.openFolder();
-                });
-                return;
-            }
-            
-            // 显示文件树（移除工作空间头部信息，直接在文件树顶部显示）
-            if (!currentWs.folderHandle) {
-                treeContainer.innerHTML = `
-                    <div style="padding: 8px; color: #888; font-size: 12px; text-align: center;">
-                        📁 未关联文件夹
-                    </div>
-                `;
-                return;
-            }
-            
-            // 仅在首次展开时检查权限，之后使用浏览器缓存
-            if (!permissionChecked) {
-                permissionChecked = true;
-                treeContainer.innerHTML = '<div style="padding: 8px; color: #888; font-size: 12px; text-align: center;">检查权限中...</div>';
-                
-                try {
-                    const permission = await currentWs.folderHandle.queryPermission({ mode: 'readwrite' });
-                    if (permission !== 'granted') {
-                        // 权限未授予，提示用户
-                        treeContainer.innerHTML = `
-                            <div style="padding: 8px; color: #f59e0b; font-size: 12px; text-align: center;">
-                                ⚠️ 需要重新授权<br>
-                                <button id="change-folder-btn" style="
-                                    margin-top: 8px;
-                                    padding: 6px 12px;
-                                    background: #f59e0b;
-                                    color: white;
-                                    border: none;
-                                    border-radius: 4px;
-                                    cursor: pointer;
-                                    font-size: 12px;
-                                ">重新选择文件夹</button>
-                            </div>
-                        `;
-                        document.getElementById('change-folder-btn')?.addEventListener('click', () => {
-                            StorageManager.openFolder();
-                        });
-                        return;
-                    }
-                } catch (e) {
-                    treeContainer.innerHTML = `
-                        <div style="padding: 8px; color: #ef4444; font-size: 12px; text-align: center;">
-                            ❌ 文件夹句柄无效<br>
-                            <button id="change-folder-btn" style="
-                                margin-top: 8px;
-                                padding: 6px 12px;
-                                background: #ef4444;
-                                color: white;
-                                border: none;
-                                border-radius: 4px;
-                                cursor: pointer;
-                                font-size: 12px;
-                            ">重新选择文件夹</button>
-                        </div>
-                    `;
-                    document.getElementById('change-folder-btn')?.addEventListener('click', () => {
-                        StorageManager.openFolder();
-                    });
-                    return;
-                }
-            }
-            
-            // 加载文件树
-            treeContainer.innerHTML = '<div style="padding: 8px; color: #888; font-size: 12px; text-align: center;">加载中...</div>';
-            
-            try {
-                const items = await getDirectoryList(currentWs.folderHandle);
-                
-                if (items.length === 0) {
-                    treeContainer.innerHTML = '<div style="padding: 8px; color: #888; font-size: 12px; text-align: center;">📂 空文件夹</div>';
-                    return;
-                }
-                
-                treeContainer.innerHTML = '';
-                renderFileTree(items, treeContainer, currentWs.folderHandle, 0);
-                
-            } catch (error) {
-                console.error('加载文件树失败:', error);
-                treeContainer.innerHTML = `
-                    <div style="padding: 8px; color: #ef4444; font-size: 12px; text-align: center;">
-                        ❌ ${error.message}
-                    </div>
-                `;
-            }
-            
-        } catch (error) {
-            console.error('加载工作空间失败:', error);
-            treeContainer.innerHTML = `
-                <div style="padding: 20px; color: #ef4444; text-align: center; font-size: 12px;">
-                    加载失败: ${error.message}
-                </div>
-            `;
-        }
-    }
-    
-    /**
-     * 加载工作空间的文件树
-     */
-    async function loadWorkspaceFileTree(workspace, container) {
-        if (!workspace) {
-            container.innerHTML = '<div style="padding: 8px; color: #888; font-size: 12px;">工作空间不存在</div>';
-            return;
-        }
-        
-        if (!workspace.folderHandle) {
-            container.innerHTML = `
-                <div style="padding: 8px; color: #888; font-size: 12px; text-align: center;">
-                    📁 未关联文件夹
-                </div>
-            `;
-            return;
-        }
-        
-        // 检查权限
-        try {
-            const permission = await workspace.folderHandle.queryPermission({ mode: 'readwrite' });
-            if (permission !== 'granted') {
-                container.innerHTML = `
-                    <div style="padding: 8px; color: #f59e0b; font-size: 12px; text-align: center;">
-                        ⚠️ 需要重新授权
-                    </div>
-                `;
-                return;
-            }
-        } catch (e) {
-            container.innerHTML = `
-                <div style="padding: 8px; color: #ef4444; font-size: 12px; text-align: center;">
-                    ❌ 文件夹句柄无效
-                </div>
-            `;
-            return;
-        }
-        
-        container.innerHTML = '<div style="padding: 8px; color: #888; font-size: 12px; text-align: center;">加载中...</div>';
-        
-        try {
-            const items = await getDirectoryList(workspace.folderHandle);
-            
-            if (items.length === 0) {
-                container.innerHTML = '<div style="padding: 8px; color: #888; font-size: 12px; text-align: center;">📂 空文件夹</div>';
-                return;
-            }
-            
-            container.innerHTML = '';
-            renderFileTree(items, container, workspace.folderHandle, 0);
-            
-        } catch (error) {
-            console.error('加载文件树失败:', error);
-            container.innerHTML = `
-                <div style="padding: 8px; color: #ef4444; font-size: 12px; text-align: center;">
-                    ❌ ${error.message}
-                </div>
-            `;
-        }
-    }
-    
-    /**
-     * 获取目录列表（从 StorageManager 导入）
-     */
-    async function getDirectoryList(dirHandle) {
-        const asyncIterator = dirHandle.entries();
-        const directories = [];
-        const files = [];
-        
-        for await (const [key, value] of asyncIterator) {
-            if (key === '.workspace.json') continue;
-            
-            if (value.kind === 'directory') {
-                directories.push({
-                    type: 'directory',
-                    name: key,
-                    handle: value
-                });
-            } else if (value.kind === 'file') {
-                files.push({
-                    type: 'file',
-                    name: key,
-                    handle: value
-                });
-            }
-        }
-        
-        directories.sort((a, b) => a.name.localeCompare(b.name));
-        files.sort((a, b) => a.name.localeCompare(b.name));
-        
-        return directories.concat(files);
-    }
-    
-    /**
-     * 渲染文件树
-     */
-    function renderFileTree(items, container, dirHandle, level = 0) {
-        items.forEach(item => {
-            const isDir = item.type === 'directory';
-            const indent = level * 16;
-            
-            const itemDiv = document.createElement('div');
-            itemDiv.className = `file-tree-item ${isDir ? 'folder' : 'file'}`;
-            itemDiv.style.cssText = `
-                padding-left: ${20 + indent}px;
-            `;
-            
-            const icon = isDir ? '📁' : getFileIcon(item.name);
-            
-            // 文件操作按钮（仅文件显示）
-            const fileActionsHtml = !isDir ? `
-                <div class="file-actions">
-                    <button class="file-action-btn edit-btn" title="编辑">✏️</button>
-                    <button class="file-action-btn download-btn" title="下载">⬇️</button>
-                    <button class="file-action-btn rename-btn" title="重命名">✍️</button>
-                    <button class="file-action-btn delete-btn" title="删除">🗑️</button>
-                </div>
-            ` : '';
-            
-            itemDiv.innerHTML = `
-                <span style="font-size: 14px;">${icon}</span>
-                <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(item.name)}</span>
-                ${fileActionsHtml}
-            `;
-            
-            // 点击文件名：文件夹展开/折叠，文件打开编辑器
-            itemDiv.addEventListener('click', async (e) => {
-                // 如果点击的是操作按钮，不触发文件打开
-                if (e.target.closest('.file-action-btn')) return;
-                
-                e.stopPropagation();
-                if (isDir) {
-                    // TODO: 展开/折叠子目录
-                    console.log('展开子目录:', item.name);
-                } else {
-                    // 点击文件：在侧边栏编辑器中打开
-                    openFileInEditor(item.handle, item.name);
-                }
-            });
-            
-            // 绑定文件操作按钮事件
-            if (!isDir) {
-                itemDiv.querySelector('.edit-btn')?.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    await openFileInEditor(item.handle, item.name);
-                });
-                
-                itemDiv.querySelector('.download-btn')?.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    await StorageManager.downloadFile(item.handle, item.name);
-                });
-                
-                itemDiv.querySelector('.rename-btn')?.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    const newName = prompt('新文件名:', item.name);
-                    if (newName && newName !== item.name) {
-                        await StorageManager.renameFileOrFolder(item.handle, item.name, newName);
-                        loadWorkspaceList(); // 刷新文件树
-                    }
-                });
-                
-                itemDiv.querySelector('.delete-btn')?.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    if (confirm(`确定要删除 ${item.name} 吗？`)) {
-                        await StorageManager.deleteFileOrFolder(item.handle, item.name, isDir);
-                        loadWorkspaceList(); // 刷新文件树
-                    }
-                });
-            }
-            
-            container.appendChild(itemDiv);
-        });
-    }
-    
-    /**
-     * 在侧边栏编辑器中打开文件
-     */
-    async function openFileInEditor(fileHandle, fileName) {
-        try {
-            const fileBrowserView = document.getElementById('file-browser-view');
-            const fileEditorPanel = document.getElementById('file-editor-panel');
-            const editorFileName = document.getElementById('editor-file-name');
-            const editorTextarea = document.getElementById('file-editor-textarea');
-            
-            // 切换到编辑器视图
-            fileBrowserView.style.display = 'none';
-            fileEditorPanel.classList.add('active');
-            
-            // 显示文件名
-            editorFileName.textContent = fileName;
-            editorTextarea.value = '加载中...';
-            
-            // 读取文件内容
-            const content = await StorageManager.readFileContent(fileHandle);
-            editorTextarea.value = content;
-            
-            // 保存文件名到编辑器（用于保存时重新获取句柄）
-            fileEditorPanel.dataset.fileName = fileName;
-            
-            // 保存当前编辑的文件句柄（通过闭包）
-            window._currentEditingFileHandle = fileHandle;
-            
-        } catch (error) {
-            console.error('打开文件失败:', error);
-            alert(`❌ 打开文件失败: ${error.message}`);
-        }
-    }
-    
-    /**
-     * 关闭编辑器，返回文件浏览器
-     */
-    function closeFileEditor() {
-        const fileBrowserView = document.getElementById('file-browser-view');
-        const fileEditorPanel = document.getElementById('file-editor-panel');
-        
-        fileEditorPanel.classList.remove('active');
-        fileBrowserView.style.display = 'flex';
-        
-        // 清除当前编辑的文件句柄
-        window._currentEditingFileHandle = null;
-    }
-    
-    /**
-     * 获取文件图标
-     */
-    function getFileIcon(fileName) {
-        const ext = fileName.split('.').pop().toLowerCase();
-        const icons = {
-            'js': '📜',
-            'ts': '📘',
-            'html': '🌐',
-            'css': '🎨',
-            'json': '📋',
-            'md': '📝',
-            'txt': '📄',
-            'py': '🐍',
-            'java': '☕',
-            'xml': '📰'
-        };
-        return icons[ext] || '📄';
-    }
-
-    /**
-     * 追加消息到聊天区域
-     */
-    function appendMessage(html) {
-        const chat = document.getElementById('agent-chat');
-        if (chat) {
-            chat.insertAdjacentHTML('beforeend', html);
-            chat.scrollTop = chat.scrollHeight;
-        }
-    }
-
-    /**
-     * 设置聊天区域事件委托
-     */
-    function setupChatEventDelegation() {
-        const chat = document.getElementById('agent-chat');
-        if (!chat) return;
-
-        // 使用事件委托处理代码块按钮点击
-        chat.addEventListener('click', (e) => {
-            const target = e.target.closest('button[data-action]');
-            if (!target) return;
-
-            const action = target.dataset.action;
-            const assistantMessage = target.closest('.assistant-message');
-            if (!assistantMessage) return;
-
-            const codeBlock = assistantMessage.querySelector('.code-block');
-            if (!codeBlock) return;
-
-            // 从全局存储中获取代码（避免 HTML 转义问题）
-            const blockId = codeBlock.dataset.codeId;
-            const code = ChatManager.getCodeFromStore(blockId);
-            
-            if (!code) {
-                console.error('未找到代码块:', blockId);
-                return;
-            }
-
-            if (action === 'execute-code') {
-                // 派发自定义事件,由 main.js 处理
-                window.dispatchEvent(new CustomEvent('agent-execute-code', { detail: code }));
-            } else if (action === 'copy-code') {
-                // 复制代码
-                navigator.clipboard.writeText(code).then(() => {
-                    const originalText = target.textContent;
-                    target.textContent = '✓ 已复制';
-                    setTimeout(() => {
-                        target.textContent = originalText;
-                    }, 2000);
-                });
-            }
-        });
-    }
-
-    /**
-     * 显示/隐藏打字指示器
-     */
-    function showTypingIndicator() {
-        const typingHTML = `
-            <div class="typing" id="typing-indicator">
-                <div class="typing-dot"></div>
-                <div class="typing-dot"></div>
-                <div class="typing-dot"></div>
-            </div>
-        `;
-        appendMessage(typingHTML);
-    }
-
-    function hideTypingIndicator() {
-        const indicator = document.getElementById('typing-indicator');
-        if (indicator) indicator.remove();
-    }
-
-    /**
-     * 更新发送按钮状态
-     */
-    function updateSendButtonState(isProcessing) {
-        const sendBtn = document.getElementById('agent-send');
-        if (sendBtn) {
-            sendBtn.disabled = isProcessing;
-            sendBtn.textContent = isProcessing ? '思考中...' : '发送 ➤';
-        }
-    }
-
-    /**
-     * 更新状态徽章
-     */
-    function updateStatusBadge(hasApiKey) {
-        const badge = document.querySelector('#agent-title .status-badge');
-        if (badge) {
-            if (hasApiKey) {
-                badge.className = 'status-badge status-active';
-                badge.textContent = '已配置';
-            } else {
-                badge.className = 'status-badge status-inactive';
-                badge.textContent = '未配置';
-            }
-        }
-    }
-
-    /**
-     * 显示助手
-     */
-    function show() {
-        if (assistant) {
-            assistant.style.display = 'flex';
-            
-            // 保存显示状态到当前域名
-            if (typeof ConfigManager !== 'undefined' && ConfigManager.saveChatVisibility) {
-                ConfigManager.saveChatVisibility(true);
-            }
-        }
-    }
-
-    /**
-     * 隐藏助手
-     */
-    function hide() {
-        if (assistant) {
-            assistant.style.display = 'none';
-            // 触发 Agent 关闭事件，显示启动按钮
-            window.dispatchEvent(new CustomEvent('agent-closed'));
-            
-            // 保存隐藏状态到当前域名
-            if (typeof ConfigManager !== 'undefined' && ConfigManager.saveChatVisibility) {
-                ConfigManager.saveChatVisibility(false);
-            }
-        }
-    }
-
-    /**
-     * HTML 转义
-     */
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-
-    // 初始化
-    addStyles();
-
-    return {
-        createAssistant,
-        appendMessage,
-        showTypingIndicator,
-        hideTypingIndicator,
-        updateSendButtonState,
-        updateStatusBadge,
-        show,
-        hide,
-        loadWorkspaceList,  // 导出给 storage.js 调用，用于刷新侧边栏
-        closeFileEditor     // 导出关闭编辑器功能
-    };
-})();
-
-
-// ==================== settings.js ====================
-
-// ==================== 设置对话框模块 ====================
-
-const SettingsManager = (function() {
-    /**
-     * 显示设置对话框
-     */
-    function showSettings() {
-        const config = ConfigManager.getAll();
-        
-        // 添加设置对话框样式
-        GM_addStyle(`
-            .modal-overlay {
-                position: fixed;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background: rgba(0,0,0,0.5);
-                z-index: 1000000;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-            .modal-content {
-                background: white;
-                padding: 24px;
-                border-radius: 12px;
-                width: 90%;
-                max-width: 500px;
-                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-                max-height: 80vh;
-                overflow-y: auto;
-            }
-            .modal-title {
-                font-size: 18px;
-                font-weight: 600;
-                margin-bottom: 16px;
-                color: #1f2937;
-            }
-            .form-group {
-                margin-bottom: 16px;
-            }
-            .form-label {
-                display: block;
-                margin-bottom: 6px;
-                font-size: 14px;
-                font-weight: 500;
-                color: #374151;
-            }
-            .form-input {
-                width: 100%;
-                padding: 10px;
-                border: 1px solid #d1d5db;
-                border-radius: 6px;
-                font-size: 14px;
-                transition: border-color 0.2s;
-            }
-            .form-input:focus {
-                outline: none;
-                border-color: #667eea;
-                box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-            }
-            .form-hint {
-                font-size: 12px;
-                color: #6b7280;
-                margin-top: 4px;
-            }
-            .modal-actions {
-                display: flex;
-                gap: 10px;
-                justify-content: flex-end;
-                margin-top: 20px;
-            }
-            .btn-primary {
-                background: #667eea;
-                color: white;
-                border: none;
-                padding: 10px 20px;
-                border-radius: 6px;
-                cursor: pointer;
-                font-size: 14px;
-                font-weight: 500;
-            }
-            .btn-secondary {
-                background: #f3f4f6;
-                color: #374151;
-                border: 1px solid #d1d5db;
-                padding: 10px 20px;
-                border-radius: 6px;
-                cursor: pointer;
-                font-size: 14px;
-            }
-            .toggle-switch {
-                position: relative;
-                display: inline-block;
-                width: 48px;
-                height: 24px;
-            }
-            .toggle-switch input {
-                opacity: 0;
-                width: 0;
-                height: 0;
-            }
-            .toggle-slider {
-                position: absolute;
-                cursor: pointer;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background-color: #ccc;
-                transition: .4s;
-                border-radius: 24px;
-            }
-            .toggle-slider:before {
-                position: absolute;
-                content: "";
-                height: 18px;
-                width: 18px;
-                left: 3px;
-                bottom: 3px;
-                background-color: white;
-                transition: .4s;
-                border-radius: 50%;
-            }
-            input:checked + .toggle-slider {
-                background-color: #667eea;
-            }
-            input:checked + .toggle-slider:before {
-                transform: translateX(24px);
-            }
-            .setting-row {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 12px 0;
-                border-bottom: 1px solid #e5e7eb;
-            }
-        `);
-
-        const modalHTML = `
-            <div class="modal-overlay" id="settings-modal">
-                <div class="modal-content">
-                    <div class="modal-title">⚙️ 设置</div>
-                    
-                    <div class="form-group">
-                        <label class="form-label">API Key *</label>
-                        <input type="password" class="form-input" id="setting-api-key" 
-                               value="${config.apiKey}" 
-                               placeholder="输入你的 API Key">
-                        <div class="form-hint">
-                            从 <a href="https://openrouter.ai/keys" target="_blank">OpenRouter Keys</a> 获取免费 API Key
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">模型选择 (免费)</label>
-                        <div style="display: flex; gap: 8px; align-items: center;">
-                            <select class="form-input" id="setting-model" style="flex: 1;">
-                                <!-- 模型选项将由 ModelManager 动态填充 -->
-                            </select>
-                            <button class="btn-secondary" id="refresh-models" title="刷新模型列表" style="padding: 8px 12px; white-space: nowrap;">🔄 刷新</button>
-                        </div>
-                        <div class="form-hint">
-                            所有标记 :free 的模型都完全免费 | Auto 会自动选择最佳可用模型 | 点击刷新获取最新列表
-                        </div>
-                        <div id="models-status" style="margin-top: 8px; font-size: 12px; color: #6b7280;"></div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Temperature: <span id="temp-value">${config.temperature}</span></label>
-                        <input type="range" class="form-input" id="setting-temperature" 
-                               min="0" max="1" step="0.1" value="${config.temperature}">
-                        <div class="form-hint">控制回复的随机性 (0=确定, 1=创意)</div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Top P: <span id="topp-value">${config.topP}</span></label>
-                        <input type="range" class="form-input" id="setting-top-p" 
-                               min="0" max="1" step="0.1" value="${config.topP}">
-                        <div class="form-hint">核采样参数,控制多样性 (0.95 推荐)</div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">最大输出 Token</label>
-                        <input type="number" class="form-input" id="setting-max-tokens" 
-                               value="${config.maxTokens}" min="100" max="4096">
-                    </div>
-
-                    <div class="setting-row">
-                        <div>
-                            <div style="font-weight: 500;">JavaScript 执行</div>
-                            <div style="font-size: 12px; color: #6b7280;">允许执行 AI 生成的代码</div>
-                        </div>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="setting-js-enabled" ${config.jsExecutionEnabled ? 'checked' : ''}>
-                            <span class="toggle-slider"></span>
-                        </label>
-                    </div>
-
-                    <div class="modal-actions">
-                        <button class="btn-secondary" id="cancel-settings">取消</button>
-                        <button class="btn-primary" id="save-settings">保存</button>
-                    </div>
-                </div>
-            </div>
-        `;
-
-        document.body.insertAdjacentHTML('beforeend', modalHTML);
-
-        // 初始化模型选择
-        initializeModelSelect(config.model);
-
-        // 温度滑块实时更新
-        document.getElementById('setting-temperature').addEventListener('input', (e) => {
-            document.getElementById('temp-value').textContent = e.target.value;
-        });
-
-        // Top P 滑块实时更新
-        document.getElementById('setting-top-p').addEventListener('input', (e) => {
-            document.getElementById('topp-value').textContent = e.target.value;
-        });
-
-        // 刷新模型列表
-        setupModelRefresh();
-
-        // 保存设置
-        document.getElementById('save-settings').addEventListener('click', saveSettings);
-
-        // 取消
-        document.getElementById('cancel-settings').addEventListener('click', closeModal);
-    }
-
-    /**
-     * 初始化模型选择
-     */
-    function initializeModelSelect(currentModel) {
-        const cached = ModelManager.loadCachedModels();
-        ModelManager.updateModelSelect(cached.models, currentModel);
-        
-        const modelsStatus = document.getElementById('models-status');
-        if (modelsStatus && !cached.isExpired) {
-            modelsStatus.innerHTML = `<span style="color: #6b7280;">📦 已加载缓存 (${cached.hoursAgo}小时前) | 点击刷新获取最新</span>`;
-        }
-    }
-
-    /**
-     * 设置模型刷新功能
-     */
-    function setupModelRefresh() {
-        const refreshBtn = document.getElementById('refresh-models');
-        const modelsStatus = document.getElementById('models-status');
-        
-        refreshBtn.addEventListener('click', async () => {
-            refreshBtn.disabled = true;
-            refreshBtn.textContent = '🔄 加载中...';
-            modelsStatus.innerHTML = '<span style="color: #3b82f6;">⏳ 正在获取最新模型列表...</span>';
-            
-            try {
-                const result = await ModelManager.refreshModels();
-                
-                if (result.success) {
-                    const select = document.getElementById('setting-model');
-                    const currentModel = select.value;
-                    ModelManager.updateModelSelect(result.models, currentModel);
-                    modelsStatus.innerHTML = `<span style="color: #10b981;">✅ 已更新!找到 ${result.count} 个免费模型 (最后更新: ${new Date().toLocaleTimeString()})</span>`;
-                } else {
-                    throw new Error(result.error);
-                }
-                
-            } catch (error) {
-                console.error('获取模型列表失败:', error);
-                modelsStatus.innerHTML = `<span style="color: #ef4444;">❌ 获取失败: ${error.message}</span><br><span style="color: #6b7280;">提示: Auto 模式仍然可用</span>`;
-            } finally {
-                refreshBtn.disabled = false;
-                refreshBtn.textContent = '🔄 刷新';
-            }
-        });
-    }
-
-    /**
-     * 保存设置
-     */
-    function saveSettings() {
-        const apiKey = document.getElementById('setting-api-key').value.trim();
-        const model = document.getElementById('setting-model').value;
-        const temperature = parseFloat(document.getElementById('setting-temperature').value);
-        const topP = parseFloat(document.getElementById('setting-top-p').value);
-        const maxTokens = parseInt(document.getElementById('setting-max-tokens').value);
-        const jsEnabled = document.getElementById('setting-js-enabled').checked;
-
-        // 保存到配置管理器 (浏览器存储)
-        ConfigManager.set('apiKey', apiKey);
-        ConfigManager.set('model', model);
-        ConfigManager.set('temperature', temperature);
-        ConfigManager.set('topP', topP);
-        ConfigManager.set('maxTokens', maxTokens);
-        ConfigManager.set('jsExecutionEnabled', jsEnabled);
-
-        closeModal();
-        
-        // 更新 UI 状态徽章
-        UIManager.updateStatusBadge(apiKey.length > 0);
-        
-        // 显示成功消息
-        UIManager.appendMessage(`
-            <div class="assistant-message">
-                <div class="message-content" style="color: #10b981;">
-                    ✅ 设置已保存 - 开始免费使用!
-                </div>
-            </div>
-        `);
-    }
-
-    /**
-     * 关闭模态框
-     */
-    function closeModal() {
-        const modal = document.getElementById('settings-modal');
-        if (modal) modal.remove();
-    }
-
-    return {
-        showSettings,
-        closeModal
-    };
-})();
-
-
-// ==================== utils.js ====================
-
-// ==================== 工具函数模块 ====================
-
-const Utils = (function() {
-    /**
-     * HTML 转义
-     */
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-
-    /**
-     * 格式化代码块
-     */
-    function formatCodeBlock(code, language) {
-        const escapedCode = escapeHtml(code.trim());
-        return `
-            <div class="code-block">
-                <div class="code-language">${language || 'text'}</div>
-                <pre>${escapedCode}</pre>
-            </div>
-        `;
-    }
-
-    /**
-     * 生成唯一 ID
-     */
-    function generateId() {
-        return 'id_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-    }
-
-    /**
-     * 防抖函数
-     */
-    function debounce(func, wait) {
-        let timeout;
-        return function executedFunction(...args) {
-            const later = () => {
-                clearTimeout(timeout);
-                func(...args);
-            };
-            clearTimeout(timeout);
-            timeout = setTimeout(later, wait);
-        };
-    }
-
-    /**
-     * 节流函数
-     */
-    function throttle(func, limit) {
-        let inThrottle;
-        return function(...args) {
-            if (!inThrottle) {
-                func.apply(this, args);
-                inThrottle = true;
-                setTimeout(() => inThrottle = false, limit);
-            }
-        };
-    }
-
-    /**
-     * 深拷贝对象
-     */
-    function deepClone(obj) {
-        return JSON.parse(JSON.stringify(obj));
-    }
-
-    /**
-     * 检查是否为空值
-     */
-    function isEmpty(value) {
-        return value === null || value === undefined || value === '';
-    }
-
-    /**
-     * 格式化时间
-     */
-    function formatTime(timestamp) {
-        const date = new Date(timestamp);
-        const now = new Date();
-        const diff = now - date;
-        
-        if (diff < 60000) return '刚刚';
-        if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`;
-        if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`;
-        return date.toLocaleDateString();
-    }
-
-    /**
-     * 截断文本
-     */
-    function truncateText(text, maxLength) {
-        if (text.length <= maxLength) return text;
-        return text.substring(0, maxLength) + '...';
-    }
-
-    /**
-     * 复制到剪贴板
-     */
-    async function copyToClipboard(text) {
-        try {
-            await navigator.clipboard.writeText(text);
-            return true;
-        } catch (error) {
-            console.error('复制失败:', error);
-            return false;
-        }
-    }
-
-    /**
-     * 下载文件
-     */
-    function downloadFile(content, filename, mimeType) {
-        const blob = new Blob([content], { type: mimeType });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    }
-
-    /**
-     * 读取本地文件
-     */
-    function readFileAsText(file) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (e) => resolve(e.target.result);
-            reader.onerror = (e) => reject(e);
-            reader.readAsText(file);
-        });
-    }
-
-    return {
-        escapeHtml,
-        formatCodeBlock,
-        generateId,
-        debounce,
-        throttle,
-        deepClone,
-        isEmpty,
-        formatTime,
-        truncateText,
-        copyToClipboard,
-        downloadFile,
-        readFileAsText
-    };
-})();
-
-
-// ==================== main.js ====================
+// =====================================================
+// 模块: main.js
+// =====================================================
 
 // ==================== 主入口模块 (重构版) ====================
 // 使用模块化架构，降低耦合度
@@ -4852,14 +3801,20 @@ const Utils = (function() {
 (function() {
     'use strict';
     
-    // 模块管理器引用
-    let moduleManager = null;
-    let eventManager = null;
+    // 标记是否已经初始化
+    let isInitialized = false;
     
     /**
      * 初始化应用
      */
     async function init() {
+        // 防止重复初始化
+        if (isInitialized) {
+            console.log('⚠️ 应用已初始化，跳过');
+            return;
+        }
+        isInitialized = true;
+        
         console.log('🚀 AI Agent 正在启动...');
         
         try {
@@ -4885,7 +3840,7 @@ const Utils = (function() {
             
         } catch (error) {
             console.error('❌ 启动失败:', error);
-            eventManager?.emit(eventManager.EventTypes.APP_ERROR, { error });
+            EventManager?.emit(EventManager.EventTypes.APP_ERROR, { error });
         }
     }
     
@@ -4893,20 +3848,16 @@ const Utils = (function() {
      * 初始化核心模块
      */
     async function initCoreModules() {
-        // 注册和初始化模块管理器
-        ModuleManager.registerModule('ModuleManager', ModuleManager);
-        
-        // 初始化事件管理器
-        eventManager = EventManager;
-        ModuleManager.registerModule('EventManager', eventManager);
-        
         // 初始化配置管理器（带依赖注入）
-        const configManager = ConfigManager;
-        await configManager.init({
-            eventManager: eventManager,
-            // storageManager 将在业务模块中注入
+        await ConfigManager.init({
+            eventManager: EventManager
         });
-        ModuleManager.registerModule('ConfigManager', configManager);
+        
+        // 初始化历史管理器
+        await HistoryManager.init();
+        
+        // 初始化状态管理器
+        await StateManager.init();
         
         console.log('✅ 核心模块加载完成');
     }
@@ -4915,42 +3866,29 @@ const Utils = (function() {
      * 初始化业务模块
      */
     async function initBusinessModules() {
-        const configManager = ModuleManager.getModule('ConfigManager');
-        const config = configManager.getAll();
+        const config = ConfigManager.getAll();
         
-        // 注意：这里使用旧的模块名称保持兼容性
-        // 实际项目中会重构这些模块
-        
-        // 注册其他业务模块
-        ModuleManager.registerModule('UIManager', UIManager);
-        ModuleManager.registerModule('ChatManager', ChatManager);
-        ModuleManager.registerModule('APIManager', APIManager);
-        ModuleManager.registerModule('StorageManager', StorageManager);
-        ModuleManager.registerModule('SettingsManager', SettingsManager);
-        ModuleManager.registerModule('ModelManager', ModelManager);
-        ModuleManager.registerModule('Utils', Utils);
-        
-        // 初始化各模块（简化版，实际需重构各模块的init方法）
+        // 初始化各模块
         try {
-            // 初始化UI
-            UIManager.createAssistant(config);
-            console.log('✅ UI 已创建');
+            // 先加载对话历史，判断是否首次使用
+            const history = HistoryManager.getHistory();
+            const isFirstUse = history.length === 0;
             
             // 检查聊天窗口状态
-            const isVisible = configManager.getChatVisibility();
-            if (!isVisible) {
-                UIManager.hide();
-                console.log('👁️ 聊天窗口已隐藏（根据上次状态）');
-            }
+            const cachedVisibility = StateManager.getChatVisibility();
             
-            // 加载聊天记录 (双重存储逻辑)
-            const history = await configManager.loadConversationHistory();
-            if (history.length > 0) {
+            // 初始化UI
+            UIManager.createAssistant(config);
+            
+            // 根据状态显示/隐藏聊天窗口
+            // 默认隐藏，需要用户点击按钮唤醒
+            if (cachedVisibility) {
+                // 状态为打开：显示 + 加载历史
+                UIManager.show();
                 ChatManager.renderHistory(history);
-                console.log(`✅ 已加载 ${history.length} 条历史消息`);
-            } else if (isVisible) {
-                ChatManager.showWelcomeMessage();
-                console.log('✅ 欢迎消息已显示');
+            } else {
+                // 默认隐藏（包括首次使用）
+                UIManager.hide();
             }
             
         } catch (error) {
@@ -4960,211 +3898,97 @@ const Utils = (function() {
     }
 
     /**
-     * 设置全局事件监听（使用新的事件系统）
+     * 设置全局事件监听（简化版）
+     * @returns {Array<number>} 监听器 ID 列表
      */
     function setupEventListeners() {
-        // 使用新的事件管理器
-        const { EventTypes } = eventManager;
+        const { EventTypes } = EventManager;
+        const listenerIds = [];
         
-        // 聊天消息发送事件
-        eventManager.on(EventTypes.CHAT_MESSAGE_SENT, async (message) => {
-            await handleUserMessage(message);
-        });
+        // 聊天消息发送事件 - 直接调用 ChatManager.handleMessage
+        listenerIds.push(
+            EventManager.on(EventTypes.CHAT_MESSAGE_SENT, async (message) => {
+                await ChatManager.handleMessage(message);
+            })
+        );
         
         // 打开设置事件
-        eventManager.on(EventTypes.SETTINGS_OPEN, () => {
-            ModuleManager.getModule('SettingsManager')?.showSettings?.();
-        });
+        listenerIds.push(
+            EventManager.on(EventTypes.SETTINGS_OPEN, () => {
+                UIManager.showSettings();
+            })
+        );
         
         // 清空聊天事件
-        eventManager.on(EventTypes.CHAT_CLEAR, () => {
-            ModuleManager.getModule('ChatManager')?.clearChat?.();
-        });
+        listenerIds.push(
+            EventManager.on(EventTypes.CHAT_CLEAR, () => {
+                ChatManager.clearChat();
+            })
+        );
         
         // 执行代码事件
-        eventManager.on('agent-execute-code', (code) => {
-            ModuleManager.getModule('ChatManager')?.executeJavaScript?.(code);
-        });
+        listenerIds.push(
+            EventManager.on('agent:execute:code', (code) => {
+                ChatManager.executeJavaScript(code);
+            })
+        );
+        
+        // 停止请求事件
+        listenerIds.push(
+            EventManager.on('agent:stop:request', () => {
+                ChatManager.stopCurrentRequest();
+            })
+        );
         
         // 打开/关闭 Agent 窗口事件
-        eventManager.on(EventTypes.AGENT_OPEN, () => {
-            ModuleManager.getModule('UIManager')?.show?.();
-        });
+        listenerIds.push(
+            EventManager.on(EventTypes.AGENT_OPEN, async () => {
+                UIManager.show();
+                StateManager.saveChatVisibility(true);
+                
+                // 加载历史记录（如果有的话）
+                const history = HistoryManager.getHistory();
+                if (history.length > 0) {
+                    ChatManager.renderHistory(history);
+                }
+            })
+        );
         
-        eventManager.on(EventTypes.AGENT_CLOSE, () => {
-            ModuleManager.getModule('UIManager')?.hide?.();
-        });
+        listenerIds.push(
+            EventManager.on(EventTypes.AGENT_CLOSE, () => {
+                // 注意：UIManager.hide() 已经在 ui.js 中调用过了，这里不需要再次调用
+                // 只需要保存状态和记录日志
+                StateManager.saveChatVisibility(false);
+            })
+        );
         
-        // 兼容旧事件（逐步迁移）
-        window.addEventListener('agent-message-sent', async (e) => {
-            eventManager.emit(EventTypes.CHAT_MESSAGE_SENT, e.detail);
-        });
-        
-        window.addEventListener('agent-open-settings', () => {
-            eventManager.emit(EventTypes.SETTINGS_OPEN);
-        });
-        
-        window.addEventListener('agent-clear-chat', () => {
-            eventManager.emit(EventTypes.CHAT_CLEAR);
-        });
-        
-        window.addEventListener('agent-execute-code', (e) => {
-            eventManager.emit('agent-execute-code', e.detail);
-        });
-        
-        // 兼容旧的 open-ai-agent 事件（来自 version-loader 或其他地方）
-        window.addEventListener('open-ai-agent', () => {
-            eventManager.emit(EventTypes.AGENT_OPEN);
-        });
-        
-        console.log('🔌 事件监听器已设置');
+        return listenerIds;
     }
 
     /**
      * 启动应用逻辑
      */
     function startApplication() {
-        const configManager = ModuleManager.getModule('ConfigManager');
-        const config = configManager.getAll();
+        const config = ConfigManager.getAll();
         
         // 触发应用启动事件
-        eventManager.emit(eventManager.EventTypes.APP_STARTED, {
-            config: configManager.exportConfig(),
+        EventManager.emit(EventManager.EventTypes.APP_STARTED, {
+            config: ConfigManager.exportConfig(),
             timestamp: Date.now()
         });
         
         console.log('🎯 应用已启动，等待用户交互...');
     }
-    
-    /**
-     * 处理用户消息（使用模块化架构）
-     */
-    async function handleUserMessage(message) {
-        const configManager = ModuleManager.getModule('ConfigManager');
-        const uiManager = ModuleManager.getModule('UIManager');
-        const chatManager = ModuleManager.getModule('ChatManager');
-        const config = configManager.getAll();
-        
-        // 检查 API Key
-        if (!config.apiKey) {
-            uiManager.appendMessage(`
-                <div class="assistant-message">
-                    <div class="message-content" style="color: #ef4444;">
-                        ⚠️ 请先在设置中配置 API Key<br><br>
-                        💡 获取免费 API Key: <a href="https://openrouter.ai/keys" target="_blank">点击获取</a>
-                    </div>
-                </div>
-            `);
-            return;
-        }
-
-        // 触发 API 调用开始事件
-        eventManager.emit(eventManager.EventTypes.API_CALL_START, { message });
-        
-        try {
-            // 添加用户消息到界面
-            chatManager.addUserMessage(message);
-            
-            // 处理快捷命令
-            const result = await chatManager.handleMessage(message, config);
-            
-            // 如果不是命令,调用 API
-            if (result.type === 'chat') {
-                await callAPIAndRespond(message, config);
-            }
-        } catch (error) {
-            console.error('消息处理失败:', error);
-            eventManager.emit(eventManager.EventTypes.APP_ERROR, { 
-                context: 'handleUserMessage',
-                error 
-            });
-        }
-    }
-
-    /**
-     * 调用 API 并显示回复（使用模块化架构）
-     */
-    async function callAPIAndRespond(userMessage, config) {
-        const uiManager = ModuleManager.getModule('UIManager');
-        const apiManager = ModuleManager.getModule('APIManager');
-        const chatManager = ModuleManager.getModule('ChatManager');
-        const configManager = ModuleManager.getModule('ConfigManager');
-        
-        // 显示打字指示器
-        uiManager.showTypingIndicator();
-        uiManager.updateSendButtonState(true);
-        
-        try {
-            const history = configManager.getConversationHistory();
-            const response = await apiManager.callAPI(userMessage, history, config);
-            
-            // 隐藏打字指示器
-            uiManager.hideTypingIndicator();
-            uiManager.updateSendButtonState(false);
-            
-            if (response.success) {
-                chatManager.addAssistantMessage(response.message);
-                eventManager.emit(eventManager.EventTypes.API_CALL_SUCCESS, {
-                    message: userMessage,
-                    response: response.message
-                });
-            } else {
-                showError(response.error);
-                eventManager.emit(eventManager.EventTypes.API_CALL_ERROR, {
-                    message: userMessage,
-                    error: response.error
-                });
-            }
-            
-        } catch (error) {
-            uiManager.hideTypingIndicator();
-            uiManager.updateSendButtonState(false);
-            showError(error.message);
-            eventManager.emit(eventManager.EventTypes.API_CALL_ERROR, {
-                message: userMessage,
-                error: error.message
-            });
-        }
-    }
-
-    /**
-     * 显示错误信息（使用事件系统）
-     */
-    function showError(errorMessage) {
-        const uiManager = ModuleManager.getModule('UIManager');
-        const utils = ModuleManager.getModule('Utils');
-        
-        uiManager.appendMessage(`
-            <div class="assistant-message">
-                <div class="message-content" style="color: #ef4444;">
-                    ❌ 请求失败: ${utils?.escapeHtml?.(errorMessage) || escapeHtml(errorMessage)}<br><br>
-                    💡 可能的原因:<br>
-                    • API Key 无效或已过期<br>
-                    • 网络连接问题<br>
-                    • 模型暂时不可用 (尝试切换模型)<br>
-                    • 达到速率限制 (稍后重试)
-                </div>
-            </div>
-        `);
-    }
-
-    /**
-     * HTML 转义（兼容性函数）
-     */
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
 
     /**
      * 创建启动按钮
+     * @returns {number|null} 监听器 ID
      */
     function createLauncherButton() {
         // 检查是否已存在启动按钮
         if (document.getElementById('agent-launcher-btn')) {
             console.log('🔘 启动按钮已存在，跳过创建');
-            return;
+            return null;
         }
 
         setTimeout(() => {
@@ -5193,6 +4017,12 @@ const Utils = (function() {
             badge.textContent = '🤖';
             badge.title = '点击打开 AI Agent';
             
+            // 根据聊天窗口状态决定按钮初始显示状态
+            const isChatVisible = StateManager.getChatVisibility();
+            if (isChatVisible) {
+                badge.style.display = 'none';
+            }
+            
             // 悬停效果
             badge.addEventListener('mouseenter', () => {
                 badge.style.transform = 'scale(1.1)';
@@ -5205,8 +4035,8 @@ const Utils = (function() {
             });
             
             badge.addEventListener('click', () => {
-                // 使用新的事件系统打开 Agent
-                eventManager.emit(eventManager.EventTypes.AGENT_OPEN);
+                // 使用事件系统打开 Agent
+                EventManager.emit(EventManager.EventTypes.AGENT_OPEN);
                 
                 // 点击后隐藏按钮（Agent 打开后不需要显示）
                 badge.style.transition = 'all 0.3s ease';
@@ -5220,7 +4050,7 @@ const Utils = (function() {
             document.body.appendChild(badge);
             
             // 监听 Agent 关闭事件，重新显示按钮
-            eventManager.on(eventManager.EventTypes.AGENT_CLOSE, () => {
+            const listenerId = EventManager.on(EventManager.EventTypes.AGENT_CLOSE, () => {
                 badge.style.display = 'flex';
                 badge.style.transition = 'all 0.3s ease';
                 badge.style.transform = 'scale(1)';
@@ -5228,6 +4058,7 @@ const Utils = (function() {
             });
             
             console.log('🔘 AI Agent 启动按钮已创建（右下角圆形按钮）');
+            return listenerId;
         }, 1000);
     }
 
@@ -5235,13 +4066,13 @@ const Utils = (function() {
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => {
             init();
-            // 创建启动按钮
-            createLauncherButton();
         });
     } else {
-        init();
-        // 创建启动按钮
-        createLauncherButton();
+        // DOM 已经加载完成，直接初始化
+        // 使用 setTimeout 确保在下一个事件循环中执行，避免潜在的问题
+        setTimeout(() => {
+            init();
+        }, 0);
     }
 
 })();

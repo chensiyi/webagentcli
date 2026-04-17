@@ -6,23 +6,36 @@ const APIManager = (function() {
     /**
      * 调用 AI API
      */
-    async function callAPI(userMessage, conversationHistory, config) {
+    async function callAPI(userMessage, conversationHistory, config, abortController = null) {
         if (isProcessing) return null;
         
         isProcessing = true;
         
         try {
+            // 验证配置
+            if (!config.apiKey) {
+                throw new Error('API Key 未设置，请在设置中配置 OpenRouter API Key');
+            }
+            if (!config.model) {
+                throw new Error('模型未设置');
+            }
+            
             const messages = buildMessages(userMessage, conversationHistory, config);
             
             const requestBody = {
                 model: config.model,
                 messages: messages,
-                temperature: config.temperature,
-                top_p: config.topP,
-                max_tokens: config.maxTokens
+                temperature: config.temperature || 0.7,
+                top_p: config.topP || 0.95,
+                // 限制 max_tokens 最大值，避免超出 API 限制
+                max_tokens: Math.min(config.maxTokens || 2048, 8192)
             };
-
-            const response = await makeRequest(requestBody, config.apiKey);
+            
+            console.log('📤 API 请求:', { model: config.model, messagesCount: messages.length });
+            
+            const response = await makeRequest(requestBody, config.apiKey, abortController);
+            
+            console.log('📥 API 响应:', response.choices ? '成功' : '失败');
             
             if (response.choices && response.choices.length > 0) {
                 const assistantMessage = response.choices[0].message.content;
@@ -33,6 +46,12 @@ const APIManager = (function() {
 
         } catch (error) {
             console.error('API 调用失败:', error);
+            
+            // 检查是否是用户主动取消
+            if (error.name === 'AbortError') {
+                return { success: false, cancelled: true, error: '请求已取消' };
+            }
+            
             return { success: false, error: error.message };
         } finally {
             isProcessing = false;
@@ -46,20 +65,11 @@ const APIManager = (function() {
         // 系统提示词
         const systemMessage = {
             role: 'system',
-            content: `你是一个运行在浏览器中的 AI 助手。你可以:
-1. 回答各种问题
-2. 帮助分析和操作当前网页
-3. 生成和执行 JavaScript 代码
-
-当前页面信息:
-- URL: ${window.location.href}
-- 标题: ${document.title}
-
-请用简洁、实用的方式回答问题。如果需要执行代码,请使用 \`\`\`javascript 代码块包裹。`
+            content: `你是浏览器中的AI助手,发送\`\`\`js\`\`\`包裹的代码块，执行代码，通过return获取结果`
         };
 
         // 获取最近的对话历史(最多保留最近 10 轮)
-        const recentHistory = history.slice(-10);
+        const recentHistory = (history || []).slice(-10);
         
         // 构建完整的消息数组
         const messages = [
@@ -80,9 +90,9 @@ const APIManager = (function() {
     /**
      * 发起 HTTP 请求
      */
-    function makeRequest(requestBody, apiKey) {
+    function makeRequest(requestBody, apiKey, abortController = null) {
         return new Promise((resolve, reject) => {
-            GM_xmlhttpRequest({
+            const xhr = GM_xmlhttpRequest({
                 method: 'POST',
                 url: 'https://openrouter.ai/api/v1/chat/completions',
                 headers: {
@@ -101,12 +111,37 @@ const APIManager = (function() {
                             reject(new Error('响应解析失败'));
                         }
                     } else {
-                        reject(new Error(`HTTP ${response.status}: ${response.statusText}`));
+                        // 尝试解析错误详情
+                        let errorDetail = response.statusText;
+                        try {
+                            const errorData = JSON.parse(response.responseText);
+                            if (errorData.error) {
+                                errorDetail = errorData.error.message || errorData.error.code || JSON.stringify(errorData.error);
+                            }
+                        } catch (e) {
+                            errorDetail = response.responseText || response.statusText;
+                        }
+                        reject(new Error(`HTTP ${response.status}: ${errorDetail}`));
                     }
                 },
                 onerror: (error) => reject(error),
-                ontimeout: () => reject(new Error('请求超时'))
+                ontimeout: () => reject(new Error('请求超时')),
+                onreadystatechange: (readyState) => {
+                    // 检查是否被中止
+                    if (abortController && abortController.signal.aborted) {
+                        xhr.abort();
+                        reject(new DOMException('The user aborted a request.', 'AbortError'));
+                    }
+                }
             });
+            
+            // 监听 abort 信号
+            if (abortController) {
+                abortController.signal.addEventListener('abort', () => {
+                    xhr.abort();
+                    reject(new DOMException('The user aborted a request.', 'AbortError'));
+                });
+            }
         });
     }
 
