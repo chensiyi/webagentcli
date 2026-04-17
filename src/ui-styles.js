@@ -109,6 +109,12 @@ const UIStyles = (function() {
                 max-width: 85%;
                 word-wrap: break-word;
                 align-self: flex-end;
+                transition: all 0.3s ease;
+            }
+            /* 消息高亮效果 */
+            .message-highlighted {
+                box-shadow: 0 0 0 3px #fbbf24, 0 4px 12px rgba(251, 191, 36, 0.4);
+                transform: scale(1.02);
             }
             .assistant-message {
                 background: white;

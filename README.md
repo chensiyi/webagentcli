@@ -7,6 +7,7 @@
 - 💬 **智能对话** - 支持多种 AI 模型
 - 💻 **代码执行** - 直接在浏览器中执行 JavaScript
 - 🆓 **免费使用** - 支持 OpenRouter 免费模型
+- ⌨️ **快捷键支持** - 提升操作效率
 
 ## 🚀 快速开始
 
@@ -33,6 +34,7 @@ node build.js
 ## 📚 文档
 
 - **[架构文档](ARCHITECTURE.md)** - 系统架构说明
+- **[快捷键指南](SHORTCUTS.md)** - 快捷键使用说明
 - **[GitHub Releases](https://github.com/chensiyi/webagentcli/releases)** - 版本下载
 
 ## 📄 许可证

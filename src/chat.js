@@ -883,6 +883,132 @@ const ChatManager = (function() {
         `);
     }
 
+    /**
+     * 导航到上一条用户消息（滚动定位）
+     */
+    function navigateToPreviousUserMessage() {
+        const chat = document.getElementById('agent-chat');
+        if (!chat) return false;
+        
+        // 获取所有用户消息元素
+        const userMessages = Array.from(chat.querySelectorAll('.user-message'));
+        
+        if (userMessages.length === 0) {
+            console.log('ℹ️ 没有用户消息');
+            return false;
+        }
+        
+        // 找到当前可见的用户消息索引
+        const chatRect = chat.getBoundingClientRect();
+        let currentIndex = -1;
+        
+        for (let i = userMessages.length - 1; i >= 0; i--) {
+            const msgRect = userMessages[i].getBoundingClientRect();
+            // 如果消息在可视区域内或接近顶部
+            if (msgRect.top <= chatRect.top + 50) {
+                currentIndex = i;
+                break;
+            }
+        }
+        
+        // 如果没有找到当前消息，定位到最后一条
+        if (currentIndex === -1) {
+            currentIndex = userMessages.length;
+        }
+        
+        // 定位到上一条消息
+        const targetIndex = currentIndex - 1;
+        if (targetIndex < 0) {
+            console.log('ℹ️ 已经是第一条消息');
+            // 滚动到顶部
+            chat.scrollTo({ top: 0, behavior: 'smooth' });
+            return false;
+        }
+        
+        const targetMessage = userMessages[targetIndex];
+        targetMessage.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // 添加高亮效果
+        highlightMessage(targetMessage);
+        
+        console.log(`⬆️ 已定位到第 ${targetIndex + 1} 条用户消息`);
+        return true;
+    }
+    
+    /**
+     * 导航到下一条用户消息（滚动定位）
+     */
+    function navigateToNextUserMessage() {
+        const chat = document.getElementById('agent-chat');
+        if (!chat) return false;
+        
+        // 获取所有用户消息元素
+        const userMessages = Array.from(chat.querySelectorAll('.user-message'));
+        
+        if (userMessages.length === 0) {
+            console.log('ℹ️ 没有用户消息');
+            return false;
+        }
+        
+        // 找到当前可见的用户消息索引
+        const chatRect = chat.getBoundingClientRect();
+        let currentIndex = -1;
+        
+        for (let i = 0; i < userMessages.length; i++) {
+            const msgRect = userMessages[i].getBoundingClientRect();
+            // 如果消息在可视区域内或接近底部
+            if (msgRect.bottom >= chatRect.bottom - 50) {
+                currentIndex = i;
+                break;
+            }
+        }
+        
+        // 如果没有找到当前消息，定位到第一条
+        if (currentIndex === -1) {
+            currentIndex = -1;
+        }
+        
+        // 定位到下一条消息
+        const targetIndex = currentIndex + 1;
+        if (targetIndex >= userMessages.length) {
+            console.log('ℹ️ 已经是最后一条消息');
+            // 滚动到底部
+            chat.scrollTo({ top: chat.scrollHeight, behavior: 'smooth' });
+            return false;
+        }
+        
+        const targetMessage = userMessages[targetIndex];
+        targetMessage.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // 添加高亮效果
+        highlightMessage(targetMessage);
+        
+        console.log(`⬇️ 已定位到第 ${targetIndex + 1} 条用户消息`);
+        return true;
+    }
+    
+    /**
+     * 高亮显示消息（临时效果）
+     */
+    function highlightMessage(messageElement) {
+        const chat = document.getElementById('agent-chat');
+        if (!chat) return;
+        
+        // 移除之前的高亮
+        const previousHighlight = chat.querySelector('.message-highlighted');
+        if (previousHighlight) {
+            previousHighlight.classList.remove('message-highlighted');
+        }
+        
+        // 添加高亮类
+        messageElement.classList.add('message-highlighted');
+        
+        // 2秒后移除高亮
+        setTimeout(() => {
+            messageElement.classList.remove('message-highlighted');
+        }, 2000);
+    }
+
     // ========== 公共接口 ==========
 
     return {
@@ -893,6 +1019,8 @@ const ChatManager = (function() {
         showWelcomeMessage,
         renderHistory,
         stopCurrentRequest,  // 添加停止请求功能
+        navigateToPreviousUserMessage,  // 导航到上一条用户消息
+        navigateToNextUserMessage,  // 导航到下一条用户消息
         getCodeFromStore: (blockId) => state.codeBlockStore[blockId] || '',
         getMessageQueueLength: () => state.messageQueue.length
     };

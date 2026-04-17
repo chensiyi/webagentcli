@@ -36,10 +36,10 @@
 
 ### 当前状态
 - **版本**: v3.8.6
-- **模块数**: 12 个
-- **文件大小**: 136.9 KB
+- **模块数**: 13 个
+- **文件大小**: 149.9 KB
 - **架构**: 模块化 + 事件驱动
-- **最新优化**: 拖动性能优化、设置弹窗修复、代码执行结果压缩
+- **最新优化**: 拖动性能优化、设置弹窗修复、代码执行结果压缩、快捷键系统
 
 ---
 
@@ -53,7 +53,8 @@ src/
 │   ├── EventManager.js    # 事件总线
 │   ├── ConfigManager.js   # 配置管理
 │   ├── HistoryManager.js  # 历史管理
-│   └── StateManager.js    # 状态管理
+│   ├── StateManager.js    # 状态管理
+│   └── ShortcutManager.js # 快捷键管理 (v3.8.6+)
 ├── ui-styles.js           # UI 样式模块
 ├── ui-templates.js        # UI 模板模块
 ├── ui.js                  # UI 交互逻辑
@@ -85,13 +86,14 @@ main.js (入口)
 3. `core/ConfigManager.js` - 配置管理
 4. `core/HistoryManager.js` - 历史管理
 5. `core/StateManager.js` - 状态管理
-6. `ui-styles.js` - UI 样式
-7. `ui-templates.js` - UI 模板
-8. `ui.js` - UI 逻辑
-9. `models.js` - 模型管理
-10. `api.js` - API 调用
-11. `chat.js` - 聊天逻辑
-12. `main.js` - 应用入口（最后加载）
+6. `core/ShortcutManager.js` - 快捷键管理 (v3.8.6+)
+7. `ui-styles.js` - UI 样式
+8. `ui-templates.js` - UI 模板
+9. `ui.js` - UI 逻辑
+10. `models.js` - 模型管理
+11. `api.js` - API 调用
+12. `chat.js` - 聊天逻辑
+13. `main.js` - 应用入口（最后加载）
 
 ---
 
@@ -285,6 +287,37 @@ StateManager.loadChatVisibility()            // 从存储加载
 - 域名隔离存储: `chat_visibility_{domain}`
 - 延迟初始化，先加载再设置状态
 - 防御性检查：未初始化时返回 false
+
+---
+
+#### ShortcutManager (`core/ShortcutManager.js`) (v3.8.6+)
+**职责**: 快捷键管理系统（注册、触发、管理）
+
+**接口**:
+```javascript
+ShortcutManager.init()                              // 初始化
+ShortcutManager.destroy()                           // 销毁
+ShortcutManager.register(key, callback, desc, opts) // 注册快捷键
+ShortcutManager.unregister(key)                     // 注销快捷键
+ShortcutManager.setEnabled(key, enabled)            // 启用/禁用
+ShortcutManager.isRegistered(key)                   // 检查是否已注册
+ShortcutManager.getAllShortcuts()                   // 获取所有快捷键
+```
+
+**已注册快捷键**:
+```javascript
+'Ctrl+Enter'      // 发送消息
+'Escape'          // 隐藏窗口（设置对话框优先）
+'Ctrl+ArrowUp'    // 导航到上一条用户消息（滚动定位 + 高亮）
+'Ctrl+ArrowDown'  // 导航到下一条用户消息（滚动定位 + 高亮）
+```
+
+**特性**:
+- 全局键盘事件监听
+- 支持修饰键组合（Ctrl, Alt, Shift, Meta）
+- 条件触发（可配置是否需要特定焦点）
+- 防止默认行为配置
+- 易于扩展，通过 register() 添加新快捷键
 
 ---
 
@@ -875,9 +908,3 @@ function closeModal() {
 **文档维护者**: AI Assistant  
 **最后审核**: 2026-04-17 (v3.8.6)  
 **下次审核**: 每次重大更新后
-
-**本次更新内容**:
-- ✅ 添加 v3.8.6 变更记录（拖动优化、弹窗修复、结果压缩）
-- ✅ 更新性能优化原则（rAF、资源清理）
-- ✅ 添加常见问题（拖动优化、模态框交互）
-- ✅ 更新文件大小和最新优化说明

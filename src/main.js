@@ -33,11 +33,15 @@
             setupEventListeners();
             console.log('✅ 事件监听已设置');
             
-            // 4. 创建启动按钮
+            // 4. 初始化快捷键系统
+            initShortcuts();
+            console.log('✅ 快捷键系统已初始化');
+            
+            // 5. 创建启动按钮
             createLauncherButton();
             console.log('✅ 启动按钮已创建');
             
-            // 5. 启动应用
+            // 6. 启动应用
             startApplication();
             console.log('🎉 AI Agent 启动成功!');
             
@@ -98,6 +102,59 @@
             console.error('❌ 业务模块初始化失败:', error);
             throw error;
         }
+    }
+
+    /**
+     * 初始化快捷键系统
+     */
+    function initShortcuts() {
+        // 初始化快捷键管理器
+        ShortcutManager.init();
+        
+        // 注册核心快捷键
+        
+        // 1. Ctrl+Enter: 发送消息
+        ShortcutManager.register('Ctrl+Enter', (e) => {
+            const input = document.getElementById('agent-input');
+            if (input && document.activeElement === input) {
+                const message = input.value.trim();
+                if (message) {
+                    EventManager.emit(EventManager.EventTypes.CHAT_MESSAGE_SENT, message);
+                    input.value = '';
+                }
+            }
+        }, '发送消息');
+        
+        // 2. Escape: 隐藏窗口
+        ShortcutManager.register('Escape', (e) => {
+            // 如果设置对话框打开，先关闭设置对话框
+            const modal = document.getElementById('settings-modal');
+            if (modal) {
+                UIManager.closeModal();
+                return;
+            }
+            
+            // 否则隐藏聊天窗口
+            UIManager.hide();
+        }, '隐藏窗口');
+        
+        // 3. Ctrl+ArrowUp: 导航到上一条用户消息
+        ShortcutManager.register('Ctrl+ArrowUp', (e) => {
+            const chat = document.getElementById('agent-chat');
+            if (chat && chat.style.display !== 'none') {
+                ChatManager.navigateToPreviousUserMessage();
+            }
+        }, '导航到上一条消息');
+        
+        // 4. Ctrl+ArrowDown: 导航到下一条用户消息
+        ShortcutManager.register('Ctrl+ArrowDown', (e) => {
+            const chat = document.getElementById('agent-chat');
+            if (chat && chat.style.display !== 'none') {
+                ChatManager.navigateToNextUserMessage();
+            }
+        }, '导航到下一条消息');
+        
+        console.log('⌨️ 已注册 4 个核心快捷键');
     }
 
     /**

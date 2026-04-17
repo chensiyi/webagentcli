@@ -53,6 +53,7 @@ const modules = [
     'core/ConfigManager.js',
     'core/HistoryManager.js',
     'core/StateManager.js',
+    'core/ShortcutManager.js', // 快捷键管理器
     
     // UI 模块（必须在 Chat 之前加载，因为 Chat 依赖 UIManager）
     'ui-styles.js',      // UI 样式模块
