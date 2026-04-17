@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -38,21 +41,26 @@ jobs:
         fi
     
     - name: Create Release
-      uses: softprops/action-gh-release@v2
+      run: |
+        VERSION=${{ steps.get_version.outputs.VERSION }}
+        
+        # 创建 release body
+        cat > RELEASE_BODY.md << EOF
+        ## Free Web AI Agent v$VERSION
+        
+        ### ✨ 更新内容
+        - 自动构建发布
+        
+        ### 📦 安装
+        直接下载 agent.user.js 并安装到 Tampermonkey
+        EOF
+        
+        # 使用 GitHub CLI 创建 release 并上传文件
+        gh release create "v$VERSION" \
+          ./dist/agent.user.js \
+          --title "Release v$VERSION" \
+          --notes-file RELEASE_BODY.md \
+          --draft=false \
+          --prerelease=false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ github.ref_name }}
-        name: Release v${{ steps.get_version.outputs.VERSION }}
-        draft: false
-        prerelease: false
-        body: |
-          ## OpenRouter Free AI Agent v${{ steps.get_version.outputs.VERSION }}
-          
-          ### ✨ 更新内容
-          - 自动构建发布
-          
-          ### 📦 安装
-          直接下载 `agent.user.js` 并安装到 Tampermonkey
-        files: |
-          ./dist/agent.user.js
