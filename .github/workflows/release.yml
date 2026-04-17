@@ -17,48 +17,20 @@ jobs:
       id: get_version
       run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
     
-    - name: Update version in script
-      run: |
-        # 从 tag 获取版本号 (去掉 v 前缀)
-        VERSION=${GITHUB_REF#refs/tags/v}
-        echo "Updating version to: $VERSION"
-        
-        # 使用 sed 更新 @version
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-          # macOS
-          sed -i '' "s/@version.*/@version      $VERSION/" agent.user.js
-        else
-          # Linux
-          sed -i "s/@version.*/@version      $VERSION/" agent.user.js
-        fi
-        
-        # 验证更新
-        echo "Updated version line:"
-        grep "@version" agent.user.js
-    
     - name: Build script
       run: |
-        # 安装 Node.js (如果需要)
-        if ! command -v node &> /dev/null; then
-          echo "Node.js not found, using system default"
-        fi
+        # 运行构建
+        echo "Running build..."
+        node build.js
         
-        # 运行构建 (如果 build.js 存在)
-        if [ -f build.js ]; then
-          echo "Running build..."
-          node build.js || echo "Build failed, using existing agent.user.js"
-          
-          # 如果构建成功,复制 dist 文件到根目录
-          if [ -f dist/agent.user.js ]; then
-            cp dist/agent.user.js agent.user.js
-            echo "Using built version from dist/"
-          fi
+        # 验证构建产物
+        if [ -f dist/agent.user.js ]; then
+          echo "Build successful!"
+          ls -lh dist/agent.user.js
         else
-          echo "No build.js found, using existing agent.user.js"
+          echo "Build failed: dist/agent.user.js not found"
+          exit 1
         fi
-        
-        # 显示文件大小
-        ls -lh agent.user.js
     
     - name: Create Release
       id: create_release
@@ -85,6 +57,6 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./agent.user.js
+        asset_path: ./dist/agent.user.js
         asset_name: agent.user.js
         asset_content_type: application/javascript
