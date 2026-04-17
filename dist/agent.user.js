@@ -29,6 +29,30 @@
 const Utils = (function() {
     'use strict';
     
+    // 调试模式开关（生产环境设为 false）
+    const DEBUG_MODE = false; // 发布模式已关闭调试日志
+    
+    /**
+     * 条件日志输出（仅在 DEBUG_MODE 为 true 时输出）
+     */
+    function debugLog(...args) {
+        if (DEBUG_MODE) {
+            console.log(...args);
+        }
+    }
+    
+    function debugWarn(...args) {
+        if (DEBUG_MODE) {
+            console.warn(...args);
+        }
+    }
+    
+    function debugError(...args) {
+        if (DEBUG_MODE) {
+            console.error(...args);
+        }
+    }
+    
     /**
      * 获取当前域名
      * @returns {string} 域名
@@ -54,7 +78,10 @@ const Utils = (function() {
     // 导出公共接口
     return {
         getCurrentDomain,
-        getDomainKey
+        getDomainKey,
+        debugLog,
+        debugWarn,
+        debugError
     };
 })();
 
@@ -2192,7 +2219,7 @@ const UIManager = (function() {
         const code = ChatManager.getCodeFromStore(blockId);
         
         if (!code) {
-            console.error('未找到代码块:', blockId);
+            Utils.debugError('未找到代码块:', blockId);
             return;
         }
 
@@ -2321,7 +2348,7 @@ const UIManager = (function() {
         // 检查是否已经存在设置对话框
         const existingModal = document.getElementById('settings-modal');
         if (existingModal) {
-            console.log('⚙️ 设置对话框已存在，跳过创建');
+            Utils.debugLog('⚙️ 设置对话框已存在，跳过创建');
             return;
         }
         
@@ -2710,6 +2737,140 @@ const UIManager = (function() {
         }
     }
 
+    // ========== 流式消息管理 ==========
+
+    // 流式更新节流状态
+    let streamingUpdateState = {
+        lastUpdateTime: 0,
+        pendingUpdate: null,
+        rafId: null
+    };
+
+    /**
+     * 创建流式消息容器
+     * @returns {string} 消息 ID
+     */
+    function createStreamingMessage() {
+        const messageId = 'streaming_' + Date.now();
+        const messageHTML = `
+            <div class="assistant-message" id="${messageId}">
+                <div class="message-content"></div>
+            </div>
+        `;
+        appendMessage(messageHTML);
+        return messageId;
+    }
+
+    /**
+     * 更新流式消息内容（带节流优化）
+     * @param {string} messageId - 消息 ID
+     * @param {string} text - 完整文本
+     */
+    function updateStreamingMessage(messageId, text) {
+        const now = Date.now();
+        
+        // 如果距离上次更新不足 50ms，使用 requestAnimationFrame 延迟更新
+        if (now - streamingUpdateState.lastUpdateTime < 50) {
+            // 取消之前的 pending 更新
+            if (streamingUpdateState.rafId !== null) {
+                cancelAnimationFrame(streamingUpdateState.rafId);
+            }
+            
+            // 保存最新的文本
+            streamingUpdateState.pendingUpdate = { messageId, text };
+            
+            // 安排在下一帧更新
+            streamingUpdateState.rafId = requestAnimationFrame(() => {
+                if (streamingUpdateState.pendingUpdate) {
+                    performStreamingUpdate(
+                        streamingUpdateState.pendingUpdate.messageId,
+                        streamingUpdateState.pendingUpdate.text
+                    );
+                    streamingUpdateState.pendingUpdate = null;
+                    streamingUpdateState.rafId = null;
+                }
+            });
+        } else {
+            // 直接更新
+            performStreamingUpdate(messageId, text);
+        }
+    }
+
+    /**
+     * 执行实际的流式更新（内部函数）
+     */
+    function performStreamingUpdate(messageId, text) {
+        const messageEl = document.getElementById(messageId);
+        if (!messageEl) return;
+        
+        const contentEl = messageEl.querySelector('.message-content');
+        if (contentEl) {
+            // 格式化文本（支持代码块等）
+            const formattedText = formatStreamingText(text);
+            contentEl.innerHTML = formattedText;
+            
+            // 自动滚动到底部
+            const chat = document.getElementById('agent-chat');
+            if (chat) {
+                chat.scrollTop = chat.scrollHeight;
+            }
+        }
+        
+        // 更新最后更新时间
+        streamingUpdateState.lastUpdateTime = Date.now();
+    }
+
+    /**
+     * 完成流式消息
+     * @param {string} messageId - 消息 ID
+     */
+    function finalizeStreamingMessage(messageId) {
+        const messageEl = document.getElementById(messageId);
+        if (messageEl) {
+            // 移除 ID，标记为完成
+            messageEl.removeAttribute('id');
+        }
+    }
+
+    /**
+     * 格式化流式文本（增强版，支持更多 Markdown 格式）
+     */
+    function formatStreamingText(text) {
+        // 转义 HTML
+        let formatted = UITemplates.escapeHtml(text);
+        
+        // 处理代码块（简单匹配）
+        formatted = formatted.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
+            return `<div class="code-block"><div class="code-language">${lang || 'text'}</div><pre>${code.trim()}</pre></div>`;
+        });
+        
+        // 处理行内代码
+        formatted = formatted.replace(/`([^`]+)`/g, '<code style="background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-family: monospace;">$1</code>');
+        
+        // 处理粗体 **text** 或 __text__
+        formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        formatted = formatted.replace(/__(.+?)__/g, '<strong>$1</strong>');
+        
+        // 处理斜体 *text* 或 _text_
+        formatted = formatted.replace(/\*(.+?)\*/g, '<em>$1</em>');
+        formatted = formatted.replace(/(?<!_)_(?!_)(.+?)(?<!_)_(?!_)/g, '<em>$1</em>');
+        
+        // 处理链接 [text](url)
+        formatted = formatted.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color: #667eea; text-decoration: underline;">$1</a>');
+        
+        // 处理无序列表 - item 或 * item
+        formatted = formatted.replace(/^[\-\*]\s+(.+)$/gm, '<li style="margin-left: 20px;">$1</li>');
+        
+        // 处理有序列表 1. item
+        formatted = formatted.replace(/^\d+\.\s+(.+)$/gm, '<li style="margin-left: 20px; list-style-type: decimal;">$1</li>');
+        
+        // 处理换行（在列表项之后）
+        formatted = formatted.replace(/<\/li>\n/g, '</li>');
+        formatted = formatted.replace(/\n/g, '<br>');
+        
+        return formatted;
+    }
+
     // ========== 初始化 ==========
     addStyles();
 
@@ -2724,7 +2885,10 @@ const UIManager = (function() {
         show,
         hide,
         showSettings,
-        closeModal
+        closeModal,
+        createStreamingMessage,
+        updateStreamingMessage,
+        finalizeStreamingMessage
     };
 })();
 
@@ -2952,7 +3116,120 @@ const APIManager = (function() {
     let isProcessing = false;
 
     /**
-     * 调用 AI API
+     * 调用 AI API（流式输出版本）
+     */
+    async function callAPIStreaming(userMessage, conversationHistory, config, abortController, onChunk) {
+        if (isProcessing) return null;
+        
+        isProcessing = true;
+        let fullText = '';
+        
+        try {
+            // 验证配置
+            if (!config.apiKey) {
+                throw new Error('API Key 未设置，请在设置中配置 OpenRouter API Key');
+            }
+            if (!config.model) {
+                throw new Error('模型未设置');
+            }
+            
+            const messages = buildMessages(userMessage, conversationHistory, config);
+            
+            const requestBody = {
+                model: config.model,
+                messages: messages,
+                temperature: config.temperature || 0.7,
+                top_p: config.topP || 0.95,
+                max_tokens: Math.min(config.maxTokens || 2048, 8192),
+                stream: true  // 启用流式输出
+            };
+            
+            Utils.debugLog('📤 API 流式请求:', { model: config.model, messagesCount: messages.length });
+            
+            // 使用 fetch 发起流式请求
+            const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${config.apiKey}`,
+                    'HTTP-Referer': window.location.href,
+                    'X-Title': 'AI Browser Agent'
+                },
+                body: JSON.stringify(requestBody),
+                signal: abortController?.signal
+            });
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`HTTP ${response.status}: ${errorText}`);
+            }
+            
+            // 获取 ReadableStream
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            
+            // 读取流式数据
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                // 解码数据块
+                buffer += decoder.decode(value, { stream: true });
+                
+                // 分割 SSE 消息
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || ''; // 保留不完整的行
+                
+                // 处理每一行
+                for (const line of lines) {
+                    const trimmedLine = line.trim();
+                    if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
+                    
+                    const dataStr = trimmedLine.slice(6);
+                    
+                    // 检查是否结束
+                    if (dataStr === '[DONE]') {
+                        Utils.debugLog('✅ 流式输出完成');
+                        return { success: true, message: fullText };
+                    }
+                    
+                    try {
+                        const data = JSON.parse(dataStr);
+                        const content = data.choices?.[0]?.delta?.content;
+                        
+                        if (content) {
+                            fullText += content;
+                            // 调用回调，传递增量文本
+                            onChunk(content, fullText);
+                        }
+                    } catch (e) {
+                        Utils.debugWarn('⚠️ SSE 解析失败:', e);
+                    }
+                }
+            }
+            
+            Utils.debugLog('📥 流式响应完成，总长度:', fullText.length);
+            return { success: true, message: fullText };
+            
+        } catch (error) {
+            Utils.debugError('API 流式调用失败:', error);
+            
+            // 检查是否是用户主动取消
+            if (error.name === 'AbortError') {
+                return { success: false, cancelled: true, error: '请求已取消', message: fullText };
+            }
+            
+            return { success: false, error: error.message, message: fullText };
+        } finally {
+            isProcessing = false;
+        }
+    }
+
+    /**
+     * 调用 AI API（旧版阻塞式，已废弃）
+     * @deprecated 请使用 callAPIStreaming() 代替
+     * @note 保留作为 fallback，当浏览器不支持 ReadableStream 时使用
      */
     async function callAPI(userMessage, conversationHistory, config, abortController = null) {
         if (isProcessing) return null;
@@ -2979,11 +3256,11 @@ const APIManager = (function() {
                 max_tokens: Math.min(config.maxTokens || 2048, 8192)
             };
             
-            console.log('📤 API 请求:', { model: config.model, messagesCount: messages.length });
+            Utils.debugLog('📤 API 请求:', { model: config.model, messagesCount: messages.length });
             
             const response = await makeRequest(requestBody, config.apiKey, abortController);
             
-            console.log('📥 API 响应:', response.choices ? '成功' : '失败');
+            Utils.debugLog('📥 API 响应:', response.choices ? '成功' : '失败');
             
             if (response.choices && response.choices.length > 0) {
                 const assistantMessage = response.choices[0].message.content;
@@ -2993,7 +3270,7 @@ const APIManager = (function() {
             }
 
         } catch (error) {
-            console.error('API 调用失败:', error);
+            Utils.debugError('API 调用失败:', error);
             
             // 检查是否是用户主动取消
             if (error.name === 'AbortError') {
@@ -3102,6 +3379,7 @@ const APIManager = (function() {
 
     return {
         callAPI,
+        callAPIStreaming,
         getProcessingState
     };
 })();
@@ -3272,7 +3550,7 @@ const ChatManager = (function() {
         // 如果正在处理，将消息加入队列
         if (state.isProcessing) {
             state.messageQueue.push(message);
-            console.log('⏳ 消息已加入队列，等待处理');
+            Utils.debugLog('⏳ 消息已加入队列，等待处理');
             return;
         }
         
@@ -3314,36 +3592,59 @@ const ChatManager = (function() {
             // 创建 AbortController 用于取消请求
             state.currentAbortController = new AbortController();
             
-            const response = await APIManager.callAPI(message, history, config, state.currentAbortController);
+            // 创建流式消息容器
+            const messageId = UIManager.createStreamingMessage();
+            let fullText = '';
+            
+            // 使用流式 API 调用
+            const response = await APIManager.callAPIStreaming(
+                message, 
+                history, 
+                config, 
+                state.currentAbortController,
+                (chunk, accumulatedText) => {
+                    // 实时更新消息内容
+                    fullText = accumulatedText;
+                    UIManager.updateStreamingMessage(messageId, accumulatedText);
+                }
+            );
             
             // 请求完成，清除 AbortController
             state.currentAbortController = null;
             
             UIManager.hideTypingIndicator();
             UIManager.updateSendButtonState(false); // 恢复按钮状态
+            
+            // 完成流式消息
+            UIManager.finalizeStreamingMessage(messageId);
 
             if (response.success) {
-                addAssistantMessage(response.message);
+                // 保存完整消息到历史
+                saveToHistory({ role: 'assistant', content: fullText });
                 
                 // 异步执行代码块（只执行一次，不阻塞主流程）
-                setTimeout(() => executeCodeBlocksFromMessage(response.message), 100);
+                setTimeout(() => executeCodeBlocksFromMessage(fullText), 100);
             } else {
                 // 检查是否是用户主动取消
                 if (response.cancelled) {
-                    console.log('✅ 请求已被用户取消');
+                    Utils.debugLog('✅ 请求已被用户取消');
+                    // 如果已有部分内容，仍然保存
+                    if (fullText.length > 0) {
+                        saveToHistory({ role: 'assistant', content: fullText });
+                    }
                     return; // 不显示错误消息，因为已经显示了停止提示
                 }
                 addAssistantMessage(`❌ API 错误: ${response.error}`);
             }
 
         } catch (error) {
-            console.error('❌ 消息处理失败:', error);
+            Utils.debugError('❌ 消息处理失败:', error);
             UIManager.hideTypingIndicator();
             UIManager.updateSendButtonState(false); // 恢复按钮状态
             
             // 检查是否是中止错误
             if (error.name === 'AbortError') {
-                console.log('✅ 请求已中止');
+                Utils.debugLog('✅ 请求已中止');
                 return; // 不显示错误消息
             }
             
@@ -3361,7 +3662,7 @@ const ChatManager = (function() {
     function processNextMessage() {
         if (state.messageQueue.length > 0 && !state.isProcessing) {
             const nextMessage = state.messageQueue.shift();
-            console.log('📤 从队列取出消息处理');
+            Utils.debugLog('📤 从队列取出消息处理');
             handleMessage(nextMessage);
         }
     }
@@ -3525,7 +3826,7 @@ const ChatManager = (function() {
             }
             
         } catch (error) {
-            console.error('❌ 代码块执行失败:', error);
+            Utils.debugError('❌ 代码块执行失败:', error);
         } finally {
             // 只有在没有进行 API 调用时才重置状态
             // 如果调用了 callAPIForFeedback，它会在完成后重置状态
@@ -3546,12 +3847,12 @@ const ChatManager = (function() {
         
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                console.log(`🔄 执行代码块 ${index} (尝试 ${attempt}/${maxRetries})`);
+                Utils.debugLog(`🔄 执行代码块 ${index} (尝试 ${attempt}/${maxRetries})`);
                 
                 const result = unsafeWindow.eval(code);
                 const resultStr = safeStringify(result);
                 
-                console.log(`✅ 代码块 ${index} 执行成功 (尝试 ${attempt})`);
+                Utils.debugLog(`✅ 代码块 ${index} 执行成功 (尝试 ${attempt})`);
                 
                 return {
                     index,
@@ -3562,7 +3863,7 @@ const ChatManager = (function() {
                 
             } catch (error) {
                 lastError = error;
-                console.warn(`⚠️ 代码块 ${index} 执行失败 (尝试 ${attempt}/${maxRetries}):`, error.message);
+                Utils.debugWarn(`⚠️ 代码块 ${index} 执行失败 (尝试 ${attempt}/${maxRetries}):`, error.message);
                 
                 // 如果不是最后一次尝试，等待一小段时间再重试
                 if (attempt < maxRetries) {
@@ -3572,7 +3873,7 @@ const ChatManager = (function() {
         }
         
         // 所有尝试都失败了
-        console.error(`❌ 代码块 ${index} 执行失败，已重试 ${maxRetries} 次`);
+        Utils.debugError(`❌ 代码块 ${index} 执行失败，已重试 ${maxRetries} 次`);
         
         return {
             index,
@@ -3695,7 +3996,20 @@ const ChatManager = (function() {
         // 创建 AbortController 用于取消请求
         state.currentAbortController = new AbortController();
         
-        const response = await APIManager.callAPI(feedbackMessage, history, config, state.currentAbortController);
+        // 创建流式消息容器
+        const messageId = UIManager.createStreamingMessage();
+        let fullText = '';
+        
+        const response = await APIManager.callAPIStreaming(
+            feedbackMessage, 
+            history, 
+            config, 
+            state.currentAbortController,
+            (chunk, accumulatedText) => {
+                fullText = accumulatedText;
+                UIManager.updateStreamingMessage(messageId, accumulatedText);
+            }
+        );
         
         // 请求完成，清除 AbortController
         state.currentAbortController = null;
@@ -3703,19 +4017,23 @@ const ChatManager = (function() {
         UIManager.hideTypingIndicator();
         UIManager.updateSendButtonState(false); // 恢复按钮状态
         
+        // 完成流式消息
+        UIManager.finalizeStreamingMessage(messageId);
+        
         // 重置处理状态
         state.isProcessing = false;
         
         // 显示 AI 回复
         if (response.success) {
-            addAssistantMessage(response.message);
+            // 保存完整消息到历史
+            saveToHistory({ role: 'assistant', content: fullText });
             
             // 检查 AI 回复中是否有新的代码块需要执行
-            setTimeout(() => executeCodeBlocksFromMessage(response.message), 100);
+            setTimeout(() => executeCodeBlocksFromMessage(fullText), 100);
         } else {
             // 检查是否是用户主动取消
             if (response.cancelled) {
-                console.log('✅ 代码执行反馈请求已被用户取消');
+                Utils.debugLog('✅ 代码执行反馈请求已被用户取消');
                 processNextMessage();
                 return; // 不显示错误消息
             }
@@ -3768,7 +4086,7 @@ const ChatManager = (function() {
                     if (btn.classList.contains('warning-execute-btn')) {
                         btn.addEventListener('click', () => {
                             const wid = btn.dataset.warningId;
-                            console.log('⚠️ 用户确认执行高危代码:', wid);
+                            Utils.debugLog('⚠️ 用户确认执行高危代码:', wid);
                             
                             if (typeof ChatManager !== 'undefined' && ChatManager.getCodeFromStore) {
                                 const code = ChatManager.getCodeFromStore(wid);
@@ -3779,7 +4097,7 @@ const ChatManager = (function() {
                                     if (warningBox) warningBox.remove();
                                 }
                             } else {
-                                console.error('❌ ChatManager 未初始化');
+                                Utils.debugError('❌ ChatManager 未初始化');
                             }
                         });
                     } else if (btn.classList.contains('warning-ignore-btn')) {
@@ -3815,13 +4133,21 @@ const ChatManager = (function() {
             const block = codeBlocks[parseInt(index)];
             
             // 生成唯一 ID 并存储到全局（用于执行/复制）
-            const blockId = 'code_' + Date.now() + '_' + (++state.codeBlockIndex);
+            // 使用纯数字索引，便于排序和清理
+            state.codeBlockIndex++;
+            const blockId = 'code_' + state.codeBlockIndex;
             state.codeBlockStore[blockId] = block.code;
             
             // 如果超过限制，删除最旧的 20 个
             const keys = Object.keys(state.codeBlockStore);
             if (keys.length > MAX_CODE_BLOCKS) {
-                keys.sort();
+                // 按数字索引排序（提取 code_ 后面的数字）
+                keys.sort((a, b) => {
+                    const numA = parseInt(a.split('_')[1]) || 0;
+                    const numB = parseInt(b.split('_')[1]) || 0;
+                    return numA - numB;
+                });
+                // 删除最旧的 20 个
                 keys.slice(0, 20).forEach(key => {
                     delete state.codeBlockStore[key];
                 });
@@ -3925,7 +4251,7 @@ const ChatManager = (function() {
         
         // 重置历史记录加载标志
         state.historyLoaded = false;
-        console.log('🗑️ 聊天记录已清空，重置加载标志');
+        Utils.debugLog('🗑️ 聊天记录已清空，重置加载标志');
         
         showWelcomeMessage();
     }
@@ -3965,7 +4291,7 @@ const ChatManager = (function() {
         
         // 标记为已加载
         state.historyLoaded = true;
-        console.log(`✅ 历史记录加载完成，共 ${history.length} 条消息`);
+        Utils.debugLog(`✅ 历史记录加载完成，共 ${history.length} 条消息`);
     }
 
     /**

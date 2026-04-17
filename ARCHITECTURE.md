@@ -1,7 +1,7 @@
-# AI Browser Agent 架构文档 v3.8.6
+# AI Browser Agent 架构文档 v3.9.0
 
 **最后更新**: 2026-04-17  
-**版本**: v3.8.6  
+**版本**: v3.9.0  
 **维护原则**: 简洁、实用、同步更新
 
 ---
@@ -35,11 +35,11 @@
 | 安全执行 | unsafeWindow.eval | JS 代码执行 |
 
 ### 当前状态
-- **版本**: v3.8.6
+- **版本**: v3.9.0
 - **模块数**: 13 个
-- **文件大小**: 149.9 KB
+- **文件大小**: ~162 KB
 - **架构**: 模块化 + 事件驱动
-- **最新优化**: 拖动性能优化、设置弹窗修复、代码执行结果压缩、快捷键系统
+- **最新特性**: 流式输出、快捷键系统、调试模式管理、性能优化
 
 ---
 
@@ -905,6 +905,96 @@ function closeModal() {
 
 ---
 
+## 构建与发布
+
+### 构建系统
+
+#### 构建脚本 (`build.js`)
+**职责**: 将所有模块合并为单个 user.js 文件
+
+**特性**:
+- 自动读取版本号（环境变量或默认值）
+- 支持开发/发布两种模式
+- 按依赖顺序加载模块
+- 自动注入 UserScript 头部
+
+#### 构建命令
+```bash
+# 开发模式（默认）
+node build.js
+
+# 发布模式
+RELEASE=true node build.js
+# 或
+node build.js --release
+
+# 指定版本
+VERSION=3.9.0 RELEASE=true node build.js
+```
+
+### DEBUG_MODE 机制
+
+#### 作用
+控制调试日志的开启/关闭，影响以下函数：
+- `Utils.debugLog()` - 替代 console.log()
+- `Utils.debugWarn()` - 替代 console.warn()
+- `Utils.debugError()` - 替代 console.error()
+
+#### 切换逻辑
+```javascript
+// src/core/utils.js
+const DEBUG_MODE = true;  // 开发模式（默认）
+
+// 发布模式下，build.js 会自动替换为：
+const DEBUG_MODE = false; // 发布模式已关闭调试日志
+```
+
+#### 影响范围
+| 模式 | 日志输出 | 文件大小 | 性能 |
+|------|---------|---------|------|
+| 开发 | ✅ 全部输出 | ~162 KB | 略低 |
+| 发布 | ❌ 无输出 | ~161 KB | 最优 |
+
+### 发布流程
+
+1. **更新版本号**
+   ```bash
+   # 修改 build.js 第 18 行
+   const VERSION = process.env.VERSION || '3.9.0';
+   ```
+
+2. **构建发布版本**
+   ```bash
+   RELEASE=true node build.js
+   ```
+
+3. **验证构建结果**
+   - 检查 `dist/agent.user.js` 中是否有 `DEBUG_MODE = false`
+   - 确认无语法错误
+   - 测试核心功能（流式输出、代码执行等）
+
+4. **提交代码**
+   ```bash
+   git add .
+   git commit -m "Release v3.9.0: 流式输出 + 快捷键系统"
+   git tag v3.9.0
+   git push origin main --tags
+   ```
+
+5. **上传到 Tampermonkey**
+   - 将 `dist/agent.user.js` 安装/更新
+   - 在实际网站中测试
+
+### 版本历史
+
+| 版本 | 日期 | 主要特性 | 文件大小 |
+|------|------|---------|----------|
+| v3.9.0 | 2026-04-17 | 流式输出、快捷键、DEBUG_MODE | ~162 KB |
+| v3.8.6 | 2026-04-17 | 拖动优化、设置弹窗修复 | 149.9 KB |
+| v3.8.0 | 2026-04-16 | 事件驱动架构重构 | 145 KB |
+
+---
+
 **文档维护者**: AI Assistant  
-**最后审核**: 2026-04-17 (v3.8.6)  
+**最后审核**: 2026-04-17 (v3.9.0)  
 **下次审核**: 每次重大更新后

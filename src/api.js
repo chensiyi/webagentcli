@@ -4,7 +4,120 @@ const APIManager = (function() {
     let isProcessing = false;
 
     /**
-     * 调用 AI API
+     * 调用 AI API（流式输出版本）
+     */
+    async function callAPIStreaming(userMessage, conversationHistory, config, abortController, onChunk) {
+        if (isProcessing) return null;
+        
+        isProcessing = true;
+        let fullText = '';
+        
+        try {
+            // 验证配置
+            if (!config.apiKey) {
+                throw new Error('API Key 未设置，请在设置中配置 OpenRouter API Key');
+            }
+            if (!config.model) {
+                throw new Error('模型未设置');
+            }
+            
+            const messages = buildMessages(userMessage, conversationHistory, config);
+            
+            const requestBody = {
+                model: config.model,
+                messages: messages,
+                temperature: config.temperature || 0.7,
+                top_p: config.topP || 0.95,
+                max_tokens: Math.min(config.maxTokens || 2048, 8192),
+                stream: true  // 启用流式输出
+            };
+            
+            Utils.debugLog('📤 API 流式请求:', { model: config.model, messagesCount: messages.length });
+            
+            // 使用 fetch 发起流式请求
+            const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${config.apiKey}`,
+                    'HTTP-Referer': window.location.href,
+                    'X-Title': 'AI Browser Agent'
+                },
+                body: JSON.stringify(requestBody),
+                signal: abortController?.signal
+            });
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`HTTP ${response.status}: ${errorText}`);
+            }
+            
+            // 获取 ReadableStream
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            
+            // 读取流式数据
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                // 解码数据块
+                buffer += decoder.decode(value, { stream: true });
+                
+                // 分割 SSE 消息
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || ''; // 保留不完整的行
+                
+                // 处理每一行
+                for (const line of lines) {
+                    const trimmedLine = line.trim();
+                    if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
+                    
+                    const dataStr = trimmedLine.slice(6);
+                    
+                    // 检查是否结束
+                    if (dataStr === '[DONE]') {
+                        Utils.debugLog('✅ 流式输出完成');
+                        return { success: true, message: fullText };
+                    }
+                    
+                    try {
+                        const data = JSON.parse(dataStr);
+                        const content = data.choices?.[0]?.delta?.content;
+                        
+                        if (content) {
+                            fullText += content;
+                            // 调用回调，传递增量文本
+                            onChunk(content, fullText);
+                        }
+                    } catch (e) {
+                        Utils.debugWarn('⚠️ SSE 解析失败:', e);
+                    }
+                }
+            }
+            
+            Utils.debugLog('📥 流式响应完成，总长度:', fullText.length);
+            return { success: true, message: fullText };
+            
+        } catch (error) {
+            Utils.debugError('API 流式调用失败:', error);
+            
+            // 检查是否是用户主动取消
+            if (error.name === 'AbortError') {
+                return { success: false, cancelled: true, error: '请求已取消', message: fullText };
+            }
+            
+            return { success: false, error: error.message, message: fullText };
+        } finally {
+            isProcessing = false;
+        }
+    }
+
+    /**
+     * 调用 AI API（旧版阻塞式，已废弃）
+     * @deprecated 请使用 callAPIStreaming() 代替
+     * @note 保留作为 fallback，当浏览器不支持 ReadableStream 时使用
      */
     async function callAPI(userMessage, conversationHistory, config, abortController = null) {
         if (isProcessing) return null;
@@ -31,11 +144,11 @@ const APIManager = (function() {
                 max_tokens: Math.min(config.maxTokens || 2048, 8192)
             };
             
-            console.log('📤 API 请求:', { model: config.model, messagesCount: messages.length });
+            Utils.debugLog('📤 API 请求:', { model: config.model, messagesCount: messages.length });
             
             const response = await makeRequest(requestBody, config.apiKey, abortController);
             
-            console.log('📥 API 响应:', response.choices ? '成功' : '失败');
+            Utils.debugLog('📥 API 响应:', response.choices ? '成功' : '失败');
             
             if (response.choices && response.choices.length > 0) {
                 const assistantMessage = response.choices[0].message.content;
@@ -45,7 +158,7 @@ const APIManager = (function() {
             }
 
         } catch (error) {
-            console.error('API 调用失败:', error);
+            Utils.debugError('API 调用失败:', error);
             
             // 检查是否是用户主动取消
             if (error.name === 'AbortError') {
@@ -154,6 +267,7 @@ const APIManager = (function() {
 
     return {
         callAPI,
+        callAPIStreaming,
         getProcessingState
     };
 })();

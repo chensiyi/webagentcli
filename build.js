@@ -17,6 +17,8 @@ const DIST_DIR = path.join(__dirname, 'dist');
 const OUTPUT_FILE = path.join(DIST_DIR, 'agent.user.js');
 const VERSION = process.env.VERSION || '3.8.6';
 const BUILD_DATE = new Date().toISOString().split('T')[0];
+// 发布模式：通过环境变量 RELEASE=true 启用，或手动设置
+const IS_RELEASE = process.env.RELEASE === 'true' || process.argv.includes('--release');
 
 // UserScript 头部模板
 const USERSCRIPT_HEADER = `// ==UserScript==
@@ -44,6 +46,7 @@ if (!fs.existsSync(DIST_DIR)) {
 console.log('🔨 开始构建 AI Agent...');
 console.log(`📦 版本: ${VERSION}`);
 console.log(`📅 构建日期: ${BUILD_DATE}`);
+console.log(`🚀 发布模式: ${IS_RELEASE ? '✅ 是 (DEBUG_MODE=false)' : '❌ 否 (DEBUG_MODE=true)'}`);
 
 // 模块加载顺序配置（按依赖关系排序）
 const modules = [
@@ -87,7 +90,16 @@ modules.forEach(module => {
         process.exit(1);
     }
     
-    const content = fs.readFileSync(modulePath, 'utf-8');
+    let content = fs.readFileSync(modulePath, 'utf-8');
+    
+    // 发布模式下替换 DEBUG_MODE
+    if (IS_RELEASE && module === 'core/utils.js') {
+        content = content.replace(
+            /const DEBUG_MODE = true;/,
+            'const DEBUG_MODE = false; // 发布模式已关闭调试日志'
+        );
+        console.log(`  ⚙️  ${module} - 已关闭 DEBUG_MODE`);
+    }
     
     // 添加模块分隔注释
     combinedCode += `\n// =====================================================\n`;

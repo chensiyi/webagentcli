@@ -511,7 +511,7 @@ const UIManager = (function() {
         const code = ChatManager.getCodeFromStore(blockId);
         
         if (!code) {
-            console.error('未找到代码块:', blockId);
+            Utils.debugError('未找到代码块:', blockId);
             return;
         }
 
@@ -640,7 +640,7 @@ const UIManager = (function() {
         // 检查是否已经存在设置对话框
         const existingModal = document.getElementById('settings-modal');
         if (existingModal) {
-            console.log('⚙️ 设置对话框已存在，跳过创建');
+            Utils.debugLog('⚙️ 设置对话框已存在，跳过创建');
             return;
         }
         
@@ -1029,6 +1029,140 @@ const UIManager = (function() {
         }
     }
 
+    // ========== 流式消息管理 ==========
+
+    // 流式更新节流状态
+    let streamingUpdateState = {
+        lastUpdateTime: 0,
+        pendingUpdate: null,
+        rafId: null
+    };
+
+    /**
+     * 创建流式消息容器
+     * @returns {string} 消息 ID
+     */
+    function createStreamingMessage() {
+        const messageId = 'streaming_' + Date.now();
+        const messageHTML = `
+            <div class="assistant-message" id="${messageId}">
+                <div class="message-content"></div>
+            </div>
+        `;
+        appendMessage(messageHTML);
+        return messageId;
+    }
+
+    /**
+     * 更新流式消息内容（带节流优化）
+     * @param {string} messageId - 消息 ID
+     * @param {string} text - 完整文本
+     */
+    function updateStreamingMessage(messageId, text) {
+        const now = Date.now();
+        
+        // 如果距离上次更新不足 50ms，使用 requestAnimationFrame 延迟更新
+        if (now - streamingUpdateState.lastUpdateTime < 50) {
+            // 取消之前的 pending 更新
+            if (streamingUpdateState.rafId !== null) {
+                cancelAnimationFrame(streamingUpdateState.rafId);
+            }
+            
+            // 保存最新的文本
+            streamingUpdateState.pendingUpdate = { messageId, text };
+            
+            // 安排在下一帧更新
+            streamingUpdateState.rafId = requestAnimationFrame(() => {
+                if (streamingUpdateState.pendingUpdate) {
+                    performStreamingUpdate(
+                        streamingUpdateState.pendingUpdate.messageId,
+                        streamingUpdateState.pendingUpdate.text
+                    );
+                    streamingUpdateState.pendingUpdate = null;
+                    streamingUpdateState.rafId = null;
+                }
+            });
+        } else {
+            // 直接更新
+            performStreamingUpdate(messageId, text);
+        }
+    }
+
+    /**
+     * 执行实际的流式更新（内部函数）
+     */
+    function performStreamingUpdate(messageId, text) {
+        const messageEl = document.getElementById(messageId);
+        if (!messageEl) return;
+        
+        const contentEl = messageEl.querySelector('.message-content');
+        if (contentEl) {
+            // 格式化文本（支持代码块等）
+            const formattedText = formatStreamingText(text);
+            contentEl.innerHTML = formattedText;
+            
+            // 自动滚动到底部
+            const chat = document.getElementById('agent-chat');
+            if (chat) {
+                chat.scrollTop = chat.scrollHeight;
+            }
+        }
+        
+        // 更新最后更新时间
+        streamingUpdateState.lastUpdateTime = Date.now();
+    }
+
+    /**
+     * 完成流式消息
+     * @param {string} messageId - 消息 ID
+     */
+    function finalizeStreamingMessage(messageId) {
+        const messageEl = document.getElementById(messageId);
+        if (messageEl) {
+            // 移除 ID，标记为完成
+            messageEl.removeAttribute('id');
+        }
+    }
+
+    /**
+     * 格式化流式文本（增强版，支持更多 Markdown 格式）
+     */
+    function formatStreamingText(text) {
+        // 转义 HTML
+        let formatted = UITemplates.escapeHtml(text);
+        
+        // 处理代码块（简单匹配）
+        formatted = formatted.replace(/```(\w*)\n([\s\S]*?)```/g, (match, lang, code) => {
+            return `<div class="code-block"><div class="code-language">${lang || 'text'}</div><pre>${code.trim()}</pre></div>`;
+        });
+        
+        // 处理行内代码
+        formatted = formatted.replace(/`([^`]+)`/g, '<code style="background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-family: monospace;">$1</code>');
+        
+        // 处理粗体 **text** 或 __text__
+        formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        formatted = formatted.replace(/__(.+?)__/g, '<strong>$1</strong>');
+        
+        // 处理斜体 *text* 或 _text_
+        formatted = formatted.replace(/\*(.+?)\*/g, '<em>$1</em>');
+        formatted = formatted.replace(/(?<!_)_(?!_)(.+?)(?<!_)_(?!_)/g, '<em>$1</em>');
+        
+        // 处理链接 [text](url)
+        formatted = formatted.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color: #667eea; text-decoration: underline;">$1</a>');
+        
+        // 处理无序列表 - item 或 * item
+        formatted = formatted.replace(/^[\-\*]\s+(.+)$/gm, '<li style="margin-left: 20px;">$1</li>');
+        
+        // 处理有序列表 1. item
+        formatted = formatted.replace(/^\d+\.\s+(.+)$/gm, '<li style="margin-left: 20px; list-style-type: decimal;">$1</li>');
+        
+        // 处理换行（在列表项之后）
+        formatted = formatted.replace(/<\/li>\n/g, '</li>');
+        formatted = formatted.replace(/\n/g, '<br>');
+        
+        return formatted;
+    }
+
     // ========== 初始化 ==========
     addStyles();
 
@@ -1043,6 +1177,9 @@ const UIManager = (function() {
         show,
         hide,
         showSettings,
-        closeModal
+        closeModal,
+        createStreamingMessage,
+        updateStreamingMessage,
+        finalizeStreamingMessage
     };
 })();

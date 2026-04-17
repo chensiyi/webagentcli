@@ -159,7 +159,7 @@ const ChatManager = (function() {
         // 如果正在处理，将消息加入队列
         if (state.isProcessing) {
             state.messageQueue.push(message);
-            console.log('⏳ 消息已加入队列，等待处理');
+            Utils.debugLog('⏳ 消息已加入队列，等待处理');
             return;
         }
         
@@ -201,36 +201,59 @@ const ChatManager = (function() {
             // 创建 AbortController 用于取消请求
             state.currentAbortController = new AbortController();
             
-            const response = await APIManager.callAPI(message, history, config, state.currentAbortController);
+            // 创建流式消息容器
+            const messageId = UIManager.createStreamingMessage();
+            let fullText = '';
+            
+            // 使用流式 API 调用
+            const response = await APIManager.callAPIStreaming(
+                message, 
+                history, 
+                config, 
+                state.currentAbortController,
+                (chunk, accumulatedText) => {
+                    // 实时更新消息内容
+                    fullText = accumulatedText;
+                    UIManager.updateStreamingMessage(messageId, accumulatedText);
+                }
+            );
             
             // 请求完成，清除 AbortController
             state.currentAbortController = null;
             
             UIManager.hideTypingIndicator();
             UIManager.updateSendButtonState(false); // 恢复按钮状态
+            
+            // 完成流式消息
+            UIManager.finalizeStreamingMessage(messageId);
 
             if (response.success) {
-                addAssistantMessage(response.message);
+                // 保存完整消息到历史
+                saveToHistory({ role: 'assistant', content: fullText });
                 
                 // 异步执行代码块（只执行一次，不阻塞主流程）
-                setTimeout(() => executeCodeBlocksFromMessage(response.message), 100);
+                setTimeout(() => executeCodeBlocksFromMessage(fullText), 100);
             } else {
                 // 检查是否是用户主动取消
                 if (response.cancelled) {
-                    console.log('✅ 请求已被用户取消');
+                    Utils.debugLog('✅ 请求已被用户取消');
+                    // 如果已有部分内容，仍然保存
+                    if (fullText.length > 0) {
+                        saveToHistory({ role: 'assistant', content: fullText });
+                    }
                     return; // 不显示错误消息，因为已经显示了停止提示
                 }
                 addAssistantMessage(`❌ API 错误: ${response.error}`);
             }
 
         } catch (error) {
-            console.error('❌ 消息处理失败:', error);
+            Utils.debugError('❌ 消息处理失败:', error);
             UIManager.hideTypingIndicator();
             UIManager.updateSendButtonState(false); // 恢复按钮状态
             
             // 检查是否是中止错误
             if (error.name === 'AbortError') {
-                console.log('✅ 请求已中止');
+                Utils.debugLog('✅ 请求已中止');
                 return; // 不显示错误消息
             }
             
@@ -248,7 +271,7 @@ const ChatManager = (function() {
     function processNextMessage() {
         if (state.messageQueue.length > 0 && !state.isProcessing) {
             const nextMessage = state.messageQueue.shift();
-            console.log('📤 从队列取出消息处理');
+            Utils.debugLog('📤 从队列取出消息处理');
             handleMessage(nextMessage);
         }
     }
@@ -412,7 +435,7 @@ const ChatManager = (function() {
             }
             
         } catch (error) {
-            console.error('❌ 代码块执行失败:', error);
+            Utils.debugError('❌ 代码块执行失败:', error);
         } finally {
             // 只有在没有进行 API 调用时才重置状态
             // 如果调用了 callAPIForFeedback，它会在完成后重置状态
@@ -433,12 +456,12 @@ const ChatManager = (function() {
         
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                console.log(`🔄 执行代码块 ${index} (尝试 ${attempt}/${maxRetries})`);
+                Utils.debugLog(`🔄 执行代码块 ${index} (尝试 ${attempt}/${maxRetries})`);
                 
                 const result = unsafeWindow.eval(code);
                 const resultStr = safeStringify(result);
                 
-                console.log(`✅ 代码块 ${index} 执行成功 (尝试 ${attempt})`);
+                Utils.debugLog(`✅ 代码块 ${index} 执行成功 (尝试 ${attempt})`);
                 
                 return {
                     index,
@@ -449,7 +472,7 @@ const ChatManager = (function() {
                 
             } catch (error) {
                 lastError = error;
-                console.warn(`⚠️ 代码块 ${index} 执行失败 (尝试 ${attempt}/${maxRetries}):`, error.message);
+                Utils.debugWarn(`⚠️ 代码块 ${index} 执行失败 (尝试 ${attempt}/${maxRetries}):`, error.message);
                 
                 // 如果不是最后一次尝试，等待一小段时间再重试
                 if (attempt < maxRetries) {
@@ -459,7 +482,7 @@ const ChatManager = (function() {
         }
         
         // 所有尝试都失败了
-        console.error(`❌ 代码块 ${index} 执行失败，已重试 ${maxRetries} 次`);
+        Utils.debugError(`❌ 代码块 ${index} 执行失败，已重试 ${maxRetries} 次`);
         
         return {
             index,
@@ -582,7 +605,20 @@ const ChatManager = (function() {
         // 创建 AbortController 用于取消请求
         state.currentAbortController = new AbortController();
         
-        const response = await APIManager.callAPI(feedbackMessage, history, config, state.currentAbortController);
+        // 创建流式消息容器
+        const messageId = UIManager.createStreamingMessage();
+        let fullText = '';
+        
+        const response = await APIManager.callAPIStreaming(
+            feedbackMessage, 
+            history, 
+            config, 
+            state.currentAbortController,
+            (chunk, accumulatedText) => {
+                fullText = accumulatedText;
+                UIManager.updateStreamingMessage(messageId, accumulatedText);
+            }
+        );
         
         // 请求完成，清除 AbortController
         state.currentAbortController = null;
@@ -590,19 +626,23 @@ const ChatManager = (function() {
         UIManager.hideTypingIndicator();
         UIManager.updateSendButtonState(false); // 恢复按钮状态
         
+        // 完成流式消息
+        UIManager.finalizeStreamingMessage(messageId);
+        
         // 重置处理状态
         state.isProcessing = false;
         
         // 显示 AI 回复
         if (response.success) {
-            addAssistantMessage(response.message);
+            // 保存完整消息到历史
+            saveToHistory({ role: 'assistant', content: fullText });
             
             // 检查 AI 回复中是否有新的代码块需要执行
-            setTimeout(() => executeCodeBlocksFromMessage(response.message), 100);
+            setTimeout(() => executeCodeBlocksFromMessage(fullText), 100);
         } else {
             // 检查是否是用户主动取消
             if (response.cancelled) {
-                console.log('✅ 代码执行反馈请求已被用户取消');
+                Utils.debugLog('✅ 代码执行反馈请求已被用户取消');
                 processNextMessage();
                 return; // 不显示错误消息
             }
@@ -655,7 +695,7 @@ const ChatManager = (function() {
                     if (btn.classList.contains('warning-execute-btn')) {
                         btn.addEventListener('click', () => {
                             const wid = btn.dataset.warningId;
-                            console.log('⚠️ 用户确认执行高危代码:', wid);
+                            Utils.debugLog('⚠️ 用户确认执行高危代码:', wid);
                             
                             if (typeof ChatManager !== 'undefined' && ChatManager.getCodeFromStore) {
                                 const code = ChatManager.getCodeFromStore(wid);
@@ -666,7 +706,7 @@ const ChatManager = (function() {
                                     if (warningBox) warningBox.remove();
                                 }
                             } else {
-                                console.error('❌ ChatManager 未初始化');
+                                Utils.debugError('❌ ChatManager 未初始化');
                             }
                         });
                     } else if (btn.classList.contains('warning-ignore-btn')) {
@@ -702,13 +742,21 @@ const ChatManager = (function() {
             const block = codeBlocks[parseInt(index)];
             
             // 生成唯一 ID 并存储到全局（用于执行/复制）
-            const blockId = 'code_' + Date.now() + '_' + (++state.codeBlockIndex);
+            // 使用纯数字索引，便于排序和清理
+            state.codeBlockIndex++;
+            const blockId = 'code_' + state.codeBlockIndex;
             state.codeBlockStore[blockId] = block.code;
             
             // 如果超过限制，删除最旧的 20 个
             const keys = Object.keys(state.codeBlockStore);
             if (keys.length > MAX_CODE_BLOCKS) {
-                keys.sort();
+                // 按数字索引排序（提取 code_ 后面的数字）
+                keys.sort((a, b) => {
+                    const numA = parseInt(a.split('_')[1]) || 0;
+                    const numB = parseInt(b.split('_')[1]) || 0;
+                    return numA - numB;
+                });
+                // 删除最旧的 20 个
                 keys.slice(0, 20).forEach(key => {
                     delete state.codeBlockStore[key];
                 });
@@ -812,7 +860,7 @@ const ChatManager = (function() {
         
         // 重置历史记录加载标志
         state.historyLoaded = false;
-        console.log('🗑️ 聊天记录已清空，重置加载标志');
+        Utils.debugLog('🗑️ 聊天记录已清空，重置加载标志');
         
         showWelcomeMessage();
     }
@@ -852,7 +900,7 @@ const ChatManager = (function() {
         
         // 标记为已加载
         state.historyLoaded = true;
-        console.log(`✅ 历史记录加载完成，共 ${history.length} 条消息`);
+        Utils.debugLog(`✅ 历史记录加载完成，共 ${history.length} 条消息`);
     }
 
     /**

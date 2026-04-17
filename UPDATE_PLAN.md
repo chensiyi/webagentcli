@@ -1,7 +1,7 @@
-# 🚀 升级计划 v3.8.6+
+# 🚀 升级计划 v3.9.0+
 
 **创建时间**: 2026-04-17  
-**当前版本**: v3.8.6  
+**当前版本**: v3.9.0  
 **状态**: 跟踪中
 
 ---
@@ -45,10 +45,11 @@ async function callAPIStreaming(message, onChunk) {
 ```
 
 **实施步骤**:
-- [ ] 修改 api.js 支持 SSE (Server-Sent Events)
-- [ ] 修改 chat.js 处理流式数据
-- [ ] 修改 ui.js 支持增量更新消息
-- [ ] 添加"正在输入..."动画
+- [x] 修改 api.js 支持 SSE (Server-Sent Events)
+- [x] 修改 chat.js 处理流式数据
+- [x] 修改 ui.js 支持增量更新消息
+- [x] 添加流式更新节流机制（50ms）
+- [x] 增强流式文本格式化（支持 Markdown）
 - [ ] 测试不同模型的流式支持
 
 **验收标准**:
@@ -56,6 +57,8 @@ async function callAPIStreaming(message, onChunk) {
 - ✅ 支持 OpenRouter 免费模型的流式输出
 - ✅ 停止按钮可以中断流式输出
 - ✅ 流式输出完成后触发代码执行
+- ✅ DOM 更新频率限制在 20 FPS（50ms 节流）
+- ✅ 支持粗体、斜体、链接、列表等 Markdown 格式
 
 **收益**:
 - 用户体验提升 80%
@@ -109,6 +112,50 @@ const SHORTCUTS = {
 - 操作效率提升 50%
 - 键盘用户友好
 - 专业感更强
+
+---
+
+### 3. 构建与发布系统优化 ⭐⭐
+
+**优先级**: P1 (高)  
+**预计工作量**: 0.5天  
+**目标版本**: v3.9.0
+
+**问题描述**:
+- 发布版本和开发版本无区别
+- 调试日志无法自动关闭
+- 手动修改容易出错
+
+**解决方案**:
+```javascript
+// build.js 中添加发布模式支持
+const IS_RELEASE = process.env.RELEASE === 'true';
+
+if (IS_RELEASE && module === 'core/utils.js') {
+    content = content.replace(
+        /const DEBUG_MODE = true;/,
+        'const DEBUG_MODE = false;'
+    );
+}
+```
+
+**实施步骤**:
+- [x] 在 build.js 中添加 RELEASE 环境变量支持
+- [x] 实现 DEBUG_MODE 自动替换逻辑
+- [x] 创建 BUILD.md 构建指南文档
+- [x] 更新 ARCHITECTURE.md 添加构建章节
+- [x] 验证开发和发布两种模式
+
+**验收标准**:
+- ✅ `node build.js` - 开发模式（DEBUG_MODE=true）
+- ✅ `RELEASE=true node build.js` - 发布模式（DEBUG_MODE=false）
+- ✅ 生成的文件中 DEBUG_MODE 正确设置
+- ✅ 有完整的构建文档
+
+**收益**:
+- 发布流程自动化
+- 减少人为错误
+- 提升代码质量
 
 ---
 

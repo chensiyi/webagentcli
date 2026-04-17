@@ -4,6 +4,30 @@
 const Utils = (function() {
     'use strict';
     
+    // 调试模式开关（生产环境设为 false）
+    const DEBUG_MODE = true;
+    
+    /**
+     * 条件日志输出（仅在 DEBUG_MODE 为 true 时输出）
+     */
+    function debugLog(...args) {
+        if (DEBUG_MODE) {
+            console.log(...args);
+        }
+    }
+    
+    function debugWarn(...args) {
+        if (DEBUG_MODE) {
+            console.warn(...args);
+        }
+    }
+    
+    function debugError(...args) {
+        if (DEBUG_MODE) {
+            console.error(...args);
+        }
+    }
+    
     /**
      * 获取当前域名
      * @returns {string} 域名
@@ -29,6 +53,9 @@ const Utils = (function() {
     // 导出公共接口
     return {
         getCurrentDomain,
-        getDomainKey
+        getDomainKey,
+        debugLog,
+        debugWarn,
+        debugError
     };
 })();
