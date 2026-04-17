@@ -15,7 +15,7 @@ const path = require('path');
 const SRC_DIR = path.join(__dirname, 'src');
 const DIST_DIR = path.join(__dirname, 'dist');
 const OUTPUT_FILE = path.join(DIST_DIR, 'agent.user.js');
-const VERSION = process.env.VERSION || '3.8.6';
+const VERSION = process.env.VERSION || '3.9.1';
 const BUILD_DATE = new Date().toISOString().split('T')[0];
 // 发布模式：通过环境变量 RELEASE=true 启用，或手动设置
 const IS_RELEASE = process.env.RELEASE === 'true' || process.argv.includes('--release');

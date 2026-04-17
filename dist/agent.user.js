@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Free Web AI Agent
 // @namespace    https://github.com/chensiyi1994
-// @version      3.8.6
+// @version      3.9.1
 // @description  基于ai模型的Web AI 助手,支持 JS 执行
 // @author       chensiyi1994
 // @match        *://*/*
@@ -14,7 +14,7 @@
 // ==/UserScript==
 
 // 构建信息
-// 版本: 3.8.6
+// 版本: 3.9.1
 // 日期: 2026-04-17
 // 模块数: 13
 
