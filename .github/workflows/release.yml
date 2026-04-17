@@ -14,12 +14,14 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
     
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '20'
+        node-version: '24'
     
     - name: Get version from tag
       id: get_version
@@ -41,26 +43,26 @@ jobs:
         fi
     
     - name: Create Release
-      run: |
-        VERSION=${{ steps.get_version.outputs.VERSION }}
-        
-        # 创建 release body
-        cat > RELEASE_BODY.md << EOF
-        ## Free Web AI Agent v$VERSION
-        
-        ### ✨ 更新内容
-        - 自动构建发布
-        
-        ### 📦 安装
-        直接下载 agent.user.js 并安装到 Tampermonkey
-        EOF
-        
-        # 使用 GitHub CLI 创建 release 并上传文件
-        gh release create "v$VERSION" \
-          ./dist/agent.user.js \
-          --title "Release v$VERSION" \
-          --notes-file RELEASE_BODY.md \
-          --draft=false \
-          --prerelease=false
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ github.ref_name }}
+        name: Release ${{ steps.get_version.outputs.VERSION }}
+        body: |
+          ## Free Web AI Agent v${{ steps.get_version.outputs.VERSION }}
+          
+          ### ✨ 更新内容
+          查看 [RELEASE_${{ steps.get_version.outputs.VERSION }}.md](https://github.com/${{ github.repository }}/blob/main/RELEASE_${{ steps.get_version.outputs.VERSION }}.md)
+          
+          ### 📦 安装
+          直接下载 `agent.user.js` 并安装到 Tampermonkey
+          
+          ### 🔗 链接
+          - [架构文档](https://github.com/${{ github.repository }}/blob/main/ARCHITECTURE.md)
+          - [更新计划](https://github.com/${{ github.repository }}/blob/main/UPDATE_PLAN.md)
+        files: |
+          dist/agent.user.js
+        draft: false
+        prerelease: false
+        generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
