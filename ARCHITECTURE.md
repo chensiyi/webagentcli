@@ -57,10 +57,10 @@ src/
 │   └── ShortcutManager.js # 快捷键管理 (v3.8.6+)
 ├── ui-styles.js           # UI 样式模块
 ├── ui-templates.js        # UI 模板模块
-├── ui.js                  # UI 交互逻辑
-├── models.js              # 模型管理
-├── api.js                 # API 调用
-├── chat.js                # 聊天逻辑
+├── ui.js                  # UI 交互逻辑 (UIManager)
+├── models.js              # 模型管理 (ModelManager)
+├── api.js                 # API 调用 (APIManager)
+├── chat.js                # 聊天逻辑 (ChatManager)
 └── main.js                # 应用入口
 ```
 
@@ -68,13 +68,14 @@ src/
 ```
 main.js (入口)
   ├─→ 初始化核心模块
-  │    ├─→ ConfigManager (依赖: EventManager)
-  │    ├─→ HistoryManager
-  │    └─→ StateManager
+  │    ├─→ ConfigManager (依赖: EventManager, Utils)
+  │    ├─→ HistoryManager (依赖: Utils)
+  │    ├─→ StateManager (依赖: Utils)
+  │    └─→ ShortcutManager
   ├─→ 初始化业务模块
-  │    ├─→ UIManager (依赖: UIStyles, UITemplates)
-  │    ├─→ ChatManager (依赖: HistoryManager)
-  │    ├─→ APIManager
+  │    ├─→ UIManager (依赖: UIStyles, UITemplates, EventManager)
+  │    ├─→ ChatManager (依赖: HistoryManager, UIManager, APIManager, Utils)
+  │    ├─→ APIManager (依赖: Utils)
   │    └─→ ModelManager
   └─→ 设置事件监听
        └─→ EventManager (统一事件总线)
@@ -173,11 +174,15 @@ const recentHistory = history.slice(-10); // 可能报错
 ```javascript
 Utils.getCurrentDomain()     // 获取当前域名
 Utils.getDomainKey(baseKey)  // 生成带域名的存储键
+Utils.debugLog(...args)      // 调试日志（受 DEBUG_MODE 控制）
+Utils.debugWarn(...args)     // 调试警告
+Utils.debugError(...args)    // 调试错误
 ```
 
 **使用场景**:
 - HistoryManager - 域名隔离存储
 - StateManager - 域名隔离存储
+- 所有模块的调试日志输出
 
 ---
 
@@ -194,17 +199,9 @@ EventManager.getListenerStats()            // 获取统计信息
 EventManager.EventTypes                    // 事件类型常量
 ```
 
-**事件类型**:
-```javascript
-EventTypes.UI_SHOW / UI_HIDE / UI_TOGGLE       // UI 显示/隐藏
-EventTypes.CHAT_MESSAGE_SENT / RECEIVED        // 消息发送/接收
-EventTypes.CHAT_CLEAR                           // 清空聊天
-EventTypes.CONFIG_UPDATED                       // 配置更新
-EventTypes.SETTINGS_OPEN / SAVED               // 设置打开/保存
-EventTypes.API_CALL_START / SUCCESS / ERROR    // API 调用生命周期
-EventTypes.APP_STARTED / ERROR                  // 应用启动/错误
-EventTypes.AGENT_OPEN / AGENT_CLOSE            // Agent 窗口打开/关闭
-```
+**事件类型规范**:
+- 采用 `agent:category:action` 格式
+- 例如: `agent:chat:message:sent`, `agent:config:updated`
 
 **实现细节**:
 - 内部使用 Map 存储监听器注册表
@@ -225,9 +222,7 @@ ConfigManager.set(key, value)           // 设置配置
 ConfigManager.update(updates)           // 批量更新
 ConfigManager.reset(key)                // 重置配置
 ConfigManager.isConfigured()            // 检查是否已配置
-ConfigManager.exportConfig()            // 导出配置（隐藏敏感信息）
-ConfigManager.importConfig(imported)    // 导入配置
-ConfigManager.ConfigKeys                // 配置键常量
+ConfigManager.ConfigKeys                // 配置键常量 (UPPER_SNAKE_CASE)
 ConfigManager.Defaults                  // 默认值常量
 ```
 
@@ -382,8 +377,6 @@ UIManager.updateSendButtonState(bool)  // 更新发送按钮状态
 
 ---
 
-### 业务层
-
 #### ModelManager (`models.js`)
 **职责**: AI 模型列表管理 + 缓存
 
@@ -392,55 +385,55 @@ UIManager.updateSendButtonState(bool)  // 更新发送按钮状态
 ModelManager.fetchFreeModels()         // 从 API 获取模型
 ModelManager.updateModelSelect()       // 更新下拉框
 ModelManager.refreshModels()           // 强制刷新
-ModelManager.getCachedModels()         // 获取缓存模型
+ModelManager.loadCachedModels()        // 获取缓存模型
+ModelManager.saveToCache(models)       // 保存到缓存
+ModelManager.DEFAULT_MODELS            // 默认模型列表常量
 ```
 
 **特性**:
 - 24 小时缓存机制
-- 11 个默认免费模型
-- 按提供商分类（Google, Meta, Alibaba...）
+- 支持从 OpenRouter API 动态获取免费模型
+- 提供商图标映射
 
 ---
 
 #### APIManager (`api.js`)
-**职责**: OpenRouter API 调用封装
+**职责**: AI API 调用（流式输出 + 阻塞式回退）
 
 **接口**:
 ```javascript
-APIManager.callAPI(message, history, config, abortController)  // 调用 API
-APIManager.getProcessingState()                                 // 检查处理状态
+APIManager.callAPIStreaming(...)       // 流式调用（推荐）
+APIManager.callAPI(...)                // 阻塞式调用（已废弃）
+APIManager.getProcessingState()        // 获取处理状态
 ```
 
-**实现细节**:
-- 使用 GM_xmlhttpRequest 发起请求
+**特性**:
+- 支持 SSE (Server-Sent Events) 流式输出
 - 支持 AbortController 取消请求
-- 系统提示词包含页面信息（URL、标题）
-- 防御性编程：`(history || []).slice(-10)`
+- 自动处理流式数据解析
+- 提供阻塞式 fallback 方案
 
 ---
 
 #### ChatManager (`chat.js`)
-**职责**: 消息处理、代码执行、历史记录
+**职责**: 聊天逻辑核心（消息处理、代码执行、历史记录）
 
 **接口**:
 ```javascript
-ChatManager.handleMessage(message)           // 处理消息
-ChatManager.executeJavaScript(code)          // 执行 JS 代码
-ChatManager.clearChat()                      // 清空聊天
-ChatManager.showHelp()                       // 显示帮助
-ChatManager.showWelcomeMessage()             // 显示欢迎消息
-ChatManager.renderHistory(history)           // 渲染历史
-ChatManager.stopCurrentRequest()             // 停止当前请求
-ChatManager.getCodeFromStore(blockId)        // 获取代码块
-ChatManager.getMessageQueueLength()          // 获取队列长度
+ChatManager.handleMessage(message)             // 处理用户消息
+ChatManager.clearChat()                        // 清空聊天
+ChatManager.executeJavaScript(code)            // 执行 JS 代码
+ChatManager.getCodeFromStore(id)               // 从存储获取代码
+ChatManager.navigateToPreviousUserMessage()    // 导航到上一条消息
+ChatManager.navigateToNextUserMessage()        // 导航到下一条消息
 ```
 
 **特性**:
-- 消息队列机制，防止并发
-- 代码块自动执行（安全代码）
-- 高危代码需要手动确认
-- codeBlockStore 限制 100 个，自动清理
-- 支持快捷命令 (/js, /clear, /help)
+- 消息队列管理（异步非阻塞）
+- 代码块自动提取与执行
+- 高危代码安全确认机制
+- 代码执行结果压缩与反馈
+- 消息高亮与滚动定位
 
 ---
 
