@@ -29,16 +29,16 @@ jobs:
     
     - name: Build script
       run: |
-        # 运行构建
-        echo "Running build..."
-        node build.js
+        # 运行发布版本构建（自动关闭 DEBUG_MODE）
+        echo "Running release build..."
+        RELEASE=true node build.js
         
         # 验证构建产物
         if [ -f dist/agent.user.js ]; then
-          echo "Build successful!"
+          echo "✅ Release build successful!"
           ls -lh dist/agent.user.js
         else
-          echo "Build failed: dist/agent.user.js not found"
+          echo "❌ Build failed: dist/agent.user.js not found"
           exit 1
         fi
     
