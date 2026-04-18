@@ -111,6 +111,13 @@ const APIRouter = (function() {
                     }, ErrorTracker.ErrorCategory.API, ErrorTracker.ErrorLevel.WARN);
                     ModelManager.markModelTest(model.id, false);
                     
+                    // ✅ 检查是否已达到最大失败次数，如果是则跳出内层循环
+                    const status = ModelManager.getModelStatus(model.id);
+                    if (status && !status.available) {
+                        console.warn(`[API Router] ⛔ 模型 ${model.id} 已标记为不可用，停止重试，切换到下一个模型`);
+                        break; // 跳出内层循环，尝试下一个模型
+                    }
+                    
                 } catch (error) {
                     lastError = error;
                     ModelManager.markModelTest(model.id, false);
@@ -120,6 +127,13 @@ const APIRouter = (function() {
                         attempt: i + 1,
                         category: 'API_REQUEST'
                     }, ErrorTracker.ErrorCategory.API, ErrorTracker.ErrorLevel.ERROR);
+                    
+                    // ✅ 检查是否已达到最大失败次数
+                    const status = ModelManager.getModelStatus(model.id);
+                    if (status && !status.available) {
+                        console.warn(`[API Router] ⛔ 模型 ${model.id} 已标记为不可用，停止重试，切换到下一个模型`);
+                        break; // 跳出内层循环
+                    }
                     
                     if (error.name === 'AbortError') {
                         return { success: false, cancelled: true, error: '请求已取消' };

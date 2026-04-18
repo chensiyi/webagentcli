@@ -340,6 +340,15 @@ const ModelManager = (function() {
         return icons[provider] || '🤖';
     }
 
+    /**
+     * ✅ v4.0.0: 获取模型状态（供 API Router 使用）
+     * @param {string} modelId - 模型ID
+     * @returns {Object|null} 模型状态对象
+     */
+    function getModelStatus(modelId) {
+        return modelStatus[modelId] || null;
+    }
+
     return {
         init,
         getAvailableModels,
@@ -349,6 +358,7 @@ const ModelManager = (function() {
         isModelAvailable,
         testModel,
         batchTestModels,
-        markModelTest
+        markModelTest,
+        getModelStatus  // ✅ v4.0.0: 导出
     };
 })();
