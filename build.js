@@ -78,7 +78,8 @@ const modules = [
     // ✅ api.js 已删除，功能由 api/ 目录替代
     
     // Agent 核心
-    'agent/index.js',          // v4.4.0: AI Agent 核心
+    'agent/CodeExecutor.js',     // v4.5.0: 代码执行器
+    'agent/index.js',            // v4.4.0: AI Agent 核心
     
     'chat.js',
     'main.js' // 主入口，最后加载

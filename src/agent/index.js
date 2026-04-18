@@ -13,7 +13,8 @@ const AIAgent = (function() {
         PageAnalyzer,      // 页面理解和分析
         ConfigManager,     // 配置管理
         ErrorTracker,      // 错误追踪
-        Utils              // 工具函数
+        Utils,             // 工具函数
+        CodeExecutor       // v4.5.0: 代码执行器
     };
 
     // ==================== Agent 状态 ====================
@@ -278,6 +279,64 @@ const AIAgent = (function() {
         return { ...dependencies };
     }
 
+    /**
+     * 执行代码（委托给 CodeExecutor）
+     * @param {string} code - JavaScript 代码
+     * @param {Object} options - 选项
+     * @returns {Promise<Object>} 执行结果
+     */
+    async function executeCode(code, options = {}) {
+        if (!dependencies.CodeExecutor) {
+            throw new Error('CodeExecutor 不可用');
+        }
+
+        Utils.debugLog('[AIAgent] 🛠️ 执行代码', code.substring(0, 50) + '...');
+
+        try {
+            const result = await dependencies.CodeExecutor.executeCode(code, {
+                strictMode: options.strictMode !== false  // 默认启用严格模式
+            });
+
+            Utils.debugLog('[AIAgent] ✅ 代码执行成功');
+            return result;
+
+        } catch (error) {
+            Utils.debugLog('[AIAgent] ❌ 代码执行失败:', error.message || error.error);
+            throw error;
+        }
+    }
+
+    /**
+     * 从消息中提取并执行代码块
+     * @param {string} messageText - AI 回复的文本
+     * @param {Object} options - 选项
+     * @returns {Promise<Array>} 执行结果数组
+     */
+    async function executeCodeFromMessage(messageText, options = {}) {
+        if (!dependencies.CodeExecutor) {
+            throw new Error('CodeExecutor 不可用');
+        }
+
+        // 1. 提取代码块
+        const codeBlocks = dependencies.CodeExecutor.extractCodeBlocks(messageText);
+
+        if (codeBlocks.length === 0) {
+            Utils.debugLog('[AIAgent] ⚠️ 未找到代码块');
+            return [];
+        }
+
+        Utils.debugLog(`[AIAgent] 🛠️ 找到 ${codeBlocks.length} 个代码块，开始执行`);
+
+        // 2. 批量执行
+        const results = await dependencies.CodeExecutor.executeBatch(codeBlocks, {
+            strictMode: options.strictMode,
+            stopOnError: options.stopOnError !== false
+        });
+
+        Utils.debugLog(`[AIAgent] ✅ 完成 ${results.length} 个代码块的执行`);
+        return results;
+    }
+
     return {
         // 核心方法
         init,
@@ -288,6 +347,10 @@ const AIAgent = (function() {
         getPageContext,
         clearHistory,
         addToHistory,
+        
+        // 代码执行 (v4.5.0)
+        executeCode,
+        executeCodeFromMessage,
         
         // 状态管理
         getState,
