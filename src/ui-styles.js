@@ -35,6 +35,31 @@ const UIStyles = (function() {
                 height: 100%;
                 overflow: hidden;
                 pointer-events: auto !important;
+                position: relative; /* ✅ v4.0.0: 为调整大小手柄提供定位上下文 */
+            }
+            
+            /* ✅ v4.0.0: 调整大小手柄样式 */
+            .resize-handle {
+                position: absolute;
+                z-index: 10;
+                pointer-events: auto !important;
+            }
+            
+            /* 四边手柄 */
+            .resize-n { top: -5px; left: 10px; right: 10px; height: 10px; cursor: n-resize; }
+            .resize-e { top: 10px; right: -5px; bottom: 10px; width: 10px; cursor: e-resize; }
+            .resize-s { bottom: -5px; left: 10px; right: 10px; height: 10px; cursor: s-resize; }
+            .resize-w { top: 10px; left: -5px; bottom: 10px; width: 10px; cursor: w-resize; }
+            
+            /* 四角手柄 */
+            .resize-ne { top: -5px; right: -5px; width: 15px; height: 15px; cursor: ne-resize; }
+            .resize-nw { top: -5px; left: -5px; width: 15px; height: 15px; cursor: nw-resize; }
+            .resize-se { bottom: -5px; right: -5px; width: 15px; height: 15px; cursor: se-resize; }
+            .resize-sw { bottom: -5px; left: -5px; width: 15px; height: 15px; cursor: sw-resize; }
+            
+            /* 鼠标悬停时显示视觉反馈 */
+            .resize-handle:hover {
+                background: rgba(102, 126, 234, 0.3);
             }
             #agent-header {
                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);

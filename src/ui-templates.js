@@ -16,6 +16,16 @@ const UITemplates = (function() {
         
         return `
             <div id="agent-main">
+                <!-- ✅ v4.0.0: 调整大小手柄 -->
+                <div class="resize-handle resize-n" data-resize="n"></div>
+                <div class="resize-handle resize-e" data-resize="e"></div>
+                <div class="resize-handle resize-s" data-resize="s"></div>
+                <div class="resize-handle resize-w" data-resize="w"></div>
+                <div class="resize-handle resize-ne" data-resize="ne"></div>
+                <div class="resize-handle resize-nw" data-resize="nw"></div>
+                <div class="resize-handle resize-se" data-resize="se"></div>
+                <div class="resize-handle resize-sw" data-resize="sw"></div>
+                
                 <div id="agent-header">
                     <div id="agent-title">
                         <span>✨</span>

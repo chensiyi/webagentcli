@@ -2182,6 +2182,31 @@ const UIStyles = (function() {
                 height: 100%;
                 overflow: hidden;
                 pointer-events: auto !important;
+                position: relative; /* ✅ v4.0.0: 为调整大小手柄提供定位上下文 */
+            }
+            
+            /* ✅ v4.0.0: 调整大小手柄样式 */
+            .resize-handle {
+                position: absolute;
+                z-index: 10;
+                pointer-events: auto !important;
+            }
+            
+            /* 四边手柄 */
+            .resize-n { top: -5px; left: 10px; right: 10px; height: 10px; cursor: n-resize; }
+            .resize-e { top: 10px; right: -5px; bottom: 10px; width: 10px; cursor: e-resize; }
+            .resize-s { bottom: -5px; left: 10px; right: 10px; height: 10px; cursor: s-resize; }
+            .resize-w { top: 10px; left: -5px; bottom: 10px; width: 10px; cursor: w-resize; }
+            
+            /* 四角手柄 */
+            .resize-ne { top: -5px; right: -5px; width: 15px; height: 15px; cursor: ne-resize; }
+            .resize-nw { top: -5px; left: -5px; width: 15px; height: 15px; cursor: nw-resize; }
+            .resize-se { bottom: -5px; right: -5px; width: 15px; height: 15px; cursor: se-resize; }
+            .resize-sw { bottom: -5px; left: -5px; width: 15px; height: 15px; cursor: sw-resize; }
+            
+            /* 鼠标悬停时显示视觉反馈 */
+            .resize-handle:hover {
+                background: rgba(102, 126, 234, 0.3);
             }
             #agent-header {
                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -2660,6 +2685,16 @@ const UITemplates = (function() {
         
         return `
             <div id="agent-main">
+                <!-- ✅ v4.0.0: 调整大小手柄 -->
+                <div class="resize-handle resize-n" data-resize="n"></div>
+                <div class="resize-handle resize-e" data-resize="e"></div>
+                <div class="resize-handle resize-s" data-resize="s"></div>
+                <div class="resize-handle resize-w" data-resize="w"></div>
+                <div class="resize-handle resize-ne" data-resize="ne"></div>
+                <div class="resize-handle resize-nw" data-resize="nw"></div>
+                <div class="resize-handle resize-se" data-resize="se"></div>
+                <div class="resize-handle resize-sw" data-resize="sw"></div>
+                
                 <div id="agent-header">
                     <div id="agent-title">
                         <span>✨</span>
@@ -3280,8 +3315,13 @@ const UIManager = (function() {
         // v4.0.0: 初始化模型选择器
         initializeMainModelSelect(config.model);
         
+        // ✅ v4.0.0: 加载保存的窗口大小
+        loadWindowSize();
+        
         setupEventListeners();
         setupChatEventDelegation();
+        setupDragEvents();
+        setupResizeEvents(); // ✅ v4.0.0: 设置调整大小功能
         
         return assistant;
     }
@@ -3538,6 +3578,153 @@ const UIManager = (function() {
         assistant.style.top = newTop + 'px';
         assistant.style.right = 'auto';
         assistant.style.bottom = 'auto';
+    }
+
+    /**
+     * ✅ v4.0.0: 设置调整大小事件
+     */
+    function setupResizeEvents() {
+        const handles = document.querySelectorAll('.resize-handle');
+        let isResizing = false;
+        let resizeDirection = '';
+        let resizeStartPos = { x: 0, y: 0 };
+        let resizeStartSize = { width: 0, height: 0 };
+        let resizeStartPos2 = { left: 0, top: 0 }; // 用于记录初始位置
+        let resizeRafId = null;
+        
+        // 最小尺寸限制
+        const MIN_WIDTH = 300;
+        const MIN_HEIGHT = 400;
+        
+        handles.forEach(handle => {
+            handle.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                isResizing = true;
+                resizeDirection = handle.dataset.resize;
+                resizeStartPos.x = e.clientX;
+                resizeStartPos.y = e.clientY;
+                resizeStartSize.width = assistant.offsetWidth;
+                resizeStartSize.height = assistant.offsetHeight;
+                resizeStartPos2.left = assistant.offsetLeft;
+                resizeStartPos2.top = assistant.offsetTop;
+                
+                // 添加全局鼠标事件监听
+                document.addEventListener('mousemove', handleResizeMove);
+                document.addEventListener('mouseup', handleResizeEnd);
+            });
+        });
+        
+        function handleResizeMove(e) {
+            if (!isResizing) return;
+            
+            // 使用 requestAnimationFrame 优化性能
+            if (resizeRafId !== null) return;
+            
+            resizeRafId = requestAnimationFrame(() => {
+                performResize(e);
+                resizeRafId = null;
+            });
+        }
+        
+        function performResize(e) {
+            const deltaX = e.clientX - resizeStartPos.x;
+            const deltaY = e.clientY - resizeStartPos.y;
+            
+            let newWidth = resizeStartSize.width;
+            let newHeight = resizeStartSize.height;
+            let newLeft = resizeStartPos2.left;
+            let newTop = resizeStartPos2.top;
+            
+            // 根据拖拽方向计算新尺寸和位置
+            if (resizeDirection.includes('e')) {
+                // 东边（右）
+                newWidth = Math.max(MIN_WIDTH, resizeStartSize.width + deltaX);
+            }
+            if (resizeDirection.includes('w')) {
+                // 西边（左）
+                const proposedWidth = Math.max(MIN_WIDTH, resizeStartSize.width - deltaX);
+                if (proposedWidth > MIN_WIDTH) {
+                    newWidth = proposedWidth;
+                    newLeft = resizeStartPos2.left + (resizeStartSize.width - proposedWidth);
+                }
+            }
+            if (resizeDirection.includes('s')) {
+                // 南边（下）
+                newHeight = Math.max(MIN_HEIGHT, resizeStartSize.height + deltaY);
+            }
+            if (resizeDirection.includes('n')) {
+                // 北边（上）
+                const proposedHeight = Math.max(MIN_HEIGHT, resizeStartSize.height - deltaY);
+                if (proposedHeight > MIN_HEIGHT) {
+                    newHeight = proposedHeight;
+                    newTop = resizeStartPos2.top + (resizeStartSize.height - proposedHeight);
+                }
+            }
+            
+            // 应用新尺寸和位置
+            assistant.style.width = newWidth + 'px';
+            assistant.style.height = newHeight + 'px';
+            assistant.style.left = newLeft + 'px';
+            assistant.style.top = newTop + 'px';
+            assistant.style.right = 'auto';
+            assistant.style.bottom = 'auto';
+        }
+        
+        function handleResizeEnd() {
+            if (!isResizing) return;
+            
+            isResizing = false;
+            resizeDirection = '';
+            
+            // 取消 pending 的 rAF
+            if (resizeRafId !== null) {
+                cancelAnimationFrame(resizeRafId);
+                resizeRafId = null;
+            }
+            
+            // 移除全局事件监听
+            document.removeEventListener('mousemove', handleResizeMove);
+            document.removeEventListener('mouseup', handleResizeEnd);
+            
+            // 保存窗口大小到本地存储
+            saveWindowSize();
+        }
+        
+        console.log('[UI] 调整大小功能已启用');
+    }
+    
+    /**
+     * ✅ v4.0.0: 保存窗口大小
+     */
+    function saveWindowSize() {
+        try {
+            const size = {
+                width: assistant.offsetWidth,
+                height: assistant.offsetHeight
+            };
+            GM_setValue('window_size', size);
+        } catch (e) {
+            console.error('[UI] 保存窗口大小失败:', e);
+        }
+    }
+    
+    /**
+     * ✅ v4.0.0: 加载窗口大小
+     */
+    function loadWindowSize() {
+        try {
+            const size = GM_getValue('window_size', null);
+            if (size && size.width && size.height) {
+                assistant.style.width = size.width + 'px';
+                assistant.style.height = size.height + 'px';
+                return true;
+            }
+        } catch (e) {
+            console.error('[UI] 加载窗口大小失败:', e);
+        }
+        return false;
     }
 
     /**
