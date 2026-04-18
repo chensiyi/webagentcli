@@ -18,6 +18,9 @@
         }
         isInitialized = true;
         
+        // ✅ v4.2.0: 测试热重载
+        console.log('[Main] 🎉 热重载测试 - 当前时间:', new Date().toLocaleTimeString());
+        
         console.log('🚀 AI Agent 正在启动...');
         
         try {

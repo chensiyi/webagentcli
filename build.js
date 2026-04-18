@@ -61,6 +61,7 @@ const modules = [
     'core/UnifiedStateManager.js', // v4.2.0: 统一状态管理器
     'core/ShortcutManager.js', // 快捷键管理器
     'core/ProviderManager.js', // v4.0.0: 提供商管理器
+    'core/PageAnalyzer.js',    // v4.3.0: 页面分析器
     
     // UI 模块（必须在 Chat 之前加载，因为 Chat 依赖 UIManager）
     'ui-styles.js',      // UI 样式模块
