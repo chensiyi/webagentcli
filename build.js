@@ -76,6 +76,10 @@ const modules = [
     'api/index.js',            // v4.1.0: API 客户端工厂
     'api-router.js',           // API 路由层 (v4.0.0+)
     // ✅ api.js 已删除，功能由 api/ 目录替代
+    
+    // Agent 核心
+    'agent/index.js',          // v4.4.0: AI Agent 核心
+    
     'chat.js',
     'main.js' // 主入口，最后加载
 ].filter(Boolean); // 过滤掉 null 值
