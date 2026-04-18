@@ -54,6 +54,7 @@ const modules = [
     'core/utils.js',           // 工具函数
     'core/EventManager.js',
     'core/ErrorTracker.js',    // v4.0.0: 错误追踪器
+    IS_RELEASE ? null : 'core/HotReload.js',  // ✅ 仅开发模式：热重载
     'core/ConfigManager.js',
     'core/HistoryManager.js',
     'core/StateManager.js',
@@ -71,7 +72,7 @@ const modules = [
     'api.js',
     'chat.js',
     'main.js' // 主入口，最后加载
-];
+].filter(Boolean); // 过滤掉 null 值
 
 console.log(`\n📋 将加载 ${modules.length} 个模块...`);
 
