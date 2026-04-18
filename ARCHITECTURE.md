@@ -1,7 +1,7 @@
-# AI Browser Agent 架构文档 v3.9.0
+# AI Browser Agent 架构文档 v3.9.8
 
-**最后更新**: 2026-04-17  
-**版本**: v3.9.0  
+**最后更新**: 2026-04-18  
+**版本**: v3.9.8  
 **维护原则**: 简洁、实用、同步更新
 
 ---
@@ -35,11 +35,11 @@
 | 安全执行 | unsafeWindow.eval | JS 代码执行 |
 
 ### 当前状态
-- **版本**: v3.9.0
-- **模块数**: 13 个
-- **文件大小**: ~162 KB
-- **架构**: 模块化 + 事件驱动
-- **最新特性**: 流式输出、快捷键系统、调试模式管理、性能优化
+- **版本**: v3.9.8
+- **模块数**: 15 个（新增 ProviderManager, api-router.js）
+- **文件大小**: ~285 KB
+- **架构**: 模块化 + 事件驱动 + 供应商插件化
+- **最新特性**: 流式输出、快捷键系统、供应商管理、模型测试、智能刷新
 
 ---
 
@@ -54,11 +54,13 @@ src/
 │   ├── ConfigManager.js   # 配置管理
 │   ├── HistoryManager.js  # 历史管理
 │   ├── StateManager.js    # 状态管理
-│   └── ShortcutManager.js # 快捷键管理 (v3.8.6+)
+│   ├── ShortcutManager.js # 快捷键管理 (v3.8.6+)
+│   └── ProviderManager.js # 供应商管理 (v4.0.0+)
 ├── ui-styles.js           # UI 样式模块
 ├── ui-templates.js        # UI 模板模块
 ├── ui.js                  # UI 交互逻辑 (UIManager)
 ├── models.js              # 模型管理 (ModelManager)
+├── api-router.js          # API 路由层 (v4.0.0+)
 ├── api.js                 # API 调用 (APIManager)
 ├── chat.js                # 聊天逻辑 (ChatManager)
 └── main.js                # 应用入口
@@ -88,13 +90,15 @@ main.js (入口)
 4. `core/HistoryManager.js` - 历史管理
 5. `core/StateManager.js` - 状态管理
 6. `core/ShortcutManager.js` - 快捷键管理 (v3.8.6+)
-7. `ui-styles.js` - UI 样式
-8. `ui-templates.js` - UI 模板
-9. `ui.js` - UI 逻辑
-10. `models.js` - 模型管理
-11. `api.js` - API 调用
-12. `chat.js` - 聊天逻辑
-13. `main.js` - 应用入口（最后加载）
+7. `core/ProviderManager.js` - 供应商管理 (v4.0.0+)
+8. `ui-styles.js` - UI 样式
+9. `ui-templates.js` - UI 模板
+10. `ui.js` - UI 逻辑
+11. `models.js` - 模型管理
+12. `api-router.js` - API 路由层 (v4.0.0+)
+13. `api.js` - API 调用
+14. `chat.js` - 聊天逻辑
+15. `main.js` - 应用入口（最后加载）
 
 ---
 
@@ -394,6 +398,69 @@ ModelManager.DEFAULT_MODELS            // 默认模型列表常量
 - 24 小时缓存机制
 - 支持从 OpenRouter API 动态获取免费模型
 - 提供商图标映射
+
+---
+
+#### ProviderManager (`core/ProviderManager.js`) (v4.0.0+)
+**职责**: AI 供应商管理（插件化架构）
+
+**接口**:
+```javascript
+ProviderManager.init()                              // 初始化
+ProviderManager.getAllProviders()                   // 获取所有供应商
+ProviderManager.getProviderById(id)                 // 根据 ID 获取
+ProviderManager.addProvider(config)                 // 添加供应商
+ProviderManager.updateProvider(id, updates)         // 更新供应商
+ProviderManager.deleteProvider(id)                  // 删除供应商
+ProviderManager.getTemplate(name)                   // 获取 API 模板
+ProviderManager.autoDiscoverLocalServices(baseUrl)  // 自动发现本地服务
+ProviderManager.addModelsToProvider(id, models)     // 添加模型到供应商
+```
+
+**特性**:
+- 插件化架构，每个供应商独立配置
+- 支持多种 API 模板（OpenAI, Anthropic, Google 等）
+- 本地服务自动发现（LM Studio, Ollama 等）
+- 模型列表管理（拖拽排序、启用/禁用、测试）
+- 智能刷新（对比新旧模型，询问是否保留）
+- 一键测试所有模型可用性
+- 自动删除无效模型
+
+**数据格式**:
+```javascript
+{
+  id: "openrouter",
+  name: "OpenRouter",
+  baseUrl: "https://openrouter.ai/api/v1",
+  apiKey: "sk-or-...",
+  template: "openai",  // 使用的 API 模板
+  isLocal: false,      // 是否为本地服务
+  models: [
+    { id: "model-1", name: "Model 1", enabled: true },
+    { id: "model-2", name: "Model 2", enabled: false }
+  ],
+  createdAt: 1234567890,
+  updatedAt: 1234567890
+}
+```
+
+---
+
+#### APIRouter (`api-router.js`) (v4.0.0+)
+**职责**: API 请求路由和故障转移
+
+**接口**:
+```javascript
+APIRouter.callWithFallback(messages, config, providers)
+// 尝试多个供应商，直到成功或全部失败
+```
+
+**特性**:
+- 多供应商故障转移
+- 自动重试机制
+- 请求超时控制
+- 详细的错误日志
+- 支持流式和非流式响应
 
 ---
 
@@ -703,7 +770,29 @@ console.log('💾 数据已保存')       // 调试信息
 
 ## 变更记录
 
-### v3.8.6 (2026-04-17)
+### v3.9.8 (2026-04-18)
+
+#### 新增
+- ✨ 手动添加模型功能（➕ 按钮）
+- ✨ 智能刷新模型（支持 /v1/models 接口）
+- ✨ 新旧模型对比，弹窗询问是否保留
+- ✨ 模型测试功能增强（保存测试结果到缓存）
+- ✨ 一键删除无效模型
+
+#### 修复
+- 🐛 修复 eval 执行代码不能使用 return 的问题
+- 🐛 修复模型编辑功能的数组引用问题
+- 🐛 修复流式响应显示的竞态条件
+- 🐛 修复数据同步问题（删除模型后清理测试缓存）
+
+#### 优化
+- 🚀 系统提示词优化（明确代码执行规则）
+- 🚀 UI 交互优化（拖拽排序、批量操作）
+- 🚀 错误处理优化（更友好的提示）
+
+---
+
+### v3.9.0 (2026-04-17)
 
 #### 新增
 - ✨ 创建 `core/utils.js` 工具模块
@@ -982,6 +1071,7 @@ const DEBUG_MODE = false; // 发布模式已关闭调试日志
 
 | 版本 | 日期 | 主要特性 | 文件大小 |
 |------|------|---------|----------|
+| v3.9.8 | 2026-04-18 | 供应商管理、模型测试、智能刷新 | ~285 KB |
 | v3.9.0 | 2026-04-17 | 流式输出、快捷键、DEBUG_MODE | ~162 KB |
 | v3.8.6 | 2026-04-17 | 拖动优化、设置弹窗修复 | 149.9 KB |
 | v3.8.0 | 2026-04-16 | 事件驱动架构重构 | 145 KB |
@@ -989,5 +1079,5 @@ const DEBUG_MODE = false; // 发布模式已关闭调试日志
 ---
 
 **文档维护者**: AI Assistant  
-**最后审核**: 2026-04-17 (v3.9.0)  
-**下次审核**: 每次重大更新后
+**最后审核**: 2026-04-18 (v3.9.8)  
+**下次审核**: v4.0 发布后
