@@ -90,34 +90,54 @@ const APIRouter = (function() {
                 Utils.debugLog(`🔄 尝试模型: ${model.id} (第 ${i + 1} 次)`);
 
                 try {
-                    const result = await APIManager.callAPIStreaming(
-                        userMessage, 
-                        conversationHistory, 
-                        currentConfig, 
-                        abortController, 
-                        onChunk
+                    // ✅ v4.1.0: 使用新的 API 客户端架构
+                    const provider = ProviderManager.getProviderByModel(model.id);
+                    if (!provider) {
+                        throw new Error(`未找到模型 ${model.id} 的提供商配置`);
+                    }
+                    
+                    const client = APIClientFactory.createClient(provider, model.id);
+                    
+                    // 构建消息数组
+                    const messages = [
+                        ...conversationHistory,
+                        { role: 'user', content: userMessage }
+                    ];
+                    
+                    const result = await client.sendStreamingRequest(
+                        messages,
+                        onChunk,
+                        {
+                            temperature: currentConfig.temperature || 0.7,
+                            maxTokens: currentConfig.maxTokens || 4096
+                        },
+                        abortController
                     );
 
+                    // ✅ v4.1.0: 新客户端返回 { success, content, complete }
                     if (result.success) {
                         // 标记模型可用
                         ModelManager.markModelTest(model.id, true);
-                        return result;
+                        return {
+                            success: true,
+                            content: result.content,
+                            model: model.id,
+                            attempts
+                        };
                     }
-
-                    // 如果是因为被取消，直接返回
-                    if (result.cancelled) {
-                        console.log('[API Router] Request cancelled');
-                        return result;
-                    }
-
-                    // 请求失败，记录错误
-                    lastError = new Error(result.error || '未知错误');
-                    ErrorTracker.report(lastError, {
+                    
+                    // 如果请求失败
+                    throw new Error(result.error || '请求失败');
+                    
+                } catch (error) {
+                    lastError = error;
+                    ModelManager.markModelTest(model.id, false);
+                    
+                    ErrorTracker.report(error, {
                         model: model.id,
                         attempt: i + 1,
-                        error: result.error
-                    }, ErrorTracker.ErrorCategory.API, ErrorTracker.ErrorLevel.WARN);
-                    ModelManager.markModelTest(model.id, false);
+                        category: 'API_REQUEST'
+                    }, ErrorTracker.ErrorCategory.API, ErrorTracker.ErrorLevel.ERROR);
                     
                     // ✅ 检查是否已达到最大失败次数，如果是则跳出内层循环
                     const status = ModelManager.getModelStatus(model.id);
@@ -131,24 +151,8 @@ const APIRouter = (function() {
                         break; // 跳出内层循环，尝试下一个模型
                     }
                     
-                } catch (error) {
-                    lastError = error;
-                    ModelManager.markModelTest(model.id, false);
-                    
-                    ErrorTracker.report(error, {
-                        model: model.id,
-                        attempt: i + 1,
-                        category: 'API_REQUEST'
-                    }, ErrorTracker.ErrorCategory.API, ErrorTracker.ErrorLevel.ERROR);
-                    
-                    // ✅ 检查是否已达到最大失败次数
-                    const status = ModelManager.getModelStatus(model.id);
-                    if (status && !status.available) {
-                        console.warn(`[API Router] ⛔ 模型 ${model.id} 已标记为不可用，停止重试，切换到下一个模型`);
-                        break; // 跳出内层循环
-                    }
-                    
-                    if (error.name === 'AbortError') {
+                    // 处理中止错误
+                    if (error.name === 'AbortError' || error.message.includes('取消')) {
                         return { success: false, cancelled: true, error: '请求已取消' };
                     }
                 }

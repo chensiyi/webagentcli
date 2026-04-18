@@ -75,7 +75,7 @@ const modules = [
     'api/LMStudioClient.js',   // v4.1.0: LM Studio 客户端
     'api/index.js',            // v4.1.0: API 客户端工厂
     'api-router.js',           // API 路由层 (v4.0.0+)
-    'api.js',                  // API 调用（保留兼容性）
+    // ✅ api.js 已删除，功能由 api/ 目录替代
     'chat.js',
     'main.js' // 主入口，最后加载
 ].filter(Boolean); // 过滤掉 null 值
