@@ -1,5 +1,7 @@
-// ==================== 主入口模块 (重构版) ====================
-// 使用模块化架构，降低耦合度
+// ==================== 主入口模块 (v5.0 重构版) ====================
+// Main Layer (程序启动层) - "园区建设"
+// 职责：初始化模块、设置监听、暴露接口
+// 注意：不包含业务逻辑，只负责"启动"和"接线"
 
 (function() {
     'use strict';
@@ -13,369 +15,170 @@
     async function init() {
         // 防止重复初始化
         if (isInitialized) {
-            console.log('⚠️ 应用已初始化，跳过');
+            console.warn('[Main] ⚠️ 应用已初始化，跳过');
             return;
         }
         isInitialized = true;
         
-        // ✅ v4.2.0: 测试热重载
-        console.log('[Main] 🎉 热重载测试 - 当前时间:', new Date().toLocaleTimeString());
-        
-        console.log('🚀 AI Agent 正在启动...');
+        console.log('[Main] 🚀 AI Agent v5.0 正在启动...');
         
         try {
-            // 1. 初始化核心模块
-            await initCoreModules();
-            console.log('✅ 核心模块已初始化');
+            // 1. 初始化核心工具层
+            await initCoreUtilities();
+            console.log('[Main] ✅ 核心工具层已初始化');
             
-            // 2. 初始化业务模块
-            await initBusinessModules();
-            console.log('✅ 业务模块已初始化');
+            // 2. 初始化服务层
+            await initServices();
+            console.log('[Main] ✅ 服务层已初始化');
             
-            // 3. 设置事件监听
+            // 3. 初始化基础设施层
+            await initInfrastructure();
+            console.log('[Main] ✅ 基础设施层已初始化');
+            
+            // 4. 启动业务逻辑层（园区工厂）
+            await initBusinessLayer();
+            console.log('[Main] ✅ 业务逻辑层已启动');
+            
+            // 5. 设置事件监听（连接 UI 到 Client）
             setupEventListeners();
-            console.log('✅ 事件监听已设置');
+            console.log('[Main] ✅ 事件监听已设置');
             
-            // 4. 初始化快捷键系统
+            // 6. 初始化快捷键系统
             initShortcuts();
-            console.log('✅ 快捷键系统已初始化');
+            console.log('[Main] ✅ 快捷键系统已初始化');
             
-            // 5. 创建启动按钮
-            createLauncherButton();
-            console.log('✅ 启动按钮已创建');
+            // 7. 暴露全局调试接口
+            exposeDebugInterface();
+            console.log('[Main] ✅ 调试接口已暴露');
             
-            // 6. 启动应用
-            startApplication();
-            console.log('🎉 AI Agent 启动成功!');
+            console.log('[Main] 🎉 AI Agent v5.0 启动成功!');
             
         } catch (error) {
-            console.error('❌ 启动失败:', error);
-            EventManager?.emit(EventManager.EventTypes.APP_ERROR, { error });
+            console.error('[Main] ❌ 启动失败:', error);
+            throw error;
         }
     }
     
     /**
-     * 初始化核心模块
+     * 初始化核心工具层
      */
-    async function initCoreModules() {
-        // ✅ v4.0.0: 初始化错误追踪器（最先初始化）
+    async function initCoreUtilities() {
+        // ErrorTracker 最先初始化
         ErrorTracker.init();
-        console.log('✅ ErrorTracker 已初始化');
         
-        // 初始化配置管理器（带依赖注入）
+        // EventManager 无需初始化
+    }
+    
+    /**
+     * 初始化服务层
+     */
+    async function initServices() {
+        // StorageManager 最先初始化（其他模块可能依赖它）
+        if (window.StorageManager) {
+            window.StorageManager.init();
+            console.log('[Main] ✅ StorageManager 已初始化');
+        }
+        
+        // ConfigManager
         await ConfigManager.init({
             eventManager: EventManager
         });
         
-        // 初始化历史管理器
-        await HistoryManager.init();
-        
-        // 初始化状态管理器
-        await StateManager.init();
-        
-        // v4.0.0: 初始化提供商管理器
+        // ProviderManager
         await ProviderManager.init();
-        console.log('✅ ProviderManager 已初始化');
         
-        // 初始化模型管理器
+        // ModelManager
         await ModelManager.init();
-        console.log('✅ ModelManager 已初始化');
-        
-        // ✨ v4.6.0: 初始化 AIAgent（基础设施层）
-        AIAgent.init({
-            autoAttachPageContext: true,
-            maxHistoryLength: 30,
-            defaultModel: ConfigManager.getConfig('model') || 'auto',
-            defaultTemperature: ConfigManager.getConfig('temperature') || 0.7,
-            defaultMaxTokens: ConfigManager.getConfig('maxTokens') || 4096
-        });
-        console.log('✅ AIAgent 已初始化（基础设施层）');
-        
-        // ✨ v4.7.0: 初始化 WebAgentClient（业务逻辑层）
-        await WebAgentClient.init();
-        console.log('✅ WebAgentClient 已初始化（业务逻辑层）');
-        
-        console.log('✅ 核心模块加载完成');
     }
     
     /**
-     * 初始化业务模块
+     * 初始化基础设施层
      */
-    async function initBusinessModules() {
-        const config = ConfigManager.getAll();
-        
-        // 初始化各模块
-        try {
-            // 先加载对话历史，判断是否首次使用
-            const history = HistoryManager.getHistory();
-            const isFirstUse = history.length === 0;
-            
-            // 检查聊天窗口状态
-            const cachedVisibility = StateManager.getChatVisibility();
-            
-            // 初始化UI
-            UIManager.createAssistant(config);
-            
-            // 根据状态显示/隐藏聊天窗口
-            // 默认隐藏，需要用户点击按钮唤醒
-            if (cachedVisibility) {
-                // 状态为打开：显示 + 加载历史
-                UIManager.show();
-                ChatManager.renderHistory(history);
-            } else {
-                // 默认隐藏（包括首次使用）
-                UIManager.hide();
-            }
-            
-        } catch (error) {
-            console.error('❌ 业务模块初始化失败:', error);
-            throw error;
-        }
+    async function initInfrastructure() {
+        // AIAgent
+        AIAgent.init({
+            autoAttachPageContext: true,
+            maxHistoryLength: 30,
+            defaultModel: ConfigManager.get('model') || 'auto',
+            defaultTemperature: ConfigManager.get('temperature') || 0.7,
+            defaultMaxTokens: ConfigManager.get('maxTokens') || 4096
+        });
     }
-
+    
+    /**
+     * 初始化业务逻辑层（园区工厂）
+     */
+    async function initBusinessLayer() {
+        // WebAgentClient - 业务编排器
+        await WebAgentClient.init();
+    }
+    
+    /**
+     * 设置事件监听（连接 UI 事件到 WebAgentClient）
+     */
+    function setupEventListeners() {
+        // 监听用户消息发送事件
+        EventManager.on(EventManager.EventTypes.CHAT_MESSAGE_SENT, async (message) => {
+            try {
+                await WebAgentClient.handleUserMessage(message);
+            } catch (error) {
+                console.error('[Main] 处理消息失败:', error);
+            }
+        });
+        
+        // 监听清空聊天事件
+        EventManager.on(EventManager.EventTypes.CHAT_CLEAR, () => {
+            WebAgentClient.handleClearChat();
+        });
+        
+        // 监听取消请求事件
+        EventManager.on(EventManager.EventTypes.STOP_REQUEST, () => {
+            WebAgentClient.handleCancelRequest();
+        });
+        
+        // 监听代码执行事件
+        EventManager.on('agent:execute:code', async (data) => {
+            try {
+                await WebAgentClient.handleCodeExecution(data.code);
+            } catch (error) {
+                console.error('[Main] 代码执行失败:', error);
+            }
+        });
+    }
+    
     /**
      * 初始化快捷键系统
      */
     function initShortcuts() {
-        // 初始化快捷键管理器
-        ShortcutManager.init();
-        
-        // 注册核心快捷键
-        
-        // 1. Ctrl+Enter: 发送消息
-        ShortcutManager.register('Ctrl+Enter', (e) => {
-            const input = document.getElementById('agent-input');
-            if (input && document.activeElement === input) {
-                const message = input.value.trim();
-                if (message) {
-                    EventManager.emit(EventManager.EventTypes.CHAT_MESSAGE_SENT, message);
-                    input.value = '';
-                }
-            }
-        }, '发送消息');
-        
-        // 2. Escape: 隐藏窗口
-        ShortcutManager.register('Escape', (e) => {
-            // 如果设置对话框打开，先关闭设置对话框
-            const modal = document.getElementById('settings-modal');
-            if (modal) {
-                UIManager.closeModal();
-                return;
-            }
-            
-            // 否则隐藏聊天窗口
-            UIManager.hide();
-        }, '隐藏窗口');
-        
-        // 3. Ctrl+ArrowUp: 导航到上一条用户消息
-        ShortcutManager.register('Ctrl+ArrowUp', (e) => {
-            const chat = document.getElementById('agent-chat');
-            if (chat && chat.style.display !== 'none') {
-                ChatManager.navigateToPreviousUserMessage();
-            }
-        }, '导航到上一条消息');
-        
-        // 4. Ctrl+ArrowDown: 导航到下一条用户消息
-        ShortcutManager.register('Ctrl+ArrowDown', (e) => {
-            const chat = document.getElementById('agent-chat');
-            if (chat && chat.style.display !== 'none') {
-                ChatManager.navigateToNextUserMessage();
-            }
-        }, '导航到下一条消息');
-        
-        // ✅ v4.0.0: Ctrl+Shift+E: 打开错误追踪面板
-        ShortcutManager.register('Ctrl+Shift+E', (e) => {
-            ErrorTracker.showPanel();
-        }, '打开错误面板');
-        
-        console.log('⌨️ 已注册 5 个核心快捷键');
-    }
-
-    /**
-     * 设置全局事件监听（简化版）
-     * @returns {Array<number>} 监听器 ID 列表
-     */
-    function setupEventListeners() {
-        const { EventTypes } = EventManager;
-        const listenerIds = [];
-        
-        // 聊天消息发送事件 - 直接调用 ChatManager.handleMessage
-        listenerIds.push(
-            EventManager.on(EventTypes.CHAT_MESSAGE_SENT, async (message) => {
-                await ChatManager.handleMessage(message);
-            })
-        );
-        
-        // 打开设置事件
-        listenerIds.push(
-            EventManager.on(EventTypes.SETTINGS_OPEN, () => {
-                UIManager.showSettings();
-            })
-        );
-        
-        // 清空聊天事件
-        listenerIds.push(
-            EventManager.on(EventTypes.CHAT_CLEAR, () => {
-                ChatManager.clearChat();
-            })
-        );
-        
-        // 执行代码事件
-        listenerIds.push(
-            EventManager.on('agent:execute:code', (code) => {
-                ChatManager.executeJavaScript(code);
-            })
-        );
-        
-        // 停止请求事件
-        listenerIds.push(
-            EventManager.on('agent:stop:request', () => {
-                ChatManager.stopCurrentRequest();
-            })
-        );
-        
-        // 打开/关闭 Agent 窗口事件
-        listenerIds.push(
-            EventManager.on(EventTypes.AGENT_OPEN, async () => {
-                UIManager.show();
-                StateManager.saveChatVisibility(true);
-                
-                // 加载历史记录（如果有的话）
-                const history = HistoryManager.getHistory();
-                if (history.length > 0) {
-                    ChatManager.renderHistory(history);
-                }
-            })
-        );
-        
-        listenerIds.push(
-            EventManager.on(EventTypes.AGENT_CLOSE, () => {
-                // 注意：UIManager.hide() 已经在 ui.js 中调用过了，这里不需要再次调用
-                // 只需要保存状态和记录日志
-                StateManager.saveChatVisibility(false);
-            })
-        );
-        
-        return listenerIds;
-    }
-
-    /**
-     * 启动应用逻辑
-     */
-    function startApplication() {
-        const config = ConfigManager.getAll();
-        
-        // 触发应用启动事件
-        EventManager.emit(EventManager.EventTypes.APP_STARTED, {
-            config: ConfigManager.exportConfig(),
-            timestamp: Date.now()
-        });
-        
-        console.log('🎯 应用已启动，等待用户交互...');
-    }
-
-    /**
-     * 创建启动按钮
-     * @returns {number|null} 监听器 ID
-     */
-    function createLauncherButton() {
-        // 检查是否已存在启动按钮
-        if (document.getElementById('agent-launcher-btn')) {
-            console.log('🔘 启动按钮已存在，跳过创建');
-            return null;
+        if (typeof ShortcutManager !== 'undefined') {
+            ShortcutManager.init();
         }
-
-        setTimeout(() => {
-            const badge = document.createElement('div');
-            badge.id = 'agent-launcher-btn';
-            badge.style.cssText = `
-                position: fixed;
-                bottom: 20px;
-                right: 20px;
-                width: 56px;
-                height: 56px;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
-                border-radius: 50%;
-                font-size: 24px;
-                font-family: -apple-system, sans-serif;
-                z-index: 999998;
-                box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
-                cursor: pointer;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                transition: all 0.3s ease;
-                border: none;
-            `;
-            badge.textContent = '🤖';
-            badge.title = '点击打开 AI Agent';
-            
-            // 根据聊天窗口状态决定按钮初始显示状态
-            const isChatVisible = StateManager.getChatVisibility();
-            if (isChatVisible) {
-                badge.style.display = 'none';
-            }
-            
-            // 悬停效果
-            badge.addEventListener('mouseenter', () => {
-                badge.style.transform = 'scale(1.1)';
-                badge.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.6)';
-            });
-            
-            badge.addEventListener('mouseleave', () => {
-                badge.style.transform = 'scale(1)';
-                badge.style.boxShadow = '0 4px 16px rgba(102, 126, 234, 0.4)';
-            });
-            
-            badge.addEventListener('click', () => {
-                // 使用事件系统打开 Agent
-                EventManager.emit(EventManager.EventTypes.AGENT_OPEN);
-                
-                // 点击后隐藏按钮（Agent 打开后不需要显示）
-                badge.style.transition = 'all 0.3s ease';
-                badge.style.transform = 'scale(0)';
-                badge.style.opacity = '0';
-                setTimeout(() => {
-                    badge.style.display = 'none';
-                }, 300);
-            });
-            
-            document.body.appendChild(badge);
-            
-            // 监听 Agent 关闭事件，重新显示按钮
-            const listenerId = EventManager.on(EventManager.EventTypes.AGENT_CLOSE, () => {
-                badge.style.display = 'flex';
-                badge.style.transition = 'all 0.3s ease';
-                badge.style.transform = 'scale(1)';
-                badge.style.opacity = '1';
-            });
-            
-            console.log('🔘 AI Agent 启动按钮已创建（右下角圆形按钮）');
-            return listenerId;
-        }, 1000);
-    }
-
-    // 页面加载完成后启动
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => {
-            init();
-        });
-    } else {
-        // DOM 已经加载完成，直接初始化
-        // 使用 setTimeout 确保在下一个事件循环中执行，避免潜在的问题
-        setTimeout(() => {
-            init();
-        }, 0);
     }
     
-    // ✨ v4.6.0: 暴露 AIAgent 和 WebAgentClient 到全局（供调试和扩展）
-    if (typeof unsafeWindow !== 'undefined') {
-        unsafeWindow.AIAgent = AIAgent;
-        unsafeWindow.WebAgentClient = WebAgentClient;
-        console.log('💡 AIAgent 已暴露到全局，可通过 window.AIAgent 访问');
-        console.log('💡 WebAgentClient 已暴露到全局，可通过 window.WebAgentClient 访问');
-        console.log('💡 示例: await window.WebAgentClient.handleUserMessage("你好")');
-    }
 
+    
+    /**
+     * 暴露全局调试接口
+     */
+    function exposeDebugInterface() {
+        if (typeof unsafeWindow !== 'undefined') {
+            unsafeWindow.WebAgentClient = WebAgentClient;
+            unsafeWindow.AIAgent = AIAgent;
+            unsafeWindow.EventManager = EventManager;
+            
+            console.log('[Main] 💡 调试接口已暴露:');
+            console.log('   - window.WebAgentClient - 业务逻辑层');
+            console.log('   - window.AIAgent - 基础设施层');
+            console.log('   - window.EventManager - 事件总线');
+            console.log('   示例: await window.WebAgentClient.handleUserMessage("你好")');
+        }
+    }
+    
+    // 页面加载完成后初始化
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+    
 })();

@@ -12,43 +12,21 @@ const EventManager = (function() {
         UI_SHOW: 'agent:ui:show',
         UI_HIDE: 'agent:ui:hide',
         UI_TOGGLE: 'agent:ui:toggle',
-        UI_STATE_CHANGED: 'agent:ui:state:changed',
         
         // 聊天相关
         CHAT_MESSAGE_SENT: 'agent:chat:message:sent',
         CHAT_MESSAGE_RECEIVED: 'agent:chat:message:received',
         CHAT_CLEAR: 'agent:chat:clear',
         
-        // 消息流式处理
-        MESSAGE_STREAMING: 'agent:message:streaming',
-        MESSAGE_COMPLETE: 'agent:message:complete',
-        MESSAGE_ERROR: 'agent:message:error',
-        
-        // 代码执行
-        CODE_BLOCKS_DETECTED: 'agent:code:blocks:detected',
-        CODE_EXECUTED: 'agent:code:executed',
-        CODE_EXECUTION_ERROR: 'agent:code:execution:error',
-        CODE_BATCH_EXECUTED: 'agent:code:batch:executed',
-        
-        // 会话管理
-        CHAT_CLEARED: 'agent:chat:cleared',
-        REQUEST_CANCELLED: 'agent:request:cancelled',
-        
         // 配置相关
         CONFIG_UPDATED: 'agent:config:updated',
         SETTINGS_OPEN: 'agent:settings:open',
         SETTINGS_SAVED: 'agent:settings:saved',
-        SETTINGS_UPDATED: 'agent:settings:updated',
         
         // API 相关
         API_CALL_START: 'agent:api:call:start',
         API_CALL_SUCCESS: 'agent:api:call:success',
         API_CALL_ERROR: 'agent:api:call:error',
-        
-        // 错误处理
-        NETWORK_ERROR: 'agent:error:network',
-        MODEL_ERROR: 'agent:error:model',
-        GENERAL_ERROR: 'agent:error:general',
         
         // 系统级
         APP_STARTED: 'agent:app:started',

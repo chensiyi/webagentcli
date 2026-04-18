@@ -286,56 +286,7 @@ const ErrorTracker = (function() {
             max-height: 80vh;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         `;
-        
-        // 使用 Shadow DOM 绕过 CSP 限制（YouTube 等严格网站需要）
-        const shadow = panel.attachShadow({ mode: 'open' });
-        
-        // 注入样式
-        const style = document.createElement('style');
-        style.textContent = `
-            .container {
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                padding: 20px;
-            }
-            button {
-                padding: 6px 12px;
-                border: none;
-                border-radius: 4px;
-                cursor: pointer;
-                font-size: 14px;
-            }
-            button:hover {
-                opacity: 0.9;
-            }
-        `;
-        shadow.appendChild(style);
-        
-        // 使用 DOMParser 安全地解析 HTML
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
-        const content = doc.body;
-        
-        // 复制所有子元素到 Shadow DOM
-        while (content.firstChild) {
-            shadow.appendChild(content.firstChild);
-        }
-        
-        // 添加关闭按钮事件
-        const closeButton = shadow.querySelector('button[onclick*="clear"]');
-        if (closeButton) {
-            closeButton.removeAttribute('onclick');
-            closeButton.addEventListener('click', () => {
-                ErrorTracker.clear();
-            });
-        }
-        
-        const exportButton = shadow.querySelector('button[onclick*="exportReport"]');
-        if (exportButton) {
-            exportButton.removeAttribute('onclick');
-            exportButton.addEventListener('click', () => {
-                console.log(ErrorTracker.exportReport());
-            });
-        }
+        panel.innerHTML = html;
 
         overlay.addEventListener('click', (e) => {
             if (e.target === overlay) {

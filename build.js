@@ -15,7 +15,7 @@ const path = require('path');
 const SRC_DIR = path.join(__dirname, 'src');
 const DIST_DIR = path.join(__dirname, 'dist');
 const OUTPUT_FILE = path.join(DIST_DIR, 'agent.user.js');
-const VERSION = process.env.VERSION || '3.9.8';
+const VERSION = process.env.VERSION || '5.0.0';
 const BUILD_DATE = new Date().toISOString().split('T')[0];
 // 发布模式：通过环境变量 RELEASE=true 启用，或手动设置
 const IS_RELEASE = process.env.RELEASE === 'true' || process.argv.includes('--release');
@@ -48,42 +48,50 @@ console.log(`📦 版本: ${VERSION}`);
 console.log(`📅 构建日期: ${BUILD_DATE}`);
 console.log(`🚀 发布模式: ${IS_RELEASE ? '✅ 是 (DEBUG_MODE=false)' : '❌ 否 (DEBUG_MODE=true)'}`);
 
-// 模块加载顺序配置（按依赖关系排序）
+// 模块加载顺序配置（按依赖关系排序）- v5.0 新架构
 const modules = [
-    // 核心基础模块（必须先加载）
-    'core/utils.js',           // 工具函数
-    'core/EventManager.js',
-    'core/ErrorTracker.js',    // v4.0.0: 错误追踪器
-    IS_RELEASE ? null : 'core/HotReload.js',  // ✅ 仅开发模式：热重载
-    'core/ConfigManager.js',
-    'core/HistoryManager.js',
-    'core/StateManager.js',
-    'core/UnifiedStateManager.js', // v4.2.0: 统一状态管理器
-    'core/ShortcutManager.js', // 快捷键管理器
-    'core/ProviderManager.js', // v4.0.0: 提供商管理器
-    'core/PageAnalyzer.js',    // v4.3.0: 页面分析器
+    // ==================== Core Utilities (核心工具层) ====================
+    'core/utils.js',                    // 工具函数
+    'core/EventManager.js',             // 事件总线
+    'core/ErrorTracker.js',             // 错误追踪器
     
-    // UI 模块（必须在 Chat 之前加载，因为 Chat 依赖 UIManager）
-    'ui-styles.js',      // UI 样式模块
-    'ui-templates.js',   // UI 模板模块
-    'ui.js',
+    // ==================== Services Layer (服务层) ====================
+    'services/config/ConfigManager.js',           // 配置管理
+    'services/storage/StorageManager.js',         // 存储管理
+    'services/provider/ProviderManager.js',       // 供应商管理
+    'services/model-manager/ModelManager.js',     // 模型管理
+    'services/page-analyzer/PageAnalyzer.js',     // 页面分析器
     
-    // 业务模块
-    'models.js',
-    'api/BaseAPIClient.js',   // v4.1.0: API 基础客户端
-    'api/OpenRouterClient.js', // v4.1.0: OpenRouter 客户端
-    'api/LMStudioClient.js',   // v4.1.0: LM Studio 客户端
-    'api/index.js',            // v4.1.0: API 客户端工厂
-    'api-router.js',           // API 路由层 (v4.0.0+)
-    // ✅ api.js 已删除，功能由 api/ 目录替代
+    // API 客户端
+    'services/api/BaseAPIClient.js',              // API 基础客户端
+    'services/api/OpenRouterClient.js',           // OpenRouter 客户端
+    'services/api/LMStudioClient.js',             // LM Studio 客户端
+    'services/api/OllamaClient.js',               // Ollama 客户端
+    'services/api/APIRouter.js',                  // API 路由和故障转移
+    'services/api/index.js',                      // API 客户端工厂
     
-    // Agent 核心
-    'agent/CodeExecutor.js',     // v4.5.0: 代码执行器
-    'agent/index.js',            // v4.4.0: AI Agent 基础设施
-    'agent/WebAgentClient.js',   // v4.7.0: Web Agent 客户端（业务逻辑层）
+    // ==================== Infrastructure Layer (基础设施层) ====================
+    'infrastructure/AIAgent/CodeExecutor.js',     // 代码执行器
+    'infrastructure/AIAgent/index.js',            // AI Agent 核心
     
-    'chat.js',
-    'main.js' // 主入口，最后加载
+    // ==================== Business Logic Layer (业务逻辑层) ====================
+    'business/WebAgentClient.js',                 // Web Agent 客户端（业务编排器）
+    
+    // ==================== Application Layer (应用层) ====================
+    'app/shortcuts/ShortcutManager.js',           // 快捷键管理器
+    
+    // React UI (Phase 2: 已启用)
+    'vendor/react.production.min.js',             // React 运行时
+    'vendor/react-dom.production.min.js',         // ReactDOM
+    'app/ui/hooks/useSettings.js',                // Settings Hook
+    'app/ui/hooks/useAgent.js',                   // Agent Hook
+    'app/ui/components/MessageItem.jsx',          // Message Item 组件
+    'app/ui/components/ChatWindow.jsx',           // Chat Window 组件
+    'app/ui/components/SettingsDialog.jsx',       // Settings Dialog 组件
+    'app/ui/index.jsx',                           // React 根组件
+    
+    // ==================== Main Entry (程序入口) ====================
+    'main.js'                                     // 主入口，最后加载
 ].filter(Boolean); // 过滤掉 null 值
 
 console.log(`\n📋 将加载 ${modules.length} 个模块...`);
