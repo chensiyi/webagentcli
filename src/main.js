@@ -81,6 +81,16 @@
         await ModelManager.init();
         console.log('✅ ModelManager 已初始化');
         
+        // ✨ v4.6.0: 初始化 AIAgent（基础设施层）
+        AIAgent.init({
+            autoAttachPageContext: true,
+            maxHistoryLength: 30,
+            defaultModel: ConfigManager.getConfig('model') || 'auto',
+            defaultTemperature: ConfigManager.getConfig('temperature') || 0.7,
+            defaultMaxTokens: ConfigManager.getConfig('maxTokens') || 4096
+        });
+        console.log('✅ AIAgent 已初始化（基础设施层）');
+        
         console.log('✅ 核心模块加载完成');
     }
     
@@ -353,6 +363,13 @@
         setTimeout(() => {
             init();
         }, 0);
+    }
+    
+    // ✨ v4.6.0: 暴露 AIAgent 到全局（供调试和扩展）
+    if (typeof unsafeWindow !== 'undefined') {
+        unsafeWindow.AIAgent = AIAgent;
+        console.log('💡 AIAgent 已暴露到全局，可通过 window.AIAgent 访问');
+        console.log('💡 示例: await window.AIAgent.sendMessage("你好")');
     }
 
 })();
