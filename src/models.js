@@ -115,17 +115,18 @@ const ModelManager = (function() {
             modelStatus[modelId].consecutiveFailures++;
             modelStatus[modelId].lastTest = now;
             
+            console.log(`[ModelManager] 📊 模型 ${modelId} 失败计数: ${modelStatus[modelId].consecutiveFailures}/3`);
+            
             // ✅ 连续失败 3 次后才标记为不可用
             if (modelStatus[modelId].consecutiveFailures >= 3) {
                 modelStatus[modelId].available = false;
+                console.warn(`[ModelManager] ⛔ 模型 ${modelId} 已连续失败 ${modelStatus[modelId].consecutiveFailures} 次，标记为不可用（1小时后自动恢复）`);
                 ErrorTracker.report(
                     `模型 ${modelId} 连续失败 ${modelStatus[modelId].consecutiveFailures} 次`,
                     { modelId, failures: modelStatus[modelId].consecutiveFailures },
                     ErrorTracker.ErrorCategory.API,
                     ErrorTracker.ErrorLevel.WARN
                 );
-            } else {
-                console.log(`[ModelManager] 模型 ${modelId} 失败 ${modelStatus[modelId].consecutiveFailures}/3 次`);
             }
         }
         
@@ -151,7 +152,9 @@ const ModelManager = (function() {
             return true;
         }
         
-        return status.available;
+        const isAvail = status.available;
+        console.log(`[ModelManager] 模型 ${modelId} 可用性: ${isAvail ? '✅ 可用' : '❌ 不可用'} (失败次数: ${status.consecutiveFailures})`);
+        return isAvail;
     }
 
     /**

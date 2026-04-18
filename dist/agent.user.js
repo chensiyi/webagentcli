@@ -6326,17 +6326,18 @@ const ModelManager = (function() {
             modelStatus[modelId].consecutiveFailures++;
             modelStatus[modelId].lastTest = now;
             
+            console.log(`[ModelManager] 📊 模型 ${modelId} 失败计数: ${modelStatus[modelId].consecutiveFailures}/3`);
+            
             // ✅ 连续失败 3 次后才标记为不可用
             if (modelStatus[modelId].consecutiveFailures >= 3) {
                 modelStatus[modelId].available = false;
+                console.warn(`[ModelManager] ⛔ 模型 ${modelId} 已连续失败 ${modelStatus[modelId].consecutiveFailures} 次，标记为不可用（1小时后自动恢复）`);
                 ErrorTracker.report(
                     `模型 ${modelId} 连续失败 ${modelStatus[modelId].consecutiveFailures} 次`,
                     { modelId, failures: modelStatus[modelId].consecutiveFailures },
                     ErrorTracker.ErrorCategory.API,
                     ErrorTracker.ErrorLevel.WARN
                 );
-            } else {
-                console.log(`[ModelManager] 模型 ${modelId} 失败 ${modelStatus[modelId].consecutiveFailures}/3 次`);
             }
         }
         
@@ -6362,7 +6363,9 @@ const ModelManager = (function() {
             return true;
         }
         
-        return status.available;
+        const isAvail = status.available;
+        console.log(`[ModelManager] 模型 ${modelId} 可用性: ${isAvail ? '✅ 可用' : '❌ 不可用'} (失败次数: ${status.consecutiveFailures})`);
+        return isAvail;
     }
 
     /**
@@ -6652,6 +6655,7 @@ const APIRouter = (function() {
 
                     // 请求失败，记录错误
                     lastError = new Error(result.error || '未知错误');
+                    console.log(`[API Router] ❌ 模型 ${model.id} 第 ${i + 1}/${MAX_ATTEMPTS_PER_MODEL} 次尝试失败`);
                     ErrorTracker.report(lastError, {
                         model: model.id,
                         attempt: i + 1,

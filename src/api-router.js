@@ -90,6 +90,7 @@ const APIRouter = (function() {
 
                     // 请求失败，记录错误
                     lastError = new Error(result.error || '未知错误');
+                    console.log(`[API Router] ❌ 模型 ${model.id} 第 ${i + 1}/${MAX_ATTEMPTS_PER_MODEL} 次尝试失败`);
                     ErrorTracker.report(lastError, {
                         model: model.id,
                         attempt: i + 1,
