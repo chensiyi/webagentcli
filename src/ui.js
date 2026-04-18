@@ -674,7 +674,7 @@ const UIManager = (function() {
                 right: 0;
                 bottom: 0;
                 background: rgba(0,0,0,0.5);
-                z-index: 1000000;
+                z-index: 2147483648; /* 比聊天窗口 (2147483647) 高一层 */
                 display: flex;
                 align-items: center;
                 justify-content: center;
@@ -823,6 +823,7 @@ const UIManager = (function() {
                                 <option value="auto">🔄 Auto (自动选择)</option>
                             </select>
                             <button class="btn-secondary" id="refresh-models" title="刷新模型列表" style="padding: 8px 12px; white-space: nowrap;">🔄 刷新</button>
+                            <button class="btn-secondary" id="test-models" title="测试所有模型" style="padding: 8px 12px; white-space: nowrap;">🧪 测试</button>
                         </div>
                         <div class="form-hint">
                             所有标记 :free 的模型都完全免费 | Auto 会自动选择最佳可用模型 | 点击刷新获取最新列表
@@ -923,8 +924,10 @@ const UIManager = (function() {
      */
     function setupModelRefresh() {
         const refreshBtn = document.getElementById('refresh-models');
+        const testBtn = document.getElementById('test-models');
         const modelsStatus = document.getElementById('models-status');
         
+        // 刷新按钮逻辑
         refreshBtn.addEventListener('click', async () => {
             refreshBtn.disabled = true;
             refreshBtn.textContent = '🔄 加载中...';
@@ -949,6 +952,39 @@ const UIManager = (function() {
                 refreshBtn.disabled = false;
                 refreshBtn.textContent = '🔄 刷新';
             }
+        });
+
+        // 测试按钮逻辑
+        testBtn.addEventListener('click', async () => {
+            const apiKey = ConfigManager.get('apiKey');
+            if (!apiKey) {
+                alert('请先设置 API Key');
+                return;
+            }
+
+            testBtn.disabled = true;
+            testBtn.textContent = '🧪 测试中...';
+            
+            const cached = ModelManager.loadCachedModels();
+            const total = cached.models.length;
+            let completed = 0;
+
+            modelsStatus.innerHTML = `<span style="color: #3b82f6;">⏳ 开始测试 ${total} 个模型...</span>`;
+
+            await ModelManager.batchTestModels(cached.models, apiKey, (current, total, modelId, success) => {
+                completed = current;
+                const statusIcon = success ? '✅' : '❌';
+                modelsStatus.innerHTML = `<span style="color: #3b82f6;">⏳ 进度: ${completed}/${total} (${statusIcon} ${modelId})</span>`;
+                
+                // 实时更新下拉框状态
+                const select = document.getElementById('setting-model');
+                const currentModel = select.value;
+                ModelManager.updateModelSelect(cached.models, currentModel);
+            });
+
+            modelsStatus.innerHTML = `<span style="color: #10b981;">✅ 测试完成!不可用模型已排到末尾。</span>`;
+            testBtn.disabled = false;
+            testBtn.textContent = '🧪 测试';
         });
     }
 

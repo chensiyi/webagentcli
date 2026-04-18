@@ -12,7 +12,8 @@ const ChatManager = (function() {
         codeBlockIndex: 0,
         messageQueue: [],
         currentAbortController: null,  // 当前请求的 AbortController
-        historyLoaded: false  // 标记历史记录是否已加载
+        historyLoaded: false,  // 标记历史记录是否已加载
+        executionQueue: []     // 本地代码执行任务队列
     };
 
     // ========== 工具函数 ==========
@@ -137,16 +138,19 @@ const ChatManager = (function() {
         // 2. 清空消息队列
         state.messageQueue = [];
         
-        // 3. 重置处理状态
+        // 3. 清空执行队列
+        state.executionQueue = [];
+        
+        // 4. 重置处理状态
         state.isProcessing = false;
         
-        // 4. 隐藏打字指示器
+        // 5. 隐藏打字指示器
         UIManager.hideTypingIndicator();
         
-        // 5. 更新按钮状态
+        // 6. 更新按钮状态
         UIManager.updateSendButtonState(false);
         
-        // 6. 添加系统提示
+        // 7. 添加系统提示
         addAssistantMessage('⏹ 已停止请求并清空队列');
     }
 
@@ -205,12 +209,9 @@ const ChatManager = (function() {
             const messageId = UIManager.createStreamingMessage();
             let fullText = '';
             
-            // 使用流式 API 调用
-            const response = await APIManager.callAPIStreaming(
-                message, 
-                history, 
-                config, 
-                state.currentAbortController,
+            // 使用流式 API 调用（通过路由层）
+            const response = await APIRouter.sendRequest(
+                { userMessage: message, conversationHistory: history, config, abortController: state.currentAbortController },
                 (chunk, accumulatedText) => {
                     // 实时更新消息内容
                     fullText = accumulatedText;
@@ -231,8 +232,11 @@ const ChatManager = (function() {
                 // 保存完整消息到历史
                 saveToHistory({ role: 'assistant', content: fullText });
                 
-                // 异步执行代码块（只执行一次，不阻塞主流程）
-                setTimeout(() => executeCodeBlocksFromMessage(fullText), 100);
+                // 提取代码块加入本地执行队列（不立即执行）
+                extractAndQueueCodeBlocks(fullText);
+                
+                // 交互完成后，尝试执行队列中的任务
+                await processExecutionQueue();
             } else {
                 // 检查是否是用户主动取消
                 if (response.cancelled) {
@@ -391,7 +395,49 @@ const ChatManager = (function() {
     }
 
     /**
+     * 提取代码块并加入本地执行队列
+     */
+    function extractAndQueueCodeBlocks(text) {
+        const codeBlocks = extractCodeBlocks(text);
+        const jsCodeBlocks = codeBlocks.filter(block => block.lang === 'javascript' || block.lang === 'js');
+        
+        jsCodeBlocks.forEach(block => {
+            state.executionQueue.push({
+                code: block.code,
+                status: 'pending'
+            });
+        });
+        
+        if (jsCodeBlocks.length > 0) {
+            Utils.debugLog(`📥 已将 ${jsCodeBlocks.length} 个代码块加入执行队列`);
+        }
+    }
+
+    /**
+     * 处理本地执行队列
+     */
+    async function processExecutionQueue() {
+        if (state.executionQueue.length === 0) return;
+        
+        Utils.debugLog(`🚀 开始处理执行队列 (${state.executionQueue.length} 个任务)`);
+        
+        const results = [];
+        while (state.executionQueue.length > 0) {
+            const task = state.executionQueue.shift();
+            if (task.status === 'pending') {
+                const result = await executeWithRetry(task.code, results.length + 1, 3);
+                results.push(result);
+            }
+        }
+        
+        if (results.length > 0) {
+            await sendCombinedResultsToAI(results);
+        }
+    }
+
+    /**
      * 执行消息中的代码块（自动执行安全代码，高危代码需要确认）
+     * @deprecated 此函数现在主要用于手动触发或高危代码检测，常规执行由队列处理
      */
     async function executeCodeBlocksFromMessage(message) {
         if (state.isProcessing) return;
@@ -609,11 +655,8 @@ const ChatManager = (function() {
         const messageId = UIManager.createStreamingMessage();
         let fullText = '';
         
-        const response = await APIManager.callAPIStreaming(
-            feedbackMessage, 
-            history, 
-            config, 
-            state.currentAbortController,
+        const response = await APIRouter.sendRequest(
+            { userMessage: feedbackMessage, conversationHistory: history, config, abortController: state.currentAbortController },
             (chunk, accumulatedText) => {
                 fullText = accumulatedText;
                 UIManager.updateStreamingMessage(messageId, accumulatedText);

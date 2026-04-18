@@ -3,6 +3,10 @@
 const ModelManager = (function() {
     const CACHE_KEY = 'cached_models';
     const CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24小时
+    const STATUS_KEY = 'model_status';
+
+    // 模型状态管理: { modelId: { available: boolean, lastTest: timestamp } }
+    let modelStatus = {};
 
     // 默认模型列表
     const DEFAULT_MODELS = [
@@ -86,42 +90,152 @@ const ModelManager = (function() {
     }
 
     /**
-     * 更新模型选择下拉框
+     * 初始化模型管理器
+     */
+    function init() {
+        loadCachedModels();
+        loadModelStatus();
+    }
+
+    /**
+     * 加载模型状态
+     */
+    function loadModelStatus() {
+        try {
+            modelStatus = GM_getValue(STATUS_KEY, {});
+        } catch (e) {
+            modelStatus = {};
+        }
+    }
+
+    /**
+     * 保存模型状态
+     */
+    function saveModelStatus() {
+        GM_setValue(STATUS_KEY, modelStatus);
+    }
+
+    /**
+     * 标记模型测试结果
+     * @param {string} modelId - 模型ID
+     * @param {boolean} success - 是否成功
+     */
+    function markModelTest(modelId, success) {
+        modelStatus[modelId] = {
+            available: success,
+            lastTest: Date.now()
+        };
+        saveModelStatus();
+    }
+
+    /**
+     * 获取模型可用性状态
+     * @param {string} modelId - 模型ID
+     * @returns {boolean}
+     */
+    function isModelAvailable(modelId) {
+        const status = modelStatus[modelId];
+        if (!status || (Date.now() - status.lastTest > 60 * 60 * 1000)) {
+            return true; // 未测试或超过1小时视为可用
+        }
+        return status.available;
+    }
+
+    /**
+     * 对模型列表进行排序：可用的在前，不可用的在后
+     * @param {Array} models - 模型数组
+     * @returns {Array} 排序后的模型数组
+     */
+    function sortModelsByAvailability(models) {
+        return [...models].sort((a, b) => {
+            const aAvail = isModelAvailable(a.id);
+            const bAvail = isModelAvailable(b.id);
+            if (aAvail === bAvail) return 0;
+            return aAvail ? -1 : 1;
+        });
+    }
+
+    /**
+     * 测试单个模型
+     * @param {string} modelId - 模型ID
+     * @param {string} apiKey - API Key
+     * @returns {Promise<boolean>}
+     */
+    function testModel(modelId, apiKey) {
+        return new Promise((resolve) => {
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url: 'https://openrouter.ai/api/v1/chat/completions',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`
+                },
+                data: JSON.stringify({
+                    model: modelId,
+                    messages: [{ role: 'user', content: 'Hi' }],
+                    max_tokens: 5
+                }),
+                onload: (response) => {
+                    resolve(response.status >= 200 && response.status < 300);
+                },
+                onerror: () => resolve(false),
+                ontimeout: () => resolve(false)
+            });
+        });
+    }
+
+    /**
+     * 批量测试所有模型
+     * @param {Array} models - 模型列表
+     * @param {string} apiKey - API Key
+     * @param {Function} onProgress - 进度回调 (current, total, modelId, success)
+     */
+    async function batchTestModels(models, apiKey, onProgress) {
+        for (let i = 0; i < models.length; i++) {
+            const model = models[i];
+            const success = await testModel(model.id, apiKey);
+            markModelTest(model.id, success);
+            if (onProgress) {
+                onProgress(i + 1, models.length, model.id, success);
+            }
+        }
+    }
+
+    /**
+     * 更新模型选择下拉框（带可用性排序）
      */
     function updateModelSelect(models, currentModel) {
         const select = document.getElementById('setting-model');
         if (!select) return;
         
-        // 保存当前选中的值
         const currentValue = currentModel || select.value;
-        
-        // 清空现有选项
         select.innerHTML = '';
         
-        // 添加 Auto 选项 (始终在第一位)
+        // Auto 选项
         const autoOption = document.createElement('option');
         autoOption.value = 'openrouter/auto';
         autoOption.textContent = '🎲 Auto (智能路由 - 推荐)';
         if (currentValue === 'openrouter/auto') autoOption.selected = true;
         select.appendChild(autoOption);
         
-        // 添加分隔线
         const separator = document.createElement('option');
         separator.disabled = true;
         separator.textContent = '──────────────';
         select.appendChild(separator);
         
-        // 添加免费模型选项
-        models.forEach(model => {
+        // 排序并添加模型
+        const sortedModels = sortModelsByAvailability(models);
+        sortedModels.forEach(model => {
             const option = document.createElement('option');
             option.value = model.id;
-            option.textContent = model.name;
-            
-            // 恢复之前的选择
+            const isAvail = isModelAvailable(model.id);
+            option.textContent = isAvail ? model.name : `${model.name} (不可用)`;
+            if (!isAvail) {
+                option.style.color = '#999';
+            }
             if (model.id === currentValue) {
                 option.selected = true;
             }
-            
             select.appendChild(option);
         });
     }
@@ -196,12 +310,16 @@ const ModelManager = (function() {
 
     return {
         DEFAULT_MODELS,
+        init,
         fetchFreeModels,
         updateModelSelect,
         loadCachedModels,
         saveToCache,
         refreshModels,
         getProviderIcon,
-        getModelDisplayName
+        getModelDisplayName,
+        batchTestModels,
+        isModelAvailable,
+        markModelTest
     };
 })();

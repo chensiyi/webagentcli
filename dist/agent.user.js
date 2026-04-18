@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Free Web AI Agent
 // @namespace    https://github.com/chensiyi1994
-// @version      3.9.1
+// @version      3.9.4
 // @description  基于ai模型的Web AI 助手,支持 JS 执行
 // @author       chensiyi1994
 // @match        *://*/*
@@ -14,9 +14,9 @@
 // ==/UserScript==
 
 // 构建信息
-// 版本: 3.9.1
-// 日期: 2026-04-17
-// 模块数: 13
+// 版本: 3.9.4
+// 日期: 2026-04-18
+// 模块数: 14
 
 
 // =====================================================
@@ -2382,7 +2382,7 @@ const UIManager = (function() {
                 right: 0;
                 bottom: 0;
                 background: rgba(0,0,0,0.5);
-                z-index: 1000000;
+                z-index: 2147483648; /* 比聊天窗口 (2147483647) 高一层 */
                 display: flex;
                 align-items: center;
                 justify-content: center;
@@ -2531,6 +2531,7 @@ const UIManager = (function() {
                                 <option value="auto">🔄 Auto (自动选择)</option>
                             </select>
                             <button class="btn-secondary" id="refresh-models" title="刷新模型列表" style="padding: 8px 12px; white-space: nowrap;">🔄 刷新</button>
+                            <button class="btn-secondary" id="test-models" title="测试所有模型" style="padding: 8px 12px; white-space: nowrap;">🧪 测试</button>
                         </div>
                         <div class="form-hint">
                             所有标记 :free 的模型都完全免费 | Auto 会自动选择最佳可用模型 | 点击刷新获取最新列表
@@ -2631,8 +2632,10 @@ const UIManager = (function() {
      */
     function setupModelRefresh() {
         const refreshBtn = document.getElementById('refresh-models');
+        const testBtn = document.getElementById('test-models');
         const modelsStatus = document.getElementById('models-status');
         
+        // 刷新按钮逻辑
         refreshBtn.addEventListener('click', async () => {
             refreshBtn.disabled = true;
             refreshBtn.textContent = '🔄 加载中...';
@@ -2657,6 +2660,39 @@ const UIManager = (function() {
                 refreshBtn.disabled = false;
                 refreshBtn.textContent = '🔄 刷新';
             }
+        });
+
+        // 测试按钮逻辑
+        testBtn.addEventListener('click', async () => {
+            const apiKey = ConfigManager.get('apiKey');
+            if (!apiKey) {
+                alert('请先设置 API Key');
+                return;
+            }
+
+            testBtn.disabled = true;
+            testBtn.textContent = '🧪 测试中...';
+            
+            const cached = ModelManager.loadCachedModels();
+            const total = cached.models.length;
+            let completed = 0;
+
+            modelsStatus.innerHTML = `<span style="color: #3b82f6;">⏳ 开始测试 ${total} 个模型...</span>`;
+
+            await ModelManager.batchTestModels(cached.models, apiKey, (current, total, modelId, success) => {
+                completed = current;
+                const statusIcon = success ? '✅' : '❌';
+                modelsStatus.innerHTML = `<span style="color: #3b82f6;">⏳ 进度: ${completed}/${total} (${statusIcon} ${modelId})</span>`;
+                
+                // 实时更新下拉框状态
+                const select = document.getElementById('setting-model');
+                const currentModel = select.value;
+                ModelManager.updateModelSelect(cached.models, currentModel);
+            });
+
+            modelsStatus.innerHTML = `<span style="color: #10b981;">✅ 测试完成!不可用模型已排到末尾。</span>`;
+            testBtn.disabled = false;
+            testBtn.textContent = '🧪 测试';
         });
     }
 
@@ -2902,6 +2938,10 @@ const UIManager = (function() {
 const ModelManager = (function() {
     const CACHE_KEY = 'cached_models';
     const CACHE_EXPIRY = 24 * 60 * 60 * 1000; // 24小时
+    const STATUS_KEY = 'model_status';
+
+    // 模型状态管理: { modelId: { available: boolean, lastTest: timestamp } }
+    let modelStatus = {};
 
     // 默认模型列表
     const DEFAULT_MODELS = [
@@ -2985,42 +3025,152 @@ const ModelManager = (function() {
     }
 
     /**
-     * 更新模型选择下拉框
+     * 初始化模型管理器
+     */
+    function init() {
+        loadCachedModels();
+        loadModelStatus();
+    }
+
+    /**
+     * 加载模型状态
+     */
+    function loadModelStatus() {
+        try {
+            modelStatus = GM_getValue(STATUS_KEY, {});
+        } catch (e) {
+            modelStatus = {};
+        }
+    }
+
+    /**
+     * 保存模型状态
+     */
+    function saveModelStatus() {
+        GM_setValue(STATUS_KEY, modelStatus);
+    }
+
+    /**
+     * 标记模型测试结果
+     * @param {string} modelId - 模型ID
+     * @param {boolean} success - 是否成功
+     */
+    function markModelTest(modelId, success) {
+        modelStatus[modelId] = {
+            available: success,
+            lastTest: Date.now()
+        };
+        saveModelStatus();
+    }
+
+    /**
+     * 获取模型可用性状态
+     * @param {string} modelId - 模型ID
+     * @returns {boolean}
+     */
+    function isModelAvailable(modelId) {
+        const status = modelStatus[modelId];
+        if (!status || (Date.now() - status.lastTest > 60 * 60 * 1000)) {
+            return true; // 未测试或超过1小时视为可用
+        }
+        return status.available;
+    }
+
+    /**
+     * 对模型列表进行排序：可用的在前，不可用的在后
+     * @param {Array} models - 模型数组
+     * @returns {Array} 排序后的模型数组
+     */
+    function sortModelsByAvailability(models) {
+        return [...models].sort((a, b) => {
+            const aAvail = isModelAvailable(a.id);
+            const bAvail = isModelAvailable(b.id);
+            if (aAvail === bAvail) return 0;
+            return aAvail ? -1 : 1;
+        });
+    }
+
+    /**
+     * 测试单个模型
+     * @param {string} modelId - 模型ID
+     * @param {string} apiKey - API Key
+     * @returns {Promise<boolean>}
+     */
+    function testModel(modelId, apiKey) {
+        return new Promise((resolve) => {
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url: 'https://openrouter.ai/api/v1/chat/completions',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`
+                },
+                data: JSON.stringify({
+                    model: modelId,
+                    messages: [{ role: 'user', content: 'Hi' }],
+                    max_tokens: 5
+                }),
+                onload: (response) => {
+                    resolve(response.status >= 200 && response.status < 300);
+                },
+                onerror: () => resolve(false),
+                ontimeout: () => resolve(false)
+            });
+        });
+    }
+
+    /**
+     * 批量测试所有模型
+     * @param {Array} models - 模型列表
+     * @param {string} apiKey - API Key
+     * @param {Function} onProgress - 进度回调 (current, total, modelId, success)
+     */
+    async function batchTestModels(models, apiKey, onProgress) {
+        for (let i = 0; i < models.length; i++) {
+            const model = models[i];
+            const success = await testModel(model.id, apiKey);
+            markModelTest(model.id, success);
+            if (onProgress) {
+                onProgress(i + 1, models.length, model.id, success);
+            }
+        }
+    }
+
+    /**
+     * 更新模型选择下拉框（带可用性排序）
      */
     function updateModelSelect(models, currentModel) {
         const select = document.getElementById('setting-model');
         if (!select) return;
         
-        // 保存当前选中的值
         const currentValue = currentModel || select.value;
-        
-        // 清空现有选项
         select.innerHTML = '';
         
-        // 添加 Auto 选项 (始终在第一位)
+        // Auto 选项
         const autoOption = document.createElement('option');
         autoOption.value = 'openrouter/auto';
         autoOption.textContent = '🎲 Auto (智能路由 - 推荐)';
         if (currentValue === 'openrouter/auto') autoOption.selected = true;
         select.appendChild(autoOption);
         
-        // 添加分隔线
         const separator = document.createElement('option');
         separator.disabled = true;
         separator.textContent = '──────────────';
         select.appendChild(separator);
         
-        // 添加免费模型选项
-        models.forEach(model => {
+        // 排序并添加模型
+        const sortedModels = sortModelsByAvailability(models);
+        sortedModels.forEach(model => {
             const option = document.createElement('option');
             option.value = model.id;
-            option.textContent = model.name;
-            
-            // 恢复之前的选择
+            const isAvail = isModelAvailable(model.id);
+            option.textContent = isAvail ? model.name : `${model.name} (不可用)`;
+            if (!isAvail) {
+                option.style.color = '#999';
+            }
             if (model.id === currentValue) {
                 option.selected = true;
             }
-            
             select.appendChild(option);
         });
     }
@@ -3095,13 +3245,129 @@ const ModelManager = (function() {
 
     return {
         DEFAULT_MODELS,
+        init,
         fetchFreeModels,
         updateModelSelect,
         loadCachedModels,
         saveToCache,
         refreshModels,
         getProviderIcon,
-        getModelDisplayName
+        getModelDisplayName,
+        batchTestModels,
+        isModelAvailable,
+        markModelTest
+    };
+})();
+
+
+// =====================================================
+// 模块: api-router.js
+// =====================================================
+
+// ==================== API 路由模块 ====================
+// 负责模型选择、故障转移和重试逻辑
+
+const APIRouter = (function() {
+    'use strict';
+
+    /**
+     * 获取可用模型列表（按优先级排序）
+     */
+    function getAvailableModels(currentModel) {
+        const cached = ModelManager.loadCachedModels();
+        let models = [...cached.models];
+
+        // 将当前选中的模型排在最前面
+        if (currentModel && currentModel !== 'openrouter/auto') {
+            models.sort((a, b) => {
+                if (a.id === currentModel) return -1;
+                if (b.id === currentModel) return 1;
+                return 0;
+            });
+        }
+
+        // 过滤掉明确标记为不可用的模型（除非是用户强制选中的）
+        if (currentModel && currentModel !== 'openrouter/auto') {
+            return models; // 如果用户指定了模型，则不根据可用性过滤，交给路由层去试
+        }
+
+        return models.filter(m => ModelManager.isModelAvailable(m.id));
+    }
+
+    /**
+     * 发送请求（带自动重试和故障转移）
+     * @param {Object} params - 请求参数
+     * @param {Function} onChunk - 流式回调
+     * @returns {Promise<Object>}
+     */
+    async function sendRequest(params, onChunk) {
+        const { userMessage, conversationHistory, config, abortController } = params;
+        
+        let modelsToTry = getAvailableModels(config.model);
+        if (modelsToTry.length === 0) {
+            // 如果没有可用模型，尝试使用默认列表
+            modelsToTry = ModelManager.DEFAULT_MODELS;
+        }
+
+        let lastError = null;
+        let attempts = 0;
+        const MAX_ATTEMPTS_PER_MODEL = 2;
+
+        for (const model of modelsToTry) {
+            // 创建当前模型的配置副本
+            const currentConfig = { ...config, model: model.id };
+            
+            for (let i = 0; i < MAX_ATTEMPTS_PER_MODEL; i++) {
+                if (abortController?.signal.aborted) {
+                    return { success: false, cancelled: true, error: '请求已取消' };
+                }
+
+                attempts++;
+                Utils.debugLog(`🔄 尝试模型: ${model.id} (第 ${i + 1} 次)`);
+
+                try {
+                    const result = await APIManager.callAPIStreaming(
+                        userMessage, 
+                        conversationHistory, 
+                        currentConfig, 
+                        abortController, 
+                        onChunk
+                    );
+
+                    if (result.success) {
+                        // 标记模型可用
+                        ModelManager.markModelTest(model.id, true);
+                        return result;
+                    }
+
+                    // 如果是因为被取消，直接返回
+                    if (result.cancelled) {
+                        return result;
+                    }
+
+                    lastError = new Error(result.error || '未知错误');
+                    ModelManager.markModelTest(model.id, false);
+                    
+                } catch (error) {
+                    lastError = error;
+                    ModelManager.markModelTest(model.id, false);
+                    if (error.name === 'AbortError') {
+                        return { success: false, cancelled: true, error: '请求已取消' };
+                    }
+                }
+            }
+        }
+
+        return { 
+            success: false, 
+            error: `所有模型均失败。最后错误: ${lastError?.message || '未知'}`,
+            attempts 
+        };
+    }
+
+    return {
+        sendRequest,
+        getAvailableModels
     };
 })();
 
@@ -3403,7 +3669,8 @@ const ChatManager = (function() {
         codeBlockIndex: 0,
         messageQueue: [],
         currentAbortController: null,  // 当前请求的 AbortController
-        historyLoaded: false  // 标记历史记录是否已加载
+        historyLoaded: false,  // 标记历史记录是否已加载
+        executionQueue: []     // 本地代码执行任务队列
     };
 
     // ========== 工具函数 ==========
@@ -3528,16 +3795,19 @@ const ChatManager = (function() {
         // 2. 清空消息队列
         state.messageQueue = [];
         
-        // 3. 重置处理状态
+        // 3. 清空执行队列
+        state.executionQueue = [];
+        
+        // 4. 重置处理状态
         state.isProcessing = false;
         
-        // 4. 隐藏打字指示器
+        // 5. 隐藏打字指示器
         UIManager.hideTypingIndicator();
         
-        // 5. 更新按钮状态
+        // 6. 更新按钮状态
         UIManager.updateSendButtonState(false);
         
-        // 6. 添加系统提示
+        // 7. 添加系统提示
         addAssistantMessage('⏹ 已停止请求并清空队列');
     }
 
@@ -3596,12 +3866,9 @@ const ChatManager = (function() {
             const messageId = UIManager.createStreamingMessage();
             let fullText = '';
             
-            // 使用流式 API 调用
-            const response = await APIManager.callAPIStreaming(
-                message, 
-                history, 
-                config, 
-                state.currentAbortController,
+            // 使用流式 API 调用（通过路由层）
+            const response = await APIRouter.sendRequest(
+                { userMessage: message, conversationHistory: history, config, abortController: state.currentAbortController },
                 (chunk, accumulatedText) => {
                     // 实时更新消息内容
                     fullText = accumulatedText;
@@ -3622,8 +3889,11 @@ const ChatManager = (function() {
                 // 保存完整消息到历史
                 saveToHistory({ role: 'assistant', content: fullText });
                 
-                // 异步执行代码块（只执行一次，不阻塞主流程）
-                setTimeout(() => executeCodeBlocksFromMessage(fullText), 100);
+                // 提取代码块加入本地执行队列（不立即执行）
+                extractAndQueueCodeBlocks(fullText);
+                
+                // 交互完成后，尝试执行队列中的任务
+                await processExecutionQueue();
             } else {
                 // 检查是否是用户主动取消
                 if (response.cancelled) {
@@ -3782,7 +4052,49 @@ const ChatManager = (function() {
     }
 
     /**
+     * 提取代码块并加入本地执行队列
+     */
+    function extractAndQueueCodeBlocks(text) {
+        const codeBlocks = extractCodeBlocks(text);
+        const jsCodeBlocks = codeBlocks.filter(block => block.lang === 'javascript' || block.lang === 'js');
+        
+        jsCodeBlocks.forEach(block => {
+            state.executionQueue.push({
+                code: block.code,
+                status: 'pending'
+            });
+        });
+        
+        if (jsCodeBlocks.length > 0) {
+            Utils.debugLog(`📥 已将 ${jsCodeBlocks.length} 个代码块加入执行队列`);
+        }
+    }
+
+    /**
+     * 处理本地执行队列
+     */
+    async function processExecutionQueue() {
+        if (state.executionQueue.length === 0) return;
+        
+        Utils.debugLog(`🚀 开始处理执行队列 (${state.executionQueue.length} 个任务)`);
+        
+        const results = [];
+        while (state.executionQueue.length > 0) {
+            const task = state.executionQueue.shift();
+            if (task.status === 'pending') {
+                const result = await executeWithRetry(task.code, results.length + 1, 3);
+                results.push(result);
+            }
+        }
+        
+        if (results.length > 0) {
+            await sendCombinedResultsToAI(results);
+        }
+    }
+
+    /**
      * 执行消息中的代码块（自动执行安全代码，高危代码需要确认）
+     * @deprecated 此函数现在主要用于手动触发或高危代码检测，常规执行由队列处理
      */
     async function executeCodeBlocksFromMessage(message) {
         if (state.isProcessing) return;
@@ -4000,11 +4312,8 @@ const ChatManager = (function() {
         const messageId = UIManager.createStreamingMessage();
         let fullText = '';
         
-        const response = await APIManager.callAPIStreaming(
-            feedbackMessage, 
-            history, 
-            config, 
-            state.currentAbortController,
+        const response = await APIRouter.sendRequest(
+            { userMessage: feedbackMessage, conversationHistory: history, config, abortController: state.currentAbortController },
             (chunk, accumulatedText) => {
                 fullText = accumulatedText;
                 UIManager.updateStreamingMessage(messageId, accumulatedText);
@@ -4537,6 +4846,9 @@ const ChatManager = (function() {
         
         // 初始化状态管理器
         await StateManager.init();
+        
+        // 初始化模型管理器
+        ModelManager.init();
         
         console.log('✅ 核心模块加载完成');
     }

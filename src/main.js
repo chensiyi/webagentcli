@@ -66,6 +66,9 @@
         // 初始化状态管理器
         await StateManager.init();
         
+        // 初始化模型管理器
+        ModelManager.init();
+        
         console.log('✅ 核心模块加载完成');
     }
     
