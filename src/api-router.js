@@ -90,16 +90,22 @@ const APIRouter = (function() {
 
                     // 请求失败，记录错误
                     lastError = new Error(result.error || '未知错误');
-                    console.warn('[API Router] Request returned success=false:', result.error);
+                    ErrorTracker.report(lastError, {
+                        model: model.id,
+                        attempt: i + 1,
+                        error: result.error
+                    }, ErrorTracker.ErrorCategory.API, ErrorTracker.ErrorLevel.WARN);
                     ModelManager.markModelTest(model.id, false);
                     
                 } catch (error) {
                     lastError = error;
                     ModelManager.markModelTest(model.id, false);
                     
-                    console.error('[API Router] Request failed for model:', model.id);
-                    console.error('[API Router] Error:', error.message);
-                    console.error('[API Router] Error stack:', error.stack);
+                    ErrorTracker.report(error, {
+                        model: model.id,
+                        attempt: i + 1,
+                        category: 'API_REQUEST'
+                    }, ErrorTracker.ErrorCategory.API, ErrorTracker.ErrorLevel.ERROR);
                     
                     if (error.name === 'AbortError') {
                         return { success: false, cancelled: true, error: '请求已取消' };

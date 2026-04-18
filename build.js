@@ -53,6 +53,7 @@ const modules = [
     // 核心基础模块（必须先加载）
     'core/utils.js',           // 工具函数
     'core/EventManager.js',
+    'core/ErrorTracker.js',    // v4.0.0: 错误追踪器
     'core/ConfigManager.js',
     'core/HistoryManager.js',
     'core/StateManager.js',

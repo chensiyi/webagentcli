@@ -55,6 +55,10 @@
      * 初始化核心模块
      */
     async function initCoreModules() {
+        // ✅ v4.0.0: 初始化错误追踪器（最先初始化）
+        ErrorTracker.init();
+        console.log('✅ ErrorTracker 已初始化');
+        
         // 初始化配置管理器（带依赖注入）
         await ConfigManager.init({
             eventManager: EventManager
@@ -162,7 +166,12 @@
             }
         }, '导航到下一条消息');
         
-        console.log('⌨️ 已注册 4 个核心快捷键');
+        // ✅ v4.0.0: Ctrl+Shift+E: 打开错误追踪面板
+        ShortcutManager.register('Ctrl+Shift+E', (e) => {
+            ErrorTracker.showPanel();
+        }, '打开错误面板');
+        
+        console.log('⌨️ 已注册 5 个核心快捷键');
     }
 
     /**
