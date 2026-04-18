@@ -6326,15 +6326,11 @@ const ModelManager = (function() {
             modelStatus[modelId].consecutiveFailures++;
             modelStatus[modelId].lastTest = now;
             
-            console.log(`[ModelManager] 📊 模型 ${modelId} 失败计数: ${modelStatus[modelId].consecutiveFailures}/3`);
-            
             // ✅ 连续失败 3 次后才标记为不可用
             if (modelStatus[modelId].consecutiveFailures >= 3) {
                 modelStatus[modelId].available = false;
-                console.warn(`[ModelManager] ⛔ 模型 ${modelId} 已连续失败 ${modelStatus[modelId].consecutiveFailures} 次，标记为不可用（1小时后自动恢复）`);
-                console.log(`[ModelManager] 💾 当前状态:`, JSON.stringify(modelStatus[modelId]));
                 ErrorTracker.report(
-                    `模型 ${modelId} 连续失败 ${modelStatus[modelId].consecutiveFailures} 次`,
+                    `模型 ${modelId} 连续失败 ${modelStatus[modelId].consecutiveFailures} 次，标记为不可用`,
                     { modelId, failures: modelStatus[modelId].consecutiveFailures },
                     ErrorTracker.ErrorCategory.API,
                     ErrorTracker.ErrorLevel.WARN
@@ -6343,7 +6339,6 @@ const ModelManager = (function() {
         }
         
         saveModelStatus();
-        console.log(`[ModelManager] ✅ 已保存模型状态到 GM_setValue`);
     }
 
     /**
@@ -6354,24 +6349,17 @@ const ModelManager = (function() {
     function isModelAvailable(modelId) {
         const status = modelStatus[modelId];
         
-        console.log(`[ModelManager] 🔍 检查模型 ${modelId}:`, status ? `存在 (available=${status.available}, failures=${status.consecutiveFailures})` : '不存在');
-        
         // 未测试或超过1小时：视为可用，并重置状态
         if (!status || (Date.now() - status.lastTest > 60 * 60 * 1000)) {
             if (status) {
                 // ✅ 1小时后自动恢复：重置失败计数
-                console.log(`[ModelManager] ⏰ 模型 ${modelId} 超过1小时未测试，自动恢复为可用状态`);
                 delete modelStatus[modelId];
                 saveModelStatus();
-            } else {
-                console.log(`[ModelManager] ✨ 模型 ${modelId} 从未测试过，视为可用`);
             }
             return true;
         }
         
-        const isAvail = status.available;
-        console.log(`[ModelManager] 📊 模型 ${modelId} 可用性: ${isAvail ? '✅ 可用' : '❌ 不可用'} (失败次数: ${status.consecutiveFailures}, lastTest: ${new Date(status.lastTest).toLocaleTimeString()})`);
-        return isAvail;
+        return status.available;
     }
 
     /**
@@ -6594,8 +6582,6 @@ const APIRouter = (function() {
         const allModels = ProviderManager.getAllAvailableModels();
         
         let models = [...allModels];
-        
-        console.log(`[API Router] 📋 总模型数: ${models.length}, 当前模式: ${currentModel || 'auto'}`);
 
         // 将当前选中的模型排在最前面
         const isAutoMode = !currentModel || currentModel === 'auto' || currentModel === 'openrouter/auto';
@@ -6610,22 +6596,22 @@ const APIRouter = (function() {
 
         // 过滤掉明确标记为不可用的模型（除非是用户强制选中的）
         if (!isAutoMode) {
-            console.log(`[API Router] ⚠️ 用户指定模型 ${currentModel}，不过滤可用性`);
             return models; // 如果用户指定了模型，则不根据可用性过滤，交给路由层去试
         }
 
-        console.log(`[API Router] ✅ Auto 模式，将过滤不可用模型`);
-
         // ✅ Auto 模式：过滤掉不可用的模型
-        const availableModels = models.filter(m => {
-            const isAvail = ModelManager.isModelAvailable(m.id);
-            if (!isAvail) {
-                console.log(`[API Router] 🚫 过滤掉不可用模型: ${m.id}`);
-            }
-            return isAvail;
-        });
+        const availableModels = models.filter(m => ModelManager.isModelAvailable(m.id));
         
-        console.log(`[API Router] ✅ 过滤后可用模型数: ${availableModels.length} / ${models.length}`);
+        // 记录过滤统计（仅在过滤掉模型时记录）
+        if (availableModels.length < models.length) {
+            ErrorTracker.report(
+                `自动过滤 ${models.length - availableModels.length} 个不可用模型`,
+                { total: models.length, available: availableModels.length },
+                ErrorTracker.ErrorCategory.API,
+                ErrorTracker.ErrorLevel.INFO
+            );
+        }
+        
         return availableModels;
     }
 
@@ -6638,12 +6624,16 @@ const APIRouter = (function() {
     async function sendRequest(params, onChunk) {
         const { userMessage, conversationHistory, config, abortController } = params;
         
-        console.log('[API Router] 🎯 开始获取可用模型列表...');
         let modelsToTry = getAvailableModels(config.model);
-        console.log(`[API Router] 📦 最终要尝试的模型数: ${modelsToTry.length}`);
         
         if (modelsToTry.length === 0) {
             // 如果没有可用模型，返回错误
+            ErrorTracker.report(
+                '没有可用的模型，请检查提供商配置',
+                {},
+                ErrorTracker.ErrorCategory.CONFIG,
+                ErrorTracker.ErrorLevel.ERROR
+            );
             return { 
                 success: false, 
                 error: '没有可用的模型。请检查提供商配置。',
@@ -6656,7 +6646,6 @@ const APIRouter = (function() {
         const MAX_ATTEMPTS_PER_MODEL = 3; // ✅ 每个模型最多测试 3 次
 
         for (const model of modelsToTry) {
-            console.log(`[API Router] ➡️ 准备尝试模型: ${model.id}`);
             // 创建当前模型的配置副本
             const currentConfig = { ...config, model: model.id };
             
@@ -6692,7 +6681,6 @@ const APIRouter = (function() {
 
                     // 请求失败，记录错误
                     lastError = new Error(result.error || '未知错误');
-                    console.log(`[API Router] ❌ 模型 ${model.id} 第 ${i + 1}/${MAX_ATTEMPTS_PER_MODEL} 次尝试失败`);
                     ErrorTracker.report(lastError, {
                         model: model.id,
                         attempt: i + 1,
@@ -6703,7 +6691,12 @@ const APIRouter = (function() {
                     // ✅ 检查是否已达到最大失败次数，如果是则跳出内层循环
                     const status = ModelManager.getModelStatus(model.id);
                     if (status && !status.available) {
-                        console.warn(`[API Router] ⛔ 模型 ${model.id} 已标记为不可用，停止重试，切换到下一个模型`);
+                        ErrorTracker.report(
+                            `模型 ${model.id} 已标记为不可用，停止重试`,
+                            { modelId: model.id, failures: status.consecutiveFailures },
+                            ErrorTracker.ErrorCategory.API,
+                            ErrorTracker.ErrorLevel.WARN
+                        );
                         break; // 跳出内层循环，尝试下一个模型
                     }
                     
