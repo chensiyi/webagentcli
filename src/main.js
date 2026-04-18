@@ -91,6 +91,10 @@
         });
         console.log('✅ AIAgent 已初始化（基础设施层）');
         
+        // ✨ v4.7.0: 初始化 WebAgentClient（业务逻辑层）
+        await WebAgentClient.init();
+        console.log('✅ WebAgentClient 已初始化（业务逻辑层）');
+        
         console.log('✅ 核心模块加载完成');
     }
     
@@ -365,11 +369,13 @@
         }, 0);
     }
     
-    // ✨ v4.6.0: 暴露 AIAgent 到全局（供调试和扩展）
+    // ✨ v4.6.0: 暴露 AIAgent 和 WebAgentClient 到全局（供调试和扩展）
     if (typeof unsafeWindow !== 'undefined') {
         unsafeWindow.AIAgent = AIAgent;
+        unsafeWindow.WebAgentClient = WebAgentClient;
         console.log('💡 AIAgent 已暴露到全局，可通过 window.AIAgent 访问');
-        console.log('💡 示例: await window.AIAgent.sendMessage("你好")');
+        console.log('💡 WebAgentClient 已暴露到全局，可通过 window.WebAgentClient 访问');
+        console.log('💡 示例: await window.WebAgentClient.handleUserMessage("你好")');
     }
 
 })();

@@ -79,7 +79,8 @@ const modules = [
     
     // Agent 核心
     'agent/CodeExecutor.js',     // v4.5.0: 代码执行器
-    'agent/index.js',            // v4.4.0: AI Agent 核心
+    'agent/index.js',            // v4.4.0: AI Agent 基础设施
+    'agent/WebAgentClient.js',   // v4.7.0: Web Agent 客户端（业务逻辑层）
     
     'chat.js',
     'main.js' // 主入口，最后加载
