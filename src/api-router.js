@@ -53,7 +53,10 @@ const APIRouter = (function() {
     async function sendRequest(params, onChunk) {
         const { userMessage, conversationHistory, config, abortController } = params;
         
+        console.log('[API Router] 🎯 开始获取可用模型列表...');
         let modelsToTry = getAvailableModels(config.model);
+        console.log(`[API Router] 📦 最终要尝试的模型数: ${modelsToTry.length}`);
+        
         if (modelsToTry.length === 0) {
             // 如果没有可用模型，返回错误
             return { 
@@ -68,6 +71,7 @@ const APIRouter = (function() {
         const MAX_ATTEMPTS_PER_MODEL = 3; // ✅ 每个模型最多测试 3 次
 
         for (const model of modelsToTry) {
+            console.log(`[API Router] ➡️ 准备尝试模型: ${model.id}`);
             // 创建当前模型的配置副本
             const currentConfig = { ...config, model: model.id };
             
