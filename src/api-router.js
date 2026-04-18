@@ -17,7 +17,9 @@ const APIRouter = (function() {
         console.log(`[API Router] 📋 总模型数: ${models.length}, 当前模式: ${currentModel || 'auto'}`);
 
         // 将当前选中的模型排在最前面
-        if (currentModel && currentModel !== 'openrouter/auto') {
+        const isAutoMode = !currentModel || currentModel === 'auto' || currentModel === 'openrouter/auto';
+        
+        if (!isAutoMode) {
             models.sort((a, b) => {
                 if (a.id === currentModel) return -1;
                 if (b.id === currentModel) return 1;
@@ -26,10 +28,12 @@ const APIRouter = (function() {
         }
 
         // 过滤掉明确标记为不可用的模型（除非是用户强制选中的）
-        if (currentModel && currentModel !== 'openrouter/auto') {
-            console.log(`[API Router] ⚠️ 用户指定模型，不过滤可用性`);
+        if (!isAutoMode) {
+            console.log(`[API Router] ⚠️ 用户指定模型 ${currentModel}，不过滤可用性`);
             return models; // 如果用户指定了模型，则不根据可用性过滤，交给路由层去试
         }
+
+        console.log(`[API Router] ✅ Auto 模式，将过滤不可用模型`);
 
         // ✅ Auto 模式：过滤掉不可用的模型
         const availableModels = models.filter(m => {
