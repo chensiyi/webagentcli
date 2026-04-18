@@ -121,6 +121,7 @@ const ModelManager = (function() {
             if (modelStatus[modelId].consecutiveFailures >= 3) {
                 modelStatus[modelId].available = false;
                 console.warn(`[ModelManager] ⛔ 模型 ${modelId} 已连续失败 ${modelStatus[modelId].consecutiveFailures} 次，标记为不可用（1小时后自动恢复）`);
+                console.log(`[ModelManager] 💾 当前状态:`, JSON.stringify(modelStatus[modelId]));
                 ErrorTracker.report(
                     `模型 ${modelId} 连续失败 ${modelStatus[modelId].consecutiveFailures} 次`,
                     { modelId, failures: modelStatus[modelId].consecutiveFailures },
@@ -131,6 +132,7 @@ const ModelManager = (function() {
         }
         
         saveModelStatus();
+        console.log(`[ModelManager] ✅ 已保存模型状态到 GM_setValue`);
     }
 
     /**
@@ -141,19 +143,23 @@ const ModelManager = (function() {
     function isModelAvailable(modelId) {
         const status = modelStatus[modelId];
         
+        console.log(`[ModelManager] 🔍 检查模型 ${modelId}:`, status ? `存在 (available=${status.available}, failures=${status.consecutiveFailures})` : '不存在');
+        
         // 未测试或超过1小时：视为可用，并重置状态
         if (!status || (Date.now() - status.lastTest > 60 * 60 * 1000)) {
             if (status) {
                 // ✅ 1小时后自动恢复：重置失败计数
-                console.log(`[ModelManager] 模型 ${modelId} 超过1小时未测试，自动恢复为可用状态`);
+                console.log(`[ModelManager] ⏰ 模型 ${modelId} 超过1小时未测试，自动恢复为可用状态`);
                 delete modelStatus[modelId];
                 saveModelStatus();
+            } else {
+                console.log(`[ModelManager] ✨ 模型 ${modelId} 从未测试过，视为可用`);
             }
             return true;
         }
         
         const isAvail = status.available;
-        console.log(`[ModelManager] 模型 ${modelId} 可用性: ${isAvail ? '✅ 可用' : '❌ 不可用'} (失败次数: ${status.consecutiveFailures})`);
+        console.log(`[ModelManager] 📊 模型 ${modelId} 可用性: ${isAvail ? '✅ 可用' : '❌ 不可用'} (失败次数: ${status.consecutiveFailures}, lastTest: ${new Date(status.lastTest).toLocaleTimeString()})`);
         return isAvail;
     }
 
