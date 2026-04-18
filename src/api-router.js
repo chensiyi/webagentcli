@@ -52,7 +52,7 @@ const APIRouter = (function() {
 
         let lastError = null;
         let attempts = 0;
-        const MAX_ATTEMPTS_PER_MODEL = 2;
+        const MAX_ATTEMPTS_PER_MODEL = 3; // ✅ 每个模型最多测试 3 次
 
         for (const model of modelsToTry) {
             // 创建当前模型的配置副本

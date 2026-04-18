@@ -95,10 +95,35 @@ const ModelManager = (function() {
      * @param {boolean} success - 是否成功
      */
     function markModelTest(modelId, success) {
-        modelStatus[modelId] = {
-            available: success,
-            lastTest: Date.now()
-        };
+        const now = Date.now();
+        
+        if (!modelStatus[modelId]) {
+            modelStatus[modelId] = {
+                available: true,
+                lastTest: now,
+                consecutiveFailures: 0  // 连续失败次数
+            };
+        }
+        
+        if (success) {
+            // 成功：重置失败计数，标记为可用
+            modelStatus[modelId].available = true;
+            modelStatus[modelId].consecutiveFailures = 0;
+            modelStatus[modelId].lastTest = now;
+        } else {
+            // 失败：增加失败计数
+            modelStatus[modelId].consecutiveFailures++;
+            modelStatus[modelId].lastTest = now;
+            
+            // ✅ 连续失败 3 次后才标记为不可用
+            if (modelStatus[modelId].consecutiveFailures >= 3) {
+                modelStatus[modelId].available = false;
+                console.warn(`[ModelManager] 模型 ${modelId} 连续失败 ${modelStatus[modelId].consecutiveFailures} 次，标记为不可用（1小时后自动恢复）`);
+            } else {
+                console.log(`[ModelManager] 模型 ${modelId} 失败 ${modelStatus[modelId].consecutiveFailures}/3 次`);
+            }
+        }
+        
         saveModelStatus();
     }
 
@@ -109,9 +134,18 @@ const ModelManager = (function() {
      */
     function isModelAvailable(modelId) {
         const status = modelStatus[modelId];
+        
+        // 未测试或超过1小时：视为可用，并重置状态
         if (!status || (Date.now() - status.lastTest > 60 * 60 * 1000)) {
-            return true; // 未测试或超过1小时视为可用
+            if (status) {
+                // ✅ 1小时后自动恢复：重置失败计数
+                console.log(`[ModelManager] 模型 ${modelId} 超过1小时未测试，自动恢复为可用状态`);
+                delete modelStatus[modelId];
+                saveModelStatus();
+            }
+            return true;
         }
+        
         return status.available;
     }
 
