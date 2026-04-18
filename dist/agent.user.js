@@ -16,7 +16,7 @@
 // 构建信息
 // 版本: 3.9.8
 // 日期: 2026-04-18
-// 模块数: 16
+// 模块数: 21
 
 
 // =====================================================
@@ -1170,6 +1170,330 @@ const StateManager = (function() {
         saveChatVisibility,
         toggleChatVisibility,
         loadChatVisibility
+    };
+})();
+
+
+// =====================================================
+// 模块: core/UnifiedStateManager.js
+// =====================================================
+
+// ==================== 统一状态管理器 ====================
+// v4.2.0: 单一状态树架构
+// 整合 ConfigManager、StateManager、HistoryManager 的功能
+
+const UnifiedStateManager = (function() {
+    'use strict';
+
+    // 单一状态树
+    let state = {
+        // 配置状态
+        config: {
+            apiKey: '',
+            model: 'auto',
+            temperature: 0.7,
+            maxTokens: 4096,
+            providers: [],
+            customModels: []
+        },
+        
+        // UI 状态
+        ui: {
+            visible: false,
+            position: { x: null, y: null },
+            size: { width: 450, height: 500 },
+            theme: 'light'
+        },
+        
+        // 聊天历史
+        history: {
+            conversations: [],
+            currentConversationId: null,
+            maxConversations: 50
+        },
+        
+        // 模型状态
+        models: {
+            availableModels: [],
+            modelStatus: {}, // { modelId: { available, lastTest, consecutiveFailures } }
+            cachedAt: null
+        },
+        
+        // 运行时状态
+        runtime: {
+            isProcessing: false,
+            lastError: null,
+            sessionStart: Date.now()
+        }
+    };
+
+    // 状态变更监听器
+    const listeners = [];
+
+    // 持久化键名
+    const STORAGE_KEYS = {
+        CONFIG: 'unified_state_config',
+        UI: 'unified_state_ui',
+        HISTORY: 'unified_state_history',
+        MODELS: 'unified_state_models'
+    };
+
+    /**
+     * 初始化状态管理器
+     */
+    function init() {
+        loadState();
+        console.log('[UnifiedStateManager] 初始化完成');
+    }
+
+    /**
+     * 获取状态（支持路径访问）
+     * @param {string} path - 状态路径，如 'config.apiKey'
+     * @returns {*} 状态值
+     */
+    function getState(path) {
+        if (!path) {
+            return { ...state }; // 返回深拷贝
+        }
+
+        const keys = path.split('.');
+        let value = state;
+
+        for (const key of keys) {
+            if (value === undefined || value === null) {
+                return undefined;
+            }
+            value = value[key];
+        }
+
+        return value;
+    }
+
+    /**
+     * 设置状态（支持路径访问）
+     * @param {string} path - 状态路径
+     * @param {*} value - 新值
+     * @param {boolean} persist - 是否持久化
+     */
+    function setState(path, value, persist = true) {
+        const keys = path.split('.');
+        let obj = state;
+
+        // 导航到目标对象的父对象
+        for (let i = 0; i < keys.length - 1; i++) {
+            const key = keys[i];
+            if (!obj[key]) {
+                obj[key] = {};
+            }
+            obj = obj[key];
+        }
+
+        const lastKey = keys[keys.length - 1];
+        const oldValue = obj[lastKey];
+        obj[lastKey] = value;
+
+        // 通知监听器
+        notifyListeners(path, value, oldValue);
+
+        // 持久化
+        if (persist) {
+            persistState(path);
+        }
+
+        console.log(`[UnifiedStateManager] ${path} 已更新`);
+    }
+
+    /**
+     * 批量更新状态
+     * @param {Object} updates - 更新对象 { 'config.apiKey': 'xxx', 'ui.visible': true }
+     */
+    function batchUpdate(updates) {
+        Object.entries(updates).forEach(([path, value]) => {
+            setState(path, value, false); // 批量更新时暂不持久化
+        });
+        
+        // 最后统一持久化
+        persistAll();
+        console.log('[UnifiedStateManager] 批量更新完成');
+    }
+
+    /**
+     * 注册状态变更监听器
+     * @param {Function} callback - 回调函数 (path, newValue, oldValue)
+     * @returns {string} 监听器 ID
+     */
+    function subscribe(callback) {
+        if (typeof callback !== 'function') {
+            throw new TypeError('Listener must be a function');
+        }
+
+        const listenerId = 'listener_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        listeners.push({ id: listenerId, callback });
+
+        return listenerId;
+    }
+
+    /**
+     * 取消订阅
+     * @param {string} listenerId - 监听器 ID
+     */
+    function unsubscribe(listenerId) {
+        const index = listeners.findIndex(l => l.id === listenerId);
+        if (index !== -1) {
+            listeners.splice(index, 1);
+        }
+    }
+
+    /**
+     * 重置状态
+     */
+    function reset() {
+        state = {
+            config: {
+                apiKey: '',
+                model: 'auto',
+                temperature: 0.7,
+                maxTokens: 4096,
+                providers: [],
+                customModels: []
+            },
+            ui: {
+                visible: false,
+                position: { x: null, y: null },
+                size: { width: 450, height: 500 },
+                theme: 'light'
+            },
+            history: {
+                conversations: [],
+                currentConversationId: null,
+                maxConversations: 50
+            },
+            models: {
+                availableModels: [],
+                modelStatus: {},
+                cachedAt: null
+            },
+            runtime: {
+                isProcessing: false,
+                lastError: null,
+                sessionStart: Date.now()
+            }
+        };
+
+        clearStorage();
+        notifyListeners('*', null, null);
+        console.log('[UnifiedStateManager] 状态已重置');
+    }
+
+    /**
+     * 导出状态（用于调试或备份）
+     * @returns {Object} 状态对象
+     */
+    function exportState() {
+        return { ...state };
+    }
+
+    /**
+     * 导入状态（用于恢复）
+     * @param {Object} newState - 新状态
+     */
+    function importState(newState) {
+        state = { ...state, ...newState };
+        persistAll();
+        notifyListeners('*', state, null);
+        console.log('[UnifiedStateManager] 状态已导入');
+    }
+
+    // ==================== 私有函数 ====================
+
+    /**
+     * 加载持久化的状态
+     */
+    function loadState() {
+        try {
+            const config = GM_getValue(STORAGE_KEYS.CONFIG, null);
+            if (config) state.config = { ...state.config, ...config };
+
+            const ui = GM_getValue(STORAGE_KEYS.UI, null);
+            if (ui) state.ui = { ...state.ui, ...ui };
+
+            const history = GM_getValue(STORAGE_KEYS.HISTORY, null);
+            if (history) state.history = { ...state.history, ...history };
+
+            const models = GM_getValue(STORAGE_KEYS.MODELS, null);
+            if (models) state.models = { ...state.models, ...models };
+
+            console.log('[UnifiedStateManager] 已加载持久化状态');
+        } catch (e) {
+            console.error('[UnifiedStateManager] 加载状态失败:', e);
+        }
+    }
+
+    /**
+     * 持久化指定路径的状态
+     */
+    function persistState(path) {
+        try {
+            if (path.startsWith('config.')) {
+                GM_setValue(STORAGE_KEYS.CONFIG, state.config);
+            } else if (path.startsWith('ui.')) {
+                GM_setValue(STORAGE_KEYS.UI, state.ui);
+            } else if (path.startsWith('history.')) {
+                GM_setValue(STORAGE_KEYS.HISTORY, state.history);
+            } else if (path.startsWith('models.')) {
+                GM_setValue(STORAGE_KEYS.MODELS, state.models);
+            }
+        } catch (e) {
+            console.error('[UnifiedStateManager] 持久化失败:', e);
+        }
+    }
+
+    /**
+     * 持久化所有状态
+     */
+    function persistAll() {
+        try {
+            GM_setValue(STORAGE_KEYS.CONFIG, state.config);
+            GM_setValue(STORAGE_KEYS.UI, state.ui);
+            GM_setValue(STORAGE_KEYS.HISTORY, state.history);
+            GM_setValue(STORAGE_KEYS.MODELS, state.models);
+        } catch (e) {
+            console.error('[UnifiedStateManager] 批量持久化失败:', e);
+        }
+    }
+
+    /**
+     * 清除所有持久化数据
+     */
+    function clearStorage() {
+        Object.values(STORAGE_KEYS).forEach(key => {
+            GM_deleteValue(key);
+        });
+    }
+
+    /**
+     * 通知所有监听器
+     */
+    function notifyListeners(path, newValue, oldValue) {
+        listeners.forEach(listener => {
+            try {
+                listener.callback(path, newValue, oldValue);
+            } catch (e) {
+                console.error('[UnifiedStateManager] 监听器执行失败:', e);
+            }
+        });
+    }
+
+    return {
+        init,
+        getState,
+        setState,
+        batchUpdate,
+        subscribe,
+        unsubscribe,
+        reset,
+        exportState,
+        importState
     };
 })();
 
@@ -6559,6 +6883,476 @@ const ModelManager = (function() {
         batchTestModels,
         markModelTest,
         getModelStatus  // ✅ v4.0.0: 导出
+    };
+})();
+
+
+// =====================================================
+// 模块: api/BaseAPIClient.js
+// =====================================================
+
+// ==================== API 基础客户端 ====================
+// v4.1.0: 所有 API 客户端的基类
+// 定义统一的接口规范
+
+class BaseAPIClient {
+    /**
+     * 构造函数
+     * @param {Object} config - 配置对象
+     * @param {string} config.baseUrl - API 基础 URL
+     * @param {string} config.apiKey - API 密钥（可选）
+     * @param {string} config.model - 模型 ID
+     */
+    constructor(config) {
+        if (new.target === BaseAPIClient) {
+            throw new TypeError('Cannot construct BaseAPIClient directly');
+        }
+        
+        this.baseUrl = config.baseUrl;
+        this.apiKey = config.apiKey;
+        this.model = config.model;
+        this.timeout = config.timeout || 30000; // 默认 30 秒超时
+    }
+
+    /**
+     * 构建请求头（子类必须实现）
+     * @returns {Object} 请求头对象
+     */
+    buildHeaders() {
+        throw new Error('Method buildHeaders() must be implemented');
+    }
+
+    /**
+     * 构建请求体（子类必须实现）
+     * @param {Array} messages - 消息数组
+     * @param {Object} params - 额外参数
+     * @returns {Object} 请求体
+     */
+    buildBody(messages, params = {}) {
+        throw new Error('Method buildBody() must be implemented');
+    }
+
+    /**
+     * 获取端点 URL（子类必须实现）
+     * @returns {string} 完整的 API 端点 URL
+     */
+    getEndpoint() {
+        throw new Error('Method getEndpoint() must be implemented');
+    }
+
+    /**
+     * 解析流式响应块（子类必须实现）
+     * @param {string} chunk - 原始数据块
+     * @returns {Object|null} 解析后的内容，null 表示跳过
+     */
+    parseStreamChunk(chunk) {
+        throw new Error('Method parseStreamChunk() must be implemented');
+    }
+
+    /**
+     * 发送非流式请求（默认实现，子类可覆盖）
+     * @param {Array} messages - 消息数组
+     * @param {Object} params - 额外参数
+     * @param {AbortController} abortController - 中止控制器
+     * @returns {Promise<Object>} 响应结果
+     */
+    async sendRequest(messages, params = {}, abortController = null) {
+        const endpoint = this.getEndpoint();
+        const headers = this.buildHeaders();
+        const body = this.buildBody(messages, params);
+
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url: endpoint,
+                headers: headers,
+                data: JSON.stringify(body),
+                timeout: this.timeout,
+                ontimeout: () => {
+                    reject(new Error(`请求超时 (${this.timeout}ms)`));
+                },
+                onerror: (error) => {
+                    reject(new Error(`网络错误: ${error.statusText || error}`));
+                },
+                onload: (response) => {
+                    try {
+                        if (response.status >= 200 && response.status < 300) {
+                            const data = JSON.parse(response.responseText);
+                            resolve({
+                                success: true,
+                                data: data,
+                                status: response.status
+                            });
+                        } else {
+                            reject(new Error(`HTTP ${response.status}: ${response.responseText}`));
+                        }
+                    } catch (e) {
+                        reject(new Error(`解析响应失败: ${e.message}`));
+                    }
+                }
+            });
+        });
+    }
+
+    /**
+     * 发送流式请求（默认实现，子类可覆盖）
+     * @param {Array} messages - 消息数组
+     * @param {Function} onChunk - 每个块的回调函数
+     * @param {Object} params - 额外参数
+     * @param {AbortController} abortController - 中止控制器
+     * @returns {Promise<Object>} 最终结果
+     */
+    async sendStreamingRequest(messages, onChunk, params = {}, abortController = null) {
+        const endpoint = this.getEndpoint();
+        const headers = this.buildHeaders();
+        const body = this.buildBody(messages, { ...params, stream: true });
+
+        let fullContent = '';
+        let isComplete = false;
+
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url: endpoint,
+                headers: headers,
+                data: JSON.stringify(body),
+                responseType: 'text',
+                timeout: this.timeout,
+                ontimeout: () => {
+                    reject(new Error(`请求超时 (${this.timeout}ms)`));
+                },
+                onerror: (error) => {
+                    reject(new Error(`网络错误: ${error.statusText || error}`));
+                },
+                onreadystatechange: (response) => {
+                    if (response.readyState === 3 || response.readyState === 4) {
+                        const text = response.responseText;
+                        
+                        // 处理 SSE 格式的数据
+                        const lines = text.split('\n');
+                        for (const line of lines) {
+                            if (line.startsWith('data: ')) {
+                                const data = line.slice(6).trim();
+                                
+                                if (data === '[DONE]') {
+                                    isComplete = true;
+                                    continue;
+                                }
+
+                                try {
+                                    const parsed = this.parseStreamChunk(data);
+                                    if (parsed && parsed.content) {
+                                        fullContent += parsed.content;
+                                        onChunk(parsed.content);
+                                    }
+                                } catch (e) {
+                                    console.warn('[BaseAPIClient] 解析块失败:', e);
+                                }
+                            }
+                        }
+                    }
+                },
+                onload: (response) => {
+                    if (response.status >= 200 && response.status < 300) {
+                        resolve({
+                            success: true,
+                            content: fullContent,
+                            complete: isComplete
+                        });
+                    } else {
+                        reject(new Error(`HTTP ${response.status}: ${response.responseText}`));
+                    }
+                }
+            });
+        });
+    }
+
+    /**
+     * 验证配置是否有效（子类可覆盖）
+     * @returns {boolean}
+     */
+    validateConfig() {
+        if (!this.baseUrl) {
+            throw new Error('baseUrl 不能为空');
+        }
+        return true;
+    }
+}
+
+
+// =====================================================
+// 模块: api/OpenRouterClient.js
+// =====================================================
+
+// ==================== OpenRouter API 客户端 ====================
+// v4.1.0: OpenRouter 专用实现
+
+class OpenRouterClient extends BaseAPIClient {
+    /**
+     * 构造函数
+     * @param {Object} config - 配置对象
+     */
+    constructor(config) {
+        super({
+            baseUrl: config.baseUrl || 'https://openrouter.ai/api/v1',
+            apiKey: config.apiKey,
+            model: config.model,
+            timeout: config.timeout
+        });
+        
+        this.validateConfig();
+    }
+
+    /**
+     * 构建请求头
+     */
+    buildHeaders() {
+        const headers = {
+            'Content-Type': 'application/json'
+        };
+        
+        if (this.apiKey) {
+            headers['Authorization'] = `Bearer ${this.apiKey}`;
+        }
+        
+        // OpenRouter 特定的头部
+        headers['HTTP-Referer'] = window.location.href;
+        headers['X-Title'] = 'Free Web AI Agent';
+        
+        return headers;
+    }
+
+    /**
+     * 构建请求体
+     */
+    buildBody(messages, params = {}) {
+        return {
+            model: this.model,
+            messages: messages,
+            stream: params.stream || false,
+            temperature: params.temperature || 0.7,
+            max_tokens: params.maxTokens || 4096,
+            ...params
+        };
+    }
+
+    /**
+     * 获取端点 URL
+     */
+    getEndpoint() {
+        return `${this.baseUrl}/chat/completions`;
+    }
+
+    /**
+     * 解析流式响应块
+     */
+    parseStreamChunk(chunk) {
+        try {
+            const data = JSON.parse(chunk);
+            
+            if (data.choices && data.choices[0] && data.choices[0].delta) {
+                const delta = data.choices[0].delta;
+                return {
+                    content: delta.content || '',
+                    role: delta.role || null,
+                    finish_reason: data.choices[0].finish_reason || null
+                };
+            }
+            
+            return null;
+        } catch (e) {
+            console.warn('[OpenRouterClient] 解析失败:', e);
+            return null;
+        }
+    }
+
+    /**
+     * 验证配置
+     */
+    validateConfig() {
+        super.validateConfig();
+        
+        if (!this.model) {
+            throw new Error('model 不能为空');
+        }
+        
+        return true;
+    }
+}
+
+
+// =====================================================
+// 模块: api/LMStudioClient.js
+// =====================================================
+
+// ==================== LM Studio API 客户端 ====================
+// v4.1.0: LM Studio 本地服务实现
+
+class LMStudioClient extends BaseAPIClient {
+    /**
+     * 构造函数
+     * @param {Object} config - 配置对象
+     */
+    constructor(config) {
+        super({
+            baseUrl: config.baseUrl || 'http://localhost:1234/v1',
+            apiKey: config.apiKey || 'lm-studio', // LM Studio 不需要真实 API Key
+            model: config.model,
+            timeout: config.timeout || 60000 // 本地服务可能需要更长时间
+        });
+        
+        this.validateConfig();
+    }
+
+    /**
+     * 构建请求头
+     */
+    buildHeaders() {
+        return {
+            'Content-Type': 'application/json'
+        };
+    }
+
+    /**
+     * 构建请求体
+     */
+    buildBody(messages, params = {}) {
+        return {
+            model: this.model,
+            messages: messages,
+            stream: params.stream || false,
+            temperature: params.temperature || 0.7,
+            max_tokens: params.maxTokens || 4096,
+            ...params
+        };
+    }
+
+    /**
+     * 获取端点 URL
+     */
+    getEndpoint() {
+        return `${this.baseUrl}/chat/completions`;
+    }
+
+    /**
+     * 解析流式响应块
+     */
+    parseStreamChunk(chunk) {
+        try {
+            const data = JSON.parse(chunk);
+            
+            if (data.choices && data.choices[0] && data.choices[0].delta) {
+                const delta = data.choices[0].delta;
+                return {
+                    content: delta.content || '',
+                    role: delta.role || null,
+                    finish_reason: data.choices[0].finish_reason || null
+                };
+            }
+            
+            return null;
+        } catch (e) {
+            console.warn('[LMStudioClient] 解析失败:', e);
+            return null;
+        }
+    }
+
+    /**
+     * 验证配置
+     */
+    validateConfig() {
+        super.validateConfig();
+        
+        if (!this.model) {
+            throw new Error('model 不能为空');
+        }
+        
+        // LM Studio 是本地服务，检查是否为 localhost
+        if (!this.baseUrl.includes('localhost') && !this.baseUrl.includes('127.0.0.1')) {
+            console.warn('[LMStudioClient] LM Studio 通常运行在 localhost，请确认 baseUrl 是否正确');
+        }
+        
+        return true;
+    }
+}
+
+
+// =====================================================
+// 模块: api/index.js
+// =====================================================
+
+// ==================== API 客户端工厂 ====================
+// v4.1.0: 根据提供商类型创建对应的客户端
+
+const APIClientFactory = (function() {
+    'use strict';
+
+    /**
+     * 创建 API 客户端
+     * @param {Object} providerConfig - 提供商配置
+     * @param {string} modelId - 模型 ID
+     * @returns {BaseAPIClient} API 客户端实例
+     */
+    function createClient(providerConfig, modelId) {
+        const config = {
+            baseUrl: providerConfig.baseUrl,
+            apiKey: providerConfig.apiKey,
+            model: modelId,
+            timeout: providerConfig.timeout
+        };
+
+        // 根据提供商类型或 baseUrl 判断使用哪个客户端
+        const providerType = detectProviderType(providerConfig);
+
+        switch (providerType) {
+            case 'openrouter':
+                return new OpenRouterClient(config);
+            
+            case 'lmstudio':
+                return new LMStudioClient(config);
+            
+            case 'ollama':
+                // TODO: 实现 OllamaClient
+                throw new Error('Ollama 客户端尚未实现');
+            
+            default:
+                // 默认使用 OpenRouter 兼容的客户端
+                console.log(`[APIClientFactory] 使用 OpenRouter 兼容客户端 for ${providerType}`);
+                return new OpenRouterClient(config);
+        }
+    }
+
+    /**
+     * 检测提供商类型
+     * @param {Object} providerConfig - 提供商配置
+     * @returns {string} 提供商类型
+     */
+    function detectProviderType(providerConfig) {
+        const baseUrl = providerConfig.baseUrl || '';
+        const name = (providerConfig.name || '').toLowerCase();
+
+        // 检查是否为 LM Studio
+        if (baseUrl.includes('localhost:1234') || 
+            baseUrl.includes('127.0.0.1:1234') ||
+            name.includes('lm studio') ||
+            name.includes('lmstudio')) {
+            return 'lmstudio';
+        }
+
+        // 检查是否为 Ollama
+        if (baseUrl.includes('localhost:11434') ||
+            baseUrl.includes('127.0.0.1:11434') ||
+            name.includes('ollama')) {
+            return 'ollama';
+        }
+
+        // 默认为 OpenRouter
+        return 'openrouter';
+    }
+
+    return {
+        createClient,
+        detectProviderType
     };
 })();
 

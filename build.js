@@ -58,6 +58,7 @@ const modules = [
     'core/ConfigManager.js',
     'core/HistoryManager.js',
     'core/StateManager.js',
+    'core/UnifiedStateManager.js', // v4.2.0: 统一状态管理器
     'core/ShortcutManager.js', // 快捷键管理器
     'core/ProviderManager.js', // v4.0.0: 提供商管理器
     
@@ -68,8 +69,12 @@ const modules = [
     
     // 业务模块
     'models.js',
-    'api-router.js',     // API 路由层 (v3.9.2+)
-    'api.js',
+    'api/BaseAPIClient.js',   // v4.1.0: API 基础客户端
+    'api/OpenRouterClient.js', // v4.1.0: OpenRouter 客户端
+    'api/LMStudioClient.js',   // v4.1.0: LM Studio 客户端
+    'api/index.js',            // v4.1.0: API 客户端工厂
+    'api-router.js',           // API 路由层 (v4.0.0+)
+    'api.js',                  // API 调用（保留兼容性）
     'chat.js',
     'main.js' // 主入口，最后加载
 ].filter(Boolean); // 过滤掉 null 值
