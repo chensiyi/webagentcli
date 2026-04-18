@@ -1,4 +1,7 @@
 // ==================== 模型管理模块 ====================
+// v4.0.0: 重构为从 ProviderManager 动态获取模型
+
+// 注意：此文件通过 build.js 合并，ProviderManager 已在全局作用域
 
 const ModelManager = (function() {
     const CACHE_KEY = 'cached_models';
@@ -8,59 +11,30 @@ const ModelManager = (function() {
     // 模型状态管理: { modelId: { available: boolean, lastTest: timestamp } }
     let modelStatus = {};
 
-    // 默认模型列表
-    const DEFAULT_MODELS = [
-        { id: 'google/gemma-3-12b-it:free', name: '🌟 Gemma 3 12B (推荐)', provider: 'google' },
-        { id: 'meta-llama/llama-3.3-70b-instruct:free', name: '🦙 Llama 3.3 70B', provider: 'meta-llama' },
-        { id: 'qwen/qwen-2.5-72b-instruct:free', name: '💬 Qwen 2.5 72B (中文好)', provider: 'qwen' },
-        { id: 'deepseek/deepseek-r1-0528:free', name: '🧠 DeepSeek R1 (推理强)', provider: 'deepseek' },
-        { id: 'mistralai/mistral-7b-instruct:free', name: '⚡ Mistral 7B (快速)', provider: 'mistralai' },
-        { id: 'google/gemini-2.0-flash-exp:free', name: '✨ Gemini 2.0 Flash', provider: 'google' },
-        { id: 'openai/gpt-oss-20b:free', name: '🤖 GPT-OSS 20B', provider: 'openai' },
-        { id: 'zhipuai/glm-4.5-air:free', name: '🇨🇳 GLM-4.5 Air', provider: 'zhipuai' },
-        { id: 'stepfun/step-3.5-flash:free', name: '🚀 Step 3.5 Flash', provider: 'stepfun' },
-        { id: 'arcee/trinity-mini:free', name: '🔹 Trinity Mini 26B', provider: 'arcee' },
-        { id: 'openrouter/auto', name: '🎲 Auto (智能路由 - 推荐)', provider: 'openrouter' }
-    ];
+    /**
+     * 初始化模型管理器
+     */
+    async function init() {
+        await loadModelStatus();
+        console.log('[ModelManager] Initialized');
+    }
 
     /**
-     * 从 API 获取免费模型列表
+     * 获取所有可用模型（从 ProviderManager）
      */
-    function fetchFreeModels() {
-        return new Promise((resolve, reject) => {
-            GM_xmlhttpRequest({
-                method: 'GET',
-                url: 'https://openrouter.ai/api/v1/models',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                onload: (response) => {
-                    try {
-                        const data = JSON.parse(response.responseText);
-                        if (data.data) {
-                            // 过滤出免费模型
-                            const freeModels = data.data
-                                .filter(model => model.id.includes(':free') || model.pricing?.prompt === 0)
-                                .map(model => ({
-                                    id: model.id,
-                                    name: getModelDisplayName(model),
-                                    provider: model.id.split('/')[0],
-                                    context_length: model.context_length || 'N/A'
-                                }))
-                                .sort((a, b) => a.name.localeCompare(b.name));
-                            
-                            resolve(freeModels);
-                        } else {
-                            reject(new Error('无效的响应格式'));
-                        }
-                    } catch (error) {
-                        reject(error);
-                    }
-                },
-                onerror: (error) => reject(error),
-                ontimeout: () => reject(new Error('请求超时'))
-            });
-        });
+    async function getAvailableModels() {
+        // 从 ProviderManager 获取所有可用模型
+        const models = ProviderManager.getAllAvailableModels();
+        
+        // 如果没有任何模型，返回默认模型列表（向后兼容）
+        if (models.length === 0) {
+            console.warn('[ModelManager] No models found, using fallback');
+            return [
+                { id: 'openrouter/auto', name: '🎲 Auto (智能路由)', provider: 'openrouter' }
+            ];
+        }
+        
+        return models;
     }
 
     /**
@@ -202,7 +176,7 @@ const ModelManager = (function() {
     }
 
     /**
-     * 更新模型选择下拉框（带可用性排序）
+     * 更新模型选择下拉框（按提供商分组显示）
      */
     function updateModelSelect(models, currentModel) {
         const select = document.getElementById('setting-model');
@@ -223,54 +197,64 @@ const ModelManager = (function() {
         separator.textContent = '──────────────';
         select.appendChild(separator);
         
-        // 排序并添加模型
-        const sortedModels = sortModelsByAvailability(models);
-        sortedModels.forEach(model => {
-            const option = document.createElement('option');
-            option.value = model.id;
-            const isAvail = isModelAvailable(model.id);
-            option.textContent = isAvail ? model.name : `${model.name} (不可用)`;
-            if (!isAvail) {
-                option.style.color = '#999';
+        // 按提供商分组
+        const groupedModels = {};
+        models.forEach(model => {
+            const providerId = model.providerId || model.provider || 'unknown';
+            const providerName = model.providerName || providerId;
+            
+            if (!groupedModels[providerId]) {
+                groupedModels[providerId] = {
+                    name: providerName,
+                    models: []
+                };
             }
-            if (model.id === currentValue) {
-                option.selected = true;
-            }
-            select.appendChild(option);
+            groupedModels[providerId].models.push(model);
+        });
+        
+        // 添加每个提供商的模型
+        Object.keys(groupedModels).forEach(providerId => {
+            const group = groupedModels[providerId];
+            
+            // 提供商标题
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = `${group.name} (${group.models.length})`;
+            
+            // 排序并添加模型
+            const sortedModels = sortModelsByAvailability(group.models);
+            sortedModels.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.id;
+                const isAvail = isModelAvailable(model.id);
+                option.textContent = isAvail ? model.name : `${model.name} (不可用)`;
+                if (!isAvail) {
+                    option.style.color = '#999';
+                }
+                if (model.id === currentValue) {
+                    option.selected = true;
+                }
+                optgroup.appendChild(option);
+            });
+            
+            select.appendChild(optgroup);
         });
     }
 
     /**
-     * 加载缓存的模型列表
+     * 加载缓存的模型列表（v4.0.0: 已废弃，使用 ProviderManager）
      */
     function loadCachedModels() {
-        const cached = GM_getValue(CACHE_KEY, null);
-        if (cached) {
-            try {
-                const data = typeof cached === 'string' ? JSON.parse(cached) : cached;
-                const models = data.models;
-                const timestamp = data.timestamp;
-                const age = Date.now() - timestamp;
-                
-                // 如果缓存不超过 24 小时,使用缓存
-                if (age < CACHE_EXPIRY) {
-                    return { models, isExpired: false, hoursAgo: Math.floor(age / (60 * 60 * 1000)) };
-                }
-            } catch (error) {
-                console.error('加载缓存失败:', error);
-            }
-        }
-        return { models: DEFAULT_MODELS, isExpired: true, hoursAgo: 0 };
+        // v4.0.0: 此函数已废弃，保留仅为向后兼容
+        console.warn('[ModelManager] loadCachedModels is deprecated, use ProviderManager instead');
+        return { models: [], isExpired: true, hoursAgo: 0 };
     }
 
     /**
-     * 保存模型列表到缓存
+     * 保存模型列表到缓存（v4.0.0: 已废弃）
      */
     function saveToCache(models) {
-        GM_setValue(CACHE_KEY, JSON.stringify({
-            models: models,
-            timestamp: Date.now()
-        }));
+        // v4.0.0: 此函数已废弃
+        console.warn('[ModelManager] saveToCache is deprecated');
     }
 
     /**
@@ -309,17 +293,14 @@ const ModelManager = (function() {
     }
 
     return {
-        DEFAULT_MODELS,
         init,
-        fetchFreeModels,
+        getAvailableModels,
         updateModelSelect,
         loadCachedModels,
         saveToCache,
-        refreshModels,
-        getProviderIcon,
-        getModelDisplayName,
-        batchTestModels,
         isModelAvailable,
+        testModel,
+        batchTestModels,
         markModelTest
     };
 })();

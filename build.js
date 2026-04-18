@@ -15,7 +15,7 @@ const path = require('path');
 const SRC_DIR = path.join(__dirname, 'src');
 const DIST_DIR = path.join(__dirname, 'dist');
 const OUTPUT_FILE = path.join(DIST_DIR, 'agent.user.js');
-const VERSION = process.env.VERSION || '3.9.4';
+const VERSION = process.env.VERSION || '3.9.8';
 const BUILD_DATE = new Date().toISOString().split('T')[0];
 // 发布模式：通过环境变量 RELEASE=true 启用，或手动设置
 const IS_RELEASE = process.env.RELEASE === 'true' || process.argv.includes('--release');
@@ -57,6 +57,7 @@ const modules = [
     'core/HistoryManager.js',
     'core/StateManager.js',
     'core/ShortcutManager.js', // 快捷键管理器
+    'core/ProviderManager.js', // v4.0.0: 提供商管理器
     
     // UI 模块（必须在 Chat 之前加载，因为 Chat 依赖 UIManager）
     'ui-styles.js',      // UI 样式模块

@@ -66,8 +66,13 @@
         // 初始化状态管理器
         await StateManager.init();
         
+        // v4.0.0: 初始化提供商管理器
+        await ProviderManager.init();
+        console.log('✅ ProviderManager 已初始化');
+        
         // 初始化模型管理器
-        ModelManager.init();
+        await ModelManager.init();
+        console.log('✅ ModelManager 已初始化');
         
         console.log('✅ 核心模块加载完成');
     }

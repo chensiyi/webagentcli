@@ -26,6 +26,15 @@ const UITemplates = (function() {
                         <button class="header-btn" id="agent-close" title="关闭">×</button>
                     </div>
                 </div>
+                
+                <!-- v4.0.0: 模型选择器 -->
+                <div id="model-selector-bar">
+                    <select id="main-model-select" class="model-select">
+                        <option value="auto">🔄 Auto (智能路由)</option>
+                    </select>
+                    <span id="model-status" class="model-status"></span>
+                </div>
+                
                 <div id="agent-chat"></div>
                 <div id="agent-input-area">
                     <textarea id="agent-input" placeholder="输入消息...&#10;使用 /js 执行代码,例如: /js alert('Hello')"></textarea>

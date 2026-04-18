@@ -81,6 +81,41 @@ const UIStyles = (function() {
                 z-index: 3;
             }
             .header-btn:hover { background: rgba(255,255,255,0.3); }
+            
+            /* v4.0.0: 模型选择器样式 */
+            #model-selector-bar {
+                padding: 8px 16px;
+                background: white;
+                border-bottom: 1px solid #e5e7eb;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                flex-shrink: 0;
+            }
+            .model-select {
+                flex: 1;
+                padding: 6px 10px;
+                border: 1px solid #d1d5db;
+                border-radius: 6px;
+                font-size: 13px;
+                background: white;
+                cursor: pointer;
+                transition: border-color 0.2s;
+            }
+            .model-select:hover {
+                border-color: #667eea;
+            }
+            .model-select:focus {
+                outline: none;
+                border-color: #667eea;
+                box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            }
+            .model-status {
+                font-size: 11px;
+                color: #6b7280;
+                white-space: nowrap;
+            }
+            
             #agent-chat {
                 flex: 1;
                 overflow-y: auto;

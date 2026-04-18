@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Free Web AI Agent
 // @namespace    https://github.com/chensiyi1994
-// @version      3.9.4
+// @version      3.9.8
 // @description  基于ai模型的Web AI 助手,支持 JS 执行
 // @author       chensiyi1994
 // @match        *://*/*
@@ -14,9 +14,9 @@
 // ==/UserScript==
 
 // 构建信息
-// 版本: 3.9.4
+// 版本: 3.9.8
 // 日期: 2026-04-18
-// 模块数: 14
+// 模块数: 15
 
 
 // =====================================================
@@ -940,6 +940,758 @@ const ShortcutManager = (function() {
 
 
 // =====================================================
+// 模块: core/ProviderManager.js
+// =====================================================
+
+/**
+ * ProviderManager - 模型提供商管理器
+ * 
+ * 功能：
+ * 1. 管理多个模型提供商（OpenRouter、LM Studio、Ollama 等）
+ * 2. 支持多种 API 模板（OpenAI、Anthropic、Ollama 等）
+ * 3. 提供商配置的持久化（按域名隔离）
+ * 4. 本地服务自动发现
+ */
+
+// 注意：此文件通过 build.js 合并，EventManager 和 ConfigManager 已在全局作用域
+
+// ==================== 模型模板定义 ====================
+
+const ModelTemplates = {
+    /**
+     * OpenAI 兼容模板
+     * 适用于：OpenAI、OpenRouter、LM Studio、Azure OpenAI 等
+     */
+    OPENAI: {
+        name: 'OpenAI Compatible',
+        endpoint: '{baseUrl}/chat/completions',
+        headers: (apiKey) => ({
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+        }),
+        buildRequest: (model, messages, params) => ({
+            model,
+            messages,
+            stream: true,
+            ...params
+        }),
+        parseResponse: (response) => response.choices?.[0]?.message?.content || '',
+        parseStreamChunk: (chunk) => chunk.choices?.[0]?.delta?.content || '',
+        isStreamFinished: (chunk) => chunk.choices?.[0]?.finish_reason === 'stop'
+    },
+
+    /**
+     * Anthropic Claude 模板
+     * 适用于：Anthropic API
+     */
+    ANTHROPIC: {
+        name: 'Anthropic Claude',
+        endpoint: '{baseUrl}/messages',
+        headers: (apiKey) => ({
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'anthropic-beta': 'messages-2023-12-15',
+            'Content-Type': 'application/json'
+        }),
+        buildRequest: (model, messages, params) => {
+            // Anthropic 不支持 system 角色，需要特殊处理
+            const systemMessage = messages.find(m => m.role === 'system');
+            const chatMessages = messages.filter(m => m.role !== 'system');
+            
+            return {
+                model,
+                messages: chatMessages.map(m => ({
+                    role: m.role === 'assistant' ? 'assistant' : 'user',
+                    content: m.content
+                })),
+                system: systemMessage?.content,
+                stream: true,
+                max_tokens: params.max_tokens || 4096,
+                ...params
+            };
+        },
+        parseResponse: (response) => response.content?.[0]?.text || '',
+        parseStreamChunk: (chunk) => {
+            if (chunk.type === 'content_block_delta') {
+                return chunk.delta?.text || '';
+            }
+            return '';
+        },
+        isStreamFinished: (chunk) => chunk.type === 'message_stop'
+    },
+
+    /**
+     * Ollama 本地模板
+     * 适用于：Ollama 本地服务
+     */
+    OLLAMA: {
+        name: 'Ollama Local',
+        endpoint: '{baseUrl}/api/chat',
+        headers: () => ({
+            'Content-Type': 'application/json'
+        }),
+        buildRequest: (model, messages, params) => ({
+            model,
+            messages,
+            stream: true,
+            options: {
+                temperature: params.temperature,
+                top_p: params.top_p,
+                num_predict: params.max_tokens
+            }
+        }),
+        parseResponse: (response) => response.message?.content || '',
+        parseStreamChunk: (chunk) => chunk.message?.content || '',
+        isStreamFinished: (chunk) => chunk.done === true
+    },
+
+    /**
+     * Google Gemini 模板
+     * 适用于：Google AI Studio
+     */
+    GEMINI: {
+        name: 'Google Gemini',
+        endpoint: '{baseUrl}/models/{model}:streamGenerateContent?alt=sse&key={apiKey}',
+        headers: () => ({
+            'Content-Type': 'application/json'
+        }),
+        buildRequest: (model, messages, params) => {
+            // Gemini 的消息格式转换
+            const contents = messages.map(m => ({
+                role: m.role === 'assistant' ? 'model' : 'user',
+                parts: [{ text: m.content }]
+            }));
+            
+            return {
+                contents,
+                generationConfig: {
+                    temperature: params.temperature,
+                    topP: params.top_p,
+                    maxOutputTokens: params.max_tokens
+                }
+            };
+        },
+        parseResponse: (response) => {
+            const candidates = response.candidates;
+            return candidates?.[0]?.content?.parts?.[0]?.text || '';
+        },
+        parseStreamChunk: (chunk) => {
+            // Gemini SSE 格式特殊，需要解析 data: 行
+            return chunk.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        },
+        isStreamFinished: (chunk) => chunk.candidates?.[0]?.finishReason === 'STOP'
+    }
+};
+
+// ==================== 默认提供商配置 ====================
+
+const DEFAULT_PROVIDERS = [
+    {
+        id: 'openrouter',
+        name: 'OpenRouter',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        apiKey: '',
+        template: 'OPENAI',
+        enabled: true,
+        priority: 1,
+        models: [],  // 动态加载
+        autoDiscover: false
+    }
+];
+
+// ==================== 官方供应商预设模板 ====================
+
+const OFFICIAL_PROVIDER_TEMPLATES = {
+    openrouter: {
+        id: 'openrouter',
+        name: 'OpenRouter',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        apiKey: '',
+        template: 'OPENAI',
+        priority: 1,
+        description: '多模型聚合平台，支持 200+ 模型',
+        website: 'https://openrouter.ai'
+    },
+    anthropic: {
+        id: 'anthropic',
+        name: 'Anthropic Claude',
+        baseUrl: 'https://api.anthropic.com/v1',
+        apiKey: '',
+        template: 'ANTHROPIC',
+        priority: 2,
+        description: 'Claude 系列模型，强大的推理能力',
+        website: 'https://console.anthropic.com'
+    },
+    google: {
+        id: 'google',
+        name: 'Google Gemini',
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+        apiKey: '',
+        template: 'GEMINI',
+        priority: 3,
+        description: 'Gemini 系列模型，免费额度充足',
+        website: 'https://aistudio.google.com'
+    },
+    openai: {
+        id: 'openai',
+        name: 'OpenAI',
+        baseUrl: 'https://api.openai.com/v1',
+        apiKey: '',
+        template: 'OPENAI',
+        priority: 4,
+        description: 'GPT-4、GPT-3.5 等官方模型',
+        website: 'https://platform.openai.com'
+    },
+    deepseek: {
+        id: 'deepseek',
+        name: 'DeepSeek',
+        baseUrl: 'https://api.deepseek.com/v1',
+        apiKey: '',
+        template: 'OPENAI',
+        priority: 5,
+        description: 'DeepSeek-V3 等国产优秀模型',
+        website: 'https://platform.deepseek.com'
+    },
+    zhipu: {
+        id: 'zhipu',
+        name: '智谱 AI',
+        baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+        apiKey: '',
+        template: 'OPENAI',
+        priority: 6,
+        description: 'GLM 系列模型，中文优化',
+        website: 'https://open.bigmodel.cn'
+    },
+    ollama: {
+        id: 'ollama',
+        name: 'Ollama (本地)',
+        baseUrl: 'http://localhost:11434',
+        apiKey: '',
+        template: 'OLLAMA',
+        priority: 10,
+        description: '本地运行的开源模型',
+        website: 'https://ollama.ai',
+        isLocal: true
+    },
+    lmstudio: {
+        id: 'lm-studio',
+        name: 'LM Studio (本地)',
+        baseUrl: 'http://localhost:1234/v1',
+        apiKey: '',
+        template: 'OPENAI',
+        priority: 11,
+        description: '本地 GUI 工具，支持多种模型',
+        website: 'https://lmstudio.ai',
+        isLocal: true
+    }
+};
+
+// ==================== ProviderManager 核心逻辑 ====================
+
+let providers = [];
+let templates = { ...ModelTemplates };
+
+/**
+ * 初始化 ProviderManager
+ */
+async function init() {
+    await loadProviders();
+    
+    // 如果没有提供商，使用默认配置
+    if (providers.length === 0) {
+        providers = [...DEFAULT_PROVIDERS];
+        await saveProviders();
+    }
+    
+    console.log('[ProviderManager] Initialized with', providers.length, 'providers');
+}
+
+/**
+ * 加载提供商配置
+ */
+async function loadProviders() {
+    try {
+        const saved = GM_getValue('providers', []);
+        providers = Array.isArray(saved) ? saved : [];
+    } catch (error) {
+        console.error('[ProviderManager] Failed to load providers:', error);
+        providers = [];
+    }
+}
+
+/**
+ * 保存提供商配置
+ */
+async function saveProviders() {
+    try {
+        GM_setValue('providers', providers);
+    } catch (error) {
+        console.error('[ProviderManager] Failed to save providers:', error);
+    }
+}
+
+/**
+ * 获取所有提供商
+ */
+function getAllProviders() {
+    return providers.map(p => ({
+        ...p,
+        apiKey: p.apiKey ? '***' + p.apiKey.slice(-4) : ''  // 隐藏 API Key
+    }));
+}
+
+/**
+ * 获取启用的提供商（按优先级排序）
+ */
+function getEnabledProviders() {
+    return providers
+        .filter(p => p.enabled)
+        .sort((a, b) => a.priority - b.priority);
+}
+
+/**
+ * 获取单个提供商（包含完整信息，包括 API Key）
+ */
+function getProviderById(id) {
+    return providers.find(p => p.id === id);
+}
+
+/**
+ * 根据模型 ID 查找对应的提供商
+ */
+function getProviderByModel(modelId) {
+    for (const provider of providers) {
+        if (!provider.enabled) continue;
+        
+        // 检查模型是否属于该提供商
+        if (provider.models.some(m => m.id === modelId)) {
+            return provider;
+        }
+    }
+    
+    // 如果没找到，返回第一个启用的提供商（向后兼容）
+    return getEnabledProviders()[0] || null;
+}
+
+/**
+ * 添加提供商
+ */
+async function addProvider(provider) {
+    // 验证必填字段
+    if (!provider.id || !provider.name || !provider.baseUrl || !provider.template) {
+        throw new Error('Provider must have id, name, baseUrl, and template');
+    }
+    
+    // 检查 ID 是否已存在
+    if (providers.some(p => p.id === provider.id)) {
+        throw new Error(`Provider with id "${provider.id}" already exists`);
+    }
+    
+    // 设置默认值
+    const newProvider = {
+        id: provider.id,
+        name: provider.name,
+        baseUrl: provider.baseUrl,
+        apiKey: provider.apiKey || '',
+        template: provider.template,
+        enabled: provider.enabled !== undefined ? provider.enabled : true,
+        priority: provider.priority || providers.length + 1,
+        models: provider.models || [],
+        autoDiscover: provider.autoDiscover || false,
+        createdAt: Date.now()
+    };
+    
+    providers.push(newProvider);
+    await saveProviders();
+    
+    EventManager.emit('providerAdded', newProvider);
+    console.log('[ProviderManager] Added provider:', newProvider.id);
+    
+    return newProvider;
+}
+
+/**
+ * 更新提供商
+ */
+async function updateProvider(id, updates) {
+    const index = providers.findIndex(p => p.id === id);
+    if (index === -1) {
+        throw new Error(`Provider "${id}" not found`);
+    }
+    
+    // 不允许修改 ID
+    if (updates.id && updates.id !== id) {
+        throw new Error('Cannot change provider ID');
+    }
+    
+    providers[index] = {
+        ...providers[index],
+        ...updates,
+        updatedAt: Date.now()
+    };
+    
+    await saveProviders();
+    
+    EventManager.emit('providerUpdated', providers[index]);
+    console.log('[ProviderManager] Updated provider:', id);
+    
+    return providers[index];
+}
+
+/**
+ * 删除提供商
+ */
+async function deleteProvider(id) {
+    const index = providers.findIndex(p => p.id === id);
+    if (index === -1) {
+        throw new Error(`Provider "${id}" not found`);
+    }
+    
+    const deleted = providers.splice(index, 1)[0];
+    await saveProviders();
+    
+    EventManager.emit('providerDeleted', deleted);
+    console.log('[ProviderManager] Deleted provider:', id);
+    
+    return deleted;
+}
+
+/**
+ * 为提供商添加模型
+ */
+async function addModelsToProvider(providerId, models) {
+    const provider = providers.find(p => p.id === providerId);
+    if (!provider) {
+        throw new Error(`Provider "${providerId}" not found`);
+    }
+    
+    // 合并模型列表（去重）
+    const existingIds = new Set(provider.models.map(m => m.id));
+    const newModels = models.filter(m => !existingIds.has(m.id));
+    
+    provider.models = [
+        ...provider.models,
+        ...newModels.map(m => ({
+            id: m.id,
+            name: m.name || m.id,
+            provider: providerId,
+            ...m
+        }))
+    ];
+    
+    await saveProviders();
+    
+    EventManager.emit('modelsUpdated', providerId);
+    console.log('[ProviderManager] Added', newModels.length, 'models to', providerId);
+    
+    return provider.models;
+}
+
+/**
+ * 清除提供商的模型列表
+ */
+async function clearProviderModels(providerId) {
+    const provider = providers.find(p => p.id === providerId);
+    if (!provider) {
+        throw new Error(`Provider "${providerId}" not found`);
+    }
+    
+    provider.models = [];
+    await saveProviders();
+    
+    EventManager.emit('modelsCleared', providerId);
+    console.log('[ProviderManager] Cleared models for', providerId);
+}
+
+/**
+ * 获取所有可用模型（来自所有启用的提供商）
+ */
+function getAllAvailableModels() {
+    const allModels = [];
+    
+    for (const provider of providers) {
+        if (!provider.enabled) continue;
+        
+        for (const model of provider.models) {
+            allModels.push({
+                ...model,
+                providerId: provider.id,
+                providerName: provider.name,
+                template: provider.template
+            });
+        }
+    }
+    
+    return allModels;
+}
+
+/**
+ * 获取所有可用的模板
+ */
+function getAvailableTemplates() {
+    return Object.keys(templates).map(key => ({
+        id: key,
+        name: templates[key].name
+    }));
+}
+
+/**
+ * 获取官方供应商预设模板列表
+ */
+function getOfficialProviderTemplates() {
+    return Object.values(OFFICIAL_PROVIDER_TEMPLATES);
+}
+
+/**
+ * 根据 ID 获取官方供应商预设模板
+ */
+function getOfficialProviderTemplateById(id) {
+    return OFFICIAL_PROVIDER_TEMPLATES[id] || null;
+}
+
+/**
+ * 获取模板详情
+ */
+function getTemplate(templateId) {
+    return templates[templateId] || null;
+}
+
+/**
+ * 注册自定义模板
+ */
+function registerTemplate(id, template) {
+    if (templates[id]) {
+        console.warn('[ProviderManager] Template', id, 'already exists, overwriting');
+    }
+    
+    templates[id] = template;
+    console.log('[ProviderManager] Registered template:', id);
+}
+
+/**
+ * 测试提供商连接
+ */
+async function testProviderConnection(providerId) {
+    const provider = providers.find(p => p.id === providerId);
+    if (!provider) {
+        throw new Error(`Provider "${providerId}" not found`);
+    }
+    
+    const template = templates[provider.template];
+    if (!template) {
+        throw new Error(`Template "${provider.template}" not found`);
+    }
+    
+    try {
+        // 构建测试请求
+        const testEndpoint = template.endpoint
+            .replace('{baseUrl}', provider.baseUrl)
+            .replace('{apiKey}', provider.apiKey || '')
+            .replace('{model}', 'test');
+        
+        const headers = template.headers(provider.apiKey);
+        const requestBody = template.buildRequest('test', [
+            { role: 'user', content: 'Hello' }
+        ], {});
+        
+        // 发送测试请求（使用 GM_xmlhttpRequest）
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url: testEndpoint,
+                headers,
+                data: JSON.stringify(requestBody),
+                timeout: 10000,
+                onload: (response) => {
+                    if (response.status >= 200 && response.status < 300) {
+                        resolve({
+                            success: true,
+                            message: 'Connection successful',
+                            status: response.status
+                        });
+                    } else {
+                        reject(new Error(`HTTP ${response.status}: ${response.statusText}`));
+                    }
+                },
+                onerror: (error) => {
+                    reject(new Error(`Connection failed: ${error}`));
+                },
+                ontimeout: () => {
+                    reject(new Error('Connection timeout'));
+                }
+            });
+        });
+    } catch (error) {
+        throw new Error(`Test failed: ${error.message}`);
+    }
+}
+
+/**
+ * 自动发现本地服务（LM Studio、Ollama）
+ */
+async function autoDiscoverLocalServices() {
+    const discovered = [];
+    
+    // 检测 LM Studio
+    try {
+        const lmStudioProvider = {
+            id: 'lm-studio',
+            name: 'LM Studio (Local)',
+            baseUrl: 'http://localhost:1234/v1',
+            apiKey: '',
+            template: 'OPENAI',
+            enabled: false,
+            priority: 2,
+            models: [],
+            autoDiscover: true
+        };
+        
+        // 尝试连接
+        const result = await testProviderConnectionInternal(lmStudioProvider);
+        if (result.success) {
+            discovered.push(lmStudioProvider);
+            console.log('[ProviderManager] Discovered LM Studio');
+        }
+    } catch (error) {
+        // LM Studio 未运行
+    }
+    
+    // 检测 Ollama
+    try {
+        const ollamaProvider = {
+            id: 'ollama',
+            name: 'Ollama (Local)',
+            baseUrl: 'http://localhost:11434',
+            apiKey: '',
+            template: 'OLLAMA',
+            enabled: false,
+            priority: 3,
+            models: [],
+            autoDiscover: true
+        };
+        
+        const result = await testProviderConnectionInternal(ollamaProvider);
+        if (result.success) {
+            discovered.push(ollamaProvider);
+            console.log('[ProviderManager] Discovered Ollama');
+        }
+    } catch (error) {
+        // Ollama 未运行
+    }
+    
+    return discovered;
+}
+
+/**
+ * 内部测试方法（不抛出异常）
+ */
+async function testProviderConnectionInternal(provider) {
+    const template = templates[provider.template];
+    if (!template) return { success: false };
+    
+    try {
+        const testEndpoint = template.endpoint
+            .replace('{baseUrl}', provider.baseUrl)
+            .replace('{apiKey}', provider.apiKey || '');
+        
+        return new Promise((resolve) => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: testEndpoint,
+                timeout: 3000,
+                onload: (response) => {
+                    resolve({
+                        success: response.status >= 200 && response.status < 300
+                    });
+                },
+                onerror: () => resolve({ success: false }),
+                ontimeout: () => resolve({ success: false })
+            });
+        });
+    } catch (error) {
+        return { success: false };
+    }
+}
+
+/**
+ * v4.0.0: 数据迁移 - 为本地服务自动添加 isLocal 标志
+ */
+async function migrateProvidersData() {
+    console.log('[ProviderManager] ========== 开始数据迁移检查 ==========');
+    console.log('[ProviderManager] 当前供应商数量:', providers.length);
+    
+    const migrated = [];
+    
+    // 需要标记为本地服务的供应商 ID 模式
+    const localPatterns = ['lm-studio', 'ollama', 'localhost'];
+    
+    for (const provider of providers) {
+        console.log(`[ProviderManager] 检查供应商: ${provider.id}, isLocal=${provider.isLocal}, baseUrl=${provider.baseUrl}`);
+        
+        let shouldMigrate = false;
+        
+        // 检查是否匹配本地服务模式
+        if (!provider.isLocal) {
+            // 1. ID 包含本地关键词
+            if (localPatterns.some(pattern => provider.id.includes(pattern))) {
+                console.log(`[ProviderManager]   -> 匹配 ID 模式`);
+                shouldMigrate = true;
+            }
+            // 2. baseUrl 指向 localhost
+            else if (provider.baseUrl && provider.baseUrl.includes('localhost')) {
+                console.log(`[ProviderManager]   -> 匹配 localhost URL`);
+                shouldMigrate = true;
+            }
+            // 3. 名称包含"本地"
+            else if (provider.name && provider.name.includes('本地')) {
+                console.log(`[ProviderManager]   -> 匹配名称`);
+                shouldMigrate = true;
+            }
+        }
+        
+        if (shouldMigrate) {
+            console.log(`[ProviderManager] ✅ 迁移供应商: ${provider.id} -> isLocal=true`);
+            provider.isLocal = true;
+            migrated.push(provider.id);
+        }
+    }
+    
+    if (migrated.length > 0) {
+        await saveProviders();
+        console.log(`[ProviderManager] ========== 迁移完成: ${migrated.length} 个供应商已更新 ==========`);
+    } else {
+        console.log('[ProviderManager] ========== 无需迁移 ==========');
+    }
+    
+    return migrated;
+}
+
+// ==================== 导出接口 ====================
+
+const ProviderManager = {
+    init,
+    getAllProviders,
+    getEnabledProviders,
+    getProviderById,
+    getProviderByModel,
+    addProvider,
+    updateProvider,
+    deleteProvider,
+    addModelsToProvider,
+    clearProviderModels,
+    getAllAvailableModels,
+    getAvailableTemplates,
+    getTemplate,
+    registerTemplate,
+    getOfficialProviderTemplates,
+    getOfficialProviderTemplateById,
+    testProviderConnection,
+    autoDiscoverLocalServices,
+    migrateProvidersData
+};
+
+
+// =====================================================
 // 模块: ui-styles.js
 // =====================================================
 
@@ -1026,6 +1778,41 @@ const UIStyles = (function() {
                 z-index: 3;
             }
             .header-btn:hover { background: rgba(255,255,255,0.3); }
+            
+            /* v4.0.0: 模型选择器样式 */
+            #model-selector-bar {
+                padding: 8px 16px;
+                background: white;
+                border-bottom: 1px solid #e5e7eb;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                flex-shrink: 0;
+            }
+            .model-select {
+                flex: 1;
+                padding: 6px 10px;
+                border: 1px solid #d1d5db;
+                border-radius: 6px;
+                font-size: 13px;
+                background: white;
+                cursor: pointer;
+                transition: border-color 0.2s;
+            }
+            .model-select:hover {
+                border-color: #667eea;
+            }
+            .model-select:focus {
+                outline: none;
+                border-color: #667eea;
+                box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            }
+            .model-status {
+                font-size: 11px;
+                color: #6b7280;
+                white-space: nowrap;
+            }
+            
             #agent-chat {
                 flex: 1;
                 overflow-y: auto;
@@ -1433,6 +2220,15 @@ const UITemplates = (function() {
                         <button class="header-btn" id="agent-close" title="关闭">×</button>
                     </div>
                 </div>
+                
+                <!-- v4.0.0: 模型选择器 -->
+                <div id="model-selector-bar">
+                    <select id="main-model-select" class="model-select">
+                        <option value="auto">🔄 Auto (智能路由)</option>
+                    </select>
+                    <span id="model-status" class="model-status"></span>
+                </div>
+                
                 <div id="agent-chat"></div>
                 <div id="agent-input-area">
                     <textarea id="agent-input" placeholder="输入消息...&#10;使用 /js 执行代码,例如: /js alert('Hello')"></textarea>
@@ -2026,6 +2822,14 @@ const UIManager = (function() {
         assistant.innerHTML = buildMainHTML(config);
         document.body.appendChild(assistant);
         
+        // v4.0.0: 数据迁移（为本地服务添加 isLocal 标志）
+        ProviderManager.migrateProvidersData().catch(err => {
+            console.error('[UI] Migration failed:', err);
+        });
+        
+        // v4.0.0: 初始化模型选择器
+        initializeMainModelSelect(config.model);
+        
         setupEventListeners();
         setupChatEventDelegation();
         
@@ -2037,6 +2841,105 @@ const UIManager = (function() {
      */
     function buildMainHTML(config) {
         return UITemplates.buildMainHTML(config);
+    }
+    
+    /**
+     * v4.0.0: 初始化主界面模型选择器
+     */
+    async function initializeMainModelSelect(currentModel) {
+        const select = document.getElementById('main-model-select');
+        const statusSpan = document.getElementById('model-status');
+        
+        if (!select) {
+            console.warn('[UI] Model select not found');
+            return;
+        }
+        
+        // 从 ProviderManager 获取所有可用模型
+        const models = ProviderManager.getAllAvailableModels();
+        
+        if (models.length === 0) {
+            // 没有模型，显示提示
+            if (statusSpan) {
+                statusSpan.textContent = '⚠️ 未配置供应商';
+                statusSpan.style.color = '#f59e0b';
+            }
+            return;
+        }
+        
+        // 清空现有选项（保留 Auto）
+        select.innerHTML = '<option value="auto">🔄 Auto (智能路由)</option>';
+        
+        // 按供应商分组添加模型
+        const groupedModels = {};
+        models.forEach(model => {
+            const providerId = model.providerId || model.provider || 'unknown';
+            const providerName = model.providerName || providerId;
+            
+            if (!groupedModels[providerId]) {
+                groupedModels[providerId] = { name: providerName, models: [] };
+            }
+            groupedModels[providerId].models.push(model);
+        });
+        
+        // 添加分组选项
+        Object.keys(groupedModels).forEach(providerId => {
+            const group = groupedModels[providerId];
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = `${group.name} (${group.models.length})`;
+            
+            group.models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.id;
+                option.textContent = getModelDisplayName(model);
+                if (model.id === currentModel) {
+                    option.selected = true;
+                }
+                optgroup.appendChild(option);
+            });
+            
+            select.appendChild(optgroup);
+        });
+        
+        // 更新状态显示
+        if (statusSpan) {
+            const providerCount = ProviderManager.getAllProviders().filter(p => p.enabled).length;
+            statusSpan.textContent = `✅ ${models.length} 个模型 | ${providerCount} 个供应商`;
+            statusSpan.style.color = '#10b981';
+        }
+        
+        // 绑定变化事件
+        select.addEventListener('change', (e) => {
+            const selectedModel = e.target.value;
+            console.log('[UI] Model select changed to:', selectedModel);
+            
+            ConfigManager.set('model', selectedModel);
+            
+            // 验证是否保存成功
+            const savedModel = ConfigManager.get('model');
+            console.log('[UI] Model saved to config:', savedModel);
+            console.log('[UI] Select value matches config:', selectedModel === savedModel);
+        });
+        
+        console.log('[UI] Model selector initialized with', models.length, 'models');
+    }
+
+    /**
+     * v4.0.0: 刷新主界面模型选择器（用于供应商列表更新后）
+     */
+    function refreshMainModelSelect() {
+        const select = document.getElementById('main-model-select');
+        if (!select) {
+            console.warn('[UI] Model select not found for refresh');
+            return;
+        }
+        
+        // 获取当前选中的模型
+        const currentModel = select.value;
+        
+        // 重新初始化
+        initializeMainModelSelect(currentModel);
+        console.log('[UI] Model selector refreshed');
     }
 
     // ========== 事件处理 ==========
@@ -2342,9 +3245,9 @@ const UIManager = (function() {
     // ========== 设置对话框 ==========
 
     /**
-     * 显示设置对话框
+     * 显示设置对话框（v4.0.0: 异步初始化模型）
      */
-    function showSettings() {
+    async function showSettings() {
         // 检查是否已经存在设置对话框
         const existingModal = document.getElementById('settings-modal');
         if (existingModal) {
@@ -2360,8 +3263,8 @@ const UIManager = (function() {
         const modalHTML = buildSettingsHTML(config);
         document.body.insertAdjacentHTML('beforeend', modalHTML);
 
-        // 初始化模型选择
-        initializeModelSelect(config.model);
+        // v4.0.0: 异步初始化模型选择
+        await initializeModelSelect(config.model);
 
         // 绑定事件
         bindSettingsEvents();
@@ -2502,105 +3405,1835 @@ const UIManager = (function() {
                 padding: 12px 0;
                 border-bottom: 1px solid #e5e7eb;
             }
+            
+            /* v4.0.0: 标签页样式 */
+            .settings-tabs {
+                display: flex;
+                gap: 8px;
+                border-bottom: 2px solid #e5e7eb;
+                margin-bottom: 20px;
+            }
+            .tab-btn {
+                padding: 10px 16px;
+                border: none;
+                background: none;
+                cursor: pointer;
+                font-size: 14px;
+                color: #6b7280;
+                border-bottom: 2px solid transparent;
+                margin-bottom: -2px;
+                transition: all 0.2s;
+            }
+            .tab-btn:hover {
+                color: #374151;
+                background: #f9fafb;
+            }
+            .tab-btn.active {
+                color: #667eea;
+                border-bottom-color: #667eea;
+                font-weight: 500;
+            }
+            .tab-content {
+                display: none;
+            }
+            .tab-content.active {
+                display: block;
+            }
+            
+            /* v4.0.0: 供应商卡片样式 */
+            .provider-list {
+                max-height: 400px;
+                overflow-y: auto;
+                margin-bottom: 16px;
+            }
+            .provider-card {
+                background: #f9fafb;
+                border: 1px solid #e5e7eb;
+                border-radius: 8px;
+                padding: 16px;
+                margin-bottom: 12px;
+                transition: all 0.2s;
+            }
+            .provider-card:hover {
+                box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+                border-color: #d1d5db;
+            }
+            .provider-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 12px;
+            }
+            .provider-info {
+                flex: 1;
+            }
+            .provider-name {
+                font-size: 16px;
+                font-weight: 600;
+                color: #1f2937;
+                margin-bottom: 4px;
+            }
+            .provider-id {
+                font-size: 12px;
+                color: #6b7280;
+                font-family: monospace;
+            }
+            .provider-status {
+                font-size: 13px;
+                font-weight: 500;
+            }
+            .provider-details {
+                background: white;
+                border-radius: 6px;
+                padding: 12px;
+                margin-bottom: 12px;
+            }
+            .provider-detail-row {
+                display: flex;
+                justify-content: space-between;
+                padding: 6px 0;
+                border-bottom: 1px solid #f3f4f6;
+                font-size: 13px;
+            }
+            .provider-detail-row:last-child {
+                border-bottom: none;
+            }
+            .detail-label {
+                color: #6b7280;
+                font-weight: 500;
+            }
+            .detail-value {
+                color: #374151;
+                font-family: monospace;
+                max-width: 300px;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .provider-actions {
+                display: flex;
+                gap: 8px;
+                flex-wrap: wrap;
+            }
+            .add-provider-section {
+                margin-top: 16px;
+            }
+            .provider-form {
+                background: #f9fafb;
+                border: 2px solid #667eea;
+                border-radius: 8px;
+                padding: 20px;
+                margin-top: 16px;
+            }
+            
+            /* v4.0.0: 表单分隔符 */
+            .form-divider {
+                text-align: center;
+                margin: 16px 0;
+                position: relative;
+                color: #9ca3af;
+                font-size: 13px;
+            }
+            .form-divider::before,
+            .form-divider::after {
+                content: '';
+                position: absolute;
+                top: 50%;
+                width: 40%;
+                height: 1px;
+                background: #e5e7eb;
+            }
+            .form-divider::before {
+                left: 0;
+            }
+            .form-divider::after {
+                right: 0;
+            }
+            
+            /* v4.0.0: 模型列表样式 */
+            .models-section {
+                margin-top: 12px;
+                border-top: 1px solid #e5e7eb;
+                padding-top: 12px;
+            }
+            .models-header {
+                font-size: 13px;
+                font-weight: 600;
+                color: #374151;
+                margin-bottom: 8px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+            .models-bulk-actions {
+                display: flex;
+                gap: 6px;
+            }
+            .models-bulk-actions button {
+                padding: 4px 8px;
+                font-size: 11px;
+                background: #f3f4f6;
+                border: 1px solid #d1d5db;
+                border-radius: 4px;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+            .models-bulk-actions button:hover {
+                background: #e5e7eb;
+            }
+            .models-list {
+                max-height: 300px;
+                overflow-y: auto;
+                background: white;
+                border-radius: 6px;
+                padding: 8px;
+                border: 1px solid #e5e7eb;
+            }
+            .model-item {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 6px 8px;
+                font-size: 12px;
+                color: #4b5563;
+                border-radius: 4px;
+                margin-bottom: 4px;
+                background: #f9fafb;
+                border: 1px solid transparent;
+                transition: all 0.2s;
+            }
+            .model-item:hover {
+                background: #f3f4f6;
+                border-color: #d1d5db;
+            }
+            .model-item.dragging {
+                opacity: 0.5;
+                background: #e0e7ff;
+                border-color: #667eea;
+            }
+            .model-item.disabled {
+                opacity: 0.5;
+                background: #f3f4f6;
+            }
+            .model-drag-handle {
+                cursor: grab;
+                color: #9ca3af;
+                font-size: 14px;
+                user-select: none;
+                padding: 0 4px;
+            }
+            .model-drag-handle:active {
+                cursor: grabbing;
+            }
+            .model-name {
+                flex: 1;
+                font-family: monospace;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .model-actions {
+                display: flex;
+                gap: 4px;
+                opacity: 0;
+                transition: opacity 0.2s;
+            }
+            .model-item:hover .model-actions {
+                opacity: 1;
+            }
+            .model-actions button {
+                padding: 2px 6px;
+                font-size: 12px;
+                background: white;
+                border: 1px solid #d1d5db;
+                border-radius: 3px;
+                cursor: pointer;
+                transition: all 0.2s;
+            }
+            .model-actions button:hover {
+                background: #f3f4f6;
+                border-color: #667eea;
+            }
+            .models-hint {
+                margin-top: 8px;
+                padding: 8px;
+                font-size: 11px;
+                color: #6b7280;
+                background: #f9fafb;
+                border-radius: 4px;
+                text-align: center;
+            }
+            .models-empty {
+                padding: 20px;
+                text-align: center;
+                font-size: 13px;
+                color: #9ca3af;
+                font-style: italic;
+            }
         `;
     }
 
     /**
-     * 构建设置对话框 HTML
+     * 构建供应商列表 HTML
+     */
+    function buildProviderListHTML(providers) {
+        if (!providers || providers.length === 0) {
+            return `
+                <div style="text-align: center; padding: 40px 20px; color: #6b7280;">
+                    <div style="font-size: 48px; margin-bottom: 12px;">🔌</div>
+                    <div style="font-size: 14px; margin-bottom: 8px;">还没有配置任何供应商</div>
+                    <div style="font-size: 12px;">点击“嗅探本地服务”或“手动添加供应商”开始配置</div>
+                </div>
+            `;
+        }
+        
+        return providers.map(provider => {
+            const template = ProviderManager.getTemplate(provider.template);
+            const models = provider.models || [];
+            const modelCount = models.length;
+            const statusColor = provider.enabled ? '#10b981' : '#ef4444';
+            const statusText = provider.enabled ? '已启用' : '已禁用';
+            const maskedKey = provider.apiKey ? 
+                (provider.apiKey.substring(0, 8) + '...' + provider.apiKey.substring(provider.apiKey.length - 4)) : 
+                '未设置';
+            
+            // 构建模型列表 HTML
+            let modelsSection = '';
+            if (modelCount > 0) {
+                // v4.0.0: 生成完整的模型列表，支持编辑和排序
+                const modelsHtml = models.map((model, index) => {
+                    const modelName = typeof model === 'string' ? model : (model.name || model.id);
+                    const modelId = typeof model === 'string' ? model : model.id;
+                    const isEnabled = model.enabled !== false; // 默认启用
+                    
+                    return `
+                        <div class="model-item" data-model-id="${modelId}" data-index="${index}" draggable="true">
+                            <span class="model-drag-handle" title="拖拽排序">⋮⋮</span>
+                            <span class="model-name">${modelName}</span>
+                            <div class="model-actions">
+                                <button class="btn-model-up" data-action="move-up" data-model-id="${modelId}" data-provider-id="${provider.id}" title="上移">↑</button>
+                                <button class="btn-model-down" data-action="move-down" data-model-id="${modelId}" data-provider-id="${provider.id}" title="下移">↓</button>
+                                <button class="btn-model-toggle" data-action="toggle-enable" data-model-id="${modelId}" data-provider-id="${provider.id}" 
+                                        title="${isEnabled ? '禁用' : '启用'}" style="color: ${isEnabled ? '#10b981' : '#9ca3af'};">
+                                    ${isEnabled ? '✓' : '✗'}
+                                </button>
+                                <button class="btn-model-delete" data-action="delete-model" data-model-id="${modelId}" data-provider-id="${provider.id}" title="删除">🗑️</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                
+                modelsSection = `
+                    <div class="models-section" id="models-${provider.id}" style="display: none;">
+                        <div class="models-header">
+                            <span>📦 可用模型 (${modelCount})</span>
+                            <div class="models-bulk-actions">
+                                <button class="btn-add-model" data-action="add-model" data-provider-id="${provider.id}" 
+                                        style="padding: 4px 8px; font-size: 11px; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                    ➕ 添加模型
+                                </button>
+                                <button class="btn-test-models" data-action="test-models" data-provider-id="${provider.id}" 
+                                        style="padding: 4px 8px; font-size: 11px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                    🧪 测试模型
+                                </button>
+                                <button class="btn-remove-invalid" data-action="remove-invalid" data-provider-id="${provider.id}"
+                                        style="padding: 4px 8px; font-size: 11px; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                    🗑️ 删除无效
+                                </button>
+                                <button class="btn-bulk-enable" data-action="bulk-enable" data-provider-id="${provider.id}">全部启用</button>
+                                <button class="btn-bulk-disable" data-action="bulk-disable" data-provider-id="${provider.id}">全部禁用</button>
+                            </div>
+                        </div>
+                        <div class="models-list" data-provider-id="${provider.id}">
+                            ${modelsHtml}
+                        </div>
+                        <div class="models-hint">
+                            💡 提示：拖拽 ⋮⋮ 图标可调整顺序，点击 ✓/✗ 可启用/禁用模型，🧪 测试后可一键删除无效模型
+                        </div>
+                    </div>
+                `;
+            } else {
+                modelsSection = `
+                    <div class="models-section" id="models-${provider.id}" style="display: none;">
+                        <div class="models-empty">
+                            暂无模型，点击“刷新模型”按钮获取
+                        </div>
+                    </div>
+                `;
+            }
+            
+            return `
+                <div class="provider-card" data-provider-id="${provider.id}">
+                    <div class="provider-header">
+                        <div class="provider-info">
+                            <div class="provider-name">${provider.name}</div>
+                            <div class="provider-id">ID: ${provider.id}</div>
+                        </div>
+                        <div class="provider-status" style="color: ${statusColor};">
+                            ● ${statusText}
+                        </div>
+                    </div>
+                    
+                    <div class="provider-details">
+                        <div class="provider-detail-row">
+                            <span class="detail-label">Base URL:</span>
+                            <span class="detail-value" title="${provider.baseUrl}">${truncateUrl(provider.baseUrl)}</span>
+                        </div>
+                        <div class="provider-detail-row">
+                            <span class="detail-label">API Key:</span>
+                            <span class="detail-value">${maskedKey}</span>
+                        </div>
+                        <div class="provider-detail-row">
+                            <span class="detail-label">模板:</span>
+                            <span class="detail-value">${template ? template.name : provider.template}</span>
+                        </div>
+                        <div class="provider-detail-row">
+                            <span class="detail-label">模型数量:</span>
+                            <span class="detail-value">${modelCount} 个</span>
+                        </div>
+                        <div class="provider-detail-row">
+                            <span class="detail-label">优先级:</span>
+                            <span class="detail-value">${provider.priority || 1}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="provider-actions">
+                        <button class="btn-toggle-models" data-action="toggle-models" data-provider-id="${provider.id}" 
+                                style="padding: 6px 12px; font-size: 12px; background: #8b5cf6; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                            📦 查看模型
+                        </button>
+                        <button class="btn-test-connection" data-action="test" data-provider-id="${provider.id}" 
+                                style="padding: 6px 12px; font-size: 12px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                            🔍 测试连接
+                        </button>
+                        <button class="btn-refresh-models" data-action="refresh" data-provider-id="${provider.id}"
+                                style="padding: 6px 12px; font-size: 12px; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                            🔄 刷新模型
+                        </button>
+                        <button class="btn-edit-provider" data-action="edit" data-provider-id="${provider.id}"
+                                style="padding: 6px 12px; font-size: 12px; background: #f59e0b; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                            ✏️ 编辑
+                        </button>
+                        <button class="btn-delete-provider" data-action="delete" data-provider-id="${provider.id}"
+                                style="padding: 6px 12px; font-size: 12px; background: #ef4444; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                            🗑️ 删除
+                        </button>
+                    </div>
+                    
+                    ${modelsSection}
+                </div>
+            `;
+        }).join('');
+    }
+    
+    /**
+     * 截断 URL 显示
+     */
+    function truncateUrl(url, maxLength = 50) {
+        if (url.length <= maxLength) return url;
+        return url.substring(0, maxLength) + '...';
+    }
+    
+    /**
+     * 构建官方供应商选项 HTML
+     */
+    function buildOfficialProviderOptions() {
+        const templates = ProviderManager.getOfficialProviderTemplates();
+        
+        return templates.map(template => {
+            const icon = template.isLocal ? '💻' : '☁️';
+            return `<option value="${template.id}">${icon} ${template.name}</option>`;
+        }).join('');
+    }
+
+    /**
+     * 构建设置对话框 HTML（v4.0.0: 供应商管理为核心）
      */
     function buildSettingsHTML(config) {
+        // 获取所有供应商
+        const providers = ProviderManager.getAllProviders();
+        const templates = ProviderManager.getAvailableTemplates();
+        
         return `
             <div class="modal-overlay" id="settings-modal">
-                <div class="modal-content">
+                <div class="modal-content" style="max-width: 700px;">
                     <div class="modal-title">⚙️ 设置</div>
                     
-                    <div class="form-group">
-                        <label class="form-label">API Key *</label>
-                        <input type="password" class="form-input" id="setting-api-key" 
-                               value="${config.apiKey}" 
-                               placeholder="输入你的 API Key">
-                        <div class="form-hint">
-                            从 <a href="https://openrouter.ai/keys" target="_blank">OpenRouter Keys</a> 获取免费 API Key
+                    <!-- v4.0.0: 供应商与模型管理标签页（核心） -->
+                    <div class="settings-tabs">
+                        <button class="tab-btn active" data-tab="providers">🔌 供应商与模型</button>
+                        <button class="tab-btn" data-tab="advanced">⚡ 高级设置</button>
+                    </div>
+                    
+                    <!-- 供应商与模型管理标签页 -->
+                    <div class="tab-content active" id="tab-providers">
+                        <!-- 本地服务嗅探按钮 -->
+                        <div style="margin-bottom: 16px; display: flex; gap: 8px;">
+                            <button class="btn-primary" id="scan-local-services" 
+                                    style="flex: 1; padding: 10px; font-size: 13px;">
+                                🔍 嗅探本地服务
+                            </button>
+                            <button class="btn-secondary" id="add-provider-btn" 
+                                    style="flex: 1; padding: 10px; font-size: 13px;">
+                                ➕ 手动添加供应商
+                            </button>
+                        </div>
+                        
+                        <div class="provider-list" id="provider-list">
+                            ${buildProviderListHTML(providers)}
+                        </div>
+                        
+                        <!-- 添加/编辑供应商表单 -->
+                        <div class="provider-form" id="provider-form" style="display: none;">
+                            <!-- v4.0.0: 官方供应商快速选择 -->
+                            <div class="form-group">
+                                <label class="form-label">🚀 快速选择官方供应商</label>
+                                <select class="form-input" id="official-provider-select">
+                                    <option value="">-- 选择官方供应商（自动填充配置） --</option>
+                                    ${buildOfficialProviderOptions()}
+                                </select>
+                                <div class="form-hint">选择后将自动填充 Base URL、API 模板等配置</div>
+                            </div>
+                            
+                            <div class="form-divider">或手动填写</div>
+                            
+                            <div class="form-group">
+                                <label class="form-label">供应商 ID *</label>
+                                <input type="text" class="form-input" id="provider-id" 
+                                       placeholder="例如: openrouter, lm-studio, ollama">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label class="form-label">供应商名称 *</label>
+                                <input type="text" class="form-input" id="provider-name" 
+                                       placeholder="例如: OpenRouter, LM Studio">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label class="form-label">API Base URL *</label>
+                                <input type="text" class="form-input" id="provider-base-url" 
+                                       placeholder="https://openrouter.ai/api/v1">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label class="form-label">API Key</label>
+                                <input type="password" class="form-input" id="provider-api-key" 
+                                       placeholder="sk-or-... (本地服务可留空)">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label class="form-label">API 模板 *</label>
+                                <select class="form-input" id="provider-template">
+                                    ${templates.map(t => `<option value="${t.id}">${t.name}</option>`).join('')}
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label class="form-label">优先级</label>
+                                <input type="number" class="form-input" id="provider-priority" 
+                                       value="1" min="1" max="100">
+                                <div class="form-hint">数字越小优先级越高，故障转移时按此顺序尝试</div>
+                            </div>
+                            
+                            <div style="display: flex; gap: 8px; margin-top: 16px;">
+                                <button class="btn-secondary" id="cancel-provider-form" style="flex: 1;">取消</button>
+                                <button class="btn-primary" id="save-provider" style="flex: 1;">保存</button>
+                            </div>
+                        </div>
+                        
+                        <div class="form-hint" style="margin-top: 12px;">
+                            💡 提示: 每个供应商独立配置，系统会自动按优先级进行故障转移。
+                            模型列表在下方展开显示，可针对单个供应商刷新或测试。
                         </div>
                     </div>
-
-                    <div class="form-group">
-                        <label class="form-label">模型选择 (免费)</label>
-                        <div style="display: flex; gap: 8px; align-items: center;">
-                            <select class="form-input" id="setting-model" style="flex: 1;">
-                                <option value="auto">🔄 Auto (自动选择)</option>
-                            </select>
-                            <button class="btn-secondary" id="refresh-models" title="刷新模型列表" style="padding: 8px 12px; white-space: nowrap;">🔄 刷新</button>
-                            <button class="btn-secondary" id="test-models" title="测试所有模型" style="padding: 8px 12px; white-space: nowrap;">🧪 测试</button>
+                    
+                    <!-- 高级设置标签页 -->
+                    <div class="tab-content" id="tab-advanced">
+                        <div class="form-group">
+                            <label class="form-label">Temperature: <span id="temp-value">${config.temperature}</span></label>
+                            <input type="range" class="form-input" id="setting-temperature" 
+                                   min="0" max="1" step="0.1" value="${config.temperature}">
+                            <div class="form-hint">控制回复的随机性 (0=确定, 1=创意)</div>
                         </div>
-                        <div class="form-hint">
-                            所有标记 :free 的模型都完全免费 | Auto 会自动选择最佳可用模型 | 点击刷新获取最新列表
+
+                        <div class="form-group">
+                            <label class="form-label">Top P: <span id="topp-value">${config.topP}</span></label>
+                            <input type="range" class="form-input" id="setting-top-p" 
+                                   min="0" max="1" step="0.1" value="${config.topP}">
+                            <div class="form-hint">核采样参数,控制多样性 (0.95 推荐)</div>
                         </div>
-                        <div id="models-status" style="margin-top: 8px; font-size: 12px; color: #6b7280;"></div>
-                    </div>
 
-                    <div class="form-group">
-                        <label class="form-label">Temperature: <span id="temp-value">${config.temperature}</span></label>
-                        <input type="range" class="form-input" id="setting-temperature" 
-                               min="0" max="1" step="0.1" value="${config.temperature}">
-                        <div class="form-hint">控制回复的随机性 (0=确定, 1=创意)</div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Top P: <span id="topp-value">${config.topP}</span></label>
-                        <input type="range" class="form-input" id="setting-top-p" 
-                               min="0" max="1" step="0.1" value="${config.topP}">
-                        <div class="form-hint">核采样参数,控制多样性 (0.95 推荐)</div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">最大输出 Token</label>
-                        <input type="number" class="form-input" id="setting-max-tokens" 
-                               value="${config.maxTokens}" min="100" max="4096">
-                    </div>
-
-                    <div class="setting-row">
-                        <div>
-                            <div style="font-weight: 500;">JavaScript 执行</div>
-                            <div style="font-size: 12px; color: #6b7280;">允许执行 AI 生成的代码</div>
+                        <div class="form-group">
+                            <label class="form-label">最大输出 Token</label>
+                            <input type="number" class="form-input" id="setting-max-tokens" 
+                                   value="${config.maxTokens}" min="100" max="4096">
                         </div>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="setting-js-enabled" ${config.jsExecutionEnabled ? 'checked' : ''}>
-                            <span class="toggle-slider"></span>
-                        </label>
+
+                        <div class="setting-row">
+                            <div>
+                                <div style="font-weight: 500;">JavaScript 执行</div>
+                                <div style="font-size: 12px; color: #6b7280;">允许执行 AI 生成的代码</div>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="setting-js-enabled" ${config.jsExecutionEnabled ? 'checked' : ''}>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
                     </div>
 
                     <div class="modal-actions">
                         <button class="btn-secondary" id="cancel-settings">取消</button>
-                        <button class="btn-primary" id="save-settings">保存</button>
+                        <button class="btn-primary" id="save-settings">保存设置</button>
                     </div>
                 </div>
             </div>
         `;
     }
 
+    // ========== v4.0.0: 供应商管理辅助函数 ==========
+    
+    /**
+     * 显示供应商表单（添加/编辑）
+     */
+    function showProviderForm(providerId = null) {
+        const form = document.getElementById('provider-form');
+        const addBtn = document.getElementById('add-provider-btn');
+        
+        if (!form || !addBtn) return;
+        
+        form.style.display = 'block';
+        addBtn.style.display = 'none';
+        
+        // 重置官方选择器
+        const officialSelect = document.getElementById('official-provider-select');
+        if (officialSelect) {
+            officialSelect.value = '';
+        }
+        
+        // 如果是编辑模式，填充数据
+        if (providerId) {
+            const provider = ProviderManager.getProviderById(providerId);
+            if (provider) {
+                document.getElementById('provider-id').value = provider.id;
+                document.getElementById('provider-id').disabled = true; // ID 不可修改
+                document.getElementById('provider-name').value = provider.name;
+                document.getElementById('provider-base-url').value = provider.baseUrl;
+                document.getElementById('provider-api-key').value = provider.apiKey || '';
+                document.getElementById('provider-template').value = provider.template;
+                document.getElementById('provider-priority').value = provider.priority || 1;
+                
+                // 标记为编辑模式
+                form.dataset.editMode = 'true';
+                form.dataset.providerId = providerId;
+            }
+        } else {
+            // 清空表单
+            document.getElementById('provider-id').value = '';
+            document.getElementById('provider-id').disabled = false;
+            document.getElementById('provider-name').value = '';
+            document.getElementById('provider-base-url').value = '';
+            document.getElementById('provider-api-key').value = '';
+            document.getElementById('provider-template').value = 'OPENAI';
+            document.getElementById('provider-priority').value = '1';
+            
+            form.dataset.editMode = 'false';
+            delete form.dataset.providerId;
+        }
+        
+        // 滚动到表单
+        form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+    
+    /**
+     * 从官方模板填充表单
+     */
+    function fillProviderFormFromTemplate(templateId) {
+        const template = ProviderManager.getOfficialProviderTemplateById(templateId);
+        if (!template) return;
+        
+        // 设置为添加模式（非编辑模式）
+        const form = document.getElementById('provider-form');
+        form.dataset.editMode = 'false';
+        delete form.dataset.providerId;
+        
+        // 填充表单字段
+        document.getElementById('provider-id').value = template.id;
+        document.getElementById('provider-id').disabled = false;
+        document.getElementById('provider-name').value = template.name;
+        document.getElementById('provider-base-url').value = template.baseUrl;
+        document.getElementById('provider-api-key').value = '';
+        document.getElementById('provider-template').value = template.template;
+        document.getElementById('provider-priority').value = template.priority || 1;
+        
+        // 聚焦到 API Key 字段
+        document.getElementById('provider-api-key').focus();
+        
+        // 显示提示
+        const hint = document.createElement('div');
+        hint.style.cssText = 'margin-top: 8px; padding: 8px; background: #dbeafe; border-radius: 4px; font-size: 12px; color: #1e40af;';
+        hint.innerHTML = `✅ 已自动填充配置！请填写 API Key 后保存。<br><small>了解更多: <a href="${template.website}" target="_blank" style="color: #1e40af;">${template.website}</a></small>`;
+        
+        // 移除旧的提示
+        const oldHint = document.querySelector('.auto-fill-hint');
+        if (oldHint) oldHint.remove();
+        
+        hint.className = 'auto-fill-hint';
+        document.getElementById('provider-form').appendChild(hint);
+    }
+    
+    /**
+     * 隐藏供应商表单
+     */
+    function hideProviderForm() {
+        const form = document.getElementById('provider-form');
+        const addBtn = document.getElementById('add-provider-btn');
+        
+        if (!form || !addBtn) return;
+        
+        form.style.display = 'none';
+        addBtn.style.display = 'block';
+        
+        // 清空表单状态
+        delete form.dataset.editMode;
+        delete form.dataset.providerId;
+    }
+    
+    /**
+     * 处理保存供应商
+     */
+    async function handleSaveProvider() {
+        console.log('[UI] Save provider button clicked');
+        
+        const id = document.getElementById('provider-id').value.trim();
+        const name = document.getElementById('provider-name').value.trim();
+        const baseUrl = document.getElementById('provider-base-url').value.trim();
+        const apiKey = document.getElementById('provider-api-key').value.trim();
+        const template = document.getElementById('provider-template').value;
+        const priority = parseInt(document.getElementById('provider-priority').value) || 1;
+        
+        console.log('[UI] Form data:', { id, name, baseUrl, template, priority });
+        
+        // 验证必填字段
+        if (!id || !name || !baseUrl || !template) {
+            alert('请填写所有必填字段（ID、名称、Base URL、模板）');
+            return;
+        }
+        
+        // 验证 ID 格式
+        if (!/^[a-z0-9_-]+$/.test(id)) {
+            alert('供应商 ID 只能包含小写字母、数字、下划线和连字符');
+            return;
+        }
+        
+        try {
+            const form = document.getElementById('provider-form');
+            const isEditMode = form.dataset.editMode === 'true';
+            
+            console.log('[UI] Save mode:', isEditMode ? 'update' : 'add');
+            
+            if (isEditMode) {
+                // 更新现有供应商
+                await ProviderManager.updateProvider(id, {
+                    name,
+                    baseUrl,
+                    apiKey,
+                    template,
+                    priority
+                });
+                console.log('[UI] Provider updated:', id);
+            } else {
+                // 添加新供应商
+                await ProviderManager.addProvider({
+                    id,
+                    name,
+                    baseUrl,
+                    apiKey,
+                    template,
+                    priority,
+                    enabled: true
+                });
+                console.log('[UI] Provider added:', id);
+            }
+            
+            // 刷新列表
+            refreshProviderList();
+            
+            // 隐藏表单
+            hideProviderForm();
+            
+            // 显示成功提示
+            alert(isEditMode ? '✅ 供应商已更新！' : '✅ 供应商已添加！');
+            
+        } catch (error) {
+            console.error('[UI] Failed to save provider:', error);
+            alert('❌ 保存失败: ' + error.message);
+        }
+    }
+    
+    /**
+     * 处理测试连接
+     */
+    async function handleTestConnection(providerId, button) {
+        const originalText = button.textContent;
+        button.disabled = true;
+        button.textContent = '⏳ 测试中...';
+        
+        try {
+            const result = await ProviderManager.testProviderConnection(providerId);
+            
+            if (result.success) {
+                button.textContent = '✅ 连接成功';
+                button.style.background = '#10b981';
+                setTimeout(() => {
+                    button.textContent = originalText;
+                    button.style.background = '#3b82f6';
+                    button.disabled = false;
+                }, 2000);
+            } else {
+                button.textContent = '❌ 连接失败';
+                button.style.background = '#ef4444';
+                setTimeout(() => {
+                    button.textContent = originalText;
+                    button.style.background = '#3b82f6';
+                    button.disabled = false;
+                }, 2000);
+                
+                alert(`连接测试失败:\n${result.error}`);
+            }
+        } catch (error) {
+            console.error('[UI] Test connection failed:', error);
+            button.textContent = '❌ 错误';
+            button.style.background = '#ef4444';
+            setTimeout(() => {
+                button.textContent = originalText;
+                button.style.background = '#3b82f6';
+                button.disabled = false;
+            }, 2000);
+            
+            alert('测试出错: ' + error.message);
+        }
+    }
+    
+    /**
+     * 处理刷新模型
+     */
+    async function handleRefreshModels(providerId, button) {
+        const originalText = button.textContent;
+        button.disabled = true;
+        button.textContent = '⏳ 刷新中...';
+        
+        try {
+            const provider = ProviderManager.getProviderById(providerId);
+            if (!provider) {
+                throw new Error('供应商不存在');
+            }
+            
+            // 保存旧模型列表用于对比
+            const oldModels = provider.models || [];
+            const oldModelIds = oldModels.map(m => typeof m === 'string' ? m : m.id);
+            
+            // 根据提供商类型选择不同的刷新策略
+            let models = [];
+            
+            if (providerId === 'openrouter') {
+                // OpenRouter: 从 API 获取
+                models = await fetchModelsFromOpenRouter();
+            } else if (provider.baseUrl.includes('localhost') || provider.baseUrl.includes('127.0.0.1')) {
+                // 本地服务: 尝试自动发现
+                models = await ProviderManager.autoDiscoverLocalServices(provider.baseUrl);
+            } else {
+                // ✅ 其他提供商: 尝试使用标准 OpenAI 兼容的 /v1/models 接口
+                console.log('[UI] 尝试通过 /v1/models 接口获取模型列表...');
+                
+                try {
+                    const modelsUrl = `${provider.baseUrl}/models`;
+                    const headers = {
+                        'Content-Type': 'application/json'
+                    };
+                    
+                    // 如果有 API Key，添加到请求头
+                    if (provider.apiKey) {
+                        headers['Authorization'] = `Bearer ${provider.apiKey}`;
+                    }
+                    
+                    const response = await new Promise((resolve, reject) => {
+                        GM_xmlhttpRequest({
+                            method: 'GET',
+                            url: modelsUrl,
+                            headers: headers,
+                            timeout: 10000,
+                            onload: (resp) => {
+                                if (resp.status >= 200 && resp.status < 300) {
+                                    resolve(resp);
+                                } else {
+                                    reject(new Error(`HTTP ${resp.status}: ${resp.statusText}`));
+                                }
+                            },
+                            onerror: () => reject(new Error('网络请求失败')),
+                            ontimeout: () => reject(new Error('请求超时'))
+                        });
+                    });
+                    
+                    const data = JSON.parse(response.responseText);
+                    
+                    // 解析模型列表（支持多种格式）
+                    if (data.data && Array.isArray(data.data)) {
+                        // OpenAI 格式: { data: [{ id: 'xxx', ... }, ...] }
+                        models = data.data.map(m => ({
+                            id: m.id,
+                            name: m.id,
+                            provider: providerId
+                        }));
+                        console.log(`[UI] 成功获取 ${models.length} 个模型`);
+                    } else if (Array.isArray(data)) {
+                        // 直接返回数组格式
+                        models = data.map(m => ({
+                            id: typeof m === 'string' ? m : m.id,
+                            name: typeof m === 'string' ? m : (m.name || m.id),
+                            provider: providerId
+                        }));
+                        console.log(`[UI] 成功获取 ${models.length} 个模型`);
+                    } else {
+                        throw new Error('无法解析模型列表格式');
+                    }
+                    
+                } catch (error) {
+                    console.warn('[UI] /v1/models 接口失败:', error.message);
+                    alert(`该供应商暂不支持自动刷新模型。
+
+错误信息: ${error.message}
+
+您可以:
+1. 在 "模型选择" 标签页中使用 Auto 模式
+2. 或手动添加模型 ID
+3. 或联系开发者添加支持`);
+                    button.textContent = originalText;
+                    button.disabled = false;
+                    return;
+                }
+            }
+            
+            if (models && models.length > 0) {
+                // ✅ 检查是否有旧模型不在新列表中
+                const newModelIds = models.map(m => typeof m === 'string' ? m : m.id);
+                const missingModels = oldModelIds.filter(id => !newModelIds.includes(id));
+                
+                // 如果有缺失的模型，询问用户是否保留
+                if (missingModels.length > 0) {
+                    const confirmMsg = `发现 ${missingModels.length} 个模型不在最新名单中：\n\n${missingModels.slice(0, 10).join('\n')}${missingModels.length > 10 ? '\n...' : ''}\n\n是否保留这些模型？\n- 点击“确定”保留（合并到最新列表）\n- 点击“取消”只保留最新模型`;
+                    
+                    if (confirm(confirmMsg)) {
+                        // 用户选择保留：将旧模型添加到新列表中
+                        const modelsToAdd = oldModels.filter(m => {
+                            const modelId = typeof m === 'string' ? m : m.id;
+                            return missingModels.includes(modelId);
+                        });
+                        
+                        // 合并模型列表
+                        models = [...models, ...modelsToAdd];
+                        console.log(`[UI] 保留了 ${modelsToAdd.length} 个旧模型`);
+                    } else {
+                        console.log(`[UI] 删除了 ${missingModels.length} 个不在最新名单中的模型`);
+                    }
+                }
+                
+                // ✅ 使用 updateProvider 替换模型列表（而不是追加）
+                await ProviderManager.updateProvider(providerId, { models: models });
+                
+                // 刷新列表
+                refreshProviderList();
+                
+                button.textContent = `✅ ${models.length}个模型`;
+                button.style.background = '#10b981';
+                setTimeout(() => {
+                    button.textContent = originalText;
+                    button.style.background = '#10b981';
+                    button.disabled = false;
+                }, 2000);
+            } else {
+                throw new Error('未找到任何模型');
+            }
+            
+        } catch (error) {
+            console.error('[UI] Refresh models failed:', error);
+            button.textContent = '❌ 失败';
+            button.style.background = '#ef4444';
+            setTimeout(() => {
+                button.textContent = originalText;
+                button.style.background = '#10b981';
+                button.disabled = false;
+            }, 2000);
+            
+            alert('刷新模型失败: ' + error.message);
+        }
+    }
+    
+    /**
+     * 处理编辑供应商
+     */
+    function handleEditProvider(providerId) {
+        showProviderForm(providerId);
+    }
+    
+    /**
+     * 处理删除供应商
+     */
+    async function handleDeleteProvider(providerId) {
+        if (!confirm(`确定要删除供应商 "${providerId}" 吗？\n\n此操作不可恢复！`)) {
+            return;
+        }
+        
+        try {
+            await ProviderManager.deleteProvider(providerId);
+            
+            // 刷新列表
+            refreshProviderList();
+            
+            alert('✅ 供应商已删除');
+        } catch (error) {
+            console.error('[UI] Delete provider failed:', error);
+            alert('❌ 删除失败: ' + error.message);
+        }
+    }
+    
+    /**
+     * 刷新供应商列表
+     */
+    function refreshProviderList() {
+        const providers = ProviderManager.getAllProviders();
+        const providerListEl = document.getElementById('provider-list');
+        
+        if (providerListEl) {
+            providerListEl.innerHTML = buildProviderListHTML(providers);
+        }
+        
+        // v4.0.0: 同时刷新主界面的模型选择器
+        refreshMainModelSelect();
+    }
+
+    /**
+     * 处理切换模型列表显示/隐藏
+     */
+    function handleToggleModels(providerId, button) {
+        const modelsSection = document.getElementById(`models-${providerId}`);
+        if (!modelsSection) return;
+        
+        const isVisible = modelsSection.style.display !== 'none';
+        
+        if (isVisible) {
+            modelsSection.style.display = 'none';
+            button.textContent = '📦 查看模型';
+        } else {
+            modelsSection.style.display = 'block';
+            button.textContent = '🔼 隐藏模型';
+        }
+    }
+
+    /**
+     * v4.0.0: 处理模型上移
+     */
+    async function handleMoveModelUp(providerId, modelId) {
+        const provider = ProviderManager.getProviderById(providerId);
+        if (!provider || !provider.models) return;
+        
+        const index = provider.models.findIndex(m => (typeof m === 'string' ? m : m.id) === modelId);
+        if (index <= 0) return; // 已经在最上面
+        
+        // 创建新数组并交换位置
+        const newModels = [...provider.models];
+        [newModels[index - 1], newModels[index]] = [newModels[index], newModels[index - 1]];
+        
+        await ProviderManager.updateProvider(providerId, { models: newModels });
+        refreshProviderList();
+        console.log('[UI] Model moved up:', modelId);
+    }
+
+    /**
+     * v4.0.0: 处理模型下移
+     */
+    async function handleMoveModelDown(providerId, modelId) {
+        const provider = ProviderManager.getProviderById(providerId);
+        if (!provider || !provider.models) return;
+        
+        const index = provider.models.findIndex(m => (typeof m === 'string' ? m : m.id) === modelId);
+        if (index < 0 || index >= provider.models.length - 1) return; // 已经在最下面
+        
+        // 创建新数组并交换位置
+        const newModels = [...provider.models];
+        [newModels[index], newModels[index + 1]] = [newModels[index + 1], newModels[index]];
+        
+        await ProviderManager.updateProvider(providerId, { models: newModels });
+        refreshProviderList();
+        console.log('[UI] Model moved down:', modelId);
+    }
+
+    /**
+     * v4.0.0: 处理启用/禁用模型
+     */
+    async function handleToggleModelEnable(providerId, modelId) {
+        const provider = ProviderManager.getProviderById(providerId);
+        if (!provider || !provider.models) return;
+        
+        const modelIndex = provider.models.findIndex(m => (typeof m === 'string' ? m : m.id) === modelId);
+        if (modelIndex < 0) return;
+        
+        // 创建新数组
+        const newModels = [...provider.models];
+        const model = newModels[modelIndex];
+        
+        // 切换 enabled 状态
+        if (typeof model === 'object') {
+            newModels[modelIndex] = { ...model, enabled: model.enabled !== false ? false : true };
+        } else {
+            // 如果是字符串，转换为对象
+            newModels[modelIndex] = { id: model, enabled: false };
+        }
+        
+        await ProviderManager.updateProvider(providerId, { models: newModels });
+        refreshProviderList();
+        console.log('[UI] Model toggled:', modelId, 'enabled:', newModels[modelIndex].enabled);
+    }
+
+    /**
+     * v4.0.0: 处理删除模型
+     */
+    async function handleDeleteModel(providerId, modelId) {
+        if (!confirm(`确定要删除模型 "${modelId}" 吗？`)) return;
+        
+        const provider = ProviderManager.getProviderById(providerId);
+        if (!provider || !provider.models) return;
+        
+        const newModels = provider.models.filter(m => (typeof m === 'string' ? m : m.id) !== modelId);
+        
+        await ProviderManager.updateProvider(providerId, { models: newModels });
+        refreshProviderList();
+        console.log('[UI] Model deleted:', modelId);
+    }
+
+    /**
+     * v4.0.0: 处理批量启用模型
+     */
+    async function handleBulkEnableModels(providerId) {
+        const provider = ProviderManager.getProviderById(providerId);
+        if (!provider || !provider.models) return;
+        
+        const newModels = provider.models.map(m => {
+            if (typeof m === 'object') {
+                return { ...m, enabled: true };
+            }
+            return m;
+        });
+        
+        await ProviderManager.updateProvider(providerId, { models: newModels });
+        refreshProviderList();
+        console.log('[UI] All models enabled');
+    }
+
+    /**
+     * v4.0.0: 处理批量禁用模型
+     */
+    async function handleBulkDisableModels(providerId) {
+        const provider = ProviderManager.getProviderById(providerId);
+        if (!provider || !provider.models) return;
+        
+        const newModels = provider.models.map(m => {
+            if (typeof m === 'object') {
+                return { ...m, enabled: false };
+            }
+            return { id: typeof m === 'string' ? m : m.id, enabled: false };
+        });
+        
+        await ProviderManager.updateProvider(providerId, { models: newModels });
+        refreshProviderList();
+        console.log('[UI] All models disabled');
+    }
+
+    /**
+     * v4.0.0: 处理测试所有模型
+     */
+    async function handleTestModels(providerId) {
+        const provider = ProviderManager.getProviderById(providerId);
+        if (!provider || !provider.models || provider.models.length === 0) {
+            alert('没有可测试的模型');
+            return;
+        }
+        
+        // 检查是否有 API Key（本地服务不需要）
+        if (!provider.apiKey && !provider.isLocal) {
+            alert('请先配置 API Key');
+            return;
+        }
+        
+        const testBtn = document.querySelector(`[data-action="test-models"][data-provider-id="${providerId}"]`);
+        if (testBtn) {
+            testBtn.disabled = true;
+            testBtn.textContent = '⏳ 测试中...';
+        }
+        
+        try {
+            let successCount = 0;
+            let failCount = 0;
+            const total = provider.models.length;
+            
+            console.log(`[UI] 开始测试 ${total} 个模型...`);
+            
+            // 获取供应商的模板和配置
+            const template = ProviderManager.getTemplate(provider.template || 'openai');
+            if (!template) {
+                alert('无法获取 API 模板');
+                return;
+            }
+            
+            // 逐个测试模型
+            for (let i = 0; i < provider.models.length; i++) {
+                const model = provider.models[i];
+                const modelId = typeof model === 'string' ? model : model.id;
+                
+                console.log(`[UI] 测试模型 ${i + 1}/${total}: ${modelId}`);
+                
+                try {
+                    // 构建测试请求
+                    const testUrl = `${provider.baseUrl}${template.endpoint}`;
+                    const testHeaders = {};
+                    
+                    // 添加模板定义的 headers
+                    if (template.headers) {
+                        Object.keys(template.headers).forEach(key => {
+                            let value = template.headers[key];
+                            // 替换变量
+                            if (value === '{{apiKey}}') {
+                                value = provider.apiKey || '';
+                            } else if (value === '{{model}}') {
+                                value = modelId;
+                            }
+                            testHeaders[key] = value;
+                        });
+                    }
+                    
+                    // 添加 Content-Type
+                    if (!testHeaders['Content-Type']) {
+                        testHeaders['Content-Type'] = 'application/json';
+                    }
+                    
+                    // 构建请求体
+                    const testBody = {
+                        model: modelId,
+                        messages: [{ role: 'user', content: 'Hi' }],
+                        max_tokens: 5
+                    };
+                    
+                    // 发送测试请求
+                    const result = await new Promise((resolve) => {
+                        GM_xmlhttpRequest({
+                            method: 'POST',
+                            url: testUrl,
+                            headers: testHeaders,
+                            data: JSON.stringify(testBody),
+                            timeout: 10000, // 10秒超时
+                            onload: (response) => {
+                                resolve(response.status >= 200 && response.status < 300);
+                            },
+                            onerror: () => resolve(false),
+                            ontimeout: () => resolve(false)
+                        });
+                    });
+                    
+                    if (result) {
+                        successCount++;
+                        // ✅ 保存测试结果
+                        ModelManager.markModelTest(modelId, true);
+                        console.log(`[UI] ✅ ${modelId} 测试成功`);
+                    } else {
+                        failCount++;
+                        // ✅ 保存测试结果
+                        ModelManager.markModelTest(modelId, false);
+                        console.warn(`[UI] ❌ ${modelId} 测试失败`);
+                    }
+                    
+                    // 更新按钮显示进度
+                    if (testBtn) {
+                        testBtn.textContent = `⏳ ${i + 1}/${total}`;
+                    }
+                    
+                } catch (error) {
+                    failCount++;
+                    console.error(`[UI] ❌ ${modelId} 测试异常:`, error.message);
+                }
+            }
+            
+            // 显示测试结果
+            const message = `测试完成！\n\n总计: ${total}\n✅ 成功: ${successCount}\n❌ 失败: ${failCount}\n\n可以点击“删除无效”按钮移除失败的模型。`;
+            alert(message);
+            
+            console.log(`[UI] 测试完成: 成功 ${successCount}, 失败 ${failCount}`);
+            
+        } catch (error) {
+            console.error('[UI] 测试过程出错:', error);
+            alert('测试过程中出现错误: ' + error.message);
+        } finally {
+            if (testBtn) {
+                testBtn.disabled = false;
+                testBtn.textContent = '🧪 测试模型';
+            }
+        }
+    }
+
+    /**
+     * v4.0.0: 处理删除无效模型（测试失败的模型）
+     */
+    async function handleRemoveInvalidModels(providerId) {
+        const provider = ProviderManager.getProviderById(providerId);
+        if (!provider || !provider.models || provider.models.length === 0) {
+            alert('没有可删除的模型');
+            return;
+        }
+        
+        // 获取所有测试失败的模型
+        const invalidModels = [];
+        const validModels = [];
+        
+        for (const model of provider.models) {
+            const modelId = typeof model === 'string' ? model : model.id;
+            const isAvailable = ModelManager.isModelAvailable(modelId);
+            
+            if (isAvailable) {
+                validModels.push(model);
+            } else {
+                invalidModels.push(modelId);
+            }
+        }
+        
+        if (invalidModels.length === 0) {
+            alert('没有找到无效的模型，所有模型都可用！');
+            return;
+        }
+        
+        // 确认删除
+        const confirmMsg = `确定要删除以下 ${invalidModels.length} 个无效模型吗？\n\n${invalidModels.slice(0, 10).join('\n')}${invalidModels.length > 10 ? '\n...' : ''}`;
+        if (!confirm(confirmMsg)) {
+            return;
+        }
+        
+        // 更新模型列表
+        await ProviderManager.updateProvider(providerId, { models: validModels });
+        
+        // ✅ 清除已删除模型的测试缓存
+        invalidModels.forEach(modelId => {
+            // 从 ModelManager 的状态中移除
+            const status = GM_getValue('model_status', {});
+            delete status[modelId];
+            GM_setValue('model_status', status);
+        });
+        
+        refreshProviderList();
+        
+        console.log(`[UI] 已删除 ${invalidModels.length} 个无效模型`);
+        alert(`已删除 ${invalidModels.length} 个无效模型`);
+    }
+
+    /**
+     * v4.0.0: 处理手动添加模型
+     */
+    function handleAddModel(providerId) {
+        const provider = ProviderManager.getProviderById(providerId);
+        if (!provider) {
+            alert('供应商不存在');
+            return;
+        }
+        
+        // 弹窗输入模型 ID
+        const modelId = prompt('请输入模型 ID：\n\n例如：gpt-4、claude-3-opus、qwen-max 等');
+        
+        if (!modelId || !modelId.trim()) {
+            return; // 用户取消或输入为空
+        }
+        
+        const trimmedModelId = modelId.trim();
+        
+        // 检查是否已存在
+        const existingModels = provider.models || [];
+        const exists = existingModels.some(m => {
+            const id = typeof m === 'string' ? m : m.id;
+            return id === trimmedModelId;
+        });
+        
+        if (exists) {
+            alert(`模型 "${trimmedModelId}" 已存在！`);
+            return;
+        }
+        
+        // 添加模型
+        const newModel = {
+            id: trimmedModelId,
+            name: trimmedModelId,
+            provider: providerId,
+            enabled: true
+        };
+        
+        const updatedModels = [...existingModels, newModel];
+        
+        ProviderManager.updateProvider(providerId, { models: updatedModels })
+            .then(() => {
+                refreshProviderList();
+                console.log(`[UI] 已添加模型: ${trimmedModelId}`);
+                alert(`✅ 模型 "${trimmedModelId}" 已添加！\n\n建议：\n1. 点击“🧪 测试模型”验证可用性\n2. 拖拽 ⋮⋮ 调整优先级`);
+            })
+            .catch(error => {
+                console.error('[UI] 添加模型失败:', error);
+                alert('❌ 添加模型失败: ' + error.message);
+            });
+    }
+
+    /**
+     * v4.0.0: 设置模型列表拖拽排序
+     */
+    function setupModelDragAndDrop(container) {
+        let draggedItem = null;
+        let dragSourceProvider = null;
+        
+        // 监听拖拽开始
+        container.addEventListener('dragstart', (e) => {
+            const modelItem = e.target.closest('.model-item');
+            if (!modelItem) return;
+            
+            draggedItem = modelItem;
+            dragSourceProvider = modelItem.closest('.models-list')?.dataset.providerId;
+            
+            modelItem.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', modelItem.dataset.modelId);
+        });
+        
+        // 监听拖拽结束
+        container.addEventListener('dragend', (e) => {
+            const modelItem = e.target.closest('.model-item');
+            if (modelItem) {
+                modelItem.classList.remove('dragging');
+            }
+            draggedItem = null;
+            dragSourceProvider = null;
+        });
+        
+        // 监听拖拽经过
+        container.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            const modelItem = e.target.closest('.model-item');
+            if (!modelItem || !draggedItem || modelItem === draggedItem) return;
+            
+            // 确保是同一个供应商的模型
+            const targetProvider = modelItem.closest('.models-list')?.dataset.providerId;
+            if (targetProvider !== dragSourceProvider) return;
+            
+            e.dataTransfer.dropEffect = 'move';
+            
+            // 获取鼠标位置，决定插入位置
+            const rect = modelItem.getBoundingClientRect();
+            const midpoint = rect.top + rect.height / 2;
+            
+            if (e.clientY < midpoint) {
+                modelItem.parentNode.insertBefore(draggedItem, modelItem);
+            } else {
+                modelItem.parentNode.insertBefore(draggedItem, modelItem.nextSibling);
+            }
+        });
+        
+        // 监听放置
+        container.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            
+            if (!draggedItem || !dragSourceProvider) return;
+            
+            const modelId = draggedItem.dataset.modelId;
+            const modelsList = draggedItem.closest('.models-list');
+            
+            // 获取新的顺序
+            const newOrder = Array.from(modelsList.querySelectorAll('.model-item'))
+                .map(item => item.dataset.modelId);
+            
+            console.log('[UI] New model order:', newOrder);
+            
+            // 更新供应商的模型顺序
+            const provider = ProviderManager.getProviderById(dragSourceProvider);
+            if (!provider || !provider.models) return;
+            
+            // 根据新顺序重新排列模型
+            const reorderedModels = [];
+            for (const id of newOrder) {
+                const model = provider.models.find(m => (typeof m === 'string' ? m : m.id) === id);
+                if (model) {
+                    reorderedModels.push(model);
+                }
+            }
+            
+            await ProviderManager.updateProvider(dragSourceProvider, { models: reorderedModels });
+            
+            // 刷新显示
+            refreshProviderList();
+            console.log('[UI] Model order updated via drag & drop');
+        });
+    }
+    
+    /**
+     * 处理嗅探本地服务
+     */
+    async function handleScanLocalServices() {
+        const scanBtn = document.getElementById('scan-local-services');
+        if (!scanBtn) return;
+        
+        const originalText = scanBtn.textContent;
+        scanBtn.disabled = true;
+        scanBtn.textContent = '⏳ 嗅探中...';
+        
+        try {
+            // 常见的本地服务端口
+            const commonPorts = [
+                { name: 'LM Studio', port: 1234 },
+                { name: 'Ollama', port: 11434 },
+                { name: 'Text Generation WebUI', port: 5000 },
+                { name: 'KoboldAI', port: 5001 }
+            ];
+            
+            let foundCount = 0;
+            const results = [];
+            
+            for (const service of commonPorts) {
+                const baseUrl = `http://localhost:${service.port}/v1`;
+                
+                try {
+                    // 尝试连接测试
+                    const result = await new Promise((resolve) => {
+                        GM_xmlhttpRequest({
+                            method: 'GET',
+                            url: `${baseUrl}/models`,
+                            timeout: 2000,
+                            onload: (response) => {
+                                if (response.status === 200) {
+                                    resolve({ success: true, data: response.responseText });
+                                } else {
+                                    resolve({ success: false });
+                                }
+                            },
+                            onerror: () => resolve({ success: false }),
+                            ontimeout: () => resolve({ success: false })
+                        });
+                    });
+                    
+                    if (result.success) {
+                        const data = JSON.parse(result.data);
+                        const models = data.data || [];
+                        
+                        if (models.length > 0) {
+                            // 检查是否已存在该供应商
+                            const existingProvider = ProviderManager.getProviderById(service.name.toLowerCase().replace(/\s+/g, '-'));
+                            
+                            if (!existingProvider) {
+                                // 创建新供应商
+                                await ProviderManager.addProvider({
+                                    id: service.name.toLowerCase().replace(/\s+/g, '-'),
+                                    name: service.name,
+                                    baseUrl: baseUrl,
+                                    apiKey: '',
+                                    template: 'OPENAI',
+                                    priority: 10,
+                                    enabled: true,
+                                    isLocal: true  // v4.0.0: 标记为本地服务
+                                });
+                                
+                                // 添加模型
+                                const modelList = models.map(m => ({
+                                    id: m.id,
+                                    name: m.id,
+                                    provider: service.name.toLowerCase().replace(/\s+/g, '-')
+                                }));
+                                
+                                await ProviderManager.addModelsToProvider(
+                                    service.name.toLowerCase().replace(/\s+/g, '-'),
+                                    modelList
+                                );
+                                
+                                foundCount++;
+                                results.push(`${service.name} (${models.length} 个模型)`);
+                            }
+                        }
+                    }
+                } catch (error) {
+                    // 忽略单个服务的错误，继续尝试其他端口
+                }
+            }
+            
+            // 刷新列表
+            refreshProviderList();
+            
+            if (foundCount > 0) {
+                scanBtn.textContent = `✅ 找到 ${foundCount} 个服务`;
+                scanBtn.style.background = '#10b981';
+                setTimeout(() => {
+                    scanBtn.textContent = originalText;
+                    scanBtn.style.background = '';
+                    scanBtn.disabled = false;
+                }, 3000);
+                
+                alert(`✅ 发现 ${foundCount} 个本地服务:\n\n${results.join('\n')}\n\n已自动添加到供应商列表。`);
+            } else {
+                scanBtn.textContent = '❌ 未找到服务';
+                scanBtn.style.background = '#ef4444';
+                setTimeout(() => {
+                    scanBtn.textContent = originalText;
+                    scanBtn.style.background = '';
+                    scanBtn.disabled = false;
+                }, 3000);
+                
+                alert('❌ 未检测到任何本地服务。\n\n请确保:\n• LM Studio / Ollama 等服务正在运行\n• 使用默认端口（1234, 11434 等）\n• 或手动添加供应商');
+            }
+            
+        } catch (error) {
+            console.error('[UI] Scan local services failed:', error);
+            scanBtn.textContent = '❌ 错误';
+            scanBtn.style.background = '#ef4444';
+            setTimeout(() => {
+                scanBtn.textContent = originalText;
+                scanBtn.style.background = '';
+                scanBtn.disabled = false;
+            }, 3000);
+            
+            alert('嗅探失败: ' + error.message);
+        }
+    }
+
+    /**
+     * 从 OpenRouter API 获取模型列表
+     */
+    async function fetchModelsFromOpenRouter() {
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: 'https://openrouter.ai/api/v1/models',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                onload: (response) => {
+                    try {
+                        const data = JSON.parse(response.responseText);
+                        if (data.data) {
+                            // 过滤出免费模型
+                            const freeModels = data.data
+                                .filter(model => model.id.includes(':free') || model.pricing?.prompt === 0)
+                                .map(model => ({
+                                    id: model.id,
+                                    name: getModelDisplayName(model),
+                                    provider: 'openrouter',
+                                    context_length: model.context_length || 'N/A'
+                                }))
+                                .sort((a, b) => a.name.localeCompare(b.name));
+                            
+                            resolve(freeModels);
+                        } else {
+                            reject(new Error('无效的响应格式'));
+                        }
+                    } catch (error) {
+                        reject(error);
+                    }
+                },
+                onerror: (error) => reject(error),
+                ontimeout: () => reject(new Error('请求超时'))
+            });
+        });
+    }
+
+    /**
+     * 获取模型显示名称
+     */
+    function getModelDisplayName(model) {
+        const providerIcons = {
+            'google': '✨',
+            'meta-llama': '🦙',
+            'llama': '🦙',
+            'qwen': '💬',
+            'aliyun': '💬',
+            'deepseek': '🧠',
+            'mistral': '⚡',
+            'mistralai': '⚡',
+            'openai': '🤖',
+            'zhipu': '🇨🇳',
+            'glm': '🇨🇳',
+            'stepfun': '🚀',
+            'arcee': '🔹'
+        };
+
+        const provider = model.id.split('/')[0];
+        const icon = providerIcons[provider] || '🤖';
+        
+        return `${icon} ${model.name || model.id}`;
+    }
+
     /**
      * 绑定设置对话框的事件监听
      */
     function bindSettingsEvents() {
-        // 温度滑块实时更新
-        document.getElementById('setting-temperature').addEventListener('input', (e) => {
-            document.getElementById('temp-value').textContent = e.target.value;
+        console.log('[UI] Binding settings events...');
+        
+        // v4.0.0: 标签页切换
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                // 移除所有活动状态
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                
+                // 激活当前标签
+                btn.classList.add('active');
+                const tabId = `tab-${btn.dataset.tab}`;
+                document.getElementById(tabId).classList.add('active');
+            });
         });
+        
+        // v4.0.0: 使用事件委托处理表单按钮（更可靠）
+        const modalContent = document.querySelector('.modal-content');
+        if (modalContent) {
+            modalContent.addEventListener('click', (e) => {
+                const target = e.target;
+                
+                // 添加供应商按钮
+                if (target.id === 'add-provider-btn') {
+                    console.log('[UI] Add provider button clicked');
+                    showProviderForm();
+                    return;
+                }
+                
+                // 取消表单按钮
+                if (target.id === 'cancel-provider-form') {
+                    console.log('[UI] Cancel form button clicked');
+                    hideProviderForm();
+                    return;
+                }
+                
+                // 保存供应商按钮
+                if (target.id === 'save-provider') {
+                    console.log('[UI] Save provider button clicked (via delegation)');
+                    handleSaveProvider();
+                    return;
+                }
+                
+                // 保存设置按钮
+                if (target.id === 'save-settings') {
+                    console.log('[UI] Save settings button clicked (via delegation)');
+                    saveSettings();
+                    return;
+                }
+                
+                // 取消设置按钮
+                if (target.id === 'cancel-settings') {
+                    console.log('[UI] Cancel settings button clicked (via delegation)');
+                    closeModal();
+                    return;
+                }
+            });
+            
+            // 官方供应商选择器变化事件
+            const officialSelect = document.getElementById('official-provider-select');
+            if (officialSelect) {
+                officialSelect.addEventListener('change', (e) => {
+                    const templateId = e.target.value;
+                    if (templateId) {
+                        console.log('[UI] Official provider selected:', templateId);
+                        fillProviderFormFromTemplate(templateId);
+                    }
+                });
+            } else {
+                console.warn('[UI] official-provider-select not found');
+            }
+        } else {
+            console.error('[UI] Modal content not found!');
+        }
+        
+        // v4.0.0: 供应商卡片操作按钮（事件委托）
+        const providerList = document.getElementById('provider-list');
+        if (providerList) {
+            providerList.addEventListener('click', async (e) => {
+                const button = e.target.closest('[data-action]');
+                if (!button) return;
+                
+                const action = button.dataset.action;
+                const providerId = button.dataset.providerId;
+                
+                switch(action) {
+                    case 'toggle-models':
+                        handleToggleModels(providerId, button);
+                        break;
+                    case 'test':
+                        await handleTestConnection(providerId, button);
+                        break;
+                    case 'refresh':
+                        await handleRefreshModels(providerId, button);
+                        break;
+                    case 'edit':
+                        handleEditProvider(providerId);
+                        break;
+                    case 'delete':
+                        await handleDeleteProvider(providerId);
+                        break;
+                    // v4.0.0: 模型操作
+                    case 'move-up':
+                        await handleMoveModelUp(providerId, button.dataset.modelId);
+                        break;
+                    case 'move-down':
+                        await handleMoveModelDown(providerId, button.dataset.modelId);
+                        break;
+                    case 'toggle-enable':
+                        await handleToggleModelEnable(providerId, button.dataset.modelId);
+                        break;
+                    case 'delete-model':
+                        await handleDeleteModel(providerId, button.dataset.modelId);
+                        break;
+                    case 'bulk-enable':
+                        await handleBulkEnableModels(button.dataset.providerId);
+                        break;
+                    case 'bulk-disable':
+                        await handleBulkDisableModels(button.dataset.providerId);
+                        break;
+                    // v4.0.0: 模型测试功能
+                    case 'test-models':
+                        await handleTestModels(button.dataset.providerId);
+                        break;
+                    case 'remove-invalid':
+                        await handleRemoveInvalidModels(button.dataset.providerId);
+                        break;
+                    // v4.0.0: 手动添加模型
+                    case 'add-model':
+                        handleAddModel(button.dataset.providerId);
+                        break;
+                }
+            });
+            
+            // v4.0.0: 模型列表拖拽排序
+            setupModelDragAndDrop(providerList);
+        }
+        
+        // v4.0.0: 嗅探本地服务
+        const scanLocalBtn = document.getElementById('scan-local-services');
+        if (scanLocalBtn) {
+            scanLocalBtn.addEventListener('click', handleScanLocalServices);
+        }
+        
+        // 温度滑块实时更新
+        const tempSlider = document.getElementById('setting-temperature');
+        if (tempSlider) {
+            tempSlider.addEventListener('input', (e) => {
+                const tempValue = document.getElementById('temp-value');
+                if (tempValue) tempValue.textContent = e.target.value;
+            });
+        }
 
         // Top P 滑块实时更新
-        document.getElementById('setting-top-p').addEventListener('input', (e) => {
-            document.getElementById('topp-value').textContent = e.target.value;
-        });
+        const topPSlider = document.getElementById('setting-top-p');
+        if (topPSlider) {
+            topPSlider.addEventListener('input', (e) => {
+                const toppValue = document.getElementById('topp-value');
+                if (toppValue) toppValue.textContent = e.target.value;
+            });
+        }
 
         // 刷新模型列表
         setupModelRefresh();
-
-        // 保存设置
-        document.getElementById('save-settings').addEventListener('click', saveSettings);
-
-        // 取消
-        document.getElementById('cancel-settings').addEventListener('click', closeModal);
         
         // 点击遮罩层关闭
         const modalOverlay = document.getElementById('settings-modal');
@@ -2615,97 +5248,54 @@ const UIManager = (function() {
     }
 
     /**
-     * 初始化模型选择
+     * 初始化模型选择（v4.0.0: 从 ProviderManager 获取）
      */
-    function initializeModelSelect(currentModel) {
-        const cached = ModelManager.loadCachedModels();
-        ModelManager.updateModelSelect(cached.models, currentModel);
+    async function initializeModelSelect(currentModel) {
+        // v4.0.0: 从 ProviderManager 获取所有可用模型
+        const models = ProviderManager.getAllAvailableModels();
         
+        if (models.length === 0) {
+            console.warn('[UI] No models available from providers');
+            // 显示提示信息
+            const modelsStatus = document.getElementById('models-status');
+            if (modelsStatus) {
+                modelsStatus.innerHTML = '<span style="color: #f59e0b;">⚠️ 没有可用模型，请配置提供商</span>';
+            }
+            return;
+        }
+        
+        ModelManager.updateModelSelect(models, currentModel);
+        
+        // 显示模型统计信息
         const modelsStatus = document.getElementById('models-status');
-        if (modelsStatus && !cached.isExpired) {
-            modelsStatus.innerHTML = `<span style="color: #6b7280;">📦 已加载缓存 (${cached.hoursAgo}小时前) | 点击刷新获取最新</span>`;
+        if (modelsStatus) {
+            const providerCount = ProviderManager.getAllProviders().filter(p => p.enabled).length;
+            modelsStatus.innerHTML = `<span style="color: #6b7280;">📦 已加载 ${models.length} 个模型 | ${providerCount} 个启用的提供商</span>`;
         }
     }
 
     /**
-     * 设置模型刷新功能
+     * 设置模型刷新功能（v4.0.0: 已废弃，模型管理移至供应商管理）
      */
     function setupModelRefresh() {
-        const refreshBtn = document.getElementById('refresh-models');
-        const testBtn = document.getElementById('test-models');
-        const modelsStatus = document.getElementById('models-status');
-        
-        // 刷新按钮逻辑
-        refreshBtn.addEventListener('click', async () => {
-            refreshBtn.disabled = true;
-            refreshBtn.textContent = '🔄 加载中...';
-            modelsStatus.innerHTML = '<span style="color: #3b82f6;">⏳ 正在获取最新模型列表...</span>';
-            
-            try {
-                const result = await ModelManager.refreshModels();
-                
-                if (result.success) {
-                    const select = document.getElementById('setting-model');
-                    const currentModel = select.value;
-                    ModelManager.updateModelSelect(result.models, currentModel);
-                    modelsStatus.innerHTML = `<span style="color: #10b981;">✅ 已更新!找到 ${result.count} 个免费模型 (最后更新: ${new Date().toLocaleTimeString()})</span>`;
-                } else {
-                    throw new Error(result.error);
-                }
-                
-            } catch (error) {
-                console.error('获取模型列表失败:', error);
-                modelsStatus.innerHTML = `<span style="color: #ef4444;">❌ 获取失败: ${error.message}</span><br><span style="color: #6b7280;">提示: Auto 模式仍然可用</span>`;
-            } finally {
-                refreshBtn.disabled = false;
-                refreshBtn.textContent = '🔄 刷新';
-            }
-        });
-
-        // 测试按钮逻辑
-        testBtn.addEventListener('click', async () => {
-            const apiKey = ConfigManager.get('apiKey');
-            if (!apiKey) {
-                alert('请先设置 API Key');
-                return;
-            }
-
-            testBtn.disabled = true;
-            testBtn.textContent = '🧪 测试中...';
-            
-            const cached = ModelManager.loadCachedModels();
-            const total = cached.models.length;
-            let completed = 0;
-
-            modelsStatus.innerHTML = `<span style="color: #3b82f6;">⏳ 开始测试 ${total} 个模型...</span>`;
-
-            await ModelManager.batchTestModels(cached.models, apiKey, (current, total, modelId, success) => {
-                completed = current;
-                const statusIcon = success ? '✅' : '❌';
-                modelsStatus.innerHTML = `<span style="color: #3b82f6;">⏳ 进度: ${completed}/${total} (${statusIcon} ${modelId})</span>`;
-                
-                // 实时更新下拉框状态
-                const select = document.getElementById('setting-model');
-                const currentModel = select.value;
-                ModelManager.updateModelSelect(cached.models, currentModel);
-            });
-
-            modelsStatus.innerHTML = `<span style="color: #10b981;">✅ 测试完成!不可用模型已排到末尾。</span>`;
-            testBtn.disabled = false;
-            testBtn.textContent = '🧪 测试';
-        });
+        // v4.0.0: 此功能已移至供应商管理界面
+        console.log('[UI] setupModelRefresh is deprecated in v4.0.0');
     }
 
     /**
      * 保存设置
      */
     function saveSettings() {
-        const apiKey = document.getElementById('setting-api-key').value.trim();
-        const model = document.getElementById('setting-model').value;
-        const temperature = parseFloat(document.getElementById('setting-temperature').value);
-        const topP = parseFloat(document.getElementById('setting-top-p').value);
-        let maxTokens = parseInt(document.getElementById('setting-max-tokens').value);
-        const jsEnabled = document.getElementById('setting-js-enabled').checked;
+        console.log('[UI] Saving settings...');
+        
+        // v4.0.0: API Key 现在在供应商管理中配置，不再在这里设置
+        const model = document.getElementById('setting-model')?.value || 'auto';
+        const temperature = parseFloat(document.getElementById('setting-temperature')?.value || '0.7');
+        const topP = parseFloat(document.getElementById('setting-top-p')?.value || '0.95');
+        let maxTokens = parseInt(document.getElementById('setting-max-tokens')?.value || '2048');
+        const jsEnabled = document.getElementById('setting-js-enabled')?.checked ?? true;
+
+        console.log('[UI] Settings:', { model, temperature, topP, maxTokens, jsEnabled });
 
         // 验证并限制 maxTokens 范围
         if (isNaN(maxTokens) || maxTokens < 100) {
@@ -2716,23 +5306,24 @@ const UIManager = (function() {
         }
 
         // 保存到配置管理器 (浏览器存储)
-        ConfigManager.set('apiKey', apiKey);
         ConfigManager.set('model', model);
         ConfigManager.set('temperature', temperature);
         ConfigManager.set('topP', topP);
         ConfigManager.set('maxTokens', maxTokens);
         ConfigManager.set('jsExecutionEnabled', jsEnabled);
 
+        console.log('[UI] 设置保存成功');
+
         closeModal();
         
         // 更新 UI 状态徽章
-        updateStatusBadge(apiKey.length > 0);
+        updateStatusBadge(true); // v4.0.0: 只要有供应商就认为已配置
         
         // 显示成功消息
         appendMessage(`
             <div class="assistant-message">
                 <div class="message-content" style="color: #10b981;">
-                    ✅ 设置已保存 - 开始免费使用!
+                    ✅ 设置已保存！
                 </div>
             </div>
         `);
@@ -2803,13 +5394,22 @@ const UIManager = (function() {
      * @param {string} text - 完整文本
      */
     function updateStreamingMessage(messageId, text) {
+        console.log('[UI] updateStreamingMessage called:', messageId, 'text length:', text.length, 'first 50 chars:', text.substring(0, 50));
+        
         const now = Date.now();
+        const timeSinceLastUpdate = now - streamingUpdateState.lastUpdateTime;
+        
+        // 调试：记录节流决策
+        console.log('[UI] Throttle check: timeSinceLastUpdate =', timeSinceLastUpdate, 'ms');
         
         // 如果距离上次更新不足 50ms，使用 requestAnimationFrame 延迟更新
-        if (now - streamingUpdateState.lastUpdateTime < 50) {
+        if (timeSinceLastUpdate < 50 && streamingUpdateState.lastUpdateTime !== 0) {
+            console.log('[UI] Throttling: queuing update');
+            
             // 取消之前的 pending 更新
             if (streamingUpdateState.rafId !== null) {
                 cancelAnimationFrame(streamingUpdateState.rafId);
+                console.log('[UI] Cancelled previous RAF');
             }
             
             // 保存最新的文本
@@ -2818,6 +5418,7 @@ const UIManager = (function() {
             // 安排在下一帧更新
             streamingUpdateState.rafId = requestAnimationFrame(() => {
                 if (streamingUpdateState.pendingUpdate) {
+                    console.log('[UI] Performing pending update, text length:', streamingUpdateState.pendingUpdate.text.length);
                     performStreamingUpdate(
                         streamingUpdateState.pendingUpdate.messageId,
                         streamingUpdateState.pendingUpdate.text
@@ -2828,6 +5429,7 @@ const UIManager = (function() {
             });
         } else {
             // 直接更新
+            console.log('[UI] Performing direct update');
             performStreamingUpdate(messageId, text);
         }
     }
@@ -2836,11 +5438,19 @@ const UIManager = (function() {
      * 执行实际的流式更新（内部函数）
      */
     function performStreamingUpdate(messageId, text) {
+        console.log('[UI] performStreamingUpdate:', messageId, 'text length:', text.length);
+        
         const messageEl = document.getElementById(messageId);
-        if (!messageEl) return;
+        if (!messageEl) {
+            // 元素不存在可能是因为已经被 finalize 移除了 ID
+            // 这是正常的竞态条件，静默忽略即可
+            console.log('[UI] Message element not found (already finalized or removed):', messageId);
+            return;
+        }
         
         const contentEl = messageEl.querySelector('.message-content');
         if (contentEl) {
+            console.log('[UI] Updating content, text preview:', text.substring(0, 100));
             // 格式化文本（支持代码块等）
             const formattedText = formatStreamingText(text);
             contentEl.innerHTML = formattedText;
@@ -2850,6 +5460,8 @@ const UIManager = (function() {
             if (chat) {
                 chat.scrollTop = chat.scrollHeight;
             }
+        } else {
+            console.error('[UI] Content element not found in message:', messageId);
         }
         
         // 更新最后更新时间
@@ -2861,10 +5473,35 @@ const UIManager = (function() {
      * @param {string} messageId - 消息 ID
      */
     function finalizeStreamingMessage(messageId) {
+        console.log('[UI] Finalizing streaming message:', messageId);
+        
+        // 取消任何 pending 的更新
+        if (streamingUpdateState.rafId !== null) {
+            cancelAnimationFrame(streamingUpdateState.rafId);
+            console.log('[UI] Cancelled pending RAF during finalize');
+            streamingUpdateState.rafId = null;
+        }
+        
+        // 清空 pending update
+        if (streamingUpdateState.pendingUpdate) {
+            // 如果 pending 的是当前消息，先执行最后一次更新
+            if (streamingUpdateState.pendingUpdate.messageId === messageId) {
+                console.log('[UI] Flushing final pending update before finalize');
+                performStreamingUpdate(
+                    streamingUpdateState.pendingUpdate.messageId,
+                    streamingUpdateState.pendingUpdate.text
+                );
+            }
+            streamingUpdateState.pendingUpdate = null;
+        }
+        
         const messageEl = document.getElementById(messageId);
         if (messageEl) {
             // 移除 ID，标记为完成
             messageEl.removeAttribute('id');
+            console.log('[UI] Message finalized, ID removed');
+        } else {
+            console.warn('[UI] Message element not found during finalize:', messageId);
         }
     }
 
@@ -2924,7 +5561,9 @@ const UIManager = (function() {
         closeModal,
         createStreamingMessage,
         updateStreamingMessage,
-        finalizeStreamingMessage
+        finalizeStreamingMessage,
+        initializeMainModelSelect,  // v4.0.0
+        refreshMainModelSelect      // v4.0.0
     };
 })();
 
@@ -2934,6 +5573,9 @@ const UIManager = (function() {
 // =====================================================
 
 // ==================== 模型管理模块 ====================
+// v4.0.0: 重构为从 ProviderManager 动态获取模型
+
+// 注意：此文件通过 build.js 合并，ProviderManager 已在全局作用域
 
 const ModelManager = (function() {
     const CACHE_KEY = 'cached_models';
@@ -2943,59 +5585,30 @@ const ModelManager = (function() {
     // 模型状态管理: { modelId: { available: boolean, lastTest: timestamp } }
     let modelStatus = {};
 
-    // 默认模型列表
-    const DEFAULT_MODELS = [
-        { id: 'google/gemma-3-12b-it:free', name: '🌟 Gemma 3 12B (推荐)', provider: 'google' },
-        { id: 'meta-llama/llama-3.3-70b-instruct:free', name: '🦙 Llama 3.3 70B', provider: 'meta-llama' },
-        { id: 'qwen/qwen-2.5-72b-instruct:free', name: '💬 Qwen 2.5 72B (中文好)', provider: 'qwen' },
-        { id: 'deepseek/deepseek-r1-0528:free', name: '🧠 DeepSeek R1 (推理强)', provider: 'deepseek' },
-        { id: 'mistralai/mistral-7b-instruct:free', name: '⚡ Mistral 7B (快速)', provider: 'mistralai' },
-        { id: 'google/gemini-2.0-flash-exp:free', name: '✨ Gemini 2.0 Flash', provider: 'google' },
-        { id: 'openai/gpt-oss-20b:free', name: '🤖 GPT-OSS 20B', provider: 'openai' },
-        { id: 'zhipuai/glm-4.5-air:free', name: '🇨🇳 GLM-4.5 Air', provider: 'zhipuai' },
-        { id: 'stepfun/step-3.5-flash:free', name: '🚀 Step 3.5 Flash', provider: 'stepfun' },
-        { id: 'arcee/trinity-mini:free', name: '🔹 Trinity Mini 26B', provider: 'arcee' },
-        { id: 'openrouter/auto', name: '🎲 Auto (智能路由 - 推荐)', provider: 'openrouter' }
-    ];
+    /**
+     * 初始化模型管理器
+     */
+    async function init() {
+        await loadModelStatus();
+        console.log('[ModelManager] Initialized');
+    }
 
     /**
-     * 从 API 获取免费模型列表
+     * 获取所有可用模型（从 ProviderManager）
      */
-    function fetchFreeModels() {
-        return new Promise((resolve, reject) => {
-            GM_xmlhttpRequest({
-                method: 'GET',
-                url: 'https://openrouter.ai/api/v1/models',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                onload: (response) => {
-                    try {
-                        const data = JSON.parse(response.responseText);
-                        if (data.data) {
-                            // 过滤出免费模型
-                            const freeModels = data.data
-                                .filter(model => model.id.includes(':free') || model.pricing?.prompt === 0)
-                                .map(model => ({
-                                    id: model.id,
-                                    name: getModelDisplayName(model),
-                                    provider: model.id.split('/')[0],
-                                    context_length: model.context_length || 'N/A'
-                                }))
-                                .sort((a, b) => a.name.localeCompare(b.name));
-                            
-                            resolve(freeModels);
-                        } else {
-                            reject(new Error('无效的响应格式'));
-                        }
-                    } catch (error) {
-                        reject(error);
-                    }
-                },
-                onerror: (error) => reject(error),
-                ontimeout: () => reject(new Error('请求超时'))
-            });
-        });
+    async function getAvailableModels() {
+        // 从 ProviderManager 获取所有可用模型
+        const models = ProviderManager.getAllAvailableModels();
+        
+        // 如果没有任何模型，返回默认模型列表（向后兼容）
+        if (models.length === 0) {
+            console.warn('[ModelManager] No models found, using fallback');
+            return [
+                { id: 'openrouter/auto', name: '🎲 Auto (智能路由)', provider: 'openrouter' }
+            ];
+        }
+        
+        return models;
     }
 
     /**
@@ -3137,7 +5750,7 @@ const ModelManager = (function() {
     }
 
     /**
-     * 更新模型选择下拉框（带可用性排序）
+     * 更新模型选择下拉框（按提供商分组显示）
      */
     function updateModelSelect(models, currentModel) {
         const select = document.getElementById('setting-model');
@@ -3158,54 +5771,64 @@ const ModelManager = (function() {
         separator.textContent = '──────────────';
         select.appendChild(separator);
         
-        // 排序并添加模型
-        const sortedModels = sortModelsByAvailability(models);
-        sortedModels.forEach(model => {
-            const option = document.createElement('option');
-            option.value = model.id;
-            const isAvail = isModelAvailable(model.id);
-            option.textContent = isAvail ? model.name : `${model.name} (不可用)`;
-            if (!isAvail) {
-                option.style.color = '#999';
+        // 按提供商分组
+        const groupedModels = {};
+        models.forEach(model => {
+            const providerId = model.providerId || model.provider || 'unknown';
+            const providerName = model.providerName || providerId;
+            
+            if (!groupedModels[providerId]) {
+                groupedModels[providerId] = {
+                    name: providerName,
+                    models: []
+                };
             }
-            if (model.id === currentValue) {
-                option.selected = true;
-            }
-            select.appendChild(option);
+            groupedModels[providerId].models.push(model);
+        });
+        
+        // 添加每个提供商的模型
+        Object.keys(groupedModels).forEach(providerId => {
+            const group = groupedModels[providerId];
+            
+            // 提供商标题
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = `${group.name} (${group.models.length})`;
+            
+            // 排序并添加模型
+            const sortedModels = sortModelsByAvailability(group.models);
+            sortedModels.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.id;
+                const isAvail = isModelAvailable(model.id);
+                option.textContent = isAvail ? model.name : `${model.name} (不可用)`;
+                if (!isAvail) {
+                    option.style.color = '#999';
+                }
+                if (model.id === currentValue) {
+                    option.selected = true;
+                }
+                optgroup.appendChild(option);
+            });
+            
+            select.appendChild(optgroup);
         });
     }
 
     /**
-     * 加载缓存的模型列表
+     * 加载缓存的模型列表（v4.0.0: 已废弃，使用 ProviderManager）
      */
     function loadCachedModels() {
-        const cached = GM_getValue(CACHE_KEY, null);
-        if (cached) {
-            try {
-                const data = typeof cached === 'string' ? JSON.parse(cached) : cached;
-                const models = data.models;
-                const timestamp = data.timestamp;
-                const age = Date.now() - timestamp;
-                
-                // 如果缓存不超过 24 小时,使用缓存
-                if (age < CACHE_EXPIRY) {
-                    return { models, isExpired: false, hoursAgo: Math.floor(age / (60 * 60 * 1000)) };
-                }
-            } catch (error) {
-                console.error('加载缓存失败:', error);
-            }
-        }
-        return { models: DEFAULT_MODELS, isExpired: true, hoursAgo: 0 };
+        // v4.0.0: 此函数已废弃，保留仅为向后兼容
+        console.warn('[ModelManager] loadCachedModels is deprecated, use ProviderManager instead');
+        return { models: [], isExpired: true, hoursAgo: 0 };
     }
 
     /**
-     * 保存模型列表到缓存
+     * 保存模型列表到缓存（v4.0.0: 已废弃）
      */
     function saveToCache(models) {
-        GM_setValue(CACHE_KEY, JSON.stringify({
-            models: models,
-            timestamp: Date.now()
-        }));
+        // v4.0.0: 此函数已废弃
+        console.warn('[ModelManager] saveToCache is deprecated');
     }
 
     /**
@@ -3244,17 +5867,14 @@ const ModelManager = (function() {
     }
 
     return {
-        DEFAULT_MODELS,
         init,
-        fetchFreeModels,
+        getAvailableModels,
         updateModelSelect,
         loadCachedModels,
         saveToCache,
-        refreshModels,
-        getProviderIcon,
-        getModelDisplayName,
-        batchTestModels,
         isModelAvailable,
+        testModel,
+        batchTestModels,
         markModelTest
     };
 })();
@@ -3265,6 +5885,7 @@ const ModelManager = (function() {
 // =====================================================
 
 // ==================== API 路由模块 ====================
+// v4.0.0: 重构为使用 ProviderManager
 // 负责模型选择、故障转移和重试逻辑
 
 const APIRouter = (function() {
@@ -3274,8 +5895,10 @@ const APIRouter = (function() {
      * 获取可用模型列表（按优先级排序）
      */
     function getAvailableModels(currentModel) {
-        const cached = ModelManager.loadCachedModels();
-        let models = [...cached.models];
+        // v4.0.0: 从 ProviderManager 获取所有可用模型
+        const allModels = ProviderManager.getAllAvailableModels();
+        
+        let models = [...allModels];
 
         // 将当前选中的模型排在最前面
         if (currentModel && currentModel !== 'openrouter/auto') {
@@ -3305,8 +5928,12 @@ const APIRouter = (function() {
         
         let modelsToTry = getAvailableModels(config.model);
         if (modelsToTry.length === 0) {
-            // 如果没有可用模型，尝试使用默认列表
-            modelsToTry = ModelManager.DEFAULT_MODELS;
+            // 如果没有可用模型，返回错误
+            return { 
+                success: false, 
+                error: '没有可用的模型。请检查提供商配置。',
+                attempts: 0 
+            };
         }
 
         let lastError = null;
@@ -3323,6 +5950,7 @@ const APIRouter = (function() {
                 }
 
                 attempts++;
+                console.log(`[API Router] 🔄 尝试模型: ${model.id} (第 ${i + 1} 次)`);
                 Utils.debugLog(`🔄 尝试模型: ${model.id} (第 ${i + 1} 次)`);
 
                 try {
@@ -3342,15 +5970,23 @@ const APIRouter = (function() {
 
                     // 如果是因为被取消，直接返回
                     if (result.cancelled) {
+                        console.log('[API Router] Request cancelled');
                         return result;
                     }
 
+                    // 请求失败，记录错误
                     lastError = new Error(result.error || '未知错误');
+                    console.warn('[API Router] Request returned success=false:', result.error);
                     ModelManager.markModelTest(model.id, false);
                     
                 } catch (error) {
                     lastError = error;
                     ModelManager.markModelTest(model.id, false);
+                    
+                    console.error('[API Router] Request failed for model:', model.id);
+                    console.error('[API Router] Error:', error.message);
+                    console.error('[API Router] Error stack:', error.stack);
+                    
                     if (error.name === 'AbortError') {
                         return { success: false, cancelled: true, error: '请求已取消' };
                     }
@@ -3377,12 +6013,63 @@ const APIRouter = (function() {
 // =====================================================
 
 // ==================== API 调用模块 ====================
+// v4.0.0: 支持多提供商 API 调用
 
 const APIManager = (function() {
     let isProcessing = false;
 
     /**
-     * 调用 AI API（流式输出版本）
+     * 根据模型 ID 获取对应的提供商配置
+     */
+    function getProviderConfig(modelId) {
+        const provider = ProviderManager.getProviderByModel(modelId);
+        if (!provider) {
+            throw new Error(`未找到模型 "${modelId}" 的提供商配置`);
+        }
+        
+        const template = ProviderManager.getTemplate(provider.template);
+        if (!template) {
+            throw new Error(`未找到模板 "${provider.template}"`);
+        }
+        
+        return { provider, template };
+    }
+
+    /**
+     * 构建请求（使用模板）
+     */
+    function buildRequestWithTemplate(template, provider, model, messages, params) {
+        // 构建端点 URL
+        let endpoint = template.endpoint
+            .replace('{baseUrl}', provider.baseUrl)
+            .replace('{apiKey}', provider.apiKey || '')
+            .replace('{model}', model);
+        
+        // 构建请求头
+        const headers = template.headers(provider.apiKey);
+        
+        // 构建请求体
+        const body = template.buildRequest(model, messages, params);
+        
+        return { endpoint, headers, body };
+    }
+
+    /**
+     * 解析流式响应（使用模板）
+     */
+    function parseStreamChunk(template, chunk) {
+        return template.parseStreamChunk(chunk);
+    }
+
+    /**
+     * 检查流是否结束（使用模板）
+     */
+    function isStreamFinished(template, chunk) {
+        return template.isStreamFinished ? template.isStreamFinished(chunk) : false;
+    }
+
+    /**
+     * 调用 AI API（流式输出版本 - v4.0.0 多提供商支持）
      */
     async function callAPIStreaming(userMessage, conversationHistory, config, abortController, onChunk) {
         if (isProcessing) return null;
@@ -3392,38 +6079,65 @@ const APIManager = (function() {
         
         try {
             // 验证配置
-            if (!config.apiKey) {
-                throw new Error('API Key 未设置，请在设置中配置 OpenRouter API Key');
-            }
             if (!config.model) {
                 throw new Error('模型未设置');
             }
             
+            console.log('[API] Using model:', config.model);
+            
+            // v4.0.0: 获取提供商配置和模板
+            const { provider, template } = getProviderConfig(config.model);
+            
+            console.log('[API] Provider:', provider.name, '(', provider.id, ')');
+            console.log('[API] Template:', template.name);
+            
+            // v4.0.0: 验证 API Key（本地服务不需要）
+            if (!provider.apiKey && !provider.isLocal && template.headers.toString().includes('apiKey')) {
+                throw new Error(`提供商 "${provider.name}" 的 API Key 未设置`);
+            }
+            
             const messages = buildMessages(userMessage, conversationHistory, config);
             
-            const requestBody = {
-                model: config.model,
-                messages: messages,
+            // v4.0.0: 使用模板构建请求
+            const params = {
                 temperature: config.temperature || 0.7,
                 top_p: config.topP || 0.95,
-                max_tokens: Math.min(config.maxTokens || 2048, 8192),
-                stream: true  // 启用流式输出
+                max_tokens: Math.min(config.maxTokens || 2048, 8192)
             };
             
-            Utils.debugLog('📤 API 流式请求:', { model: config.model, messagesCount: messages.length });
+            const { endpoint, headers, body } = buildRequestWithTemplate(
+                template, provider, config.model, messages, params
+            );
             
-            // 使用 fetch 发起流式请求
-            const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${config.apiKey}`,
-                    'HTTP-Referer': window.location.href,
-                    'X-Title': 'AI Browser Agent'
-                },
-                body: JSON.stringify(requestBody),
-                signal: abortController?.signal
+            Utils.debugLog('📤 API 流式请求:', { 
+                model: config.model, 
+                provider: provider.name,
+                template: provider.template,
+                messagesCount: messages.length 
             });
+            
+            // v4.0.0: 根据提供商类型选择请求方法
+            // 对于本地服务（localhost），使用 GM_xmlhttpRequest 绕过 CORS
+            const isLocalhost = provider.baseUrl.includes('localhost') || 
+                               provider.baseUrl.includes('127.0.0.1');
+            
+            let response;
+            if (isLocalhost) {
+                // 使用 GM_xmlhttpRequest 处理本地请求
+                response = await makeGMRequest(endpoint, headers, body, abortController);
+            } else {
+                // 使用 fetch 处理远程请求
+                response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        ...headers,
+                        'HTTP-Referer': window.location.href,
+                        'X-Title': 'AI Browser Agent'
+                    },
+                    body: JSON.stringify(body),
+                    signal: abortController?.signal
+                });
+            }
             
             if (!response.ok) {
                 const errorText = await response.text();
@@ -3462,12 +6176,20 @@ const APIManager = (function() {
                     
                     try {
                         const data = JSON.parse(dataStr);
-                        const content = data.choices?.[0]?.delta?.content;
+                        
+                        // v4.0.0: 使用模板解析响应
+                        const content = parseStreamChunk(template, data);
                         
                         if (content) {
                             fullText += content;
                             // 调用回调，传递增量文本
                             onChunk(content, fullText);
+                        }
+                        
+                        // v4.0.0: 检查流是否结束
+                        if (isStreamFinished(template, data)) {
+                            Utils.debugLog('✅ 流式输出完成（模板标记）');
+                            return { success: true, message: fullText };
                         }
                     } catch (e) {
                         Utils.debugWarn('⚠️ SSE 解析失败:', e);
@@ -3493,8 +6215,7 @@ const APIManager = (function() {
     }
 
     /**
-     * 调用 AI API（旧版阻塞式，已废弃）
-     * @deprecated 请使用 callAPIStreaming() 代替
+     * 调用 AI API（旧版阻塞式）
      * @note 保留作为 fallback，当浏览器不支持 ReadableStream 时使用
      */
     async function callAPI(userMessage, conversationHistory, config, abortController = null) {
@@ -3550,25 +6271,233 @@ const APIManager = (function() {
     }
 
     /**
-     * 构建消息数组
+     * 使用 GM_xmlhttpRequest 发起请求（用于本地服务，绕过 CORS）
+     */
+    function makeGMRequest(endpoint, headers, body, abortController) {
+        return new Promise((resolve, reject) => {
+            let aborted = false;
+            
+            // 监听中止信号
+            if (abortController && abortController.signal) {
+                try {
+                    abortController.signal.addEventListener('abort', () => {
+                        aborted = true;
+                        reject(new DOMException('The user aborted a request.', 'AbortError'));
+                    });
+                } catch (error) {
+                    console.warn('[API] Failed to add abort listener:', error);
+                }
+            }
+            
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url: endpoint,
+                headers: {
+                    ...headers,
+                    'Content-Type': 'application/json'
+                },
+                data: JSON.stringify(body),
+                responseType: 'text',
+                timeout: 60000, // 60秒超时
+                onload: (response) => {
+                    if (aborted) return;
+                    
+                    // 创建模拟的 Response 对象
+                    const mockResponse = {
+                        ok: response.status >= 200 && response.status < 300,
+                        status: response.status,
+                        statusText: response.statusText,
+                        body: {
+                            getReader: () => {
+                                // 将文本转换为 ReadableStream
+                                const encoder = new TextEncoder();
+                                const chunks = [];
+                                let position = 0;
+                                
+                                // 按行分割响应
+                                const lines = response.responseText.split('\n');
+                                lines.forEach(line => {
+                                    if (line.trim()) {
+                                        chunks.push(encoder.encode(line + '\n'));
+                                    }
+                                });
+                                
+                                return {
+                                    read: async () => {
+                                        if (position >= chunks.length) {
+                                            return { done: true, value: undefined };
+                                        }
+                                        return { done: false, value: chunks[position++] };
+                                    }
+                                };
+                            }
+                        },
+                        text: async () => response.responseText
+                    };
+                    
+                    resolve(mockResponse);
+                },
+                onerror: (error) => {
+                    if (!aborted) {
+                        reject(new Error(`GM_xmlhttpRequest error: ${error}`));
+                    }
+                },
+                ontimeout: () => {
+                    if (!aborted) {
+                        reject(new Error('Request timeout'));
+                    }
+                }
+            });
+        });
+    }
+
+    /**
+     * 估算文本的 token 数量（粗略估算）
+     * 中文约 1.5-2 字符/token，英文约 4 字符/token
+     */
+    function estimateTokens(text) {
+        if (!text) return 0;
+        
+        // 简单估算：中文字符和英文字符分开计算
+        const chineseChars = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
+        const otherChars = text.length - chineseChars;
+        
+        // 中文：1.8 字符/token，其他：4 字符/token
+        const tokens = Math.ceil(chineseChars / 1.8) + Math.ceil(otherChars / 4);
+        
+        return tokens;
+    }
+
+    /**
+     * 构建消息数组（带智能上下文管理）
      */
     function buildMessages(currentMessage, history, config) {
         // 系统提示词
         const systemMessage = {
             role: 'system',
-            content: `你是浏览器中的AI助手,发送\`\`\`js\`\`\`包裹的代码块，执行代码，通过return获取结果`
+            content: `你是运行在浏览器中的 AI Web 助手，通过 Tampermonkey 用户脚本运行在当前网页中。
+
+## 核心能力
+- **执行 JavaScript 代码**：你可以发送 \`\`\`js 包裹的 JavaScript 代码块，系统会自动执行并显示结果
+- **操作当前页面**：可以读取和修改当前网页的 DOM、样式、内容等
+- **获取页面信息**：可以提取页面文本、链接、图片等信息
+- **与页面交互**：可以模拟点击、输入、滚动等操作
+- 你的回复应该明确且有针对性，旨在解决用户的问题或完成用户任务
+
+## ⚠️ 重要：代码执行规则
+1. **代码在全局作用域执行**，不能使用 return 语句
+2. **直接写表达式或语句**，系统会自动捕获最后一个表达式的值
+3. **如需返回复杂数据**，直接写出变量名或对象即可
+4. **异步代码需用 async/await**：如需执行异步操作，使用 async 函数
+5. **避免阻塞操作**：不要执行长时间运行的同步代码
+
+## ✅ 正确示例
+
+**查询页面标题：**
+\`\`\`js
+document.title
+\`\`\`
+
+**统计页面元素数量：**
+\`\`\`js
+document.querySelectorAll('body *').length
+\`\`\`
+
+**获取所有链接：**
+\`\`\`js
+Array.from(document.querySelectorAll('a')).map(a => ({
+  text: a.textContent.trim(),
+  href: a.href
+})).slice(0, 10)
+\`\`\`
+
+**修改页面背景色：**
+\`\`\`js
+document.body.style.backgroundColor = '#f0f0f0';
+'背景色已修改'
+\`\`\`
+
+## ❌ 错误示例
+
+**不要使用 return：**
+\`\`\`js
+return document.title;  // ❌ 错误：SyntaxError: Illegal return statement
+\`\`\`
+
+**正确做法：**
+\`\`\`js
+document.title  // ✅ 正确：直接写表达式
+\`\`\``
         };
 
-        // 获取最近的对话历史(最多保留最近 10 轮)
-        const recentHistory = (history || []).slice(-10);
+        // v4.0.0: 智能上下文管理
+        const maxTokens = config.maxTokens || 2048;
+        
+        // 为响应预留空间（至少 512，最多 1024 tokens）
+        const reservedForResponse = Math.max(512, Math.min(maxTokens, 1024));
+        
+        // 假设模型的上下文窗口为 8K（保守估计，适用于大多数模型）
+        // 常见模型的上下文窗口：
+        // - GPT-3.5/4: 4K-128K
+        // - Claude: 8K-200K
+        // - Llama 3: 8K-128K
+        // - Qwen: 8K-32K
+        // - Mistral: 8K-32K
+        const CONTEXT_WINDOW = 8192;
+        const availableForContext = CONTEXT_WINDOW - reservedForResponse;
+        
+        console.log('[API] Context management: maxTokens=', maxTokens, ', reserved=', reservedForResponse, ', available=', availableForContext);
+        
+        // 计算当前消息和系统提示词的 token 数
+        const currentMessageTokens = estimateTokens(currentMessage);
+        const systemMessageTokens = estimateTokens(systemMessage.content);
+        const fixedTokens = currentMessageTokens + systemMessageTokens;
+        
+        console.log('[API] Fixed tokens: system=', systemMessageTokens, ', current=', currentMessageTokens, ', total=', fixedTokens);
+        
+        // 如果固定部分已经超过可用上下文，只保留系统提示词和当前消息
+        if (fixedTokens >= availableForContext) {
+            console.warn('[API] ⚠️ 当前消息过长，可能超出上下文限制');
+            return [
+                systemMessage,
+                {
+                    role: 'user',
+                    content: currentMessage
+                }
+            ];
+        }
+        
+        // 计算可用于历史对话的 token 数
+        const availableForHistory = availableForContext - fixedTokens;
+        console.log('[API] Available for history:', availableForHistory, 'tokens');
+        
+        // 从最近的对话开始，逐步添加历史消息，直到达到 token 限制
+        const recentHistory = (history || []).slice().reverse(); // 反转，从最近的消息开始
+        const selectedHistory = [];
+        let usedTokens = 0;
+        
+        for (const msg of recentHistory) {
+            const msgTokens = estimateTokens(msg.content);
+            
+            // 如果添加这条消息会超出限制，停止
+            if (usedTokens + msgTokens > availableForHistory) {
+                console.log('[API] History truncated: used', usedTokens, '/', availableForHistory, 'tokens');
+                break;
+            }
+            
+            selectedHistory.unshift({  // unshift 保持原始顺序
+                role: msg.role === 'model' ? 'assistant' : msg.role,
+                content: msg.content
+            });
+            usedTokens += msgTokens;
+        }
+        
+        console.log('[API] Selected', selectedHistory.length, 'history messages, using', usedTokens, 'tokens');
         
         // 构建完整的消息数组
         const messages = [
             systemMessage,
-            ...recentHistory.map(msg => ({
-                role: msg.role === 'model' ? 'assistant' : msg.role,
-                content: msg.content
-            })),
+            ...selectedHistory,
             {
                 role: 'user',
                 content: currentMessage
@@ -3627,11 +6556,15 @@ const APIManager = (function() {
             });
             
             // 监听 abort 信号
-            if (abortController) {
-                abortController.signal.addEventListener('abort', () => {
-                    xhr.abort();
-                    reject(new DOMException('The user aborted a request.', 'AbortError'));
-                });
+            if (abortController && abortController.signal) {
+                try {
+                    abortController.signal.addEventListener('abort', () => {
+                        xhr.abort();
+                        reject(new DOMException('The user aborted a request.', 'AbortError'));
+                    });
+                } catch (error) {
+                    console.warn('[API] Failed to add abort listener:', error);
+                }
             }
         });
     }
@@ -3808,7 +6741,7 @@ const ChatManager = (function() {
         UIManager.updateSendButtonState(false);
         
         // 7. 添加系统提示
-        addAssistantMessage('⏹ 已停止请求并清空队列');
+        addAssistantMessage('已停止');
     }
 
     // ========== 消息处理核心 ==========
@@ -3857,6 +6790,8 @@ const ChatManager = (function() {
             UIManager.updateSendButtonState(true); // 更新按钮为停止状态
 
             const config = ConfigManager.getAll();
+            console.log('[Chat] Current config model:', config.model);
+            
             const history = HistoryManager.getHistory();
             
             // 创建 AbortController 用于取消请求
@@ -4847,8 +7782,13 @@ const ChatManager = (function() {
         // 初始化状态管理器
         await StateManager.init();
         
+        // v4.0.0: 初始化提供商管理器
+        await ProviderManager.init();
+        console.log('✅ ProviderManager 已初始化');
+        
         // 初始化模型管理器
-        ModelManager.init();
+        await ModelManager.init();
+        console.log('✅ ModelManager 已初始化');
         
         console.log('✅ 核心模块加载完成');
     }

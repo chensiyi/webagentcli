@@ -1,4 +1,5 @@
 // ==================== API 路由模块 ====================
+// v4.0.0: 重构为使用 ProviderManager
 // 负责模型选择、故障转移和重试逻辑
 
 const APIRouter = (function() {
@@ -8,8 +9,10 @@ const APIRouter = (function() {
      * 获取可用模型列表（按优先级排序）
      */
     function getAvailableModels(currentModel) {
-        const cached = ModelManager.loadCachedModels();
-        let models = [...cached.models];
+        // v4.0.0: 从 ProviderManager 获取所有可用模型
+        const allModels = ProviderManager.getAllAvailableModels();
+        
+        let models = [...allModels];
 
         // 将当前选中的模型排在最前面
         if (currentModel && currentModel !== 'openrouter/auto') {
@@ -39,8 +42,12 @@ const APIRouter = (function() {
         
         let modelsToTry = getAvailableModels(config.model);
         if (modelsToTry.length === 0) {
-            // 如果没有可用模型，尝试使用默认列表
-            modelsToTry = ModelManager.DEFAULT_MODELS;
+            // 如果没有可用模型，返回错误
+            return { 
+                success: false, 
+                error: '没有可用的模型。请检查提供商配置。',
+                attempts: 0 
+            };
         }
 
         let lastError = null;
@@ -57,6 +64,7 @@ const APIRouter = (function() {
                 }
 
                 attempts++;
+                console.log(`[API Router] 🔄 尝试模型: ${model.id} (第 ${i + 1} 次)`);
                 Utils.debugLog(`🔄 尝试模型: ${model.id} (第 ${i + 1} 次)`);
 
                 try {
@@ -76,15 +84,23 @@ const APIRouter = (function() {
 
                     // 如果是因为被取消，直接返回
                     if (result.cancelled) {
+                        console.log('[API Router] Request cancelled');
                         return result;
                     }
 
+                    // 请求失败，记录错误
                     lastError = new Error(result.error || '未知错误');
+                    console.warn('[API Router] Request returned success=false:', result.error);
                     ModelManager.markModelTest(model.id, false);
                     
                 } catch (error) {
                     lastError = error;
                     ModelManager.markModelTest(model.id, false);
+                    
+                    console.error('[API Router] Request failed for model:', model.id);
+                    console.error('[API Router] Error:', error.message);
+                    console.error('[API Router] Error stack:', error.stack);
+                    
                     if (error.name === 'AbortError') {
                         return { success: false, cancelled: true, error: '请求已取消' };
                     }

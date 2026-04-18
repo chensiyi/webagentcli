@@ -151,7 +151,7 @@ const ChatManager = (function() {
         UIManager.updateSendButtonState(false);
         
         // 7. 添加系统提示
-        addAssistantMessage('⏹ 已停止请求并清空队列');
+        addAssistantMessage('已停止');
     }
 
     // ========== 消息处理核心 ==========
@@ -200,6 +200,8 @@ const ChatManager = (function() {
             UIManager.updateSendButtonState(true); // 更新按钮为停止状态
 
             const config = ConfigManager.getAll();
+            console.log('[Chat] Current config model:', config.model);
+            
             const history = HistoryManager.getHistory();
             
             // 创建 AbortController 用于取消请求

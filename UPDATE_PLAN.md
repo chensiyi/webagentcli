@@ -154,13 +154,209 @@ const UI_KEYS = {
 
 ---
 
-## 📦 中期目标 (v4.0.x)
+## 🚀 中期目标 (v4.0.x)
 
-### 5. 主题系统（暗黑/亮色模式）⭐⭐
+### 5. 多提供商模型管理系统 ⭐⭐⭐⭐
+
+**优先级**: P0 (最高优先级)  
+**预计工作量**: 5-7天  
+**目标版本**: v4.0.0  
+**状态**: 设计中
+
+**问题描述**:
+- 当前仅支持 OpenRouter，无法使用本地模型（LM Studio、Ollama 等）
+- 不同模型服务商 API 标准不统一（OpenAI 兼容、Anthropic、Google Gemini 等）
+- 缺乏灵活的模型注册和管理机制
+
+**解决方案**:
+
+#### 5.1 模型模板系统 (Model Templates)
+```javascript
+// 定义不同 API 标准的模板
+const ModelTemplates = {
+    OPENAI: {
+        name: 'OpenAI Compatible',
+        endpoint: '{baseUrl}/chat/completions',
+        headers: (apiKey) => ({
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+        }),
+        buildRequest: (model, messages, params) => ({
+            model,
+            messages,
+            ...params
+        }),
+        parseResponse: (response) => response.choices?.[0]?.message?.content,
+        parseStreamChunk: (chunk) => chunk.choices?.[0]?.delta?.content
+    },
+    
+    ANTHROPIC: {
+        name: 'Anthropic Claude',
+        endpoint: '{baseUrl}/messages',
+        headers: (apiKey) => ({
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'Content-Type': 'application/json'
+        }),
+        buildRequest: (model, messages, params) => ({
+            model,
+            messages: messages.map(m => ({
+                role: m.role === 'assistant' ? 'assistant' : 'user',
+                content: m.content
+            })),
+            ...params
+        }),
+        parseResponse: (response) => response.content?.[0]?.text,
+        parseStreamChunk: (chunk) => chunk.delta?.text
+    },
+    
+    OLLAMA: {
+        name: 'Ollama Local',
+        endpoint: '{baseUrl}/api/chat',
+        headers: () => ({ 'Content-Type': 'application/json' }),
+        buildRequest: (model, messages, params) => ({
+            model,
+            messages,
+            stream: true,
+            ...params
+        }),
+        parseResponse: (response) => response.message?.content,
+        parseStreamChunk: (chunk) => chunk.message?.content
+    }
+};
+```
+
+#### 5.2 模型提供商管理 (Provider Manager)
+```javascript
+// 提供商配置
+const providers = [
+    {
+        id: 'openrouter',
+        name: 'OpenRouter',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        apiKey: 'sk-or-...',
+        template: 'OPENAI',
+        enabled: true,
+        priority: 1,  // 优先级
+        models: []  // 动态加载或手动注册
+    },
+    {
+        id: 'lm-studio',
+        name: 'LM Studio (Local)',
+        baseUrl: 'http://localhost:1234/v1',
+        apiKey: '',  // 本地无需 API Key
+        template: 'OPENAI',
+        enabled: false,
+        priority: 2,
+        models: [
+            { id: 'local-model-1', name: 'Llama 3 8B', provider: 'lm-studio' }
+        ]
+    },
+    {
+        id: 'ollama',
+        name: 'Ollama',
+        baseUrl: 'http://localhost:11434',
+        apiKey: '',
+        template: 'OLLAMA',
+        enabled: false,
+        priority: 3,
+        models: []
+    }
+];
+```
+
+#### 5.3 模型注册与发现
+- **自动发现**: 扫描本地服务（LM Studio、Ollama）获取可用模型
+- **手动注册**: 用户可手动添加自定义模型
+- **动态加载**: 从远程 API 获取模型列表（如 OpenRouter）
+
+#### 5.4 智能路由增强
+- 根据模型 ID 自动匹配对应的 provider
+- 支持跨提供商故障转移（OpenRouter 失败 → 切换到本地 LM Studio）
+- 优先级排序：用户指定 > 可用模型 > 免费模型 > 本地模型
+
+**实施步骤**:
+- [ ] **步骤 1**: 创建 `core/ProviderManager.js`
+  - 提供商 CRUD 操作
+  - 模板管理
+  - 配置持久化（按域名隔离）
+  
+- [ ] **步骤 2**: 重构 `src/models.js`
+  - 移除硬编码的模型列表
+  - 改为从 ProviderManager 动态获取
+  - 支持模型分组显示（按提供商）
+  
+- [ ] **步骤 3**: 增强 `src/api-router.js`
+  - 根据模型 ID 查找对应 provider
+  - 使用 provider 的 template 构建请求
+  - 支持跨提供商故障转移
+  
+- [ ] **步骤 4**: 更新 `src/api.js`
+  - 抽象 API 调用层，支持多种模板
+  - 统一的流式/阻塞接口
+  
+- [ ] **步骤 5**: UI 增强
+  - 设置面板增加"提供商管理"标签页
+  - 支持添加/编辑/删除提供商
+  - 测试提供商连接
+  - 模型列表按提供商分组显示
+  
+- [ ] **步骤 6**: 本地模型自动发现
+  - 检测 LM Studio 是否运行
+  - 检测 Ollama 是否运行
+  - 自动注册发现的模型
+
+**验收标准**:
+- ✅ 支持至少 3 种 API 模板（OpenAI、Anthropic、Ollama）
+- ✅ 可同时配置多个提供商
+- ✅ 模型列表按提供商分组显示
+- ✅ 支持跨提供商故障转移
+- ✅ 本地模型自动发现（LM Studio、Ollama）
+- ✅ 提供商配置持久化
+- ✅ 向后兼容现有 OpenRouter 配置
+
+**技术细节**:
+```javascript
+// 新的调用流程
+APIRouter.sendRequest({
+    userMessage,
+    conversationHistory,
+    config: { model: 'llama-3-8b' }  // 自动查找对应 provider
+})
+  ↓
+ProviderManager.getProviderByModel('llama-3-8b')
+  ↓
+找到 provider: lm-studio (template: OPENAI)
+  ↓
+使用 lm-studio 的配置构建请求
+  ↓
+调用 APIManager.callAPIStreaming()
+```
+
+**收益**:
+- 支持本地模型，保护隐私
+- 降低 API 成本（优先使用免费/本地模型）
+- 提高可用性（多提供商冗余）
+- 灵活扩展（轻松添加新提供商）
+
+**风险与注意事项**:
+- ⚠️ 需要处理 CORS 问题（本地服务可能需要特殊配置）
+- ⚠️ 不同模板的响应格式差异较大
+- ⚠️ 本地模型可能性能较低，需要超时控制
+- ⚠️ 配置复杂度增加，需要提供清晰的 UI
+
+---
+
+### 6. 多语言界面支持 ⭐⭐⭐
+
+**优先级**: P1  
+**预计工作量**: 2-3天  
+**目标版本**: v4.0.1  
+**状态**: 待开发
 
 **优先级**: P2 (中)  
 **预计工作量**: 2天  
-**目标版本**: v4.0.x
+**目标版本**: v4.0.2
 
 **问题描述**:
 - 仅支持亮色主题
@@ -200,11 +396,11 @@ const UI_KEYS = {
 
 ---
 
-### 6. 消息导出功能 ⭐⭐
+### 7. 消息导出功能 ⭐⭐
 
 **优先级**: P2 (中)  
 **预计工作量**: 1天  
-**目标版本**: v4.0.x
+**目标版本**: v4.0.3
 
 **问题描述**:
 - 聊天记录无法导出
@@ -410,8 +606,10 @@ const SyncManager = {
 - [ ] 多语言界面支持（中文/英文/日文）
 
 ### v4.0.x (计划中)
-- [ ] 主题系统（暗黑/亮色模式）
-- [ ] 消息导出功能（JSON/Markdown/HTML）
+- [ ] **v4.0.0**: 多提供商模型管理系统（OpenRouter + LM Studio + Ollama）
+- [ ] **v4.0.1**: 多语言界面支持（中文/英文/日文）
+- [ ] **v4.0.2**: 主题系统（暗黑/亮色模式）
+- [ ] **v4.0.3**: 消息导出功能（JSON/Markdown/HTML）
 
 ### v4.1.0 (规划中)
 - [ ] 插件系统
@@ -440,17 +638,21 @@ v3.8.6 (当前) ──→ v3.9.0 ──→ v3.9.1 ──→ v3.9.2
 
 ## 🎯 决策记录
 
-### 2026-04-17: v3.9.0 基准版本发布
-- ✅ 完成流式输出支持（SSE，<1s 首字延迟）
-- ✅ 完成快捷键系统（4 个核心快捷键）
-- ✅ 完成构建与发布系统优化（DEBUG_MODE 管理）
-- ✅ 发布第一个基准版本
-- ✅ 创建完整的发布说明文档（基于架构文档）
+### 2026-04-18: v3.9.4 发布
+- ✅ 完成 APIRouter 智能路由层（故障转移 + 自动重试）
+- ✅ 完成模型测试功能（批量测试 + 智能排序）
+- ✅ 完成代码执行队列机制（统一反馈）
+- ✅ 修复设置对话框 z-index 层级问题
+- ✅ 优化停止逻辑（清空消息队列和执行队列）
 
-### 2026-04-17: 确定 v4.0.0 开发计划
-- 决定优先实现多语言界面支持（国际化）
-- 主题系统和消息导出作为 v4.0.x 后续功能
-- 多语言实施步骤：创建 i18n 模块 → 提取文本 → 实现翻译 → 添加切换功能
+### 2026-04-18: 确定 v4.0.0 开发计划
+- **P0**: 多提供商模型管理系统（最高优先级）
+  - 支持 OpenAI、Anthropic、Ollama 等多种 API 模板
+  - 支持本地模型（LM Studio、Ollama）
+  - 跨提供商故障转移
+  - 自动发现本地服务
+- **P1**: 多语言界面支持
+- **P2**: 主题系统、消息导出
 
 ### 2026-04-17: 清理无效文档
 - 删除 BUILD.md（过时）
