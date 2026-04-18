@@ -7987,68 +7987,111 @@ const APIRouter = (function() {
 // =====================================================
 
 // ==================== AI Agent 核心 ====================
-// v4.4.0: Agent 实例的核心运行逻辑
-// 整合聊天、页面理解、上下文管理等功能
+// v4.4.0: Agent 作为组合器，整合所有底层模块
+// Agent = ModelManager + APIClient + PageAnalyzer + HistoryManager + ...
 
 const AIAgent = (function() {
     'use strict';
 
-    // Agent 状态
+    // ==================== 依赖注入 ====================
+    // Agent 组合以下模块形成完整能力
+    const dependencies = {
+        ModelManager,      // 模型选择和可用性管理
+        APIRouter,         // API 路由和故障转移
+        PageAnalyzer,      // 页面理解和分析
+        ConfigManager,     // 配置管理
+        ErrorTracker,      // 错误追踪
+        Utils              // 工具函数
+    };
+
+    // ==================== Agent 状态 ====================
     let agentState = {
+        isInitialized: false,
         isProcessing: false,
-        currentConversation: [],
-        pageContext: null,
-        lastError: null
+        currentConversation: [],  // 当前对话历史
+        pageContext: null,        // 缓存的页面上下文
+        lastError: null,
+        abortController: null,
+        config: {}                // Agent 配置
     };
 
     /**
      * 初始化 Agent
      */
-    function init() {
-        console.log('[AIAgent] 初始化完成');
+    function init(config = {}) {
+        if (agentState.isInitialized) {
+            console.warn('[AIAgent] 已经初始化，跳过');
+            return;
+        }
+
+        // 合并配置
+        agentState.config = {
+            autoAttachPageContext: config.autoAttachPageContext !== false,  // 默认启用
+            maxHistoryLength: config.maxHistoryLength || 20,
+            defaultModel: config.defaultModel || 'auto',
+            defaultTemperature: config.defaultTemperature || 0.7,
+            defaultMaxTokens: config.defaultMaxTokens || 4096,
+            ...config
+        };
+
+        agentState.isInitialized = true;
+        console.log('[AIAgent] ✅ 初始化完成', agentState.config);
     }
 
     /**
-     * 发送消息到 AI
+     * 发送消息到 AI（Agent 的核心能力）
      * @param {string} userMessage - 用户消息
      * @param {Object} options - 选项
      * @returns {Promise<Object>} 响应结果
      */
     async function sendMessage(userMessage, options = {}) {
+        // 1. 验证状态
+        if (!agentState.isInitialized) {
+            throw new Error('Agent 未初始化，请先调用 init()');
+        }
+        
         if (agentState.isProcessing) {
             throw new Error('Agent 正在处理中，请稍后');
         }
 
         agentState.isProcessing = true;
         agentState.lastError = null;
+        
+        // 创建中止控制器
+        const abortController = options.abortController || new AbortController();
+        agentState.abortController = abortController;
 
         try {
-            // 1. 构建完整的消息上下文
+            // 2. 构建完整的消息上下文（Agent 的核心逻辑）
             const messages = await buildMessageContext(userMessage, options);
 
-            // 2. 获取配置
+            // 3. 获取配置（优先使用传入的，其次使用默认配置）
             const config = {
-                model: options.model || ConfigManager.getConfig('model') || 'auto',
-                temperature: options.temperature || ConfigManager.getConfig('temperature') || 0.7,
-                maxTokens: options.maxTokens || ConfigManager.getConfig('maxTokens') || 4096
+                model: options.model || agentState.config.defaultModel,
+                temperature: options.temperature || agentState.config.defaultTemperature,
+                maxTokens: options.maxTokens || agentState.config.defaultMaxTokens
             };
 
-            // 3. 通过 API Router 发送请求
-            const result = await APIRouter.sendRequest(
+            Utils.debugLog(`[AIAgent] 发送消息，模型: ${config.model}`);
+
+            // 4. 通过 API Router 发送请求（委托给底层模块）
+            const result = await dependencies.APIRouter.sendRequest(
                 {
                     userMessage,
                     conversationHistory: agentState.currentConversation,
                     config,
-                    abortController: options.abortController
+                    abortController
                 },
                 options.onChunk // 流式回调
             );
 
-            // 4. 处理响应
+            // 5. 处理响应
             if (result.success) {
                 // 添加到对话历史
                 addToHistory('user', userMessage);
                 addToHistory('assistant', result.content);
+
+                Utils.debugLog(`[AIAgent] ✅ 成功，模型: ${result.model}, 尝试次数: ${result.attempts}`);
 
                 return {
                     success: true,
@@ -8063,18 +8106,24 @@ const AIAgent = (function() {
 
         } catch (error) {
             agentState.lastError = error.message;
-            ErrorTracker.report(error, {
-                category: 'AGENT_SEND_MESSAGE'
-            }, ErrorTracker.ErrorCategory.EXECUTION, ErrorTracker.ErrorLevel.ERROR);
             
+            // 记录错误
+            dependencies.ErrorTracker.report(error, {
+                category: 'AGENT_SEND_MESSAGE',
+                message: userMessage.substring(0, 50)
+            }, dependencies.ErrorTracker.ErrorCategory.EXECUTION, dependencies.ErrorTracker.ErrorLevel.ERROR);
+            
+            Utils.debugLog(`[AIAgent] ❌ 失败: ${error.message}`);
             throw error;
+            
         } finally {
             agentState.isProcessing = false;
+            agentState.abortController = null;
         }
     }
 
     /**
-     * 构建消息上下文（包含页面信息）
+     * 构建消息上下文（Agent 的智能之处）
      * @param {string} userMessage - 用户消息
      * @param {Object} options - 选项
      * @returns {Promise<Array>} 消息数组
@@ -8082,70 +8131,77 @@ const AIAgent = (function() {
     async function buildMessageContext(userMessage, options = {}) {
         const messages = [];
 
-        // 1. 系统提示词
-        const systemPrompt = buildSystemPrompt(options);
+        // 1. 系统提示词（可选）
+        const systemPrompt = options.systemPrompt || buildDefaultSystemPrompt(options);
         if (systemPrompt) {
             messages.push({ role: 'system', content: systemPrompt });
         }
 
-        // 2. 页面上下文（如果启用）
-        if (options.includePageContext !== false) {
+        // 2. 页面上下文（Agent 的核心能力：自动理解页面）
+        if (options.includePageContext !== false && agentState.config.autoAttachPageContext) {
             const pageContext = await getPageContext(options.pageContextOptions);
             if (pageContext) {
                 messages.push({
                     role: 'system',
-                    content: `当前页面上下文：\n\n${pageContext}`
+                    content: `## 当前页面上下文\n\n${pageContext}\n\n请基于以上页面内容回答用户问题。`
                 });
             }
         }
 
-        // 3. 对话历史
-        messages.push(...agentState.currentConversation);
+        // 3. 对话历史（保持上下文连贯性）
+        if (agentState.currentConversation.length > 0) {
+            messages.push(...agentState.currentConversation);
+        }
 
         return messages;
     }
 
     /**
-     * 构建系统提示词
+     * 构建默认系统提示词
      */
-    function buildSystemPrompt(options = {}) {
+    function buildDefaultSystemPrompt(options = {}) {
         let prompt = '你是一个智能 AI 助手，帮助用户解答问题和完成任务。';
 
-        // 添加特殊能力说明
-        if (options.capabilities) {
-            prompt += '\n\n你具备以下能力：';
-            if (options.capabilities.codeExecution) {
-                prompt += '\n- 可以执行 JavaScript 代码';
-            }
-            if (options.capabilities.pageAnalysis) {
-                prompt += '\n- 可以分析和理解当前页面内容';
-            }
+        // 根据能力添加说明
+        const capabilities = [];
+        if (options.capabilities?.codeExecution) {
+            capabilities.push('可以执行 JavaScript 代码');
+        }
+        if (options.capabilities?.pageAnalysis) {
+            capabilities.push('可以分析和理解当前页面内容');
+        }
+        
+        if (capabilities.length > 0) {
+            prompt += '\n\n你具备以下能力：' + capabilities.map(c => `\n- ${c}`).join('');
         }
 
         return prompt;
     }
 
     /**
-     * 获取页面上下文
+     * 获取页面上下文（委托给 PageAnalyzer）
      */
     async function getPageContext(options = {}) {
         try {
-            // 使用 PageAnalyzer 分析当前页面
-            if (typeof PageAnalyzer !== 'undefined') {
-                const summary = PageAnalyzer.generateSummary({
-                    maxContentLength: options.maxContentLength || 5000,
-                    includeLinks: options.includeLinks || false,
-                    detectForms: options.detectForms || false
-                });
-                
-                agentState.pageContext = summary;
-                return summary;
+            // 检查 PageAnalyzer 是否可用
+            if (typeof dependencies.PageAnalyzer === 'undefined') {
+                console.warn('[AIAgent] PageAnalyzer 不可用');
+                return null;
             }
+
+            const summary = dependencies.PageAnalyzer.generateSummary({
+                maxContentLength: options.maxContentLength || 5000,
+                includeLinks: options.includeLinks || false,
+                detectForms: options.detectForms || false
+            });
+            
+            agentState.pageContext = summary;
+            return summary;
+            
         } catch (error) {
             console.warn('[AIAgent] 获取页面上下文失败:', error);
+            return null;
         }
-        
-        return null;
     }
 
     /**
@@ -8155,9 +8211,9 @@ const AIAgent = (function() {
         agentState.currentConversation.push({ role, content });
 
         // 限制历史长度（避免 token 过多）
-        const maxHistory = 20; // 最多保留 20 条消息
-        if (agentState.currentConversation.length > maxHistory) {
-            agentState.currentConversation = agentState.currentConversation.slice(-maxHistory);
+        const maxLength = agentState.config.maxHistoryLength;
+        if (agentState.currentConversation.length > maxLength) {
+            agentState.currentConversation = agentState.currentConversation.slice(-maxLength);
         }
     }
 
@@ -8167,6 +8223,7 @@ const AIAgent = (function() {
     function clearHistory() {
         agentState.currentConversation = [];
         agentState.pageContext = null;
+        Utils.debugLog('[AIAgent] 🗑️ 历史已清空');
     }
 
     /**
@@ -8174,10 +8231,12 @@ const AIAgent = (function() {
      */
     function getState() {
         return {
+            isInitialized: agentState.isInitialized,
             isProcessing: agentState.isProcessing,
             historyLength: agentState.currentConversation.length,
             hasPageContext: !!agentState.pageContext,
-            lastError: agentState.lastError
+            lastError: agentState.lastError,
+            config: { ...agentState.config }
         };
     }
 
@@ -8188,17 +8247,43 @@ const AIAgent = (function() {
         if (agentState.abortController) {
             agentState.abortController.abort();
             agentState.abortController = null;
+            Utils.debugLog('[AIAgent] ⛔ 请求已取消');
         }
     }
 
+    /**
+     * 更新 Agent 配置
+     */
+    function updateConfig(newConfig) {
+        agentState.config = { ...agentState.config, ...newConfig };
+        Utils.debugLog('[AIAgent] ⚙️ 配置已更新', agentState.config);
+    }
+
+    /**
+     * 获取依赖模块（用于调试或扩展）
+     */
+    function getDependencies() {
+        return { ...dependencies };
+    }
+
     return {
+        // 核心方法
         init,
         sendMessage,
-        clearHistory,
-        getState,
-        cancelRequest,
+        
+        // 上下文管理
         buildMessageContext,
-        getPageContext
+        getPageContext,
+        clearHistory,
+        addToHistory,
+        
+        // 状态管理
+        getState,
+        updateConfig,
+        cancelRequest,
+        
+        // 调试和扩展
+        getDependencies
     };
 })();
 
