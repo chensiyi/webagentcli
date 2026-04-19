@@ -75,7 +75,7 @@ const modules = [
     'agent/AIAgent/index.js',           // AI Agent 核心
     
     // ==================== Web Layer (Web 集成层) ====================
-    'web/PageAnalyzer.js',              // 页面分析器
+    // 'web/PageAnalyzer.js',          // 页面分析器（待开发）
     'web/WebAgentClient.js',            // Web Agent 客户端（业务编排器）
     
     // React UI
