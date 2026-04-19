@@ -866,6 +866,14 @@ const UnifiedStateManager = (function() {
         }
     }
 
+    // 配置过期时间（毫秒）
+    const EXPIRY_CONFIG = {
+        CONFIG: 90 * 24 * 60 * 60 * 1000,      // 配置：90天
+        UI: 30 * 24 * 60 * 60 * 1000,          // UI状态：30天
+        SESSION: 7 * 24 * 60 * 60 * 1000,      // 会话记录：7天
+        MODELS: 1 * 24 * 60 * 60 * 1000        // 模型缓存：1天
+    };
+
     // 持久化键名（按域名隔离）
     const STORAGE_KEYS = {
         CONFIG: () => `webagent_config_${getDomainKey()}`,
@@ -1046,19 +1054,74 @@ const UnifiedStateManager = (function() {
      */
     function loadState() {
         try {
-            const config = GM_getValue(STORAGE_KEYS.CONFIG(), null);
-            if (config) state.config = { ...state.config, ...config };
+            const now = Date.now();
+            
+            // 加载配置（带过期检查）
+            const configData = GM_getValue(STORAGE_KEYS.CONFIG(), null);
+            if (configData) {
+                // 兼容旧格式（没有时间戳）
+                const hasTimestamp = configData.timestamp !== undefined;
+                const data = hasTimestamp ? configData.data : configData;
+                const timestamp = hasTimestamp ? configData.timestamp : now;
+                
+                const age = now - timestamp;
+                if (age < EXPIRY_CONFIG.CONFIG) {
+                    state.config = { ...state.config, ...data };
+                    console.log('[UnifiedStateManager] 已加载配置 (年龄:', Math.floor(age / 86400000), '天)');
+                } else {
+                    console.log('[UnifiedStateManager] ⚠️ 配置已过期 (', Math.floor(age / 86400000), '天)，使用默认值');
+                }
+            }
 
-            const ui = GM_getValue(STORAGE_KEYS.UI(), null);
-            if (ui) state.ui = { ...state.ui, ...ui };
+            // 加载 UI 状态（带过期检查）
+            const uiData = GM_getValue(STORAGE_KEYS.UI(), null);
+            if (uiData) {
+                const hasTimestamp = uiData.timestamp !== undefined;
+                const data = hasTimestamp ? uiData.data : uiData;
+                const timestamp = hasTimestamp ? uiData.timestamp : now;
+                
+                const age = now - timestamp;
+                if (age < EXPIRY_CONFIG.UI) {
+                    state.ui = { ...state.ui, ...data };
+                    console.log('[UnifiedStateManager] 已加载 UI 状态 (年龄:', Math.floor(age / 86400000), '天)');
+                } else {
+                    console.log('[UnifiedStateManager] ⚠️ UI 状态已过期 (', Math.floor(age / 86400000), '天)，使用默认值');
+                }
+            }
 
-            const session = GM_getValue(STORAGE_KEYS.SESSION(), null);
-            if (session) state.session = { ...state.session, ...session };
+            // 加载会话记录（带过期检查）
+            const sessionData = GM_getValue(STORAGE_KEYS.SESSION(), null);
+            if (sessionData) {
+                const hasTimestamp = sessionData.timestamp !== undefined;
+                const data = hasTimestamp ? sessionData.data : sessionData;
+                const timestamp = hasTimestamp ? sessionData.timestamp : now;
+                
+                const age = now - timestamp;
+                if (age < EXPIRY_CONFIG.SESSION) {
+                    state.session = { ...state.session, ...data };
+                    console.log('[UnifiedStateManager] 已加载会话记录 (年龄:', Math.floor(age / 86400000), '天)');
+                } else {
+                    console.log('[UnifiedStateManager] ⚠️ 会话记录已过期 (', Math.floor(age / 86400000), '天)，清空');
+                }
+            }
 
-            const models = GM_getValue(STORAGE_KEYS.MODELS(), null);
-            if (models) state.models = { ...state.models, ...models };
+            // 加载模型缓存（带过期检查）
+            const modelsData = GM_getValue(STORAGE_KEYS.MODELS(), null);
+            if (modelsData) {
+                const hasTimestamp = modelsData.timestamp !== undefined;
+                const data = hasTimestamp ? modelsData.data : modelsData;
+                const timestamp = hasTimestamp ? modelsData.timestamp : now;
+                
+                const age = now - timestamp;
+                if (age < EXPIRY_CONFIG.MODELS) {
+                    state.models = { ...state.models, ...data };
+                    console.log('[UnifiedStateManager] 已加载模型缓存 (年龄:', Math.floor(age / 86400000), '天)');
+                } else {
+                    console.log('[UnifiedStateManager] ⚠️ 模型缓存已过期 (', Math.floor(age / 86400000), '天)，清空');
+                }
+            }
 
-            console.log('[UnifiedStateManager] 已加载持久化状态 (域名:', getDomainKey(), ')');
+            console.log('[UnifiedStateManager] 初始化完成 (域名:', getDomainKey(), ')');
         } catch (e) {
             console.error('[UnifiedStateManager] 加载状态失败:', e);
         }
@@ -1069,14 +1132,16 @@ const UnifiedStateManager = (function() {
      */
     function persistState(path) {
         try {
+            const now = Date.now();
+            
             if (path.startsWith('config.')) {
-                GM_setValue(STORAGE_KEYS.CONFIG(), state.config);
+                GM_setValue(STORAGE_KEYS.CONFIG(), { data: state.config, timestamp: now });
             } else if (path.startsWith('ui.')) {
-                GM_setValue(STORAGE_KEYS.UI(), state.ui);
+                GM_setValue(STORAGE_KEYS.UI(), { data: state.ui, timestamp: now });
             } else if (path.startsWith('session.')) {
-                GM_setValue(STORAGE_KEYS.SESSION(), state.session);
+                GM_setValue(STORAGE_KEYS.SESSION(), { data: state.session, timestamp: now });
             } else if (path.startsWith('models.')) {
-                GM_setValue(STORAGE_KEYS.MODELS(), state.models);
+                GM_setValue(STORAGE_KEYS.MODELS(), { data: state.models, timestamp: now });
             }
         } catch (e) {
             console.error('[UnifiedStateManager] 持久化失败:', e);
@@ -1088,10 +1153,11 @@ const UnifiedStateManager = (function() {
      */
     function persistAll() {
         try {
-            GM_setValue(STORAGE_KEYS.CONFIG(), state.config);
-            GM_setValue(STORAGE_KEYS.UI(), state.ui);
-            GM_setValue(STORAGE_KEYS.SESSION(), state.session);
-            GM_setValue(STORAGE_KEYS.MODELS(), state.models);
+            const now = Date.now();
+            GM_setValue(STORAGE_KEYS.CONFIG(), { data: state.config, timestamp: now });
+            GM_setValue(STORAGE_KEYS.UI(), { data: state.ui, timestamp: now });
+            GM_setValue(STORAGE_KEYS.SESSION(), { data: state.session, timestamp: now });
+            GM_setValue(STORAGE_KEYS.MODELS(), { data: state.models, timestamp: now });
         } catch (e) {
             console.error('[UnifiedStateManager] 批量持久化失败:', e);
         }
