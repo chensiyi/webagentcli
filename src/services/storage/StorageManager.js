@@ -50,12 +50,21 @@ const UnifiedStateManager = (function() {
     // 状态变更监听器
     const listeners = [];
 
-    // 持久化键名
+    // 获取当前域名（用于隔离存储）
+    function getDomainKey() {
+        try {
+            return window.location.hostname || 'unknown';
+        } catch (e) {
+            return 'unknown';
+        }
+    }
+
+    // 持久化键名（按域名隔离）
     const STORAGE_KEYS = {
-        CONFIG: 'unified_state_config',
-        UI: 'unified_state_ui',
-        SESSION: 'unified_state_session',  // 会话状态
-        MODELS: 'unified_state_models'
+        CONFIG: () => `webagent_config_${getDomainKey()}`,
+        UI: () => `webagent_ui_${getDomainKey()}`,
+        SESSION: () => `webagent_session_${getDomainKey()}`,
+        MODELS: () => `webagent_models_${getDomainKey()}`
     };
 
     /**
@@ -230,19 +239,19 @@ const UnifiedStateManager = (function() {
      */
     function loadState() {
         try {
-            const config = GM_getValue(STORAGE_KEYS.CONFIG, null);
+            const config = GM_getValue(STORAGE_KEYS.CONFIG(), null);
             if (config) state.config = { ...state.config, ...config };
 
-            const ui = GM_getValue(STORAGE_KEYS.UI, null);
+            const ui = GM_getValue(STORAGE_KEYS.UI(), null);
             if (ui) state.ui = { ...state.ui, ...ui };
 
-            const session = GM_getValue(STORAGE_KEYS.SESSION, null);
+            const session = GM_getValue(STORAGE_KEYS.SESSION(), null);
             if (session) state.session = { ...state.session, ...session };
 
-            const models = GM_getValue(STORAGE_KEYS.MODELS, null);
+            const models = GM_getValue(STORAGE_KEYS.MODELS(), null);
             if (models) state.models = { ...state.models, ...models };
 
-            console.log('[UnifiedStateManager] 已加载持久化状态');
+            console.log('[UnifiedStateManager] 已加载持久化状态 (域名:', getDomainKey(), ')');
         } catch (e) {
             console.error('[UnifiedStateManager] 加载状态失败:', e);
         }
@@ -254,13 +263,13 @@ const UnifiedStateManager = (function() {
     function persistState(path) {
         try {
             if (path.startsWith('config.')) {
-                GM_setValue(STORAGE_KEYS.CONFIG, state.config);
+                GM_setValue(STORAGE_KEYS.CONFIG(), state.config);
             } else if (path.startsWith('ui.')) {
-                GM_setValue(STORAGE_KEYS.UI, state.ui);
+                GM_setValue(STORAGE_KEYS.UI(), state.ui);
             } else if (path.startsWith('session.')) {
-                GM_setValue(STORAGE_KEYS.SESSION, state.session);
+                GM_setValue(STORAGE_KEYS.SESSION(), state.session);
             } else if (path.startsWith('models.')) {
-                GM_setValue(STORAGE_KEYS.MODELS, state.models);
+                GM_setValue(STORAGE_KEYS.MODELS(), state.models);
             }
         } catch (e) {
             console.error('[UnifiedStateManager] 持久化失败:', e);
@@ -272,10 +281,10 @@ const UnifiedStateManager = (function() {
      */
     function persistAll() {
         try {
-            GM_setValue(STORAGE_KEYS.CONFIG, state.config);
-            GM_setValue(STORAGE_KEYS.UI, state.ui);
-            GM_setValue(STORAGE_KEYS.SESSION, state.session);
-            GM_setValue(STORAGE_KEYS.MODELS, state.models);
+            GM_setValue(STORAGE_KEYS.CONFIG(), state.config);
+            GM_setValue(STORAGE_KEYS.UI(), state.ui);
+            GM_setValue(STORAGE_KEYS.SESSION(), state.session);
+            GM_setValue(STORAGE_KEYS.MODELS(), state.models);
         } catch (e) {
             console.error('[UnifiedStateManager] 批量持久化失败:', e);
         }
@@ -285,8 +294,8 @@ const UnifiedStateManager = (function() {
      * 清除所有持久化数据
      */
     function clearStorage() {
-        Object.values(STORAGE_KEYS).forEach(key => {
-            GM_deleteValue(key);
+        Object.values(STORAGE_KEYS).forEach(keyFn => {
+            GM_deleteValue(keyFn());
         });
     }
 
