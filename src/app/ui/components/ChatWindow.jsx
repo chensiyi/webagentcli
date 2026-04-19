@@ -213,15 +213,46 @@
                 const savedSize = window.StorageManager.getState('ui.size');
                 const savedVisible = window.StorageManager.getState('ui.visible');
                 
+                let position = savedPosition || null;
+                const size = savedSize || { width: 800, height: 600 };
+                
+                // 验证位置是否在可视区域内，如果不在则使用默认位置（右下角）
+                if (position) {
+                    const maxX = window.innerWidth - size.width;
+                    const maxY = window.innerHeight - size.height;
+                    
+                    // 如果位置超出边界，重置为右下角
+                    if (position.x < 0 || position.y < 0 || 
+                        position.x > window.innerWidth || position.y > window.innerHeight ||
+                        position.x + size.width < 0 || position.y + size.height < 0) {
+                        console.log('[ChatWindow] ⚠️ 保存的位置超出边界，重置为右下角');
+                        position = null;
+                    }
+                }
+                
+                // 默认位置：右下角，留 20px 边距
+                if (!position) {
+                    position = {
+                        x: Math.max(20, window.innerWidth - size.width - 20),
+                        y: Math.max(20, window.innerHeight - size.height - 20)
+                    };
+                }
+                
                 return {
-                    position: savedPosition || { x: window.innerWidth / 2 - 400, y: window.innerHeight / 2 - 300 },
-                    size: savedSize || { width: 800, height: 600 },
+                    position,
+                    size,
                     visible: savedVisible === true  // 默认隐藏，只有明确保存为 true 才显示
                 };
             }
+            
+            // 没有 StorageManager 时的默认值
+            const defaultSize = { width: 800, height: 600 };
             return {
-                position: { x: window.innerWidth / 2 - 400, y: window.innerHeight / 2 - 300 },
-                size: { width: 800, height: 600 },
+                position: {
+                    x: Math.max(20, window.innerWidth - defaultSize.width - 20),
+                    y: Math.max(20, window.innerHeight - defaultSize.height - 20)
+                },
+                size: defaultSize,
                 visible: false  // 默认隐藏
             };
         };
