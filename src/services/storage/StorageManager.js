@@ -315,8 +315,67 @@ const UnifiedStateManager = (function() {
             }
 
             console.log('[UnifiedStateManager] 初始化完成 (域名:', getDomainKey(), ')');
+            
+            // 清理过期数据
+            cleanupExpiredData();
         } catch (e) {
             console.error('[UnifiedStateManager] 加载状态失败:', e);
+        }
+    }
+
+    /**
+     * 清理过期的存储数据
+     */
+    function cleanupExpiredData() {
+        const now = Date.now();
+        let cleanedCount = 0;
+        
+        // 检查并清理配置
+        const configData = GM_getValue(STORAGE_KEYS.CONFIG(), null);
+        if (configData && configData.timestamp) {
+            const age = now - configData.timestamp;
+            if (age >= EXPIRY_CONFIG.CONFIG) {
+                GM_deleteValue(STORAGE_KEYS.CONFIG());
+                cleanedCount++;
+                console.log('[UnifiedStateManager] 🗑️ 已清理过期配置');
+            }
+        }
+        
+        // 检查并清理 UI 状态
+        const uiData = GM_getValue(STORAGE_KEYS.UI(), null);
+        if (uiData && uiData.timestamp) {
+            const age = now - uiData.timestamp;
+            if (age >= EXPIRY_CONFIG.UI) {
+                GM_deleteValue(STORAGE_KEYS.UI());
+                cleanedCount++;
+                console.log('[UnifiedStateManager] 🗑️ 已清理过期 UI 状态');
+            }
+        }
+        
+        // 检查并清理会话记录
+        const sessionData = GM_getValue(STORAGE_KEYS.SESSION(), null);
+        if (sessionData && sessionData.timestamp) {
+            const age = now - sessionData.timestamp;
+            if (age >= EXPIRY_CONFIG.SESSION) {
+                GM_deleteValue(STORAGE_KEYS.SESSION());
+                cleanedCount++;
+                console.log('[UnifiedStateManager] 🗑️ 已清理过期会话记录');
+            }
+        }
+        
+        // 检查并清理模型缓存
+        const modelsData = GM_getValue(STORAGE_KEYS.MODELS(), null);
+        if (modelsData && modelsData.timestamp) {
+            const age = now - modelsData.timestamp;
+            if (age >= EXPIRY_CONFIG.MODELS) {
+                GM_deleteValue(STORAGE_KEYS.MODELS());
+                cleanedCount++;
+                console.log('[UnifiedStateManager] 🗑️ 已清理过期模型缓存');
+            }
+        }
+        
+        if (cleanedCount > 0) {
+            console.log('[UnifiedStateManager] ✅ 共清理', cleanedCount, '项过期数据');
         }
     }
 
