@@ -802,7 +802,7 @@ const ErrorTracker = (function() {
 
 
 // =====================================================
-// 模块: services/storage/StorageManager.js
+// 模块: core/StorageManager.js
 // =====================================================
 
 // ==================== 统一状态管理器 ====================
@@ -1262,7 +1262,917 @@ window.StorageManager = UnifiedStateManager;
 
 
 // =====================================================
-// 模块: services/provider/ProviderManager.js
+// 模块: agent/api/BaseAPIClient.js
+// =====================================================
+
+// ==================== API 基础客户端 ====================
+// v4.1.0: 所有 API 客户端的基类
+// 定义统一的接口规范
+
+class BaseAPIClient {
+    /**
+     * 构造函数
+     * @param {Object} config - 配置对象
+     * @param {string} config.baseUrl - API 基础 URL
+     * @param {string} config.apiKey - API 密钥（可选）
+     * @param {string} config.model - 模型 ID
+     */
+    constructor(config) {
+        if (new.target === BaseAPIClient) {
+            throw new TypeError('Cannot construct BaseAPIClient directly');
+        }
+        
+        this.baseUrl = config.baseUrl;
+        this.apiKey = config.apiKey;
+        this.model = config.model;
+        this.timeout = config.timeout || 30000; // 默认 30 秒超时
+    }
+
+    /**
+     * 构建请求头（子类必须实现）
+     * @returns {Object} 请求头对象
+     */
+    buildHeaders() {
+        throw new Error('Method buildHeaders() must be implemented');
+    }
+
+    /**
+     * 构建请求体（子类必须实现）
+     * @param {Array} messages - 消息数组
+     * @param {Object} params - 额外参数
+     * @returns {Object} 请求体
+     */
+    buildBody(messages, params = {}) {
+        throw new Error('Method buildBody() must be implemented');
+    }
+
+    /**
+     * 获取端点 URL（子类必须实现）
+     * @returns {string} 完整的 API 端点 URL
+     */
+    getEndpoint() {
+        throw new Error('Method getEndpoint() must be implemented');
+    }
+
+    /**
+     * 解析流式响应块（子类必须实现）
+     * @param {string} chunk - 原始数据块
+     * @returns {Object|null} 解析后的内容，null 表示跳过
+     */
+    parseStreamChunk(chunk) {
+        throw new Error('Method parseStreamChunk() must be implemented');
+    }
+
+    /**
+     * 发送非流式请求（默认实现，子类可覆盖）
+     * @param {Array} messages - 消息数组
+     * @param {Object} params - 额外参数
+     * @param {AbortController} abortController - 中止控制器
+     * @returns {Promise<Object>} 响应结果
+     */
+    async sendRequest(messages, params = {}, abortController = null) {
+        const endpoint = this.getEndpoint();
+        const headers = this.buildHeaders();
+        const body = this.buildBody(messages, params);
+
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url: endpoint,
+                headers: headers,
+                data: JSON.stringify(body),
+                timeout: this.timeout,
+                ontimeout: () => {
+                    reject(new Error(`请求超时 (${this.timeout}ms)`));
+                },
+                onerror: (error) => {
+                    reject(new Error(`网络错误: ${error.statusText || error}`));
+                },
+                onload: (response) => {
+                    try {
+                        if (response.status >= 200 && response.status < 300) {
+                            const data = JSON.parse(response.responseText);
+                            resolve({
+                                success: true,
+                                data: data,
+                                status: response.status
+                            });
+                        } else {
+                            reject(new Error(`HTTP ${response.status}: ${response.responseText}`));
+                        }
+                    } catch (e) {
+                        reject(new Error(`解析响应失败: ${e.message}`));
+                    }
+                }
+            });
+        });
+    }
+
+    /**
+     * 发送流式请求（默认实现，子类可覆盖）
+     * @param {Array} messages - 消息数组
+     * @param {Function} onChunk - 每个块的回调函数
+     * @param {Object} params - 额外参数
+     * @param {AbortController} abortController - 中止控制器
+     * @returns {Promise<Object>} 最终结果
+     */
+    async sendStreamingRequest(messages, onChunk, params = {}, abortController = null) {
+        const endpoint = this.getEndpoint();
+        const headers = this.buildHeaders();
+        const body = this.buildBody(messages, { ...params, stream: true });
+
+        let fullContent = '';
+        let isComplete = false;
+
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url: endpoint,
+                headers: headers,
+                data: JSON.stringify(body),
+                responseType: 'text',
+                timeout: this.timeout,
+                ontimeout: () => {
+                    reject(new Error(`请求超时 (${this.timeout}ms)`));
+                },
+                onerror: (error) => {
+                    reject(new Error(`网络错误: ${error.statusText || error}`));
+                },
+                onreadystatechange: (response) => {
+                    if (response.readyState === 3 || response.readyState === 4) {
+                        const text = response.responseText;
+                        
+                        // 处理 SSE 格式的数据
+                        const lines = text.split('\n');
+                        for (const line of lines) {
+                            if (line.startsWith('data: ')) {
+                                const data = line.slice(6).trim();
+                                
+                                if (data === '[DONE]') {
+                                    isComplete = true;
+                                    continue;
+                                }
+
+                                try {
+                                    const parsed = this.parseStreamChunk(data);
+                                    if (parsed && parsed.content) {
+                                        fullContent += parsed.content;
+                                        onChunk(parsed.content);
+                                    }
+                                } catch (e) {
+                                    console.warn('[BaseAPIClient] 解析块失败:', e);
+                                }
+                            }
+                        }
+                    }
+                },
+                onload: (response) => {
+                    if (response.status >= 200 && response.status < 300) {
+                        resolve({
+                            success: true,
+                            content: fullContent,
+                            complete: isComplete
+                        });
+                    } else {
+                        reject(new Error(`HTTP ${response.status}: ${response.responseText}`));
+                    }
+                }
+            });
+        });
+    }
+
+    /**
+     * 验证配置是否有效（子类可覆盖）
+     * @returns {boolean}
+     */
+    validateConfig() {
+        if (!this.baseUrl) {
+            throw new Error('baseUrl 不能为空');
+        }
+        return true;
+    }
+}
+
+
+// =====================================================
+// 模块: agent/api/OpenRouterClient.js
+// =====================================================
+
+// ==================== OpenRouter API 客户端 ====================
+// v4.1.0: OpenRouter 专用实现
+
+class OpenRouterClient extends BaseAPIClient {
+    /**
+     * 构造函数
+     * @param {Object} config - 配置对象
+     */
+    constructor(config) {
+        super({
+            baseUrl: config.baseUrl || 'https://openrouter.ai/api/v1',
+            apiKey: config.apiKey,
+            model: config.model,
+            timeout: config.timeout
+        });
+        
+        this.validateConfig();
+    }
+
+    /**
+     * 构建请求头
+     */
+    buildHeaders() {
+        const headers = {
+            'Content-Type': 'application/json'
+        };
+        
+        if (this.apiKey) {
+            headers['Authorization'] = `Bearer ${this.apiKey}`;
+        }
+        
+        // OpenRouter 特定的头部
+        headers['HTTP-Referer'] = window.location.href;
+        headers['X-Title'] = 'Web AI Agent';
+        
+        return headers;
+    }
+
+    /**
+     * 构建请求体
+     */
+    buildBody(messages, params = {}) {
+        return {
+            model: this.model,
+            messages: messages,
+            stream: params.stream || false,
+            temperature: params.temperature || 0.7,
+            max_tokens: params.maxTokens || 4096,
+            ...params
+        };
+    }
+
+    /**
+     * 获取端点 URL
+     */
+    getEndpoint() {
+        return `${this.baseUrl}/chat/completions`;
+    }
+
+    /**
+     * 解析流式响应块
+     */
+    parseStreamChunk(chunk) {
+        try {
+            const data = JSON.parse(chunk);
+            
+            if (data.choices && data.choices[0] && data.choices[0].delta) {
+                const delta = data.choices[0].delta;
+                return {
+                    content: delta.content || '',
+                    role: delta.role || null,
+                    finish_reason: data.choices[0].finish_reason || null
+                };
+            }
+            
+            return null;
+        } catch (e) {
+            console.warn('[OpenRouterClient] 解析失败:', e);
+            return null;
+        }
+    }
+
+    /**
+     * 验证配置
+     */
+    validateConfig() {
+        super.validateConfig();
+        
+        if (!this.model) {
+            throw new Error('model 不能为空');
+        }
+        
+        return true;
+    }
+}
+
+
+// =====================================================
+// 模块: agent/api/LMStudioClient.js
+// =====================================================
+
+// ==================== LM Studio API 客户端 ====================
+// v4.1.0: LM Studio 本地服务实现
+
+class LMStudioClient extends BaseAPIClient {
+    /**
+     * 构造函数
+     * @param {Object} config - 配置对象
+     */
+    constructor(config) {
+        super({
+            baseUrl: config.baseUrl || 'http://localhost:1234/v1',
+            apiKey: config.apiKey || 'lm-studio', // LM Studio 不需要真实 API Key
+            model: config.model,
+            timeout: config.timeout || 60000 // 本地服务可能需要更长时间
+        });
+        
+        this.validateConfig();
+    }
+
+    /**
+     * 构建请求头
+     */
+    buildHeaders() {
+        return {
+            'Content-Type': 'application/json'
+        };
+    }
+
+    /**
+     * 构建请求体
+     */
+    buildBody(messages, params = {}) {
+        return {
+            model: this.model,
+            messages: messages,
+            stream: params.stream || false,
+            temperature: params.temperature || 0.7,
+            max_tokens: params.maxTokens || 4096,
+            ...params
+        };
+    }
+
+    /**
+     * 获取端点 URL
+     */
+    getEndpoint() {
+        return `${this.baseUrl}/chat/completions`;
+    }
+
+    /**
+     * 解析流式响应块
+     */
+    parseStreamChunk(chunk) {
+        try {
+            const data = JSON.parse(chunk);
+            
+            if (data.choices && data.choices[0] && data.choices[0].delta) {
+                const delta = data.choices[0].delta;
+                return {
+                    content: delta.content || '',
+                    role: delta.role || null,
+                    finish_reason: data.choices[0].finish_reason || null
+                };
+            }
+            
+            return null;
+        } catch (e) {
+            console.warn('[LMStudioClient] 解析失败:', e);
+            return null;
+        }
+    }
+
+    /**
+     * 验证配置
+     */
+    validateConfig() {
+        super.validateConfig();
+        
+        if (!this.model) {
+            throw new Error('model 不能为空');
+        }
+        
+        // LM Studio 是本地服务，检查是否为 localhost
+        if (!this.baseUrl.includes('localhost') && !this.baseUrl.includes('127.0.0.1')) {
+            console.warn('[LMStudioClient] LM Studio 通常运行在 localhost，请确认 baseUrl 是否正确');
+        }
+        
+        return true;
+    }
+}
+
+
+// =====================================================
+// 模块: agent/api/OllamaClient.js
+// =====================================================
+
+// ==================== Ollama API 客户端 ====================
+// v4.0.0: 支持 Ollama 本地服务
+// 文档: https://github.com/ollama/ollama/blob/main/docs/api.md
+
+class OllamaClient extends BaseAPIClient {
+    constructor(config) {
+        super({
+            ...config,
+            baseUrl: config.baseUrl || 'http://localhost:11434'
+        });
+        
+        this.model = config.model;
+    }
+
+    /**
+     * 构建请求体
+     */
+    buildRequestBody(messages, options = {}) {
+        return {
+            model: this.model,
+            messages: messages.map(msg => ({
+                role: msg.role === 'assistant' ? 'assistant' : 'user',
+                content: msg.content
+            })),
+            stream: true,
+            options: {
+                temperature: options.temperature || 0.7,
+                top_p: options.topP || 0.9,
+                num_predict: options.maxTokens || 4096
+            }
+        };
+    }
+
+    /**
+     * 发送流式请求
+     */
+    async sendStreamingRequest(messages, onChunk, options = {}, abortController = null) {
+        try {
+            const requestBody = this.buildRequestBody(messages, options);
+            
+            Utils.debugLog('[OllamaClient] Sending request:', {
+                model: this.model,
+                messageCount: messages.length,
+                temperature: options.temperature
+            });
+
+            return new Promise((resolve, reject) => {
+                let fullContent = '';
+                let isComplete = false;
+
+                GM_xmlhttpRequest({
+                    method: 'POST',
+                    url: `${this.baseUrl}/api/chat`,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    data: JSON.stringify(requestBody),
+                    responseType: 'text',
+                    timeout: this.timeout || 60000,
+                    
+                    onload: (response) => {
+                        if (response.status >= 200 && response.status < 300) {
+                            // Ollama 的流式响应是 NDJSON 格式（每行一个 JSON）
+                            const lines = response.responseText.split('\n').filter(line => line.trim());
+                            
+                            for (const line of lines) {
+                                try {
+                                    const chunk = JSON.parse(line);
+                                    
+                                    // 检查是否完成
+                                    if (chunk.done) {
+                                        isComplete = true;
+                                        break;
+                                    }
+                                    
+                                    // 提取内容
+                                    const content = chunk.message?.content || '';
+                                    if (content) {
+                                        fullContent += content;
+                                        
+                                        // 调用回调
+                                        if (onChunk) {
+                                            onChunk(content);
+                                        }
+                                    }
+                                } catch (e) {
+                                    ErrorTracker.report(
+                                        `解析 Ollama 响应失败: ${e.message}`,
+                                        { line },
+                                        ErrorTracker.ErrorCategory.API,
+                                        ErrorTracker.ErrorLevel.WARN
+                                    );
+                                }
+                            }
+                            
+                            resolve({
+                                success: true,
+                                content: fullContent,
+                                complete: isComplete
+                            });
+                        } else {
+                            reject(new Error(`HTTP ${response.status}: ${response.statusText}`));
+                        }
+                    },
+                    
+                    onerror: (error) => {
+                        ErrorTracker.report(
+                            'Ollama 请求失败',
+                            { error, model: this.model },
+                            ErrorTracker.ErrorCategory.API,
+                            ErrorTracker.ErrorLevel.ERROR
+                        );
+                        reject(new Error(`Ollama 连接失败: ${error}`));
+                    },
+                    
+                    ontimeout: () => {
+                        reject(new Error('Ollama 请求超时'));
+                    },
+                    
+                    onabort: () => {
+                        reject(new DOMException('请求已取消', 'AbortError'));
+                    }
+                });
+
+                // 监听中止信号
+                if (abortController?.signal) {
+                    abortController.signal.addEventListener('abort', () => {
+                        // GM_xmlhttpRequest 不支持直接中止，但我们可以在这里标记
+                        reject(new DOMException('请求已取消', 'AbortError'));
+                    });
+                }
+            });
+        } catch (error) {
+            ErrorTracker.report(
+                'Ollama 客户端错误',
+                { error, model: this.model },
+                ErrorTracker.ErrorCategory.API,
+                ErrorTracker.ErrorLevel.ERROR
+            );
+            throw error;
+        }
+    }
+
+    /**
+     * 测试连接
+     */
+    async testConnection() {
+        try {
+            return new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: `${this.baseUrl}/api/tags`,
+                    timeout: 5000,
+                    
+                    onload: (response) => {
+                        if (response.status >= 200 && response.status < 300) {
+                            resolve({
+                                success: true,
+                                message: 'Ollama 连接成功'
+                            });
+                        } else {
+                            reject(new Error(`HTTP ${response.status}`));
+                        }
+                    },
+                    
+                    onerror: () => {
+                        reject(new Error('无法连接到 Ollama 服务'));
+                    },
+                    
+                    ontimeout: () => {
+                        reject(new Error('连接超时'));
+                    }
+                });
+            });
+        } catch (error) {
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+
+    /**
+     * 获取可用模型列表
+     */
+    async fetchModels() {
+        try {
+            return new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url: `${this.baseUrl}/api/tags`,
+                    timeout: 5000,
+                    
+                    onload: (response) => {
+                        if (response.status >= 200 && response.status < 300) {
+                            try {
+                                const data = JSON.parse(response.responseText);
+                                const models = (data.models || []).map(model => ({
+                                    id: model.name,
+                                    name: model.name,
+                                    provider: 'ollama',
+                                    size: model.size ? this.formatSize(model.size) : '未知'
+                                }));
+                                
+                                resolve({
+                                    success: true,
+                                    models
+                                });
+                            } catch (e) {
+                                reject(new Error(`解析响应失败: ${e.message}`));
+                            }
+                        } else {
+                            reject(new Error(`HTTP ${response.status}`));
+                        }
+                    },
+                    
+                    onerror: () => {
+                        reject(new Error('获取模型列表失败'));
+                    },
+                    
+                    ontimeout: () => {
+                        reject(new Error('请求超时'));
+                    }
+                });
+            });
+        } catch (error) {
+            return {
+                success: false,
+                error: error.message,
+                models: []
+            };
+        }
+    }
+
+    /**
+     * 格式化文件大小
+     */
+    formatSize(bytes) {
+        if (!bytes) return '未知';
+        
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let size = bytes;
+        let unitIndex = 0;
+        
+        while (size >= 1024 && unitIndex < units.length - 1) {
+            size /= 1024;
+            unitIndex++;
+        }
+        
+        return `${size.toFixed(1)} ${units[unitIndex]}`;
+    }
+}
+
+
+// =====================================================
+// 模块: agent/api/APIRouter.js
+// =====================================================
+
+// ==================== API 路由模块 ====================
+// v4.0.0: 重构为使用 ProviderManager
+// 负责模型选择、故障转移和重试逻辑
+
+const APIRouter = (function() {
+    'use strict';
+
+    /**
+     * 获取可用模型列表（按优先级排序）
+     */
+    function getAvailableModels(currentModel) {
+        // v4.0.0: 从 ProviderManager 获取所有可用模型
+        const allModels = ProviderManager.getAllAvailableModels();
+        
+        let models = [...allModels];
+
+        // 将当前选中的模型排在最前面
+        const isAutoMode = !currentModel || currentModel === 'auto' || currentModel === 'openrouter/auto';
+        
+        if (!isAutoMode) {
+            models.sort((a, b) => {
+                if (a.id === currentModel) return -1;
+                if (b.id === currentModel) return 1;
+                return 0;
+            });
+        }
+
+        // 过滤掉明确标记为不可用的模型（除非是用户强制选中的）
+        if (!isAutoMode) {
+            return models; // 如果用户指定了模型，则不根据可用性过滤，交给路由层去试
+        }
+
+        // ✅ Auto 模式：过滤掉不可用的模型
+        const availableModels = models.filter(m => ModelManager.isModelAvailable(m.id));
+        
+        // 记录过滤统计（仅在过滤掉模型时记录）
+        if (availableModels.length < models.length) {
+            ErrorTracker.report(
+                `自动过滤 ${models.length - availableModels.length} 个不可用模型`,
+                { total: models.length, available: availableModels.length },
+                ErrorTracker.ErrorCategory.API,
+                ErrorTracker.ErrorLevel.INFO
+            );
+        }
+        
+        return availableModels;
+    }
+
+    /**
+     * 发送请求（带自动重试和故障转移）
+     * @param {Object} params - 请求参数
+     * @param {Function} onChunk - 流式回调
+     * @returns {Promise<Object>}
+     */
+    async function sendRequest(params, onChunk) {
+        console.log('[API Router] 📥 收到 sendRequest 调用');
+        
+        const { messages, config, abortController } = params;  // ✅ 直接使用完整的 messages
+        
+        console.log('[API Router] 📊 消息数量:', messages?.length);
+        console.log('[API Router] ⚙️ 配置模型:', config?.model);
+        
+        let modelsToTry = getAvailableModels(config.model);
+        
+        console.log('[API Router] 📋 可用模型数量:', modelsToTry.length);
+        console.log('[API Router] 🎯 当前配置模型:', config.model);
+        
+        if (modelsToTry.length === 0) {
+            console.error('[API Router] ❌ 没有可用模型！');
+            // 如果没有可用模型，返回错误
+            ErrorTracker.report(
+                '没有可用的模型，请检查提供商配置',
+                {},
+                ErrorTracker.ErrorCategory.CONFIG,
+                ErrorTracker.ErrorLevel.ERROR
+            );
+            return { 
+                success: false, 
+                error: '没有可用的模型。请检查提供商配置（API Key、启用状态）。',
+                attempts: 0 
+            };
+        }
+
+        let lastError = null;
+        let attempts = 0;
+        const MAX_ATTEMPTS_PER_MODEL = 3; // ✅ 每个模型最多测试 3 次
+
+        for (const model of modelsToTry) {
+            // 创建当前模型的配置副本
+            const currentConfig = { ...config, model: model.id };
+            
+            for (let i = 0; i < MAX_ATTEMPTS_PER_MODEL; i++) {
+                if (abortController?.signal.aborted) {
+                    return { success: false, cancelled: true, error: '请求已取消' };
+                }
+
+                attempts++;
+                console.log(`[API Router] 🔄 尝试模型: ${model.id} (第 ${i + 1} 次)`);
+                Utils.debugLog(`🔄 尝试模型: ${model.id} (第 ${i + 1} 次)`);
+
+                try {
+                    // ✅ v4.1.0: 使用新的 API 客户端架构
+                    const provider = ProviderManager.getProviderByModel(model.id);
+                    if (!provider) {
+                        throw new Error(`未找到模型 ${model.id} 的提供商配置`);
+                    }
+                    
+                    const client = APIClientFactory.createClient(provider, model.id);
+                    
+                    // ✅ 直接使用 AIAgent 构建的完整消息数组（包含 System Prompt）
+                    const result = await client.sendStreamingRequest(
+                        messages,
+                        onChunk,
+                        {
+                            temperature: currentConfig.temperature || 0.7,
+                            maxTokens: currentConfig.maxTokens || 4096
+                        },
+                        abortController
+                    );
+
+                    // ✅ v4.1.0: 新客户端返回 { success, content, complete }
+                    if (result.success) {
+                        // 标记模型可用
+                        ModelManager.markModelTest(model.id, true);
+                        return {
+                            success: true,
+                            content: result.content,
+                            model: model.id,
+                            attempts
+                        };
+                    }
+                    
+                    // 如果请求失败
+                    throw new Error(result.error || '请求失败');
+                    
+                } catch (error) {
+                    lastError = error;
+                    ModelManager.markModelTest(model.id, false);
+                    
+                    ErrorTracker.report(error, {
+                        model: model.id,
+                        attempt: i + 1,
+                        category: 'API_REQUEST'
+                    }, ErrorTracker.ErrorCategory.API, ErrorTracker.ErrorLevel.ERROR);
+                    
+                    // ✅ 检查是否已达到最大失败次数，如果是则跳出内层循环
+                    const status = ModelManager.getModelStatus(model.id);
+                    if (status && !status.available) {
+                        ErrorTracker.report(
+                            `模型 ${model.id} 已标记为不可用，停止重试`,
+                            { modelId: model.id, failures: status.consecutiveFailures },
+                            ErrorTracker.ErrorCategory.API,
+                            ErrorTracker.ErrorLevel.WARN
+                        );
+                        break; // 跳出内层循环，尝试下一个模型
+                    }
+                    
+                    // 处理中止错误
+                    if (error.name === 'AbortError' || error.message.includes('取消')) {
+                        return { success: false, cancelled: true, error: '请求已取消' };
+                    }
+                }
+            }
+        }
+
+        return { 
+            success: false, 
+            error: `所有模型均失败。最后错误: ${lastError?.message || '未知'}`,
+            attempts 
+        };
+    }
+
+    return {
+        sendRequest,
+        getAvailableModels
+    };
+})();
+
+
+// =====================================================
+// 模块: agent/api/index.js
+// =====================================================
+
+// ==================== API 客户端工厂 ====================
+// v4.1.0: 根据提供商类型创建对应的客户端
+
+const APIClientFactory = (function() {
+    'use strict';
+
+    /**
+     * 创建 API 客户端
+     * @param {Object} providerConfig - 提供商配置
+     * @param {string} modelId - 模型 ID
+     * @returns {BaseAPIClient} API 客户端实例
+     */
+    function createClient(providerConfig, modelId) {
+        const config = {
+            baseUrl: providerConfig.baseUrl,
+            apiKey: providerConfig.apiKey,
+            model: modelId,
+            timeout: providerConfig.timeout
+        };
+
+        // 根据提供商类型或 baseUrl 判断使用哪个客户端
+        const providerType = detectProviderType(providerConfig);
+
+        switch (providerType) {
+            case 'openrouter':
+                return new OpenRouterClient(config);
+            
+            case 'lmstudio':
+                return new LMStudioClient(config);
+            
+            case 'ollama':
+                return new OllamaClient(config);
+            
+            default:
+                // 默认使用 OpenRouter 兼容的客户端
+                console.log(`[APIClientFactory] 使用 OpenRouter 兼容客户端 for ${providerType}`);
+                return new OpenRouterClient(config);
+        }
+    }
+
+    /**
+     * 检测提供商类型
+     * @param {Object} providerConfig - 提供商配置
+     * @returns {string} 提供商类型
+     */
+    function detectProviderType(providerConfig) {
+        const baseUrl = providerConfig.baseUrl || '';
+        const name = (providerConfig.name || '').toLowerCase();
+
+        // 检查是否为 LM Studio
+        if (baseUrl.includes('localhost:1234') || 
+            baseUrl.includes('127.0.0.1:1234') ||
+            name.includes('lm studio') ||
+            name.includes('lmstudio')) {
+            return 'lmstudio';
+        }
+
+        // 检查是否为 Ollama
+        if (baseUrl.includes('localhost:11434') ||
+            baseUrl.includes('127.0.0.1:11434') ||
+            name.includes('ollama')) {
+            return 'ollama';
+        }
+
+        // 默认为 OpenRouter
+        return 'openrouter';
+    }
+
+    return {
+        createClient,
+        detectProviderType
+    };
+})();
+
+
+// =====================================================
+// 模块: agent/providers/ProviderManager.js
 // =====================================================
 
 /**
@@ -2275,7 +3185,7 @@ const ProviderManager = {
 
 
 // =====================================================
-// 模块: services/model-manager/ModelManager.js
+// 模块: agent/models/ModelManager.js
 // =====================================================
 
 // ==================== 模型管理模块 ====================
@@ -2502,1284 +3412,7 @@ const ModelManager = (function() {
 
 
 // =====================================================
-// 模块: services/page-analyzer/PageAnalyzer.js
-// =====================================================
-
-// ==================== 页面分析器 ====================
-// v4.3.0: 智能提取和理解网页内容
-// 为 AI 提供结构化的页面上下文
-
-const PageAnalyzer = (function() {
-    'use strict';
-
-    /**
-     * 分析当前页面
-     * @param {Object} options - 分析选项
-     * @returns {Object} 页面分析结果
-     */
-    function analyzePage(options = {}) {
-        const config = {
-            maxContentLength: options.maxContentLength || 10000, // 最大内容长度
-            includeLinks: options.includeLinks !== false, // 是否包含链接
-            includeImages: options.includeImages || false, // 是否包含图片
-            detectForms: options.detectForms !== false, // 是否检测表单
-            ...options
-        };
-
-        return {
-            url: window.location.href,
-            title: document.title,
-            meta: extractMetaInfo(),
-            content: extractMainContent(config.maxContentLength),
-            structure: detectPageStructure(),
-            interactiveElements: config.detectForms ? findInteractiveElements() : [],
-            links: config.includeLinks ? extractLinks() : [],
-            images: config.includeImages ? extractImages() : [],
-            timestamp: Date.now()
-        };
-    }
-
-    /**
-     * 提取元信息
-     */
-    function extractMetaInfo() {
-        const meta = {};
-        
-        // 描述
-        const description = document.querySelector('meta[name="description"]');
-        if (description) meta.description = description.content;
-        
-        // 关键词
-        const keywords = document.querySelector('meta[name="keywords"]');
-        if (keywords) meta.keywords = keywords.content;
-        
-        // Open Graph
-        const ogTitle = document.querySelector('meta[property="og:title"]');
-        if (ogTitle) meta.ogTitle = ogTitle.content;
-        
-        const ogDescription = document.querySelector('meta[property="og:description"]');
-        if (ogDescription) meta.ogDescription = ogDescription.content;
-        
-        const ogImage = document.querySelector('meta[property="og:image"]');
-        if (ogImage) meta.ogImage = ogImage.content;
-        
-        return meta;
-    }
-
-    /**
-     * 提取主要内容（智能算法）
-     */
-    function extractMainContent(maxLength) {
-        // 尝试多种策略提取主要内容
-        let content = '';
-        
-        // 策略 1: 查找 article 标签
-        const article = document.querySelector('article');
-        if (article) {
-            content = extractTextFromElement(article);
-        }
-        
-        // 策略 2: 查找 main 标签
-        if (!content) {
-            const main = document.querySelector('main');
-            if (main) {
-                content = extractTextFromElement(main);
-            }
-        }
-        
-        // 策略 3: 查找具有大量文本的元素
-        if (!content) {
-            content = findContentRichElement();
-        }
-        
-        // 策略 4: 使用 body（最后手段）
-        if (!content) {
-            content = extractTextFromElement(document.body);
-        }
-        
-        // 清理和截断
-        content = cleanText(content);
-        
-        if (content.length > maxLength) {
-            content = content.substring(0, maxLength) + '... [内容已截断]';
-        }
-        
-        return content;
-    }
-
-    /**
-     * 从元素中提取文本
-     */
-    function extractTextFromElement(element) {
-        if (!element) return '';
-        
-        // 移除脚本和样式
-        const clone = element.cloneNode(true);
-        const scripts = clone.querySelectorAll('script, style, nav, footer, header, aside');
-        scripts.forEach(el => el.remove());
-        
-        return clone.innerText || clone.textContent || '';
-    }
-
-    /**
-     * 查找内容丰富的元素
-     */
-    function findContentRichElement() {
-        const candidates = [];
-        
-        // 查找所有 div 和 section
-        const elements = document.querySelectorAll('div, section');
-        
-        elements.forEach(el => {
-            const text = el.innerText || '';
-            const length = text.trim().length;
-            
-            // 只考虑文本长度超过 200 字符的元素
-            if (length > 200) {
-                candidates.push({ element: el, length });
-            }
-        });
-        
-        // 按文本长度排序，返回最长的
-        candidates.sort((a, b) => b.length - a.length);
-        
-        if (candidates.length > 0) {
-            return extractTextFromElement(candidates[0].element);
-        }
-        
-        return '';
-    }
-
-    /**
-     * 清理文本
-     */
-    function cleanText(text) {
-        return text
-            .replace(/\n\s*\n/g, '\n') // 移除多余空行
-            .replace(/[ \t]+/g, ' ') // 合并多个空格
-            .trim();
-    }
-
-    /**
-     * 检测页面结构
-     */
-    function detectPageStructure() {
-        const structure = {
-            headings: [],
-            paragraphs: 0,
-            lists: 0,
-            tables: 0,
-            codeBlocks: 0
-        };
-        
-        // 提取标题
-        const headings = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
-        headings.forEach(h => {
-            structure.headings.push({
-                level: parseInt(h.tagName[1]),
-                text: h.innerText.trim()
-            });
-        });
-        
-        // 统计段落
-        structure.paragraphs = document.querySelectorAll('p').length;
-        
-        // 统计列表
-        structure.lists = document.querySelectorAll('ul, ol').length;
-        
-        // 统计表格
-        structure.tables = document.querySelectorAll('table').length;
-        
-        // 统计代码块
-        structure.codeBlocks = document.querySelectorAll('pre, code').length;
-        
-        return structure;
-    }
-
-    /**
-     * 查找交互元素
-     */
-    function findInteractiveElements() {
-        const elements = [];
-        
-        // 查找按钮
-        const buttons = document.querySelectorAll('button, [role="button"], input[type="button"], input[type="submit"]');
-        buttons.forEach(btn => {
-            const rect = btn.getBoundingClientRect();
-            if (rect.width > 0 && rect.height > 0) { // 只包括可见元素
-                elements.push({
-                    type: 'button',
-                    text: btn.innerText || btn.value || '',
-                    selector: generateSelector(btn),
-                    visible: true
-                });
-            }
-        });
-        
-        // 查找表单输入
-        const inputs = document.querySelectorAll('input:not([type="button"]):not([type="submit"]), textarea, select');
-        inputs.forEach(input => {
-            const rect = input.getBoundingClientRect();
-            if (rect.width > 0 && rect.height > 0) {
-                elements.push({
-                    type: input.tagName.toLowerCase(),
-                    name: input.name || input.id || '',
-                    placeholder: input.placeholder || '',
-                    selector: generateSelector(input),
-                    visible: true
-                });
-            }
-        });
-        
-        // 限制返回数量（避免过多）
-        return elements.slice(0, 50);
-    }
-
-    /**
-     * 提取链接
-     */
-    function extractLinks() {
-        const links = [];
-        const anchorElements = document.querySelectorAll('a[href]');
-        
-        anchorElements.forEach(a => {
-            const rect = a.getBoundingClientRect();
-            if (rect.width > 0 && rect.height > 0) { // 只包括可见链接
-                links.push({
-                    text: a.innerText.trim(),
-                    href: a.href,
-                    title: a.title || ''
-                });
-            }
-        });
-        
-        // 限制数量
-        return links.slice(0, 100);
-    }
-
-    /**
-     * 提取图片信息
-     */
-    function extractImages() {
-        const images = [];
-        const imgElements = document.querySelectorAll('img');
-        
-        imgElements.forEach(img => {
-            const rect = img.getBoundingClientRect();
-            if (rect.width > 0 && rect.height > 0) {
-                images.push({
-                    src: img.src,
-                    alt: img.alt || '',
-                    width: img.naturalWidth || img.width,
-                    height: img.naturalHeight || img.height
-                });
-            }
-        });
-        
-        return images.slice(0, 50);
-    }
-
-    /**
-     * 生成 CSS 选择器
-     */
-    function generateSelector(element) {
-        if (element.id) {
-            return `#${element.id}`;
-        }
-        
-        if (element.className && typeof element.className === 'string') {
-            const classes = element.className.trim().split(/\s+/).slice(0, 3).join('.');
-            if (classes) {
-                return `${element.tagName.toLowerCase()}.${classes}`;
-            }
-        }
-        
-        return element.tagName.toLowerCase();
-    }
-
-    /**
-     * 生成页面摘要（用于 AI 上下文）
-     */
-    function generateSummary(options = {}) {
-        const analysis = analyzePage(options);
-        
-        let summary = `# 页面分析结果\n\n`;
-        summary += `**URL**: ${analysis.url}\n`;
-        summary += `**标题**: ${analysis.title}\n\n`;
-        
-        if (analysis.meta.description) {
-            summary += `**描述**: ${analysis.meta.description}\n\n`;
-        }
-        
-        summary += `## 内容结构\n`;
-        summary += `- 标题数: ${analysis.structure.headings.length}\n`;
-        summary += `- 段落数: ${analysis.structure.paragraphs}\n`;
-        summary += `- 列表数: ${analysis.structure.lists}\n`;
-        summary += `- 表格数: ${analysis.structure.tables}\n\n`;
-        
-        if (analysis.structure.headings.length > 0) {
-            summary += `## 标题层级\n`;
-            analysis.structure.headings.slice(0, 10).forEach(h => {
-                const indent = '  '.repeat(h.level - 1);
-                summary += `${indent}- ${h.text}\n`;
-            });
-            summary += '\n';
-        }
-        
-        if (analysis.interactiveElements.length > 0) {
-            summary += `## 交互元素 (${analysis.interactiveElements.length}个)\n`;
-            const buttons = analysis.interactiveElements.filter(e => e.type === 'button');
-            const inputs = analysis.interactiveElements.filter(e => e.type !== 'button');
-            
-            if (buttons.length > 0) {
-                summary += `### 按钮\n`;
-                buttons.slice(0, 10).forEach(btn => {
-                    summary += `- ${btn.text || '(无文本)'}\n`;
-                });
-                summary += '\n';
-            }
-            
-            if (inputs.length > 0) {
-                summary += `### 输入框\n`;
-                inputs.slice(0, 10).forEach(input => {
-                    summary += `- ${input.name || input.placeholder || '(未命名)'}\n`;
-                });
-                summary += '\n';
-            }
-        }
-        
-        summary += `## 主要内容\n\n`;
-        summary += analysis.content.substring(0, 2000);
-        
-        if (analysis.content.length > 2000) {
-            summary += '\n\n... [内容已截断]';
-        }
-        
-        return summary;
-    }
-
-    return {
-        analyzePage,
-        generateSummary,
-        extractMainContent,
-        findInteractiveElements,
-        extractLinks
-    };
-})();
-
-
-// =====================================================
-// 模块: services/api/BaseAPIClient.js
-// =====================================================
-
-// ==================== API 基础客户端 ====================
-// v4.1.0: 所有 API 客户端的基类
-// 定义统一的接口规范
-
-class BaseAPIClient {
-    /**
-     * 构造函数
-     * @param {Object} config - 配置对象
-     * @param {string} config.baseUrl - API 基础 URL
-     * @param {string} config.apiKey - API 密钥（可选）
-     * @param {string} config.model - 模型 ID
-     */
-    constructor(config) {
-        if (new.target === BaseAPIClient) {
-            throw new TypeError('Cannot construct BaseAPIClient directly');
-        }
-        
-        this.baseUrl = config.baseUrl;
-        this.apiKey = config.apiKey;
-        this.model = config.model;
-        this.timeout = config.timeout || 30000; // 默认 30 秒超时
-    }
-
-    /**
-     * 构建请求头（子类必须实现）
-     * @returns {Object} 请求头对象
-     */
-    buildHeaders() {
-        throw new Error('Method buildHeaders() must be implemented');
-    }
-
-    /**
-     * 构建请求体（子类必须实现）
-     * @param {Array} messages - 消息数组
-     * @param {Object} params - 额外参数
-     * @returns {Object} 请求体
-     */
-    buildBody(messages, params = {}) {
-        throw new Error('Method buildBody() must be implemented');
-    }
-
-    /**
-     * 获取端点 URL（子类必须实现）
-     * @returns {string} 完整的 API 端点 URL
-     */
-    getEndpoint() {
-        throw new Error('Method getEndpoint() must be implemented');
-    }
-
-    /**
-     * 解析流式响应块（子类必须实现）
-     * @param {string} chunk - 原始数据块
-     * @returns {Object|null} 解析后的内容，null 表示跳过
-     */
-    parseStreamChunk(chunk) {
-        throw new Error('Method parseStreamChunk() must be implemented');
-    }
-
-    /**
-     * 发送非流式请求（默认实现，子类可覆盖）
-     * @param {Array} messages - 消息数组
-     * @param {Object} params - 额外参数
-     * @param {AbortController} abortController - 中止控制器
-     * @returns {Promise<Object>} 响应结果
-     */
-    async sendRequest(messages, params = {}, abortController = null) {
-        const endpoint = this.getEndpoint();
-        const headers = this.buildHeaders();
-        const body = this.buildBody(messages, params);
-
-        return new Promise((resolve, reject) => {
-            GM_xmlhttpRequest({
-                method: 'POST',
-                url: endpoint,
-                headers: headers,
-                data: JSON.stringify(body),
-                timeout: this.timeout,
-                ontimeout: () => {
-                    reject(new Error(`请求超时 (${this.timeout}ms)`));
-                },
-                onerror: (error) => {
-                    reject(new Error(`网络错误: ${error.statusText || error}`));
-                },
-                onload: (response) => {
-                    try {
-                        if (response.status >= 200 && response.status < 300) {
-                            const data = JSON.parse(response.responseText);
-                            resolve({
-                                success: true,
-                                data: data,
-                                status: response.status
-                            });
-                        } else {
-                            reject(new Error(`HTTP ${response.status}: ${response.responseText}`));
-                        }
-                    } catch (e) {
-                        reject(new Error(`解析响应失败: ${e.message}`));
-                    }
-                }
-            });
-        });
-    }
-
-    /**
-     * 发送流式请求（默认实现，子类可覆盖）
-     * @param {Array} messages - 消息数组
-     * @param {Function} onChunk - 每个块的回调函数
-     * @param {Object} params - 额外参数
-     * @param {AbortController} abortController - 中止控制器
-     * @returns {Promise<Object>} 最终结果
-     */
-    async sendStreamingRequest(messages, onChunk, params = {}, abortController = null) {
-        const endpoint = this.getEndpoint();
-        const headers = this.buildHeaders();
-        const body = this.buildBody(messages, { ...params, stream: true });
-
-        let fullContent = '';
-        let isComplete = false;
-
-        return new Promise((resolve, reject) => {
-            GM_xmlhttpRequest({
-                method: 'POST',
-                url: endpoint,
-                headers: headers,
-                data: JSON.stringify(body),
-                responseType: 'text',
-                timeout: this.timeout,
-                ontimeout: () => {
-                    reject(new Error(`请求超时 (${this.timeout}ms)`));
-                },
-                onerror: (error) => {
-                    reject(new Error(`网络错误: ${error.statusText || error}`));
-                },
-                onreadystatechange: (response) => {
-                    if (response.readyState === 3 || response.readyState === 4) {
-                        const text = response.responseText;
-                        
-                        // 处理 SSE 格式的数据
-                        const lines = text.split('\n');
-                        for (const line of lines) {
-                            if (line.startsWith('data: ')) {
-                                const data = line.slice(6).trim();
-                                
-                                if (data === '[DONE]') {
-                                    isComplete = true;
-                                    continue;
-                                }
-
-                                try {
-                                    const parsed = this.parseStreamChunk(data);
-                                    if (parsed && parsed.content) {
-                                        fullContent += parsed.content;
-                                        onChunk(parsed.content);
-                                    }
-                                } catch (e) {
-                                    console.warn('[BaseAPIClient] 解析块失败:', e);
-                                }
-                            }
-                        }
-                    }
-                },
-                onload: (response) => {
-                    if (response.status >= 200 && response.status < 300) {
-                        resolve({
-                            success: true,
-                            content: fullContent,
-                            complete: isComplete
-                        });
-                    } else {
-                        reject(new Error(`HTTP ${response.status}: ${response.responseText}`));
-                    }
-                }
-            });
-        });
-    }
-
-    /**
-     * 验证配置是否有效（子类可覆盖）
-     * @returns {boolean}
-     */
-    validateConfig() {
-        if (!this.baseUrl) {
-            throw new Error('baseUrl 不能为空');
-        }
-        return true;
-    }
-}
-
-
-// =====================================================
-// 模块: services/api/OpenRouterClient.js
-// =====================================================
-
-// ==================== OpenRouter API 客户端 ====================
-// v4.1.0: OpenRouter 专用实现
-
-class OpenRouterClient extends BaseAPIClient {
-    /**
-     * 构造函数
-     * @param {Object} config - 配置对象
-     */
-    constructor(config) {
-        super({
-            baseUrl: config.baseUrl || 'https://openrouter.ai/api/v1',
-            apiKey: config.apiKey,
-            model: config.model,
-            timeout: config.timeout
-        });
-        
-        this.validateConfig();
-    }
-
-    /**
-     * 构建请求头
-     */
-    buildHeaders() {
-        const headers = {
-            'Content-Type': 'application/json'
-        };
-        
-        if (this.apiKey) {
-            headers['Authorization'] = `Bearer ${this.apiKey}`;
-        }
-        
-        // OpenRouter 特定的头部
-        headers['HTTP-Referer'] = window.location.href;
-        headers['X-Title'] = 'Web AI Agent';
-        
-        return headers;
-    }
-
-    /**
-     * 构建请求体
-     */
-    buildBody(messages, params = {}) {
-        return {
-            model: this.model,
-            messages: messages,
-            stream: params.stream || false,
-            temperature: params.temperature || 0.7,
-            max_tokens: params.maxTokens || 4096,
-            ...params
-        };
-    }
-
-    /**
-     * 获取端点 URL
-     */
-    getEndpoint() {
-        return `${this.baseUrl}/chat/completions`;
-    }
-
-    /**
-     * 解析流式响应块
-     */
-    parseStreamChunk(chunk) {
-        try {
-            const data = JSON.parse(chunk);
-            
-            if (data.choices && data.choices[0] && data.choices[0].delta) {
-                const delta = data.choices[0].delta;
-                return {
-                    content: delta.content || '',
-                    role: delta.role || null,
-                    finish_reason: data.choices[0].finish_reason || null
-                };
-            }
-            
-            return null;
-        } catch (e) {
-            console.warn('[OpenRouterClient] 解析失败:', e);
-            return null;
-        }
-    }
-
-    /**
-     * 验证配置
-     */
-    validateConfig() {
-        super.validateConfig();
-        
-        if (!this.model) {
-            throw new Error('model 不能为空');
-        }
-        
-        return true;
-    }
-}
-
-
-// =====================================================
-// 模块: services/api/LMStudioClient.js
-// =====================================================
-
-// ==================== LM Studio API 客户端 ====================
-// v4.1.0: LM Studio 本地服务实现
-
-class LMStudioClient extends BaseAPIClient {
-    /**
-     * 构造函数
-     * @param {Object} config - 配置对象
-     */
-    constructor(config) {
-        super({
-            baseUrl: config.baseUrl || 'http://localhost:1234/v1',
-            apiKey: config.apiKey || 'lm-studio', // LM Studio 不需要真实 API Key
-            model: config.model,
-            timeout: config.timeout || 60000 // 本地服务可能需要更长时间
-        });
-        
-        this.validateConfig();
-    }
-
-    /**
-     * 构建请求头
-     */
-    buildHeaders() {
-        return {
-            'Content-Type': 'application/json'
-        };
-    }
-
-    /**
-     * 构建请求体
-     */
-    buildBody(messages, params = {}) {
-        return {
-            model: this.model,
-            messages: messages,
-            stream: params.stream || false,
-            temperature: params.temperature || 0.7,
-            max_tokens: params.maxTokens || 4096,
-            ...params
-        };
-    }
-
-    /**
-     * 获取端点 URL
-     */
-    getEndpoint() {
-        return `${this.baseUrl}/chat/completions`;
-    }
-
-    /**
-     * 解析流式响应块
-     */
-    parseStreamChunk(chunk) {
-        try {
-            const data = JSON.parse(chunk);
-            
-            if (data.choices && data.choices[0] && data.choices[0].delta) {
-                const delta = data.choices[0].delta;
-                return {
-                    content: delta.content || '',
-                    role: delta.role || null,
-                    finish_reason: data.choices[0].finish_reason || null
-                };
-            }
-            
-            return null;
-        } catch (e) {
-            console.warn('[LMStudioClient] 解析失败:', e);
-            return null;
-        }
-    }
-
-    /**
-     * 验证配置
-     */
-    validateConfig() {
-        super.validateConfig();
-        
-        if (!this.model) {
-            throw new Error('model 不能为空');
-        }
-        
-        // LM Studio 是本地服务，检查是否为 localhost
-        if (!this.baseUrl.includes('localhost') && !this.baseUrl.includes('127.0.0.1')) {
-            console.warn('[LMStudioClient] LM Studio 通常运行在 localhost，请确认 baseUrl 是否正确');
-        }
-        
-        return true;
-    }
-}
-
-
-// =====================================================
-// 模块: services/api/OllamaClient.js
-// =====================================================
-
-// ==================== Ollama API 客户端 ====================
-// v4.0.0: 支持 Ollama 本地服务
-// 文档: https://github.com/ollama/ollama/blob/main/docs/api.md
-
-class OllamaClient extends BaseAPIClient {
-    constructor(config) {
-        super({
-            ...config,
-            baseUrl: config.baseUrl || 'http://localhost:11434'
-        });
-        
-        this.model = config.model;
-    }
-
-    /**
-     * 构建请求体
-     */
-    buildRequestBody(messages, options = {}) {
-        return {
-            model: this.model,
-            messages: messages.map(msg => ({
-                role: msg.role === 'assistant' ? 'assistant' : 'user',
-                content: msg.content
-            })),
-            stream: true,
-            options: {
-                temperature: options.temperature || 0.7,
-                top_p: options.topP || 0.9,
-                num_predict: options.maxTokens || 4096
-            }
-        };
-    }
-
-    /**
-     * 发送流式请求
-     */
-    async sendStreamingRequest(messages, onChunk, options = {}, abortController = null) {
-        try {
-            const requestBody = this.buildRequestBody(messages, options);
-            
-            Utils.debugLog('[OllamaClient] Sending request:', {
-                model: this.model,
-                messageCount: messages.length,
-                temperature: options.temperature
-            });
-
-            return new Promise((resolve, reject) => {
-                let fullContent = '';
-                let isComplete = false;
-
-                GM_xmlhttpRequest({
-                    method: 'POST',
-                    url: `${this.baseUrl}/api/chat`,
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    data: JSON.stringify(requestBody),
-                    responseType: 'text',
-                    timeout: this.timeout || 60000,
-                    
-                    onload: (response) => {
-                        if (response.status >= 200 && response.status < 300) {
-                            // Ollama 的流式响应是 NDJSON 格式（每行一个 JSON）
-                            const lines = response.responseText.split('\n').filter(line => line.trim());
-                            
-                            for (const line of lines) {
-                                try {
-                                    const chunk = JSON.parse(line);
-                                    
-                                    // 检查是否完成
-                                    if (chunk.done) {
-                                        isComplete = true;
-                                        break;
-                                    }
-                                    
-                                    // 提取内容
-                                    const content = chunk.message?.content || '';
-                                    if (content) {
-                                        fullContent += content;
-                                        
-                                        // 调用回调
-                                        if (onChunk) {
-                                            onChunk(content);
-                                        }
-                                    }
-                                } catch (e) {
-                                    ErrorTracker.report(
-                                        `解析 Ollama 响应失败: ${e.message}`,
-                                        { line },
-                                        ErrorTracker.ErrorCategory.API,
-                                        ErrorTracker.ErrorLevel.WARN
-                                    );
-                                }
-                            }
-                            
-                            resolve({
-                                success: true,
-                                content: fullContent,
-                                complete: isComplete
-                            });
-                        } else {
-                            reject(new Error(`HTTP ${response.status}: ${response.statusText}`));
-                        }
-                    },
-                    
-                    onerror: (error) => {
-                        ErrorTracker.report(
-                            'Ollama 请求失败',
-                            { error, model: this.model },
-                            ErrorTracker.ErrorCategory.API,
-                            ErrorTracker.ErrorLevel.ERROR
-                        );
-                        reject(new Error(`Ollama 连接失败: ${error}`));
-                    },
-                    
-                    ontimeout: () => {
-                        reject(new Error('Ollama 请求超时'));
-                    },
-                    
-                    onabort: () => {
-                        reject(new DOMException('请求已取消', 'AbortError'));
-                    }
-                });
-
-                // 监听中止信号
-                if (abortController?.signal) {
-                    abortController.signal.addEventListener('abort', () => {
-                        // GM_xmlhttpRequest 不支持直接中止，但我们可以在这里标记
-                        reject(new DOMException('请求已取消', 'AbortError'));
-                    });
-                }
-            });
-        } catch (error) {
-            ErrorTracker.report(
-                'Ollama 客户端错误',
-                { error, model: this.model },
-                ErrorTracker.ErrorCategory.API,
-                ErrorTracker.ErrorLevel.ERROR
-            );
-            throw error;
-        }
-    }
-
-    /**
-     * 测试连接
-     */
-    async testConnection() {
-        try {
-            return new Promise((resolve, reject) => {
-                GM_xmlhttpRequest({
-                    method: 'GET',
-                    url: `${this.baseUrl}/api/tags`,
-                    timeout: 5000,
-                    
-                    onload: (response) => {
-                        if (response.status >= 200 && response.status < 300) {
-                            resolve({
-                                success: true,
-                                message: 'Ollama 连接成功'
-                            });
-                        } else {
-                            reject(new Error(`HTTP ${response.status}`));
-                        }
-                    },
-                    
-                    onerror: () => {
-                        reject(new Error('无法连接到 Ollama 服务'));
-                    },
-                    
-                    ontimeout: () => {
-                        reject(new Error('连接超时'));
-                    }
-                });
-            });
-        } catch (error) {
-            return {
-                success: false,
-                error: error.message
-            };
-        }
-    }
-
-    /**
-     * 获取可用模型列表
-     */
-    async fetchModels() {
-        try {
-            return new Promise((resolve, reject) => {
-                GM_xmlhttpRequest({
-                    method: 'GET',
-                    url: `${this.baseUrl}/api/tags`,
-                    timeout: 5000,
-                    
-                    onload: (response) => {
-                        if (response.status >= 200 && response.status < 300) {
-                            try {
-                                const data = JSON.parse(response.responseText);
-                                const models = (data.models || []).map(model => ({
-                                    id: model.name,
-                                    name: model.name,
-                                    provider: 'ollama',
-                                    size: model.size ? this.formatSize(model.size) : '未知'
-                                }));
-                                
-                                resolve({
-                                    success: true,
-                                    models
-                                });
-                            } catch (e) {
-                                reject(new Error(`解析响应失败: ${e.message}`));
-                            }
-                        } else {
-                            reject(new Error(`HTTP ${response.status}`));
-                        }
-                    },
-                    
-                    onerror: () => {
-                        reject(new Error('获取模型列表失败'));
-                    },
-                    
-                    ontimeout: () => {
-                        reject(new Error('请求超时'));
-                    }
-                });
-            });
-        } catch (error) {
-            return {
-                success: false,
-                error: error.message,
-                models: []
-            };
-        }
-    }
-
-    /**
-     * 格式化文件大小
-     */
-    formatSize(bytes) {
-        if (!bytes) return '未知';
-        
-        const units = ['B', 'KB', 'MB', 'GB'];
-        let size = bytes;
-        let unitIndex = 0;
-        
-        while (size >= 1024 && unitIndex < units.length - 1) {
-            size /= 1024;
-            unitIndex++;
-        }
-        
-        return `${size.toFixed(1)} ${units[unitIndex]}`;
-    }
-}
-
-
-// =====================================================
-// 模块: services/api/APIRouter.js
-// =====================================================
-
-// ==================== API 路由模块 ====================
-// v4.0.0: 重构为使用 ProviderManager
-// 负责模型选择、故障转移和重试逻辑
-
-const APIRouter = (function() {
-    'use strict';
-
-    /**
-     * 获取可用模型列表（按优先级排序）
-     */
-    function getAvailableModels(currentModel) {
-        // v4.0.0: 从 ProviderManager 获取所有可用模型
-        const allModels = ProviderManager.getAllAvailableModels();
-        
-        let models = [...allModels];
-
-        // 将当前选中的模型排在最前面
-        const isAutoMode = !currentModel || currentModel === 'auto' || currentModel === 'openrouter/auto';
-        
-        if (!isAutoMode) {
-            models.sort((a, b) => {
-                if (a.id === currentModel) return -1;
-                if (b.id === currentModel) return 1;
-                return 0;
-            });
-        }
-
-        // 过滤掉明确标记为不可用的模型（除非是用户强制选中的）
-        if (!isAutoMode) {
-            return models; // 如果用户指定了模型，则不根据可用性过滤，交给路由层去试
-        }
-
-        // ✅ Auto 模式：过滤掉不可用的模型
-        const availableModels = models.filter(m => ModelManager.isModelAvailable(m.id));
-        
-        // 记录过滤统计（仅在过滤掉模型时记录）
-        if (availableModels.length < models.length) {
-            ErrorTracker.report(
-                `自动过滤 ${models.length - availableModels.length} 个不可用模型`,
-                { total: models.length, available: availableModels.length },
-                ErrorTracker.ErrorCategory.API,
-                ErrorTracker.ErrorLevel.INFO
-            );
-        }
-        
-        return availableModels;
-    }
-
-    /**
-     * 发送请求（带自动重试和故障转移）
-     * @param {Object} params - 请求参数
-     * @param {Function} onChunk - 流式回调
-     * @returns {Promise<Object>}
-     */
-    async function sendRequest(params, onChunk) {
-        console.log('[API Router] 📥 收到 sendRequest 调用');
-        
-        const { messages, config, abortController } = params;  // ✅ 直接使用完整的 messages
-        
-        console.log('[API Router] 📊 消息数量:', messages?.length);
-        console.log('[API Router] ⚙️ 配置模型:', config?.model);
-        
-        let modelsToTry = getAvailableModels(config.model);
-        
-        console.log('[API Router] 📋 可用模型数量:', modelsToTry.length);
-        console.log('[API Router] 🎯 当前配置模型:', config.model);
-        
-        if (modelsToTry.length === 0) {
-            console.error('[API Router] ❌ 没有可用模型！');
-            // 如果没有可用模型，返回错误
-            ErrorTracker.report(
-                '没有可用的模型，请检查提供商配置',
-                {},
-                ErrorTracker.ErrorCategory.CONFIG,
-                ErrorTracker.ErrorLevel.ERROR
-            );
-            return { 
-                success: false, 
-                error: '没有可用的模型。请检查提供商配置（API Key、启用状态）。',
-                attempts: 0 
-            };
-        }
-
-        let lastError = null;
-        let attempts = 0;
-        const MAX_ATTEMPTS_PER_MODEL = 3; // ✅ 每个模型最多测试 3 次
-
-        for (const model of modelsToTry) {
-            // 创建当前模型的配置副本
-            const currentConfig = { ...config, model: model.id };
-            
-            for (let i = 0; i < MAX_ATTEMPTS_PER_MODEL; i++) {
-                if (abortController?.signal.aborted) {
-                    return { success: false, cancelled: true, error: '请求已取消' };
-                }
-
-                attempts++;
-                console.log(`[API Router] 🔄 尝试模型: ${model.id} (第 ${i + 1} 次)`);
-                Utils.debugLog(`🔄 尝试模型: ${model.id} (第 ${i + 1} 次)`);
-
-                try {
-                    // ✅ v4.1.0: 使用新的 API 客户端架构
-                    const provider = ProviderManager.getProviderByModel(model.id);
-                    if (!provider) {
-                        throw new Error(`未找到模型 ${model.id} 的提供商配置`);
-                    }
-                    
-                    const client = APIClientFactory.createClient(provider, model.id);
-                    
-                    // ✅ 直接使用 AIAgent 构建的完整消息数组（包含 System Prompt）
-                    const result = await client.sendStreamingRequest(
-                        messages,
-                        onChunk,
-                        {
-                            temperature: currentConfig.temperature || 0.7,
-                            maxTokens: currentConfig.maxTokens || 4096
-                        },
-                        abortController
-                    );
-
-                    // ✅ v4.1.0: 新客户端返回 { success, content, complete }
-                    if (result.success) {
-                        // 标记模型可用
-                        ModelManager.markModelTest(model.id, true);
-                        return {
-                            success: true,
-                            content: result.content,
-                            model: model.id,
-                            attempts
-                        };
-                    }
-                    
-                    // 如果请求失败
-                    throw new Error(result.error || '请求失败');
-                    
-                } catch (error) {
-                    lastError = error;
-                    ModelManager.markModelTest(model.id, false);
-                    
-                    ErrorTracker.report(error, {
-                        model: model.id,
-                        attempt: i + 1,
-                        category: 'API_REQUEST'
-                    }, ErrorTracker.ErrorCategory.API, ErrorTracker.ErrorLevel.ERROR);
-                    
-                    // ✅ 检查是否已达到最大失败次数，如果是则跳出内层循环
-                    const status = ModelManager.getModelStatus(model.id);
-                    if (status && !status.available) {
-                        ErrorTracker.report(
-                            `模型 ${model.id} 已标记为不可用，停止重试`,
-                            { modelId: model.id, failures: status.consecutiveFailures },
-                            ErrorTracker.ErrorCategory.API,
-                            ErrorTracker.ErrorLevel.WARN
-                        );
-                        break; // 跳出内层循环，尝试下一个模型
-                    }
-                    
-                    // 处理中止错误
-                    if (error.name === 'AbortError' || error.message.includes('取消')) {
-                        return { success: false, cancelled: true, error: '请求已取消' };
-                    }
-                }
-            }
-        }
-
-        return { 
-            success: false, 
-            error: `所有模型均失败。最后错误: ${lastError?.message || '未知'}`,
-            attempts 
-        };
-    }
-
-    return {
-        sendRequest,
-        getAvailableModels
-    };
-})();
-
-
-// =====================================================
-// 模块: services/api/index.js
-// =====================================================
-
-// ==================== API 客户端工厂 ====================
-// v4.1.0: 根据提供商类型创建对应的客户端
-
-const APIClientFactory = (function() {
-    'use strict';
-
-    /**
-     * 创建 API 客户端
-     * @param {Object} providerConfig - 提供商配置
-     * @param {string} modelId - 模型 ID
-     * @returns {BaseAPIClient} API 客户端实例
-     */
-    function createClient(providerConfig, modelId) {
-        const config = {
-            baseUrl: providerConfig.baseUrl,
-            apiKey: providerConfig.apiKey,
-            model: modelId,
-            timeout: providerConfig.timeout
-        };
-
-        // 根据提供商类型或 baseUrl 判断使用哪个客户端
-        const providerType = detectProviderType(providerConfig);
-
-        switch (providerType) {
-            case 'openrouter':
-                return new OpenRouterClient(config);
-            
-            case 'lmstudio':
-                return new LMStudioClient(config);
-            
-            case 'ollama':
-                return new OllamaClient(config);
-            
-            default:
-                // 默认使用 OpenRouter 兼容的客户端
-                console.log(`[APIClientFactory] 使用 OpenRouter 兼容客户端 for ${providerType}`);
-                return new OpenRouterClient(config);
-        }
-    }
-
-    /**
-     * 检测提供商类型
-     * @param {Object} providerConfig - 提供商配置
-     * @returns {string} 提供商类型
-     */
-    function detectProviderType(providerConfig) {
-        const baseUrl = providerConfig.baseUrl || '';
-        const name = (providerConfig.name || '').toLowerCase();
-
-        // 检查是否为 LM Studio
-        if (baseUrl.includes('localhost:1234') || 
-            baseUrl.includes('127.0.0.1:1234') ||
-            name.includes('lm studio') ||
-            name.includes('lmstudio')) {
-            return 'lmstudio';
-        }
-
-        // 检查是否为 Ollama
-        if (baseUrl.includes('localhost:11434') ||
-            baseUrl.includes('127.0.0.1:11434') ||
-            name.includes('ollama')) {
-            return 'ollama';
-        }
-
-        // 默认为 OpenRouter
-        return 'openrouter';
-    }
-
-    return {
-        createClient,
-        detectProviderType
-    };
-})();
-
-
-// =====================================================
-// 模块: infrastructure/AIAgent/CodeExecutor.js
+// 模块: agent/AIAgent/CodeExecutor.js
 // =====================================================
 
 // ==================== 代码执行器 ====================
@@ -4030,7 +3663,7 @@ const CodeExecutor = (function() {
 
 
 // =====================================================
-// 模块: infrastructure/AIAgent/index.js
+// 模块: agent/AIAgent/index.js
 // =====================================================
 
 // ==================== AI Agent 核心 ====================
@@ -4830,7 +4463,374 @@ Array.from(document.querySelectorAll('a')).map(a => a.href)
 
 
 // =====================================================
-// 模块: business/WebAgentClient.js
+// 模块: web/PageAnalyzer.js
+// =====================================================
+
+// ==================== 页面分析器 ====================
+// v4.3.0: 智能提取和理解网页内容
+// 为 AI 提供结构化的页面上下文
+
+const PageAnalyzer = (function() {
+    'use strict';
+
+    /**
+     * 分析当前页面
+     * @param {Object} options - 分析选项
+     * @returns {Object} 页面分析结果
+     */
+    function analyzePage(options = {}) {
+        const config = {
+            maxContentLength: options.maxContentLength || 10000, // 最大内容长度
+            includeLinks: options.includeLinks !== false, // 是否包含链接
+            includeImages: options.includeImages || false, // 是否包含图片
+            detectForms: options.detectForms !== false, // 是否检测表单
+            ...options
+        };
+
+        return {
+            url: window.location.href,
+            title: document.title,
+            meta: extractMetaInfo(),
+            content: extractMainContent(config.maxContentLength),
+            structure: detectPageStructure(),
+            interactiveElements: config.detectForms ? findInteractiveElements() : [],
+            links: config.includeLinks ? extractLinks() : [],
+            images: config.includeImages ? extractImages() : [],
+            timestamp: Date.now()
+        };
+    }
+
+    /**
+     * 提取元信息
+     */
+    function extractMetaInfo() {
+        const meta = {};
+        
+        // 描述
+        const description = document.querySelector('meta[name="description"]');
+        if (description) meta.description = description.content;
+        
+        // 关键词
+        const keywords = document.querySelector('meta[name="keywords"]');
+        if (keywords) meta.keywords = keywords.content;
+        
+        // Open Graph
+        const ogTitle = document.querySelector('meta[property="og:title"]');
+        if (ogTitle) meta.ogTitle = ogTitle.content;
+        
+        const ogDescription = document.querySelector('meta[property="og:description"]');
+        if (ogDescription) meta.ogDescription = ogDescription.content;
+        
+        const ogImage = document.querySelector('meta[property="og:image"]');
+        if (ogImage) meta.ogImage = ogImage.content;
+        
+        return meta;
+    }
+
+    /**
+     * 提取主要内容（智能算法）
+     */
+    function extractMainContent(maxLength) {
+        // 尝试多种策略提取主要内容
+        let content = '';
+        
+        // 策略 1: 查找 article 标签
+        const article = document.querySelector('article');
+        if (article) {
+            content = extractTextFromElement(article);
+        }
+        
+        // 策略 2: 查找 main 标签
+        if (!content) {
+            const main = document.querySelector('main');
+            if (main) {
+                content = extractTextFromElement(main);
+            }
+        }
+        
+        // 策略 3: 查找具有大量文本的元素
+        if (!content) {
+            content = findContentRichElement();
+        }
+        
+        // 策略 4: 使用 body（最后手段）
+        if (!content) {
+            content = extractTextFromElement(document.body);
+        }
+        
+        // 清理和截断
+        content = cleanText(content);
+        
+        if (content.length > maxLength) {
+            content = content.substring(0, maxLength) + '... [内容已截断]';
+        }
+        
+        return content;
+    }
+
+    /**
+     * 从元素中提取文本
+     */
+    function extractTextFromElement(element) {
+        if (!element) return '';
+        
+        // 移除脚本和样式
+        const clone = element.cloneNode(true);
+        const scripts = clone.querySelectorAll('script, style, nav, footer, header, aside');
+        scripts.forEach(el => el.remove());
+        
+        return clone.innerText || clone.textContent || '';
+    }
+
+    /**
+     * 查找内容丰富的元素
+     */
+    function findContentRichElement() {
+        const candidates = [];
+        
+        // 查找所有 div 和 section
+        const elements = document.querySelectorAll('div, section');
+        
+        elements.forEach(el => {
+            const text = el.innerText || '';
+            const length = text.trim().length;
+            
+            // 只考虑文本长度超过 200 字符的元素
+            if (length > 200) {
+                candidates.push({ element: el, length });
+            }
+        });
+        
+        // 按文本长度排序，返回最长的
+        candidates.sort((a, b) => b.length - a.length);
+        
+        if (candidates.length > 0) {
+            return extractTextFromElement(candidates[0].element);
+        }
+        
+        return '';
+    }
+
+    /**
+     * 清理文本
+     */
+    function cleanText(text) {
+        return text
+            .replace(/\n\s*\n/g, '\n') // 移除多余空行
+            .replace(/[ \t]+/g, ' ') // 合并多个空格
+            .trim();
+    }
+
+    /**
+     * 检测页面结构
+     */
+    function detectPageStructure() {
+        const structure = {
+            headings: [],
+            paragraphs: 0,
+            lists: 0,
+            tables: 0,
+            codeBlocks: 0
+        };
+        
+        // 提取标题
+        const headings = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
+        headings.forEach(h => {
+            structure.headings.push({
+                level: parseInt(h.tagName[1]),
+                text: h.innerText.trim()
+            });
+        });
+        
+        // 统计段落
+        structure.paragraphs = document.querySelectorAll('p').length;
+        
+        // 统计列表
+        structure.lists = document.querySelectorAll('ul, ol').length;
+        
+        // 统计表格
+        structure.tables = document.querySelectorAll('table').length;
+        
+        // 统计代码块
+        structure.codeBlocks = document.querySelectorAll('pre, code').length;
+        
+        return structure;
+    }
+
+    /**
+     * 查找交互元素
+     */
+    function findInteractiveElements() {
+        const elements = [];
+        
+        // 查找按钮
+        const buttons = document.querySelectorAll('button, [role="button"], input[type="button"], input[type="submit"]');
+        buttons.forEach(btn => {
+            const rect = btn.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) { // 只包括可见元素
+                elements.push({
+                    type: 'button',
+                    text: btn.innerText || btn.value || '',
+                    selector: generateSelector(btn),
+                    visible: true
+                });
+            }
+        });
+        
+        // 查找表单输入
+        const inputs = document.querySelectorAll('input:not([type="button"]):not([type="submit"]), textarea, select');
+        inputs.forEach(input => {
+            const rect = input.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+                elements.push({
+                    type: input.tagName.toLowerCase(),
+                    name: input.name || input.id || '',
+                    placeholder: input.placeholder || '',
+                    selector: generateSelector(input),
+                    visible: true
+                });
+            }
+        });
+        
+        // 限制返回数量（避免过多）
+        return elements.slice(0, 50);
+    }
+
+    /**
+     * 提取链接
+     */
+    function extractLinks() {
+        const links = [];
+        const anchorElements = document.querySelectorAll('a[href]');
+        
+        anchorElements.forEach(a => {
+            const rect = a.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) { // 只包括可见链接
+                links.push({
+                    text: a.innerText.trim(),
+                    href: a.href,
+                    title: a.title || ''
+                });
+            }
+        });
+        
+        // 限制数量
+        return links.slice(0, 100);
+    }
+
+    /**
+     * 提取图片信息
+     */
+    function extractImages() {
+        const images = [];
+        const imgElements = document.querySelectorAll('img');
+        
+        imgElements.forEach(img => {
+            const rect = img.getBoundingClientRect();
+            if (rect.width > 0 && rect.height > 0) {
+                images.push({
+                    src: img.src,
+                    alt: img.alt || '',
+                    width: img.naturalWidth || img.width,
+                    height: img.naturalHeight || img.height
+                });
+            }
+        });
+        
+        return images.slice(0, 50);
+    }
+
+    /**
+     * 生成 CSS 选择器
+     */
+    function generateSelector(element) {
+        if (element.id) {
+            return `#${element.id}`;
+        }
+        
+        if (element.className && typeof element.className === 'string') {
+            const classes = element.className.trim().split(/\s+/).slice(0, 3).join('.');
+            if (classes) {
+                return `${element.tagName.toLowerCase()}.${classes}`;
+            }
+        }
+        
+        return element.tagName.toLowerCase();
+    }
+
+    /**
+     * 生成页面摘要（用于 AI 上下文）
+     */
+    function generateSummary(options = {}) {
+        const analysis = analyzePage(options);
+        
+        let summary = `# 页面分析结果\n\n`;
+        summary += `**URL**: ${analysis.url}\n`;
+        summary += `**标题**: ${analysis.title}\n\n`;
+        
+        if (analysis.meta.description) {
+            summary += `**描述**: ${analysis.meta.description}\n\n`;
+        }
+        
+        summary += `## 内容结构\n`;
+        summary += `- 标题数: ${analysis.structure.headings.length}\n`;
+        summary += `- 段落数: ${analysis.structure.paragraphs}\n`;
+        summary += `- 列表数: ${analysis.structure.lists}\n`;
+        summary += `- 表格数: ${analysis.structure.tables}\n\n`;
+        
+        if (analysis.structure.headings.length > 0) {
+            summary += `## 标题层级\n`;
+            analysis.structure.headings.slice(0, 10).forEach(h => {
+                const indent = '  '.repeat(h.level - 1);
+                summary += `${indent}- ${h.text}\n`;
+            });
+            summary += '\n';
+        }
+        
+        if (analysis.interactiveElements.length > 0) {
+            summary += `## 交互元素 (${analysis.interactiveElements.length}个)\n`;
+            const buttons = analysis.interactiveElements.filter(e => e.type === 'button');
+            const inputs = analysis.interactiveElements.filter(e => e.type !== 'button');
+            
+            if (buttons.length > 0) {
+                summary += `### 按钮\n`;
+                buttons.slice(0, 10).forEach(btn => {
+                    summary += `- ${btn.text || '(无文本)'}\n`;
+                });
+                summary += '\n';
+            }
+            
+            if (inputs.length > 0) {
+                summary += `### 输入框\n`;
+                inputs.slice(0, 10).forEach(input => {
+                    summary += `- ${input.name || input.placeholder || '(未命名)'}\n`;
+                });
+                summary += '\n';
+            }
+        }
+        
+        summary += `## 主要内容\n\n`;
+        summary += analysis.content.substring(0, 2000);
+        
+        if (analysis.content.length > 2000) {
+            summary += '\n\n... [内容已截断]';
+        }
+        
+        return summary;
+    }
+
+    return {
+        analyzePage,
+        generateSummary,
+        extractMainContent,
+        findInteractiveElements,
+        extractLinks
+    };
+})();
+
+
+// =====================================================
+// 模块: web/WebAgentClient.js
 // =====================================================
 
 // ==================== Web Agent 客户端 ====================
@@ -6375,7 +6375,7 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 
 // =====================================================
-// 模块: app/ui/hooks/useSettings.js
+// 模块: ui/hooks/useSettings.js
 // =====================================================
 
 // ==================== Settings Hook ====================
@@ -6633,7 +6633,7 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 
 // =====================================================
-// 模块: app/ui/hooks/useAgent.js
+// 模块: ui/hooks/useAgent.js
 // =====================================================
 
 // ==================== Agent Hook ====================
@@ -7102,7 +7102,7 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 
 // =====================================================
-// 模块: app/ui/components/MessageItem.jsx
+// 模块: ui/components/MessageItem.jsx
 // =====================================================
 
 // ==================== Message Item Component ====================
@@ -7440,7 +7440,7 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 
 // =====================================================
-// 模块: app/ui/components/ChatWindow.jsx
+// 模块: ui/components/ChatWindow.jsx
 // =====================================================
 
 // ==================== Chat Window Component ====================
@@ -8130,7 +8130,7 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 
 // =====================================================
-// 模块: app/ui/components/SettingsDialog.jsx
+// 模块: ui/components/SettingsDialog.jsx
 // =====================================================
 
 // ==================== Settings Dialog Component ====================
@@ -9043,7 +9043,7 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 
 // =====================================================
-// 模块: app/ui/components/CodeConfirmDialog.jsx
+// 模块: ui/components/CodeConfirmDialog.jsx
 // =====================================================
 
 // ==================== 高危代码确认对话框 ====================
@@ -9198,7 +9198,7 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 
 
 // =====================================================
-// 模块: app/ui/index.jsx
+// 模块: ui/index.jsx
 // =====================================================
 
 // ==================== React UI 根组件 ====================

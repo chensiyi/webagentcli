@@ -49,47 +49,48 @@ console.log(`📦 版本: ${VERSION}`);
 console.log(`📅 构建日期: ${BUILD_DATE}`);
 console.log(`🚀 发布模式: ${IS_RELEASE ? '✅ 是 (DEBUG_MODE=false)' : '❌ 否 (DEBUG_MODE=true)'}`);
 
-// 模块加载顺序配置（按依赖关系排序）- v5.0 新架构
+// 模块加载顺序配置（按依赖关系排序）- v5.2 新架构
 const modules = [
-    // ==================== Core Utilities (核心工具层) ====================
+    // ==================== Core Layer (核心层) ====================
     'core/utils.js',                    // 工具函数
     'core/EventManager.js',             // 事件总线
     'core/ErrorTracker.js',             // 错误追踪器
+    'core/StorageManager.js',           // 存储管理（提升为核心）
     
-    // ==================== Services Layer (服务层) ====================
-    'services/storage/StorageManager.js',         // 存储管理
-    'services/provider/ProviderManager.js',       // 供应商管理
-    'services/model-manager/ModelManager.js',     // 模型管理
-    'services/page-analyzer/PageAnalyzer.js',     // 页面分析器
-    
+    // ==================== Agent Layer (Agent 层) ====================
     // API 客户端
-    'services/api/BaseAPIClient.js',              // API 基础客户端
-    'services/api/OpenRouterClient.js',           // OpenRouter 客户端
-    'services/api/LMStudioClient.js',             // LM Studio 客户端
-    'services/api/OllamaClient.js',               // Ollama 客户端
-    'services/api/APIRouter.js',                  // API 路由和故障转移
-    'services/api/index.js',                      // API 客户端工厂
+    'agent/api/BaseAPIClient.js',       // API 基础客户端
+    'agent/api/OpenRouterClient.js',    // OpenRouter 客户端
+    'agent/api/LMStudioClient.js',      // LM Studio 客户端
+    'agent/api/OllamaClient.js',        // Ollama 客户端
+    'agent/api/APIRouter.js',           // API 路由和故障转移
+    'agent/api/index.js',               // API 客户端工厂
     
-    // ==================== Infrastructure Layer (基础设施层) ====================
-    'infrastructure/AIAgent/CodeExecutor.js',     // 代码执行器
-    'infrastructure/AIAgent/index.js',            // AI Agent 核心
+    // 供应商和模型管理
+    'agent/providers/ProviderManager.js',   // 供应商管理
+    'agent/models/ModelManager.js',         // 模型管理
     
-    // ==================== Business Logic Layer (业务逻辑层) ====================
-    'business/WebAgentClient.js',                 // Web Agent 客户端（业务编排器）
+    // AI Agent 核心
+    'agent/AIAgent/CodeExecutor.js',    // 代码执行器
+    'agent/AIAgent/index.js',           // AI Agent 核心
     
-    // React UI (Phase 2: 已启用)
-    'vendor/react.production.min.js',             // React 运行时
-    'vendor/react-dom.production.min.js',         // ReactDOM
-    'app/ui/hooks/useSettings.js',                // Settings Hook
-    'app/ui/hooks/useAgent.js',                   // Agent Hook
-    'app/ui/components/MessageItem.jsx',          // Message Item 组件
-    'app/ui/components/ChatWindow.jsx',           // Chat Window 组件
-    'app/ui/components/SettingsDialog.jsx',       // Settings Dialog 组件
-    'app/ui/components/CodeConfirmDialog.jsx',    // P0: Code Confirm Dialog 组件
-    'app/ui/index.jsx',                           // React 根组件
+    // ==================== Web Layer (Web 集成层) ====================
+    'web/PageAnalyzer.js',              // 页面分析器
+    'web/WebAgentClient.js',            // Web Agent 客户端（业务编排器）
+    
+    // React UI
+    'vendor/react.production.min.js',   // React 运行时
+    'vendor/react-dom.production.min.js', // ReactDOM
+    'ui/hooks/useSettings.js',          // Settings Hook
+    'ui/hooks/useAgent.js',             // Agent Hook
+    'ui/components/MessageItem.jsx',    // Message Item 组件
+    'ui/components/ChatWindow.jsx',     // Chat Window 组件
+    'ui/components/SettingsDialog.jsx', // Settings Dialog 组件
+    'ui/components/CodeConfirmDialog.jsx', // P0: Code Confirm Dialog 组件
+    'ui/index.jsx',                     // React 根组件
     
     // ==================== Main Entry (程序入口) ====================
-    'main.js'                                     // 主入口，最后加载
+    'main.js'                           // 主入口，最后加载
 ].filter(Boolean); // 过滤掉 null 值
 
 console.log(`\n📋 将加载 ${modules.length} 个模块...`);
