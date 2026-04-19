@@ -3668,7 +3668,7 @@ const CodeExecutor = (function() {
 
 // ==================== AI Agent 核心 ====================
 // v4.4.0: Agent 作为组合器，整合所有底层模块
-// Agent = ModelManager + APIClient + PageAnalyzer + HistoryManager + ...
+// Agent = ModelManager + APIRouter + ErrorTracker + CodeExecutor + ...
 
 const AIAgent = (function() {
     'use strict';
@@ -3678,7 +3678,6 @@ const AIAgent = (function() {
     const dependencies = {
         ModelManager,      // 模型选择和可用性管理
         APIRouter,         // API 路由和故障转移
-        PageAnalyzer,      // 页面理解和分析
         ErrorTracker,      // 错误追踪
         Utils,             // 工具函数
         CodeExecutor       // v4.5.0: 代码执行器
@@ -3879,19 +3878,20 @@ const AIAgent = (function() {
             Utils.debugLog(`[AIAgent] 📝 System Prompt 已添加 (~${stats.systemTokens} tokens)`);
         }
 
-        // 2. 页面上下文（Agent 的核心能力：自动理解页面）
-        if (options.includePageContext !== false && agentState.config.autoAttachPageContext) {
-            const pageContext = await getPageContext(options.pageContextOptions);
-            if (pageContext) {
-                const pageContent = `## 当前页面上下文\n\n${pageContext}\n\n请基于以上页面内容回答用户问题。`;
-                messages.push({
-                    role: 'system',
-                    content: pageContent
-                });
-                stats.pageContextTokens = estimateTextTokens(pageContent) + 4;
-                Utils.debugLog(`[AIAgent] 📄 页面上下文已添加 (~${stats.pageContextTokens} tokens)`);
-            }
-        }
+        // 2. 页面上下文（待实现）
+        // TODO: 未来可以添加页面分析功能
+        // if (options.includePageContext !== false && agentState.config.autoAttachPageContext) {
+        //     const pageContext = await getPageContext(options.pageContextOptions);
+        //     if (pageContext) {
+        //         const pageContent = `## 当前页面上下文\n\n${pageContext}\n\n请基于以上页面内容回答用户问题。`;
+        //         messages.push({
+        //             role: 'system',
+        //             content: pageContent
+        //         });
+        //         stats.pageContextTokens = estimateTextTokens(pageContent) + 4;
+        //         Utils.debugLog(`[AIAgent] 📄 页面上下文已添加 (~${stats.pageContextTokens} tokens)`);
+        //     }
+        // }
 
         // 3. 对话历史（保持上下文连贯性）
         if (agentState.currentConversation.length > 0) {
@@ -3998,32 +3998,6 @@ Array.from(document.querySelectorAll('a')).map(a => a.href)
 现在，请帮助用户完成任务。`;
 
         return prompt;
-    }
-
-    /**
-     * 获取页面上下文（委托给 PageAnalyzer）
-     */
-    async function getPageContext(options = {}) {
-        try {
-            // 检查 PageAnalyzer 是否可用
-            if (typeof dependencies.PageAnalyzer === 'undefined') {
-                console.warn('[AIAgent] PageAnalyzer 不可用');
-                return null;
-            }
-
-            const summary = dependencies.PageAnalyzer.generateSummary({
-                maxContentLength: options.maxContentLength || 5000,
-                includeLinks: options.includeLinks || false,
-                detectForms: options.detectForms || false
-            });
-            
-            agentState.pageContext = summary;
-            return summary;
-            
-        } catch (error) {
-            console.warn('[AIAgent] 获取页面上下文失败:', error);
-            return null;
-        }
     }
 
     /**
@@ -4438,7 +4412,7 @@ Array.from(document.querySelectorAll('a')).map(a => a.href)
         
         // 上下文管理
         buildMessageContext,
-        getPageContext,
+        // getPageContext,  // 待实现
         clearHistory,
         addToHistory,
         
