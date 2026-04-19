@@ -1,6 +1,6 @@
 // ==================== 统一状态管理器 ====================
 // v4.2.0: 单一状态树架构
-// 整合 ConfigManager、StateManager、HistoryManager 的功能
+// 整合 StateManager、HistoryManager 的功能
 
 const UnifiedStateManager = (function() {
     'use strict';
@@ -22,7 +22,8 @@ const UnifiedStateManager = (function() {
             visible: false,
             position: { x: null, y: null },
             size: { width: 450, height: 500 },
-            theme: 'light'
+            theme: 'light',
+            settingsVisible: null  // 设置对话框可见性（用于快捷键冲突检测）
         },
         
         // 会话状态（当前对话）

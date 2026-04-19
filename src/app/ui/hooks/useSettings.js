@@ -27,16 +27,33 @@
             try {
                 setIsLoading(true);
                 
-                // 从 ConfigManager 加载配置
-                const config = ConfigManager.getAll();
+                // 从 StorageManager 加载设置
+                let settings = {};
+                if (window.StorageManager) {
+                    settings = {
+                        model: window.StorageManager.getState('config.model') || 'auto',
+                        temperature: window.StorageManager.getState('config.temperature') || 0.7,
+                        maxTokens: window.StorageManager.getState('config.maxTokens') || 4096
+                    };
+                    console.log('[useSettings] 📦 从 StorageManager 加载设置');
+                }
+                
                 const providers = ProviderManager.getAllProviders();
                 
                 setSettings({
-                    model: config.model || 'auto',
-                    temperature: config.temperature || 0.7,
-                    maxTokens: config.maxTokens || 4096,
+                    ...settings,
                     providers: providers || []
                 });
+                
+                // 触发配置更新事件，通知其他组件
+                if (window.EventManager && settings.model) {
+                    window.EventManager.emit('SETTINGS_UPDATED', {
+                        defaultModel: settings.model,
+                        temperature: settings.temperature,
+                        maxTokens: settings.maxTokens
+                    });
+                    console.log('[useSettings] 📢 初始化时触发 SETTINGS_UPDATED 事件');
+                }
                 
             } catch (error) {
                 console.error('[useSettings] 加载设置失败:', error);
@@ -50,19 +67,32 @@
             try {
                 setIsLoading(true);
                 
-                // 保存基础配置（不再包含 apiKey）
-                if (newSettings.model !== undefined) {
-                    ConfigManager.set('model', newSettings.model);
-                }
-                if (newSettings.temperature !== undefined) {
-                    ConfigManager.set('temperature', newSettings.temperature);
-                }
-                if (newSettings.maxTokens !== undefined) {
-                    ConfigManager.set('maxTokens', newSettings.maxTokens);
+                // 保存到 StorageManager
+                if (window.StorageManager) {
+                    if (newSettings.model !== undefined) {
+                        window.StorageManager.setState('config.model', newSettings.model);
+                    }
+                    if (newSettings.temperature !== undefined) {
+                        window.StorageManager.setState('config.temperature', newSettings.temperature);
+                    }
+                    if (newSettings.maxTokens !== undefined) {
+                        window.StorageManager.setState('config.maxTokens', newSettings.maxTokens);
+                    }
+                    console.log('[useSettings] 💾 设置已保存到 StorageManager');
                 }
                 
                 // 更新状态
                 setSettings(prev => ({ ...prev, ...newSettings }));
+                
+                // 触发配置更新事件，通知其他组件
+                if (window.EventManager) {
+                    window.EventManager.emit('SETTINGS_UPDATED', {
+                        defaultModel: newSettings.model,
+                        temperature: newSettings.temperature,
+                        maxTokens: newSettings.maxTokens
+                    });
+                    console.log('[useSettings] 📢 已触发 SETTINGS_UPDATED 事件');
+                }
                 
                 console.log('[useSettings] ✅ 设置已保存');
                 

@@ -89,33 +89,33 @@
             setFormData(settings);
         }, [settings]);
         
-        // 注册 Escape 快捷键（仅在对话框打开时）
+        // 同步设置对话框状态到 StorageManager（用于快捷键冲突检测）
         React.useEffect(() => {
-            if (!isOpen || !window.ShortcutManager) {
-                return;
+            if (window.StorageManager) {
+                window.StorageManager.setState('ui.settingsVisible', isOpen ? true : null);
+            }
+        }, [isOpen]);
+        
+        // 设置对话框键盘事件处理（仅在对话框打开时）
+        React.useEffect(() => {
+            if (!isOpen) return;
+            
+            function handleKeyDown(e) {
+                // Escape: 关闭设置对话框
+                if (e.key === 'Escape') {
+                    e.stopPropagation(); // 阻止事件冒泡到 ChatWindow
+                    if (onClose) {
+                        onClose();
+                        console.log('[SettingsDialog] ⌨️ Escape 关闭设置对话框');
+                    }
+                    e.preventDefault();
+                }
             }
             
-            /**
-             * Escape: 关闭设置对话框
-             * 
-             * 功能说明:
-             * - 按 Escape 键关闭设置对话框
-             * - 不保存未保存的更改
-             */
-            window.ShortcutManager.register('escape', (e) => {
-                if (onClose) {
-                    onClose();
-                    console.log('[SettingsDialog] ⌨️ Escape 关闭设置对话框');
-                }
-                return false;
-            }, '关闭设置对话框');
-            
-            console.log('[SettingsDialog] ✅ 设置对话框快捷键已注册');
-            
-            // 清理：对话框关闭时注销快捷键
+            // 使用捕获阶段，确保优先处理
+            window.addEventListener('keydown', handleKeyDown, true);
             return () => {
-                window.ShortcutManager.unregister('escape');
-                console.log('[SettingsDialog] 🗑️ 设置对话框快捷键已注销');
+                window.removeEventListener('keydown', handleKeyDown, true);
             };
         }, [isOpen, onClose]);
         

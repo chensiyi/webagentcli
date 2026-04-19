@@ -19,6 +19,42 @@
         const getWebAgentClient = () => window.WebAgentClient;
         const getEventManager = () => window.EventManager;
         
+        // 监听配置更新事件，同步模型选择
+        React.useEffect(() => {
+            console.log('[useAgent] 🔔 注册配置更新监听器');
+            
+            const EventManager = getEventManager();
+            if (!EventManager) {
+                console.warn('[useAgent] ⚠️ EventManager 未加载，无法监听配置更新');
+                return;
+            }
+            
+            // 监听 SETTINGS_UPDATED 事件
+            const settingsUpdatedId = EventManager.on('SETTINGS_UPDATED', (data) => {
+                console.log('[useAgent] 📨 收到 SETTINGS_UPDATED 事件:', data);
+                
+                // 如果配置中包含 defaultModel，更新 currentModel
+                if (data && data.defaultModel) {
+                    setCurrentModel(data.defaultModel);
+                    console.log('[useAgent] ✅ 模型已同步:', data.defaultModel);
+                }
+            });
+            
+            // 初始化时从 StorageManager 加载一次
+            if (window.StorageManager) {
+                const savedModel = window.StorageManager.getState('config.model');
+                if (savedModel) {
+                    setCurrentModel(savedModel);
+                    console.log('[useAgent] 📂 初始化加载模型:', savedModel);
+                }
+            }
+            
+            return () => {
+                EventManager.off('SETTINGS_UPDATED', settingsUpdatedId);
+                console.log('[useAgent] 🗑️ 注销配置更新监听器');
+            };
+        }, []);
+        
         // 加载历史消息 + 监听会话恢复事件（P2: 由 WebAgentClient 统一管理，这里只监听事件）
         React.useEffect(() => {
             console.log('[useAgent] 🔄 组件挂载，开始加载历史');
@@ -89,11 +125,16 @@
         
         async function loadModels() {
             try {
-                // 从 ConfigManager 获取当前模型
-                if (ConfigManager) {
-                    const model = ConfigManager.get('model') || 'auto';
-                    setCurrentModel(model);
+                // 从 StorageManager 获取当前模型
+                let model = 'auto';
+                if (window.StorageManager) {
+                    const savedModel = window.StorageManager.getState('settings.defaultModel');
+                    if (savedModel) {
+                        model = savedModel;
+                        console.log('[useAgent] 📦 从 StorageManager 加载模型:', model);
+                    }
                 }
+                setCurrentModel(model);
                 
                 // 从 ProviderManager 获取可用模型列表
                 if (!ProviderManager) {
@@ -277,12 +318,20 @@
             try {
                 setCurrentModel(modelId);
                 
-                // 保存到 ConfigManager
-                if (ConfigManager) {
-                    ConfigManager.set('model', modelId);
+                // 保存到 StorageManager
+                if (window.StorageManager) {
+                    window.StorageManager.setState('config.model', modelId);
+                    console.log('[useAgent] 💾 模型已保存到 StorageManager:', modelId);
                 }
                 
-                console.log('[useAgent] ✅ 模型已切换:', modelId);
+                // 通知 WebAgentClient 更新配置（持久化到 AIAgent）
+                const WebAgentClient = getWebAgentClient();
+                if (WebAgentClient && WebAgentClient.updateSettings) {
+                    WebAgentClient.updateSettings({
+                        defaultModel: modelId
+                    });
+                    console.log('[useAgent] 🔄 已通知 WebAgentClient 更新模型:', modelId);
+                }
                 
             } catch (error) {
                 console.error('[useAgent] 切换模型失败:', error);

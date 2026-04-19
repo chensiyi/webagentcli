@@ -921,24 +921,15 @@ const WebAgentClient = (function() {
 
         let saved = {};
 
-        // 优先从 StorageManager 加载
+        // 从 StorageManager 加载
         if (window.StorageManager) {
             saved = {
-                defaultModel: window.StorageManager.getState('settings.defaultModel'),
-                temperature: window.StorageManager.getState('settings.temperature'),
-                maxTokens: window.StorageManager.getState('settings.maxTokens'),
-                maxContextTokens: window.StorageManager.getState('settings.maxContextTokens')
+                defaultModel: window.StorageManager.getState('config.model'),
+                temperature: window.StorageManager.getState('config.temperature'),
+                maxTokens: window.StorageManager.getState('config.maxTokens'),
+                maxContextTokens: window.StorageManager.getState('config.maxContextTokens')
             };
             console.log('[WebAgentClient] 📦 从 StorageManager 加载设置');
-        } 
-        // Fallback: 从 ConfigManager 加载
-        else if (ConfigManager) {
-            saved = {
-                defaultModel: ConfigManager.get('model'),
-                temperature: ConfigManager.get('temperature'),
-                maxTokens: ConfigManager.get('maxTokens')
-            };
-            console.log('[WebAgentClient] 📦 从 ConfigManager 加载设置');
         }
 
         return { ...defaults, ...saved, ...options };
@@ -948,20 +939,13 @@ const WebAgentClient = (function() {
      * 保存设置
      */
     async function saveSettings(settings) {
-        // 优先使用 StorageManager
+        // 使用 StorageManager
         if (window.StorageManager) {
-            window.StorageManager.setState('settings.defaultModel', settings.defaultModel);
-            window.StorageManager.setState('settings.temperature', settings.temperature);
-            window.StorageManager.setState('settings.maxTokens', settings.maxTokens);
-            window.StorageManager.setState('settings.maxContextTokens', settings.maxContextTokens);
+            window.StorageManager.setState('config.model', settings.defaultModel);
+            window.StorageManager.setState('config.temperature', settings.temperature);
+            window.StorageManager.setState('config.maxTokens', settings.maxTokens);
+            window.StorageManager.setState('config.maxContextTokens', settings.maxContextTokens);
             console.log('[WebAgentClient] 💾 设置已保存到 StorageManager');
-        }
-        // Fallback: 使用 ConfigManager
-        else if (ConfigManager) {
-            ConfigManager.set('model', settings.defaultModel);
-            ConfigManager.set('temperature', settings.temperature);
-            ConfigManager.set('maxTokens', settings.maxTokens);
-            console.log('[WebAgentClient] 💾 设置已保存到 ConfigManager');
         }
     }
 

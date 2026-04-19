@@ -1,10 +1,11 @@
 // ==UserScript==
-// @name         Free Web AI Agent
+// @name         Web AI Agent
 // @namespace    https://github.com/chensiyi1994
 // @version      5.1.0
 // @description  基于ai模型的Web AI 助手,支持 JS 执行
 // @author       chensiyi1994
 // @match        *://*/*
+// @match        file:///*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_addStyle
 // @grant        GM_getValue
@@ -16,7 +17,7 @@
 // 构建信息
 // 版本: 5.1.0
 // 日期: 2026-04-19
-// 模块数: 28
+// 模块数: 26
 
 
 // =====================================================
@@ -128,8 +129,7 @@ const EventManager = (function() {
         CHAT_CLEARED: 'agent:chat:cleared',
         REQUEST_CANCELLED: 'agent:request:cancelled',
         
-        // 配置相关
-        CONFIG_UPDATED: 'agent:config:updated',
+        // 配置相关(统一使用 SETTINGS_*)
         SETTINGS_OPEN: 'agent:settings:open',
         SETTINGS_SAVED: 'agent:settings:saved',
         SETTINGS_UPDATED: 'agent:settings:updated',
@@ -802,269 +802,12 @@ const ErrorTracker = (function() {
 
 
 // =====================================================
-// 模块: services/config/ConfigManager.js
-// =====================================================
-
-// ==================== 配置管理器 (重构版) ====================
-// 提供统一的配置管理接口，降低耦合度
-
-const ConfigManager = (function() {
-    'use strict';
-    
-    // 配置键名枚举
-    const ConfigKeys = {
-        API_KEY: 'api_key',
-        MODEL: 'model',
-        ENDPOINT: 'endpoint',
-        TEMPERATURE: 'temperature',
-        TOP_P: 'top_p',
-        MAX_TOKENS: 'max_tokens',
-        JS_ENABLED: 'js_execution_enabled',
-        USER_ID: 'user_id'
-    };
-    
-    // 默认配置
-    const Defaults = {
-        apiKey: '',
-        model: 'google/gemma-3-12b-it:free',
-        endpoint: 'https://openrouter.ai/api/v1/chat/completions',
-        temperature: 0.7,
-        topP: 0.95,
-        maxTokens: 2048,
-        jsExecutionEnabled: true,
-        userId: 'user_' + Date.now()
-    };
-    
-    // 配置缓存
-    let configCache = {};
-    let isInitialized = false;
-    
-    // 依赖引用（通过依赖注入）
-    let eventManager = null;
-    
-    /**
-     * 初始化配置管理器
-     * @param {Object} dependencies - 依赖对象
-     * @returns {Promise<Object>} 当前配置
-     */
-    async function init(dependencies = {}) {
-        if (isInitialized) {
-            console.log('⚠️ 配置管理器已初始化');
-            return configCache;
-        }
-        
-        // 注入依赖
-        if (dependencies.eventManager) {
-            eventManager = dependencies.eventManager;
-        }
-        
-        console.log('🔄 初始化配置管理器...');
-        
-        // 执行数据迁移
-        await migrateOldConfig();
-        
-        // 加载配置
-        await loadAllConfig();
-        
-        isInitialized = true;
-        console.log('✅ 配置管理器初始化完成');
-        
-        // 触发初始化完成事件
-        if (eventManager) {
-            eventManager.emit(eventManager.EventTypes.CONFIG_UPDATED, configCache);
-        }
-        
-        return configCache;
-    }
-    
-    /**
-     * 迁移旧配置（兼容性）
-     */
-    async function migrateOldConfig() {
-        const oldMappings = {
-            'openrouter_model': ConfigKeys.MODEL,
-            'openrouter_api_key': ConfigKeys.API_KEY,
-            'openrouter_endpoint': ConfigKeys.ENDPOINT
-        };
-        
-        for (const [oldKey, newKey] of Object.entries(oldMappings)) {
-            const oldValue = GM_getValue(oldKey, undefined);
-            const newValue = GM_getValue(newKey, undefined);
-            
-            if (oldValue !== undefined && newValue === undefined) {
-                GM_setValue(newKey, oldValue);
-                console.log(`✅ 已迁移配置: ${oldKey} -> ${newKey}`);
-            }
-        }
-    }
-    
-    /**
-     * 加载所有配置
-     */
-    async function loadAllConfig() {
-        configCache = {
-            apiKey: GM_getValue(ConfigKeys.API_KEY, Defaults.apiKey),
-            model: GM_getValue(ConfigKeys.MODEL, Defaults.model),
-            endpoint: GM_getValue(ConfigKeys.ENDPOINT, Defaults.endpoint),
-            temperature: GM_getValue(ConfigKeys.TEMPERATURE, Defaults.temperature),
-            topP: GM_getValue(ConfigKeys.TOP_P, Defaults.topP),
-            maxTokens: GM_getValue(ConfigKeys.MAX_TOKENS, Defaults.maxTokens),
-            jsExecutionEnabled: GM_getValue(ConfigKeys.JS_ENABLED, Defaults.jsExecutionEnabled),
-            userId: GM_getValue(ConfigKeys.USER_ID, Defaults.userId)
-        };
-
-        console.log('✅ 配置已加载');
-    }
-    
-    /**
-     * 获取所有配置
-     * @returns {Object} 配置对象
-     */
-    function getAll() {
-        return { ...configCache };
-    }
-    
-    /**
-     * 获取单个配置项
-     * @param {string} key - 配置键
-     * @returns {any} 配置值
-     */
-    function get(key) {
-        if (key in configCache) {
-            return configCache[key];
-        }
-        console.warn(`⚠️ 未知配置键: ${key}`);
-        return undefined;
-    }
-    
-    /**
-     * 设置配置项
-     * @param {string} key - 配置键
-     * @param {any} value - 配置值
-     */
-    function set(key, value) {
-        if (!(key in configCache)) {
-            console.warn(`⚠️ 尝试设置未知配置键: ${key}`);
-            return;
-        }
-        
-        configCache[key] = value;
-        
-        // 保存到 GM 存储
-        const keyMappings = {
-            apiKey: ConfigKeys.API_KEY,
-            model: ConfigKeys.MODEL,
-            endpoint: ConfigKeys.ENDPOINT,
-            temperature: ConfigKeys.TEMPERATURE,
-            topP: ConfigKeys.TOP_P,
-            maxTokens: ConfigKeys.MAX_TOKENS,
-            jsExecutionEnabled: ConfigKeys.JS_ENABLED,
-            userId: ConfigKeys.USER_ID
-        };
-        
-        const gmKey = keyMappings[key];
-        if (gmKey) {
-            GM_setValue(gmKey, value);
-        }
-        
-        // 触发配置更新事件
-        if (eventManager) {
-            eventManager.emit(eventManager.EventTypes.CONFIG_UPDATED, { [key]: value });
-        }
-    }
-    
-    /**
-     * 批量更新配置
-     * @param {Object} updates - 配置更新对象
-     */
-    function update(updates) {
-        Object.entries(updates).forEach(([key, value]) => {
-            set(key, value);
-        });
-    }
-    
-    /**
-     * 重置配置到默认值
-     * @param {string|null} key - 指定键，为 null 则重置所有
-     */
-    function reset(key = null) {
-        if (key === null) {
-            // 重置所有配置
-            Object.keys(configCache).forEach(k => {
-                set(k, Defaults[k] || '');
-            });
-        } else if (key in Defaults) {
-            // 重置指定配置
-            set(key, Defaults[key]);
-        }
-    }
-    
-    /**
-     * 验证配置是否完整
-     * @returns {boolean} 是否配置完整
-     */
-    function isConfigured() {
-        return !!configCache.apiKey && !!configCache.model;
-    }
-    
-    /**
-     * 导出配置
-     * @returns {Object} 可导出的配置对象
-     */
-    function exportConfig() {
-        return {
-            ...configCache,
-            // 排除敏感信息
-            apiKey: configCache.apiKey ? '[HIDDEN]' : ''
-        };
-    }
-    
-    /**
-     * 导入配置
-     * @param {Object} imported - 导入的配置对象
-     */
-    function importConfig(imported) {
-        const safeUpdates = {};
-        
-        // 只导入安全的字段
-        const safeFields = ['model', 'endpoint', 'temperature', 'topP', 'maxTokens', 'jsExecutionEnabled'];
-        
-        safeFields.forEach(field => {
-            if (field in imported) {
-                safeUpdates[field] = imported[field];
-            }
-        });
-        
-        update(safeUpdates);
-        console.log('✅ 配置导入完成');
-    }
-    
-    // 导出公共接口
-    return {
-        init,
-        getAll,
-        get,
-        set,
-        update,
-        reset,
-        isConfigured,
-        exportConfig,
-        importConfig,
-        
-        // 常量导出（只读）
-        ConfigKeys,
-        Defaults
-    };
-})();
-
-
-// =====================================================
 // 模块: services/storage/StorageManager.js
 // =====================================================
 
 // ==================== 统一状态管理器 ====================
 // v4.2.0: 单一状态树架构
-// 整合 ConfigManager、StateManager、HistoryManager 的功能
+// 整合 StateManager、HistoryManager 的功能
 
 const UnifiedStateManager = (function() {
     'use strict';
@@ -1086,7 +829,8 @@ const UnifiedStateManager = (function() {
             visible: false,
             position: { x: null, y: null },
             size: { width: 450, height: 500 },
-            theme: 'light'
+            theme: 'light',
+            settingsVisible: null  // 设置对话框可见性（用于快捷键冲突检测）
         },
         
         // 会话状态（当前对话）
@@ -1396,8 +1140,6 @@ window.StorageManager = UnifiedStateManager;
  * 3. 提供商配置的持久化（按域名隔离）
  * 4. 本地服务自动发现
  */
-
-// 注意：此文件通过 build.js 合并，EventManager 和 ConfigManager 已在全局作用域
 
 // ==================== 模型模板定义 ====================
 
@@ -3222,7 +2964,7 @@ class OpenRouterClient extends BaseAPIClient {
         
         // OpenRouter 特定的头部
         headers['HTTP-Referer'] = window.location.href;
-        headers['X-Title'] = 'Free Web AI Agent';
+        headers['X-Title'] = 'Web AI Agent';
         
         return headers;
     }
@@ -4170,7 +3912,6 @@ const AIAgent = (function() {
         ModelManager,      // 模型选择和可用性管理
         APIRouter,         // API 路由和故障转移
         PageAnalyzer,      // 页面理解和分析
-        ConfigManager,     // 配置管理
         ErrorTracker,      // 错误追踪
         Utils,             // 工具函数
         CodeExecutor       // v4.5.0: 代码执行器
@@ -5881,24 +5622,15 @@ const WebAgentClient = (function() {
 
         let saved = {};
 
-        // 优先从 StorageManager 加载
+        // 从 StorageManager 加载
         if (window.StorageManager) {
             saved = {
-                defaultModel: window.StorageManager.getState('settings.defaultModel'),
-                temperature: window.StorageManager.getState('settings.temperature'),
-                maxTokens: window.StorageManager.getState('settings.maxTokens'),
-                maxContextTokens: window.StorageManager.getState('settings.maxContextTokens')
+                defaultModel: window.StorageManager.getState('config.model'),
+                temperature: window.StorageManager.getState('config.temperature'),
+                maxTokens: window.StorageManager.getState('config.maxTokens'),
+                maxContextTokens: window.StorageManager.getState('config.maxContextTokens')
             };
             console.log('[WebAgentClient] 📦 从 StorageManager 加载设置');
-        } 
-        // Fallback: 从 ConfigManager 加载
-        else if (ConfigManager) {
-            saved = {
-                defaultModel: ConfigManager.get('model'),
-                temperature: ConfigManager.get('temperature'),
-                maxTokens: ConfigManager.get('maxTokens')
-            };
-            console.log('[WebAgentClient] 📦 从 ConfigManager 加载设置');
         }
 
         return { ...defaults, ...saved, ...options };
@@ -5908,20 +5640,13 @@ const WebAgentClient = (function() {
      * 保存设置
      */
     async function saveSettings(settings) {
-        // 优先使用 StorageManager
+        // 使用 StorageManager
         if (window.StorageManager) {
-            window.StorageManager.setState('settings.defaultModel', settings.defaultModel);
-            window.StorageManager.setState('settings.temperature', settings.temperature);
-            window.StorageManager.setState('settings.maxTokens', settings.maxTokens);
-            window.StorageManager.setState('settings.maxContextTokens', settings.maxContextTokens);
+            window.StorageManager.setState('config.model', settings.defaultModel);
+            window.StorageManager.setState('config.temperature', settings.temperature);
+            window.StorageManager.setState('config.maxTokens', settings.maxTokens);
+            window.StorageManager.setState('config.maxContextTokens', settings.maxContextTokens);
             console.log('[WebAgentClient] 💾 设置已保存到 StorageManager');
-        }
-        // Fallback: 使用 ConfigManager
-        else if (ConfigManager) {
-            ConfigManager.set('model', settings.defaultModel);
-            ConfigManager.set('temperature', settings.temperature);
-            ConfigManager.set('maxTokens', settings.maxTokens);
-            console.log('[WebAgentClient] 💾 设置已保存到 ConfigManager');
         }
     }
 
@@ -6201,221 +5926,6 @@ const WebAgentClient = (function() {
         updateUIState,
         saveSession,  // 手动保存会话
         getQueueStatus  // 获取队列状态
-    };
-})();
-
-
-// =====================================================
-// 模块: app/shortcuts/ShortcutManager.js
-// =====================================================
-
-// ==================== 快捷键管理器 ====================
-// 统一管理全局快捷键，支持注册、注销和条件触发
-
-const ShortcutManager = (function() {
-    'use strict';
-    
-    // 快捷键注册表：key -> {callback, description, enabled}
-    const shortcutRegistry = new Map();
-    
-    // 全局键盘事件处理器引用
-    let globalKeyHandler = null;
-    
-    /**
-     * 初始化快捷键系统
-     */
-    function init() {
-        console.log('⌨️ 初始化快捷键系统');
-        
-        // 创建全局键盘事件处理器
-        globalKeyHandler = handleGlobalKeyDown;
-        
-        // 绑定到 document
-        document.addEventListener('keydown', globalKeyHandler);
-        
-        console.log('✅ 快捷键系统已启动');
-    }
-    
-    /**
-     * 销毁快捷键系统
-     */
-    function destroy() {
-        if (globalKeyHandler) {
-            document.removeEventListener('keydown', globalKeyHandler);
-            globalKeyHandler = null;
-        }
-        shortcutRegistry.clear();
-        console.log('🗑️ 快捷键系统已销毁');
-    }
-    
-    /**
-     * 注册快捷键
-     * @param {string} keyCombo - 快捷键组合，如 'Ctrl+Enter', 'Escape', 'Ctrl+ArrowUp'
-     * @param {Function} callback - 回调函数
-     * @param {string} description - 描述（用于显示）
-     * @param {Object} options - 选项
-     * @param {boolean} options.enabled - 是否启用（默认 true）
-     * @param {boolean} options.preventDefault - 是否阻止默认行为（默认 true）
-     * @param {boolean} options.stopPropagation - 是否停止传播（默认 false）
-     */
-    function register(keyCombo, callback, description = '', options = {}) {
-        const normalizedKey = normalizeKeyCombo(keyCombo);
-        
-        shortcutRegistry.set(normalizedKey, {
-            callback,
-            description,
-            enabled: options.enabled !== false,
-            preventDefault: options.preventDefault !== false,
-            stopPropagation: options.stopPropagation === true
-        });
-        
-        console.log(`⌨️ 注册快捷键: ${normalizedKey} - ${description}`);
-    }
-    
-    /**
-     * 注销快捷键
-     * @param {string} keyCombo - 快捷键组合
-     */
-    function unregister(keyCombo) {
-        const normalizedKey = normalizeKeyCombo(keyCombo);
-        const removed = shortcutRegistry.delete(normalizedKey);
-        
-        if (removed) {
-            console.log(`🗑️ 注销快捷键: ${normalizedKey}`);
-        }
-        
-        return removed;
-    }
-    
-    /**
-     * 检查快捷键是否已注册
-     * @param {string} keyCombo - 快捷键组合
-     * @returns {boolean}
-     */
-    function isRegistered(keyCombo) {
-        const normalizedKey = normalizeKeyCombo(keyCombo);
-        return shortcutRegistry.has(normalizedKey);
-    }
-    
-    /**
-     * 启用/禁用快捷键
-     * @param {string} keyCombo - 快捷键组合
-     * @param {boolean} enabled - 是否启用
-     */
-    function setEnabled(keyCombo, enabled) {
-        const normalizedKey = normalizeKeyCombo(keyCombo);
-        const shortcut = shortcutRegistry.get(normalizedKey);
-        
-        if (shortcut) {
-            shortcut.enabled = enabled;
-            console.log(`⚙️ 快捷键 ${normalizedKey} ${enabled ? '已启用' : '已禁用'}`);
-        }
-    }
-    
-    /**
-     * 获取所有已注册的快捷键
-     * @returns {Array} 快捷键列表
-     */
-    function getAllShortcuts() {
-        const shortcuts = [];
-        shortcutRegistry.forEach((value, key) => {
-            shortcuts.push({
-                keyCombo: key,
-                description: value.description,
-                enabled: value.enabled
-            });
-        });
-        return shortcuts;
-    }
-    
-    /**
-     * 标准化快捷键组合字符串
-     * @param {string} keyCombo - 原始快捷键组合
-     * @returns {string} 标准化后的组合
-     */
-    function normalizeKeyCombo(keyCombo) {
-        // 转换为小写，去除空格
-        return keyCombo.toLowerCase().replace(/\s+/g, '');
-    }
-    
-    /**
-     * 解析按键事件为快捷键组合字符串
-     * @param {KeyboardEvent} e - 键盘事件
-     * @returns {string} 快捷键组合字符串
-     */
-    function parseKeyEvent(e) {
-        const parts = [];
-        
-        // 添加修饰键
-        if (e.ctrlKey) parts.push('ctrl');
-        if (e.altKey) parts.push('alt');
-        if (e.shiftKey) parts.push('shift');
-        if (e.metaKey) parts.push('meta');
-        
-        // 添加主键
-        const key = e.key.toLowerCase();
-        
-        // 特殊键名映射
-        const specialKeys = {
-            'arrowup': 'arrowup',
-            'arrowdown': 'arrowdown',
-            'arrowleft': 'arrowleft',
-            'arrowright': 'arrowright',
-            'escape': 'escape',
-            'enter': 'enter',
-            ' ': 'space',
-            'tab': 'tab',
-            'backspace': 'backspace',
-            'delete': 'delete'
-        };
-        
-        const mainKey = specialKeys[key] || key;
-        parts.push(mainKey);
-        
-        return parts.join('+');
-    }
-    
-    /**
-     * 全局键盘事件处理器
-     * @param {KeyboardEvent} e - 键盘事件
-     */
-    function handleGlobalKeyDown(e) {
-        const keyCombo = parseKeyEvent(e);
-        const shortcut = shortcutRegistry.get(keyCombo);
-        
-        if (!shortcut || !shortcut.enabled) {
-            return;
-        }
-        
-        // 执行回调
-        try {
-            const shouldPreventDefault = shortcut.callback(e) !== false;
-            
-            // 根据配置决定是否阻止默认行为
-            if (shouldPreventDefault && shortcut.preventDefault) {
-                e.preventDefault();
-            }
-            
-            // 根据配置决定是否停止传播
-            if (shortcut.stopPropagation) {
-                e.stopPropagation();
-            }
-            
-            console.log(`⌨️ 触发快捷键: ${keyCombo}`);
-        } catch (error) {
-            console.error(`❌ 快捷键 ${keyCombo} 执行失败:`, error);
-        }
-    }
-    
-    // 导出公共接口
-    return {
-        init,
-        destroy,
-        register,
-        unregister,
-        isRegistered,
-        setEnabled,
-        getAllShortcuts
     };
 })();
 
@@ -6763,16 +6273,33 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
             try {
                 setIsLoading(true);
                 
-                // 从 ConfigManager 加载配置
-                const config = ConfigManager.getAll();
+                // 从 StorageManager 加载设置
+                let settings = {};
+                if (window.StorageManager) {
+                    settings = {
+                        model: window.StorageManager.getState('config.model') || 'auto',
+                        temperature: window.StorageManager.getState('config.temperature') || 0.7,
+                        maxTokens: window.StorageManager.getState('config.maxTokens') || 4096
+                    };
+                    console.log('[useSettings] 📦 从 StorageManager 加载设置');
+                }
+                
                 const providers = ProviderManager.getAllProviders();
                 
                 setSettings({
-                    model: config.model || 'auto',
-                    temperature: config.temperature || 0.7,
-                    maxTokens: config.maxTokens || 4096,
+                    ...settings,
                     providers: providers || []
                 });
+                
+                // 触发配置更新事件，通知其他组件
+                if (window.EventManager && settings.model) {
+                    window.EventManager.emit('SETTINGS_UPDATED', {
+                        defaultModel: settings.model,
+                        temperature: settings.temperature,
+                        maxTokens: settings.maxTokens
+                    });
+                    console.log('[useSettings] 📢 初始化时触发 SETTINGS_UPDATED 事件');
+                }
                 
             } catch (error) {
                 console.error('[useSettings] 加载设置失败:', error);
@@ -6786,19 +6313,32 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
             try {
                 setIsLoading(true);
                 
-                // 保存基础配置（不再包含 apiKey）
-                if (newSettings.model !== undefined) {
-                    ConfigManager.set('model', newSettings.model);
-                }
-                if (newSettings.temperature !== undefined) {
-                    ConfigManager.set('temperature', newSettings.temperature);
-                }
-                if (newSettings.maxTokens !== undefined) {
-                    ConfigManager.set('maxTokens', newSettings.maxTokens);
+                // 保存到 StorageManager
+                if (window.StorageManager) {
+                    if (newSettings.model !== undefined) {
+                        window.StorageManager.setState('config.model', newSettings.model);
+                    }
+                    if (newSettings.temperature !== undefined) {
+                        window.StorageManager.setState('config.temperature', newSettings.temperature);
+                    }
+                    if (newSettings.maxTokens !== undefined) {
+                        window.StorageManager.setState('config.maxTokens', newSettings.maxTokens);
+                    }
+                    console.log('[useSettings] 💾 设置已保存到 StorageManager');
                 }
                 
                 // 更新状态
                 setSettings(prev => ({ ...prev, ...newSettings }));
+                
+                // 触发配置更新事件，通知其他组件
+                if (window.EventManager) {
+                    window.EventManager.emit('SETTINGS_UPDATED', {
+                        defaultModel: newSettings.model,
+                        temperature: newSettings.temperature,
+                        maxTokens: newSettings.maxTokens
+                    });
+                    console.log('[useSettings] 📢 已触发 SETTINGS_UPDATED 事件');
+                }
                 
                 console.log('[useSettings] ✅ 设置已保存');
                 
@@ -6983,6 +6523,42 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
         const getWebAgentClient = () => window.WebAgentClient;
         const getEventManager = () => window.EventManager;
         
+        // 监听配置更新事件，同步模型选择
+        React.useEffect(() => {
+            console.log('[useAgent] 🔔 注册配置更新监听器');
+            
+            const EventManager = getEventManager();
+            if (!EventManager) {
+                console.warn('[useAgent] ⚠️ EventManager 未加载，无法监听配置更新');
+                return;
+            }
+            
+            // 监听 SETTINGS_UPDATED 事件
+            const settingsUpdatedId = EventManager.on('SETTINGS_UPDATED', (data) => {
+                console.log('[useAgent] 📨 收到 SETTINGS_UPDATED 事件:', data);
+                
+                // 如果配置中包含 defaultModel，更新 currentModel
+                if (data && data.defaultModel) {
+                    setCurrentModel(data.defaultModel);
+                    console.log('[useAgent] ✅ 模型已同步:', data.defaultModel);
+                }
+            });
+            
+            // 初始化时从 StorageManager 加载一次
+            if (window.StorageManager) {
+                const savedModel = window.StorageManager.getState('config.model');
+                if (savedModel) {
+                    setCurrentModel(savedModel);
+                    console.log('[useAgent] 📂 初始化加载模型:', savedModel);
+                }
+            }
+            
+            return () => {
+                EventManager.off('SETTINGS_UPDATED', settingsUpdatedId);
+                console.log('[useAgent] 🗑️ 注销配置更新监听器');
+            };
+        }, []);
+        
         // 加载历史消息 + 监听会话恢复事件（P2: 由 WebAgentClient 统一管理，这里只监听事件）
         React.useEffect(() => {
             console.log('[useAgent] 🔄 组件挂载，开始加载历史');
@@ -7053,11 +6629,16 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
         
         async function loadModels() {
             try {
-                // 从 ConfigManager 获取当前模型
-                if (ConfigManager) {
-                    const model = ConfigManager.get('model') || 'auto';
-                    setCurrentModel(model);
+                // 从 StorageManager 获取当前模型
+                let model = 'auto';
+                if (window.StorageManager) {
+                    const savedModel = window.StorageManager.getState('settings.defaultModel');
+                    if (savedModel) {
+                        model = savedModel;
+                        console.log('[useAgent] 📦 从 StorageManager 加载模型:', model);
+                    }
                 }
+                setCurrentModel(model);
                 
                 // 从 ProviderManager 获取可用模型列表
                 if (!ProviderManager) {
@@ -7241,12 +6822,20 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
             try {
                 setCurrentModel(modelId);
                 
-                // 保存到 ConfigManager
-                if (ConfigManager) {
-                    ConfigManager.set('model', modelId);
+                // 保存到 StorageManager
+                if (window.StorageManager) {
+                    window.StorageManager.setState('config.model', modelId);
+                    console.log('[useAgent] 💾 模型已保存到 StorageManager:', modelId);
                 }
                 
-                console.log('[useAgent] ✅ 模型已切换:', modelId);
+                // 通知 WebAgentClient 更新配置（持久化到 AIAgent）
+                const WebAgentClient = getWebAgentClient();
+                if (WebAgentClient && WebAgentClient.updateSettings) {
+                    WebAgentClient.updateSettings({
+                        defaultModel: modelId
+                    });
+                    console.log('[useAgent] 🔄 已通知 WebAgentClient 更新模型:', modelId);
+                }
                 
             } catch (error) {
                 console.error('[useAgent] 切换模型失败:', error);
@@ -7596,7 +7185,7 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
     /**
      * MessageItem 组件
      */
-    function MessageItem({ message }) {
+    function MessageItem({ message, innerRef }) {
         const isUser = message.role === 'user';
         const contentElements = parseMessageContent(message.content, message.id);
         
@@ -7672,6 +7261,7 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
         }, [isUser, message.id]);
         
         return React.createElement('div', {
+            ref: innerRef, // 绑定外部传入的 ref
             className: `message-item ${isUser ? 'user-message' : 'assistant-message'}`,
             style: {
                 display: 'flex',
@@ -7742,9 +7332,9 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
         
         const [inputValue, setInputValue] = React.useState('');
         const messagesEndRef = React.useRef(null);
-        
-        // P0: 历史消息导航索引（用于 Ctrl+ArrowUp/Down）
-        const [historyNavIndex, setHistoryNavIndex] = React.useState(-1);
+        const messagesContainerRef = React.useRef(null); // 消息容器引用
+        const messageRefs = React.useRef([]); // 每条消息的 ref 数组
+        const [currentMessageIndex, setCurrentMessageIndex] = React.useState(-1); // 当前聚焦的消息索引
         
         // P2: 监听模型列表更新事件，自动重新加载
         React.useEffect(() => {
@@ -7778,148 +7368,161 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
             };
         }, []);
         
+        // 当消息列表变化时，清理无效的 ref
+        React.useEffect(() => {
+            // 移除超出当前消息数量的 ref
+            if (messageRefs.current.length > messages.length) {
+                messageRefs.current = messageRefs.current.slice(0, messages.length);
+            }
+            // 重置当前索引，如果超出范围
+            if (currentMessageIndex >= messages.length) {
+                setCurrentMessageIndex(messages.length - 1);
+            }
+        }, [messages]);
+        
         /**
-         * 注册聊天窗口内的快捷键（仅在窗口打开时）
+         * 聊天窗口键盘事件处理（仅在窗口打开时）
          */
         React.useEffect(() => {
-            if (!isOpen || !window.ShortcutManager) {
+            if (!isOpen) return;
+            
+            // 如果设置对话框打开，不处理聊天窗口快捷键（避免冲突）
+            const isSettingsOpen = window.StorageManager && window.StorageManager.getState('ui.settingsVisible') === true;
+            if (isSettingsOpen) {
                 return;
             }
             
-            const ShortcutManager = window.ShortcutManager;
-            
-            // Ctrl+Enter: 发送消息
-            ShortcutManager.register('ctrl+enter', (e) => {
-                if (inputValue.trim() && !isProcessing) {
-                    handleSend();
-                }
-                return false; // 阻止默认行为
-            }, '发送消息');
-            
-            // Escape: 停止生成或关闭窗口
-            ShortcutManager.register('escape', (e) => {
-                if (isProcessing) {
-                    stopGeneration();
-                } else if (isOpen) {
-                    onClose();
-                }
-                return false;
-            }, '停止生成/关闭窗口');
-            
-            /**
-             * Ctrl+ArrowUp: 导航到上一条用户消息
-             * 
-             * 功能说明:
-             * - 从当前输入框内容开始，向上查找最近的用户消息
-             * - 将找到的消息内容填充到输入框
-             * - 再次按下继续向上查找
-             * - 到达第一条消息后循环到最后一条
-             * 
-             * 使用场景:
-             * - 快速重新发送之前的消息
-             * - 查看和修改历史提问
-             * - 避免重复输入相同内容
-             * 
-             * 示例:
-             * ```
-             * 历史记录: ["你好", "帮我分析页面", "谢谢"]
-             * 当前输入: ""
-             * 第1次按 Ctrl+ArrowUp → 输入框: "谢谢"
-             * 第2次按 Ctrl+ArrowUp → 输入框: "帮我分析页面"
-             * 第3次按 Ctrl+ArrowUp → 输入框: "你好"
-             * 第4次按 Ctrl+ArrowUp → 输入框: "谢谢" (循环)
-             * ```
-             */
-            ShortcutManager.register('ctrl+arrowup', (e) => {
-                // 获取所有用户消息
-                const userMessages = messages.filter(msg => msg.role === 'user').map(msg => msg.content);
-                
-                if (userMessages.length === 0) {
-                    return false; // 没有历史消息
+            function handleKeyDown(e) {
+                // Escape: 停止生成或关闭窗口
+                if (e.key === 'Escape') {
+                    if (isProcessing) {
+                        stopGeneration();
+                    } else {
+                        onClose();
+                    }
+                    e.preventDefault();
+                    return;
                 }
                 
-                // 计算下一个索引
-                let nextIndex;
-                if (historyNavIndex === -1) {
-                    // 首次按下，从最后一条开始
-                    nextIndex = userMessages.length - 1;
-                } else {
-                    // 向上移动，循环到开头
-                    nextIndex = historyNavIndex > 0 ? historyNavIndex - 1 : userMessages.length - 1;
+                // Ctrl+Enter: 发送消息
+                if (e.ctrlKey && e.key === 'Enter') {
+                    if (inputValue.trim() && !isProcessing) {
+                        handleSend();
+                    }
+                    e.preventDefault();
+                    return;
                 }
                 
-                // 更新索引和输入框内容
-                setHistoryNavIndex(nextIndex);
-                setInputValue(userMessages[nextIndex]);
-                
-                console.log(`[ChatWindow] ⬆️ 导航到第 ${nextIndex + 1}/${userMessages.length} 条用户消息`);
-                return false;
-            }, '导航到上一条用户消息');
-            
-            /**
-             * Ctrl+ArrowDown: 导航到下一条用户消息
-             * 
-             * 功能说明:
-             * - 与 Ctrl+ArrowUp 相反方向导航
-             * - 向下查找下一条用户消息
-             * - 到达最后一条消息后循环到第一条
-             * 
-             * 使用场景:
-             * - 在历史消息中向前导航
-             * - 撤销 ArrowUp 的操作
-             * 
-             * 示例:
-             * ```
-             * 当前位置: "你好" (索引 0)
-             * 按 Ctrl+ArrowDown → 输入框: "帮我分析页面" (索引 1)
-             * 按 Ctrl+ArrowDown → 输入框: "谢谢" (索引 2)
-             * 按 Ctrl+ArrowDown → 输入框: "你好" (索引 0, 循环)
-             * ```
-             */
-            ShortcutManager.register('ctrl+arrowdown', (e) => {
-                // 获取所有用户消息
-                const userMessages = messages.filter(msg => msg.role === 'user').map(msg => msg.content);
-                
-                if (userMessages.length === 0) {
-                    return false; // 没有历史消息
+                // Ctrl+ArrowUp: 导航到上一条用户消息
+                if (e.ctrlKey && e.key === 'ArrowUp') {
+                    // 获取所有用户消息的索引
+                    const userMessageIndices = messages
+                        .map((msg, idx) => msg.role === 'user' ? idx : -1)
+                        .filter(idx => idx !== -1);
+                    
+                    if (userMessageIndices.length === 0) return;
+                    
+                    // 找到当前索引在用户消息列表中的位置
+                    let currentUserPos = -1;
+                    for (let i = 0; i < userMessageIndices.length; i++) {
+                        if (userMessageIndices[i] >= currentMessageIndex) {
+                            currentUserPos = i;
+                            break;
+                        }
+                    }
+                    
+                    // 计算上一条用户消息的索引（循环）
+                    let nextUserPos;
+                    if (currentUserPos <= 0) {
+                        nextUserPos = userMessageIndices.length - 1; // 循环到最后一条
+                    } else {
+                        nextUserPos = currentUserPos - 1;
+                    }
+                    
+                    const targetIndex = userMessageIndices[nextUserPos];
+                    const targetMessage = messageRefs.current[targetIndex];
+                    if (targetMessage && typeof targetMessage.scrollIntoView === 'function') {
+                        try {
+                            targetMessage.scrollIntoView({
+                                behavior: 'smooth',
+                                block: 'start'  // 对齐到顶部
+                            });
+                            setCurrentMessageIndex(targetIndex);
+                            console.log(`[ChatWindow] ⬆️ 导航到第 ${nextUserPos + 1}/${userMessageIndices.length} 条用户消息`);
+                        } catch (err) {
+                            console.warn('[ChatWindow] ⚠️ 滚动失败:', err.message);
+                        }
+                    } else {
+                        console.warn(`[ChatWindow] ⚠️ 目标消息元素不存在 (index=${targetIndex})`);
+                    }
+                    
+                    e.preventDefault();
+                    return;
                 }
                 
-                // 计算下一个索引
-                let nextIndex;
-                if (historyNavIndex === -1) {
-                    // 首次按下，从第一条开始
-                    nextIndex = 0;
-                } else {
-                    // 向下移动，循环到末尾
-                    nextIndex = historyNavIndex < userMessages.length - 1 ? historyNavIndex + 1 : 0;
+                // Ctrl+ArrowDown: 导航到下一条用户消息
+                if (e.ctrlKey && e.key === 'ArrowDown') {
+                    // 获取所有用户消息的索引
+                    const userMessageIndices = messages
+                        .map((msg, idx) => msg.role === 'user' ? idx : -1)
+                        .filter(idx => idx !== -1);
+                    
+                    if (userMessageIndices.length === 0) return;
+                    
+                    // 找到当前索引在用户消息列表中的位置
+                    let currentUserPos = -1;
+                    for (let i = userMessageIndices.length - 1; i >= 0; i--) {
+                        if (userMessageIndices[i] <= currentMessageIndex) {
+                            currentUserPos = i;
+                            break;
+                        }
+                    }
+                    
+                    // 计算下一条用户消息的索引（循环）
+                    let nextUserPos;
+                    if (currentMessageIndex === -1 || currentUserPos === -1) {
+                        // 首次按下，定位到最后一条用户消息
+                        nextUserPos = userMessageIndices.length - 1;
+                    } else if (currentUserPos >= userMessageIndices.length - 1) {
+                        nextUserPos = 0; // 循环到第一条
+                    } else {
+                        nextUserPos = currentUserPos + 1;
+                    }
+                    
+                    const targetIndex = userMessageIndices[nextUserPos];
+                    const targetMessage = messageRefs.current[targetIndex];
+                    if (targetMessage && typeof targetMessage.scrollIntoView === 'function') {
+                        try {
+                            targetMessage.scrollIntoView({
+                                behavior: 'smooth',
+                                block: 'start'  // 对齐到顶部
+                            });
+                            setCurrentMessageIndex(targetIndex);
+                            console.log(`[ChatWindow] ⬇️ 导航到第 ${nextUserPos + 1}/${userMessageIndices.length} 条用户消息`);
+                        } catch (err) {
+                            console.warn('[ChatWindow] ⚠️ 滚动失败:', err.message);
+                        }
+                    } else {
+                        console.warn(`[ChatWindow] ⚠️ 目标消息元素不存在 (index=${targetIndex})`);
+                    }
+                    
+                    e.preventDefault();
+                    return;
                 }
-                
-                // 更新索引和输入框内容
-                setHistoryNavIndex(nextIndex);
-                setInputValue(userMessages[nextIndex]);
-                
-                console.log(`[ChatWindow] ⬇️ 导航到第 ${nextIndex + 1}/${userMessages.length} 条用户消息`);
-                return false;
-            }, '导航到下一条用户消息');
+            }
             
-            console.log('[ChatWindow] ✅ 聊天窗口快捷键已注册');
-            
-            // 清理：窗口关闭时注销快捷键
+            window.addEventListener('keydown', handleKeyDown);
             return () => {
-                ShortcutManager.unregister('ctrl+enter');
-                ShortcutManager.unregister('escape');
-                ShortcutManager.unregister('ctrl+arrowup');
-                ShortcutManager.unregister('ctrl+arrowdown');
-                console.log('[ChatWindow] 🗑️ 聊天窗口快捷键已注销');
+                window.removeEventListener('keydown', handleKeyDown);
             };
-        }, [isOpen, inputValue, isProcessing, messages, historyNavIndex]);
+        }, [isOpen, inputValue, isProcessing, messages, currentMessageIndex]);
         
         // 从 StorageManager 加载窗口位置和大小（如果可用）
         const loadWindowState = () => {
             if (window.StorageManager) {
-                const savedPosition = window.StorageManager.getState('ui.window.position');
-                const savedSize = window.StorageManager.getState('ui.window.size');
-                const savedVisible = window.StorageManager.getState('ui.window.visible');
+                const savedPosition = window.StorageManager.getState('ui.position');
+                const savedSize = window.StorageManager.getState('ui.size');
+                const savedVisible = window.StorageManager.getState('ui.visible');
                 
                 return {
                     position: savedPosition || { x: window.innerWidth / 2 - 400, y: window.innerHeight / 2 - 300 },
@@ -7972,7 +7575,7 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
                     if (window.StorageManager) {
                         clearTimeout(window._savePositionTimer);
                         window._savePositionTimer = setTimeout(() => {
-                            window.StorageManager.setState('ui.window.position', newPosition);
+                            window.StorageManager.setState('ui.position', newPosition);
                         }, 300);
                     }
                 }
@@ -7992,7 +7595,7 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
                     if (window.StorageManager) {
                         clearTimeout(window._saveSizeTimer);
                         window._saveSizeTimer = setTimeout(() => {
-                            window.StorageManager.setState('ui.window.size', newSize);
+                            window.StorageManager.setState('ui.size', newSize);
                         }, 300);
                     }
                 }
@@ -8074,7 +7677,7 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
         function handleClose() {
             // 关闭窗口时删除 visible 键
             if (window.StorageManager) {
-                window.StorageManager.setState('ui.window.visible', null);
+                window.StorageManager.setState('ui.visible', null);
             }
             
             if (onClose) {
@@ -8088,7 +7691,6 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
             
             const message = inputValue;
             setInputValue('');
-            setHistoryNavIndex(-1); // 重置历史导航索引
             await sendMessage(message);
         }
         
@@ -8119,10 +7721,16 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
                 ]);
             }
             
-            return messages.map(message => 
+            return messages.map((message, index) => 
                 React.createElement(window.MessageItem, {
                     key: message.id,
-                    message: message
+                    message: message,
+                    // 为每条消息绑定 ref
+                    innerRef: (el) => {
+                        if (el) {
+                            messageRefs.current[index] = el;
+                        }
+                    }
                 })
             );
         }
@@ -8171,32 +7779,49 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
                     }, '🤖 AI Agent'),
                     
                     // 模型选择框
-                    React.createElement('select', {
-                        key: 'model-select',
-                        value: currentModel,
-                        onChange: (e) => switchModel(e.target.value),
-                        disabled: isProcessing,
+                    React.createElement('div', {
+                        key: 'model-selector',
                         style: {
-                            padding: '6px 12px',
-                            fontSize: '13px',
-                            border: '1px solid #ddd',
-                            borderRadius: '4px',
-                            background: 'white',
-                            cursor: isProcessing ? 'not-allowed' : 'pointer',
-                            opacity: isProcessing ? 0.6 : 1,
-                            maxWidth: '200px'
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
                         }
                     }, [
-                        availableModels.map(model => 
-                            React.createElement('option', {
-                                key: model.id,
-                                value: model.id,
-                                style: {
-                                    color: model.invalid ? '#999' : '#000',
-                                    fontStyle: model.invalid ? 'italic' : 'normal'
-                                }
-                            }, model.name + (model.invalid ? ' ⚠️' : ''))
-                        )
+                        React.createElement('label', {
+                            key: 'label',
+                            style: {
+                                fontSize: '13px',
+                                color: '#666',
+                                whiteSpace: 'nowrap'
+                            }
+                        }, '选择模型:'),
+                        React.createElement('select', {
+                            key: 'model-select',
+                            value: currentModel,
+                            onChange: (e) => switchModel(e.target.value),
+                            disabled: isProcessing,
+                            style: {
+                                padding: '6px 12px',
+                                fontSize: '13px',
+                                border: '1px solid #ddd',
+                                borderRadius: '4px',
+                                background: 'white',
+                                cursor: isProcessing ? 'not-allowed' : 'pointer',
+                                opacity: isProcessing ? 0.6 : 1,
+                                maxWidth: '200px'
+                            }
+                        }, [
+                            availableModels.map(model => 
+                                React.createElement('option', {
+                                    key: model.id,
+                                    value: model.id,
+                                    style: {
+                                        color: model.invalid ? '#999' : '#000',
+                                        fontStyle: model.invalid ? 'italic' : 'normal'
+                                    }
+                                }, model.name + (model.invalid ? ' ⚠️' : ''))
+                            )
+                        ])
                     ]),
                     
                     React.createElement('div', { 
@@ -8246,6 +7871,7 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
                 // Messages Area
                 React.createElement('div', {
                     key: 'messages',
+                    ref: messagesContainerRef,
                     style: {
                         flex: 1,
                         overflow: 'auto',
@@ -8433,33 +8059,33 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
             setFormData(settings);
         }, [settings]);
         
-        // 注册 Escape 快捷键（仅在对话框打开时）
+        // 同步设置对话框状态到 StorageManager（用于快捷键冲突检测）
         React.useEffect(() => {
-            if (!isOpen || !window.ShortcutManager) {
-                return;
+            if (window.StorageManager) {
+                window.StorageManager.setState('ui.settingsVisible', isOpen ? true : null);
+            }
+        }, [isOpen]);
+        
+        // 设置对话框键盘事件处理（仅在对话框打开时）
+        React.useEffect(() => {
+            if (!isOpen) return;
+            
+            function handleKeyDown(e) {
+                // Escape: 关闭设置对话框
+                if (e.key === 'Escape') {
+                    e.stopPropagation(); // 阻止事件冒泡到 ChatWindow
+                    if (onClose) {
+                        onClose();
+                        console.log('[SettingsDialog] ⌨️ Escape 关闭设置对话框');
+                    }
+                    e.preventDefault();
+                }
             }
             
-            /**
-             * Escape: 关闭设置对话框
-             * 
-             * 功能说明:
-             * - 按 Escape 键关闭设置对话框
-             * - 不保存未保存的更改
-             */
-            window.ShortcutManager.register('escape', (e) => {
-                if (onClose) {
-                    onClose();
-                    console.log('[SettingsDialog] ⌨️ Escape 关闭设置对话框');
-                }
-                return false;
-            }, '关闭设置对话框');
-            
-            console.log('[SettingsDialog] ✅ 设置对话框快捷键已注册');
-            
-            // 清理：对话框关闭时注销快捷键
+            // 使用捕获阶段，确保优先处理
+            window.addEventListener('keydown', handleKeyDown, true);
             return () => {
-                window.ShortcutManager.unregister('escape');
-                console.log('[SettingsDialog] 🗑️ 设置对话框快捷键已注销');
+                window.removeEventListener('keydown', handleKeyDown, true);
             };
         }, [isOpen, onClose]);
         
@@ -9445,7 +9071,7 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
         // 从 StorageManager 加载窗口可见性状态（默认隐藏）
         const getInitialChatState = () => {
             if (window.StorageManager) {
-                const savedVisible = window.StorageManager.getState('ui.window.visible');
+                const savedVisible = window.StorageManager.getState('ui.visible');
                 return savedVisible === true;  // 只有明确保存为 true 才显示
             }
             return false;  // 默认隐藏
@@ -9485,9 +9111,9 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
                     // 同步到 StorageManager
                     if (window.StorageManager) {
                         if (newState) {
-                            window.StorageManager.setState('ui.window.visible', true);
+                            window.StorageManager.setState('ui.visible', true);
                         } else {
-                            window.StorageManager.setState('ui.window.visible', null);
+                            window.StorageManager.setState('ui.visible', null);
                         }
                     }
                     return newState;
@@ -9526,10 +9152,10 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
                     if (window.StorageManager) {
                         if (newState) {
                             // 打开窗口：保存 visible = true
-                            window.StorageManager.setState('ui.window.visible', true);
+                            window.StorageManager.setState('ui.visible', true);
                         } else {
                             // 关闭窗口：删除 visible 键
-                            window.StorageManager.setState('ui.window.visible', null);
+                            window.StorageManager.setState('ui.visible', null);
                         }
                     }
                 },
@@ -9604,34 +9230,30 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
         console.log('[React UI] ✅ React 应用已挂载');
     }
     
-    // P0: 等待 APP_INITIALIZED 事件后再挂载
+    // P0: 等待初始化完成后挂载（轮询检查，不使用事件）
     const waitForInitialization = () => {
-        // 检查是否已经初始化完成（兜底机制）
+        console.log('[React UI] 🔍 检查初始化状态...');
+        
+        // 检查是否已经初始化完成
         if (window.__AGENT_INITIALIZED__) {
-            console.log('[React UI] 📢 检测到 __AGENT_INITIALIZED__ 标志，直接挂载');
+            console.log('[React UI] ✅ 检测到初始化完成，开始挂载');
             mountApp();
             return;
         }
         
-        if (!window.EventManager) {
-            // EventManager 还未就绪，稍后重试
-            setTimeout(waitForInitialization, 50);
-            return;
-        }
-        
-        // 注册初始化完成事件监听器
-        window.EventManager.on('APP_INITIALIZED', () => {
-            console.log('[React UI] 📢 收到 APP_INITIALIZED 事件，开始挂载');
-            mountApp();
-        });
-        
-        console.log('[React UI] ✅ 已注册 APP_INITIALIZED 监听器，等待初始化完成...');
+        // 未初始化，100ms 后重试
+        console.log('[React UI] ⏳ 等待初始化完成...');
+        setTimeout(waitForInitialization, 100);
     };
     
     // 页面加载完成后开始等待
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', waitForInitialization);
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('[React UI] 📄 DOMContentLoaded，开始等待初始化');
+            waitForInitialization();
+        });
     } else {
+        console.log('[React UI] 📄 DOM 已就绪，开始等待初始化');
         waitForInitialization();
     }
     
@@ -9650,6 +9272,9 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
 (function() {
     'use strict';
     
+    // 记录启动时间
+    const startTime = Date.now();
+    
     // 标记是否已经初始化
     let isInitialized = false;
     
@@ -9664,48 +9289,50 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
         }
         isInitialized = true;
         
-        console.log('[Main] 🚀 AI Agent v5.0 正在启动...');
+        console.log('[Main] 🚀 AI Agent v5.1 正在启动...');
+        console.log('[Main] 📅 时间:', new Date().toISOString());
         
         try {
             // 1. 初始化核心工具层
+            console.log('[Main] 🔧 步骤 1/6: 初始化核心工具层...');
             await initCoreUtilities();
             console.log('[Main] ✅ 核心工具层已初始化');
             
             // 2. 初始化服务层
+            console.log('[Main] 🔧 步骤 2/6: 初始化服务层...');
             await initServices();
             console.log('[Main] ✅ 服务层已初始化');
             
             // 3. 初始化基础设施层
+            console.log('[Main] 🔧 步骤 3/6: 初始化基础设施层...');
             await initInfrastructure();
             console.log('[Main] ✅ 基础设施层已初始化');
             
             // 4. 启动业务逻辑层（园区工厂）
+            console.log('[Main] 🔧 步骤 4/6: 启动业务逻辑层...');
             await initBusinessLayer();
             console.log('[Main] ✅ 业务逻辑层已启动');
             
-            // 5. 设置事件监听（连接 UI 到 Client）
-            setupEventListeners();
-            console.log('[Main] ✅ 事件监听已设置');
+            // 5. 初始化全局快捷键
+            console.log('[Main] 🔧 步骤 5/6: 初始化全局快捷键...');
+            initGlobalShortcuts();
+            console.log('[Main] ✅ 全局快捷键已初始化');
             
-            // 6. 初始化快捷键系统
-            initShortcuts();
-            console.log('[Main] ✅ 快捷键系统已初始化');
-            
-            // 7. 暴露全局调试接口
+            // 6. 暴露全局调试接口
+            console.log('[Main] 🔧 步骤 6/6: 暴露全局调试接口...');
             exposeDebugInterface();
             console.log('[Main] ✅ 调试接口已暴露');
             
-            console.log('[Main] 🎉 AI Agent v5.0 启动成功!');
+            console.log('[Main] 🎉 AI Agent v5.1 启动成功!');
             
-            // P0: 设置全局初始化完成标志（兜底机制）
+            // P0: 设置全局初始化完成标志
             window.__AGENT_INITIALIZED__ = true;
-            
-            // P0: 触发初始化完成事件，通知 UI 可以挂载
-            EventManager.emit('APP_INITIALIZED');
-            console.log('[Main] 📢 已发送 APP_INITIALIZED 事件');
+            console.log('[Main] ✅ 初始化完成标志已设置');
+            console.log('[Main] 📊 总耗时:', Date.now() - startTime, 'ms');
             
         } catch (error) {
             console.error('[Main] ❌ 启动失败:', error);
+            console.error('[Main] 📋 错误堆栈:', error.stack);
             throw error;
         }
     }
@@ -9730,11 +9357,6 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
             console.log('[Main] ✅ StorageManager 已初始化');
         }
         
-        // ConfigManager
-        await ConfigManager.init({
-            eventManager: EventManager
-        });
-        
         // ProviderManager
         await ProviderManager.init();
         
@@ -9744,16 +9366,12 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
     
     /**
      * 初始化基础设施层
+     * 注意: AIAgent 由 WebAgentClient 统一初始化,这里只确保依赖模块就绪
      */
     async function initInfrastructure() {
-        // AIAgent
-        AIAgent.init({
-            autoAttachPageContext: true,
-            maxHistoryLength: 30,
-            defaultModel: ConfigManager.get('model') || 'auto',
-            defaultTemperature: ConfigManager.get('temperature') || 0.7,
-            defaultMaxTokens: ConfigManager.get('maxTokens') || 4096
-        });
+        // 基础设施层模块已在服务层初始化
+        // AIAgent 将在 WebAgentClient.init() 中初始化
+        console.log('[Main] ℹ️ AIAgent 将由 WebAgentClient 初始化');
     }
     
     /**
@@ -9765,68 +9383,28 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
     }
     
     /**
-     * 设置事件监听（连接 UI 事件到 WebAgentClient）
+     * 初始化全局快捷键（Alt+A / Ctrl+Shift+A）
      */
-    function setupEventListeners() {
-        // 监听用户消息发送事件
-        EventManager.on(EventManager.EventTypes.CHAT_MESSAGE_SENT, async (message) => {
-            try {
-                await WebAgentClient.handleUserMessage(message);
-            } catch (error) {
-                console.error('[Main] 处理消息失败:', error);
-            }
-        });
-        
-        // 监听清空聊天事件
-        EventManager.on(EventManager.EventTypes.CHAT_CLEAR, () => {
-            WebAgentClient.handleClearChat();
-        });
-        
-        // 监听取消请求事件
-        EventManager.on(EventManager.EventTypes.STOP_REQUEST, () => {
-            WebAgentClient.handleCancelRequest();
-        });
-        
-        // 监听代码执行事件
-        EventManager.on('agent:execute:code', async (data) => {
-            try {
-                await WebAgentClient.handleCodeExecution(data.code);
-            } catch (error) {
-                console.error('[Main] 代码执行失败:', error);
-            }
-        });
-    }
-    
-    /**
-     * 初始化快捷键系统
-     */
-    function initShortcuts() {
-        if (typeof ShortcutManager !== 'undefined') {
-            ShortcutManager.init();
-            
-            // 注册全局快捷键
-            registerGlobalShortcuts();
-        }
-    }
-    
-    /**
-     * 注册全局快捷键
-     */
-    function registerGlobalShortcuts() {
+    function initGlobalShortcuts() {
         console.log('[Main] ⌨️ 注册全局快捷键...');
         
-        // Ctrl+Shift+A: 打开/关闭聊天窗口（全局）
-        ShortcutManager.register('ctrl+shift+a', (e) => {
-            toggleChatWindow();
-            return false;
-        }, '打开/关闭聊天窗口');
+        function handleKeyDown(e) {
+            // Alt+A: 打开/关闭聊天窗口
+            if (e.altKey && e.key.toLowerCase() === 'a') {
+                toggleChatWindow();
+                e.preventDefault();
+                return;
+            }
+            
+            // Ctrl+Shift+A: 打开/关闭聊天窗口（备选）
+            if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'a') {
+                toggleChatWindow();
+                e.preventDefault();
+                return;
+            }
+        }
         
-        // Alt+A: 打开/关闭聊天窗口（备选）
-        ShortcutManager.register('alt+a', (e) => {
-            toggleChatWindow();
-            return false;
-        }, '打开/关闭聊天窗口（备选）');
-        
+        window.addEventListener('keydown', handleKeyDown);
         console.log('[Main] ✅ 全局快捷键已注册');
     }
     

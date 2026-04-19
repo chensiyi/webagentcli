@@ -212,7 +212,7 @@
     /**
      * MessageItem 组件
      */
-    function MessageItem({ message }) {
+    function MessageItem({ message, innerRef }) {
         const isUser = message.role === 'user';
         const contentElements = parseMessageContent(message.content, message.id);
         
@@ -288,6 +288,7 @@
         }, [isUser, message.id]);
         
         return React.createElement('div', {
+            ref: innerRef, // 绑定外部传入的 ref
             className: `message-item ${isUser ? 'user-message' : 'assistant-message'}`,
             style: {
                 display: 'flex',

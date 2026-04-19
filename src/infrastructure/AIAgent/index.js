@@ -11,7 +11,6 @@ const AIAgent = (function() {
         ModelManager,      // 模型选择和可用性管理
         APIRouter,         // API 路由和故障转移
         PageAnalyzer,      // 页面理解和分析
-        ConfigManager,     // 配置管理
         ErrorTracker,      // 错误追踪
         Utils,             // 工具函数
         CodeExecutor       // v4.5.0: 代码执行器

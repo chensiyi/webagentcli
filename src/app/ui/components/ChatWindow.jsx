@@ -21,9 +21,9 @@
         
         const [inputValue, setInputValue] = React.useState('');
         const messagesEndRef = React.useRef(null);
-        
-        // P0: 历史消息导航索引（用于 Ctrl+ArrowUp/Down）
-        const [historyNavIndex, setHistoryNavIndex] = React.useState(-1);
+        const messagesContainerRef = React.useRef(null); // 消息容器引用
+        const messageRefs = React.useRef([]); // 每条消息的 ref 数组
+        const [currentMessageIndex, setCurrentMessageIndex] = React.useState(-1); // 当前聚焦的消息索引
         
         // P2: 监听模型列表更新事件，自动重新加载
         React.useEffect(() => {
@@ -57,148 +57,161 @@
             };
         }, []);
         
+        // 当消息列表变化时，清理无效的 ref
+        React.useEffect(() => {
+            // 移除超出当前消息数量的 ref
+            if (messageRefs.current.length > messages.length) {
+                messageRefs.current = messageRefs.current.slice(0, messages.length);
+            }
+            // 重置当前索引，如果超出范围
+            if (currentMessageIndex >= messages.length) {
+                setCurrentMessageIndex(messages.length - 1);
+            }
+        }, [messages]);
+        
         /**
-         * 注册聊天窗口内的快捷键（仅在窗口打开时）
+         * 聊天窗口键盘事件处理（仅在窗口打开时）
          */
         React.useEffect(() => {
-            if (!isOpen || !window.ShortcutManager) {
+            if (!isOpen) return;
+            
+            // 如果设置对话框打开，不处理聊天窗口快捷键（避免冲突）
+            const isSettingsOpen = window.StorageManager && window.StorageManager.getState('ui.settingsVisible') === true;
+            if (isSettingsOpen) {
                 return;
             }
             
-            const ShortcutManager = window.ShortcutManager;
-            
-            // Ctrl+Enter: 发送消息
-            ShortcutManager.register('ctrl+enter', (e) => {
-                if (inputValue.trim() && !isProcessing) {
-                    handleSend();
-                }
-                return false; // 阻止默认行为
-            }, '发送消息');
-            
-            // Escape: 停止生成或关闭窗口
-            ShortcutManager.register('escape', (e) => {
-                if (isProcessing) {
-                    stopGeneration();
-                } else if (isOpen) {
-                    onClose();
-                }
-                return false;
-            }, '停止生成/关闭窗口');
-            
-            /**
-             * Ctrl+ArrowUp: 导航到上一条用户消息
-             * 
-             * 功能说明:
-             * - 从当前输入框内容开始，向上查找最近的用户消息
-             * - 将找到的消息内容填充到输入框
-             * - 再次按下继续向上查找
-             * - 到达第一条消息后循环到最后一条
-             * 
-             * 使用场景:
-             * - 快速重新发送之前的消息
-             * - 查看和修改历史提问
-             * - 避免重复输入相同内容
-             * 
-             * 示例:
-             * ```
-             * 历史记录: ["你好", "帮我分析页面", "谢谢"]
-             * 当前输入: ""
-             * 第1次按 Ctrl+ArrowUp → 输入框: "谢谢"
-             * 第2次按 Ctrl+ArrowUp → 输入框: "帮我分析页面"
-             * 第3次按 Ctrl+ArrowUp → 输入框: "你好"
-             * 第4次按 Ctrl+ArrowUp → 输入框: "谢谢" (循环)
-             * ```
-             */
-            ShortcutManager.register('ctrl+arrowup', (e) => {
-                // 获取所有用户消息
-                const userMessages = messages.filter(msg => msg.role === 'user').map(msg => msg.content);
-                
-                if (userMessages.length === 0) {
-                    return false; // 没有历史消息
+            function handleKeyDown(e) {
+                // Escape: 停止生成或关闭窗口
+                if (e.key === 'Escape') {
+                    if (isProcessing) {
+                        stopGeneration();
+                    } else {
+                        onClose();
+                    }
+                    e.preventDefault();
+                    return;
                 }
                 
-                // 计算下一个索引
-                let nextIndex;
-                if (historyNavIndex === -1) {
-                    // 首次按下，从最后一条开始
-                    nextIndex = userMessages.length - 1;
-                } else {
-                    // 向上移动，循环到开头
-                    nextIndex = historyNavIndex > 0 ? historyNavIndex - 1 : userMessages.length - 1;
+                // Ctrl+Enter: 发送消息
+                if (e.ctrlKey && e.key === 'Enter') {
+                    if (inputValue.trim() && !isProcessing) {
+                        handleSend();
+                    }
+                    e.preventDefault();
+                    return;
                 }
                 
-                // 更新索引和输入框内容
-                setHistoryNavIndex(nextIndex);
-                setInputValue(userMessages[nextIndex]);
-                
-                console.log(`[ChatWindow] ⬆️ 导航到第 ${nextIndex + 1}/${userMessages.length} 条用户消息`);
-                return false;
-            }, '导航到上一条用户消息');
-            
-            /**
-             * Ctrl+ArrowDown: 导航到下一条用户消息
-             * 
-             * 功能说明:
-             * - 与 Ctrl+ArrowUp 相反方向导航
-             * - 向下查找下一条用户消息
-             * - 到达最后一条消息后循环到第一条
-             * 
-             * 使用场景:
-             * - 在历史消息中向前导航
-             * - 撤销 ArrowUp 的操作
-             * 
-             * 示例:
-             * ```
-             * 当前位置: "你好" (索引 0)
-             * 按 Ctrl+ArrowDown → 输入框: "帮我分析页面" (索引 1)
-             * 按 Ctrl+ArrowDown → 输入框: "谢谢" (索引 2)
-             * 按 Ctrl+ArrowDown → 输入框: "你好" (索引 0, 循环)
-             * ```
-             */
-            ShortcutManager.register('ctrl+arrowdown', (e) => {
-                // 获取所有用户消息
-                const userMessages = messages.filter(msg => msg.role === 'user').map(msg => msg.content);
-                
-                if (userMessages.length === 0) {
-                    return false; // 没有历史消息
+                // Ctrl+ArrowUp: 导航到上一条用户消息
+                if (e.ctrlKey && e.key === 'ArrowUp') {
+                    // 获取所有用户消息的索引
+                    const userMessageIndices = messages
+                        .map((msg, idx) => msg.role === 'user' ? idx : -1)
+                        .filter(idx => idx !== -1);
+                    
+                    if (userMessageIndices.length === 0) return;
+                    
+                    // 找到当前索引在用户消息列表中的位置
+                    let currentUserPos = -1;
+                    for (let i = 0; i < userMessageIndices.length; i++) {
+                        if (userMessageIndices[i] >= currentMessageIndex) {
+                            currentUserPos = i;
+                            break;
+                        }
+                    }
+                    
+                    // 计算上一条用户消息的索引（循环）
+                    let nextUserPos;
+                    if (currentUserPos <= 0) {
+                        nextUserPos = userMessageIndices.length - 1; // 循环到最后一条
+                    } else {
+                        nextUserPos = currentUserPos - 1;
+                    }
+                    
+                    const targetIndex = userMessageIndices[nextUserPos];
+                    const targetMessage = messageRefs.current[targetIndex];
+                    if (targetMessage && typeof targetMessage.scrollIntoView === 'function') {
+                        try {
+                            targetMessage.scrollIntoView({
+                                behavior: 'smooth',
+                                block: 'start'  // 对齐到顶部
+                            });
+                            setCurrentMessageIndex(targetIndex);
+                            console.log(`[ChatWindow] ⬆️ 导航到第 ${nextUserPos + 1}/${userMessageIndices.length} 条用户消息`);
+                        } catch (err) {
+                            console.warn('[ChatWindow] ⚠️ 滚动失败:', err.message);
+                        }
+                    } else {
+                        console.warn(`[ChatWindow] ⚠️ 目标消息元素不存在 (index=${targetIndex})`);
+                    }
+                    
+                    e.preventDefault();
+                    return;
                 }
                 
-                // 计算下一个索引
-                let nextIndex;
-                if (historyNavIndex === -1) {
-                    // 首次按下，从第一条开始
-                    nextIndex = 0;
-                } else {
-                    // 向下移动，循环到末尾
-                    nextIndex = historyNavIndex < userMessages.length - 1 ? historyNavIndex + 1 : 0;
+                // Ctrl+ArrowDown: 导航到下一条用户消息
+                if (e.ctrlKey && e.key === 'ArrowDown') {
+                    // 获取所有用户消息的索引
+                    const userMessageIndices = messages
+                        .map((msg, idx) => msg.role === 'user' ? idx : -1)
+                        .filter(idx => idx !== -1);
+                    
+                    if (userMessageIndices.length === 0) return;
+                    
+                    // 找到当前索引在用户消息列表中的位置
+                    let currentUserPos = -1;
+                    for (let i = userMessageIndices.length - 1; i >= 0; i--) {
+                        if (userMessageIndices[i] <= currentMessageIndex) {
+                            currentUserPos = i;
+                            break;
+                        }
+                    }
+                    
+                    // 计算下一条用户消息的索引（循环）
+                    let nextUserPos;
+                    if (currentMessageIndex === -1 || currentUserPos === -1) {
+                        // 首次按下，定位到最后一条用户消息
+                        nextUserPos = userMessageIndices.length - 1;
+                    } else if (currentUserPos >= userMessageIndices.length - 1) {
+                        nextUserPos = 0; // 循环到第一条
+                    } else {
+                        nextUserPos = currentUserPos + 1;
+                    }
+                    
+                    const targetIndex = userMessageIndices[nextUserPos];
+                    const targetMessage = messageRefs.current[targetIndex];
+                    if (targetMessage && typeof targetMessage.scrollIntoView === 'function') {
+                        try {
+                            targetMessage.scrollIntoView({
+                                behavior: 'smooth',
+                                block: 'start'  // 对齐到顶部
+                            });
+                            setCurrentMessageIndex(targetIndex);
+                            console.log(`[ChatWindow] ⬇️ 导航到第 ${nextUserPos + 1}/${userMessageIndices.length} 条用户消息`);
+                        } catch (err) {
+                            console.warn('[ChatWindow] ⚠️ 滚动失败:', err.message);
+                        }
+                    } else {
+                        console.warn(`[ChatWindow] ⚠️ 目标消息元素不存在 (index=${targetIndex})`);
+                    }
+                    
+                    e.preventDefault();
+                    return;
                 }
-                
-                // 更新索引和输入框内容
-                setHistoryNavIndex(nextIndex);
-                setInputValue(userMessages[nextIndex]);
-                
-                console.log(`[ChatWindow] ⬇️ 导航到第 ${nextIndex + 1}/${userMessages.length} 条用户消息`);
-                return false;
-            }, '导航到下一条用户消息');
+            }
             
-            console.log('[ChatWindow] ✅ 聊天窗口快捷键已注册');
-            
-            // 清理：窗口关闭时注销快捷键
+            window.addEventListener('keydown', handleKeyDown);
             return () => {
-                ShortcutManager.unregister('ctrl+enter');
-                ShortcutManager.unregister('escape');
-                ShortcutManager.unregister('ctrl+arrowup');
-                ShortcutManager.unregister('ctrl+arrowdown');
-                console.log('[ChatWindow] 🗑️ 聊天窗口快捷键已注销');
+                window.removeEventListener('keydown', handleKeyDown);
             };
-        }, [isOpen, inputValue, isProcessing, messages, historyNavIndex]);
+        }, [isOpen, inputValue, isProcessing, messages, currentMessageIndex]);
         
         // 从 StorageManager 加载窗口位置和大小（如果可用）
         const loadWindowState = () => {
             if (window.StorageManager) {
-                const savedPosition = window.StorageManager.getState('ui.window.position');
-                const savedSize = window.StorageManager.getState('ui.window.size');
-                const savedVisible = window.StorageManager.getState('ui.window.visible');
+                const savedPosition = window.StorageManager.getState('ui.position');
+                const savedSize = window.StorageManager.getState('ui.size');
+                const savedVisible = window.StorageManager.getState('ui.visible');
                 
                 return {
                     position: savedPosition || { x: window.innerWidth / 2 - 400, y: window.innerHeight / 2 - 300 },
@@ -251,7 +264,7 @@
                     if (window.StorageManager) {
                         clearTimeout(window._savePositionTimer);
                         window._savePositionTimer = setTimeout(() => {
-                            window.StorageManager.setState('ui.window.position', newPosition);
+                            window.StorageManager.setState('ui.position', newPosition);
                         }, 300);
                     }
                 }
@@ -271,7 +284,7 @@
                     if (window.StorageManager) {
                         clearTimeout(window._saveSizeTimer);
                         window._saveSizeTimer = setTimeout(() => {
-                            window.StorageManager.setState('ui.window.size', newSize);
+                            window.StorageManager.setState('ui.size', newSize);
                         }, 300);
                     }
                 }
@@ -353,7 +366,7 @@
         function handleClose() {
             // 关闭窗口时删除 visible 键
             if (window.StorageManager) {
-                window.StorageManager.setState('ui.window.visible', null);
+                window.StorageManager.setState('ui.visible', null);
             }
             
             if (onClose) {
@@ -367,7 +380,6 @@
             
             const message = inputValue;
             setInputValue('');
-            setHistoryNavIndex(-1); // 重置历史导航索引
             await sendMessage(message);
         }
         
@@ -398,10 +410,16 @@
                 ]);
             }
             
-            return messages.map(message => 
+            return messages.map((message, index) => 
                 React.createElement(window.MessageItem, {
                     key: message.id,
-                    message: message
+                    message: message,
+                    // 为每条消息绑定 ref
+                    innerRef: (el) => {
+                        if (el) {
+                            messageRefs.current[index] = el;
+                        }
+                    }
                 })
             );
         }
@@ -450,32 +468,49 @@
                     }, '🤖 AI Agent'),
                     
                     // 模型选择框
-                    React.createElement('select', {
-                        key: 'model-select',
-                        value: currentModel,
-                        onChange: (e) => switchModel(e.target.value),
-                        disabled: isProcessing,
+                    React.createElement('div', {
+                        key: 'model-selector',
                         style: {
-                            padding: '6px 12px',
-                            fontSize: '13px',
-                            border: '1px solid #ddd',
-                            borderRadius: '4px',
-                            background: 'white',
-                            cursor: isProcessing ? 'not-allowed' : 'pointer',
-                            opacity: isProcessing ? 0.6 : 1,
-                            maxWidth: '200px'
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
                         }
                     }, [
-                        availableModels.map(model => 
-                            React.createElement('option', {
-                                key: model.id,
-                                value: model.id,
-                                style: {
-                                    color: model.invalid ? '#999' : '#000',
-                                    fontStyle: model.invalid ? 'italic' : 'normal'
-                                }
-                            }, model.name + (model.invalid ? ' ⚠️' : ''))
-                        )
+                        React.createElement('label', {
+                            key: 'label',
+                            style: {
+                                fontSize: '13px',
+                                color: '#666',
+                                whiteSpace: 'nowrap'
+                            }
+                        }, '选择模型:'),
+                        React.createElement('select', {
+                            key: 'model-select',
+                            value: currentModel,
+                            onChange: (e) => switchModel(e.target.value),
+                            disabled: isProcessing,
+                            style: {
+                                padding: '6px 12px',
+                                fontSize: '13px',
+                                border: '1px solid #ddd',
+                                borderRadius: '4px',
+                                background: 'white',
+                                cursor: isProcessing ? 'not-allowed' : 'pointer',
+                                opacity: isProcessing ? 0.6 : 1,
+                                maxWidth: '200px'
+                            }
+                        }, [
+                            availableModels.map(model => 
+                                React.createElement('option', {
+                                    key: model.id,
+                                    value: model.id,
+                                    style: {
+                                        color: model.invalid ? '#999' : '#000',
+                                        fontStyle: model.invalid ? 'italic' : 'normal'
+                                    }
+                                }, model.name + (model.invalid ? ' ⚠️' : ''))
+                            )
+                        ])
                     ]),
                     
                     React.createElement('div', { 
@@ -525,6 +560,7 @@
                 // Messages Area
                 React.createElement('div', {
                     key: 'messages',
+                    ref: messagesContainerRef,
                     style: {
                         flex: 1,
                         overflow: 'auto',

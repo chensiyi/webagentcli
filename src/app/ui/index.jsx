@@ -33,7 +33,7 @@
         // 从 StorageManager 加载窗口可见性状态（默认隐藏）
         const getInitialChatState = () => {
             if (window.StorageManager) {
-                const savedVisible = window.StorageManager.getState('ui.window.visible');
+                const savedVisible = window.StorageManager.getState('ui.visible');
                 return savedVisible === true;  // 只有明确保存为 true 才显示
             }
             return false;  // 默认隐藏
@@ -73,9 +73,9 @@
                     // 同步到 StorageManager
                     if (window.StorageManager) {
                         if (newState) {
-                            window.StorageManager.setState('ui.window.visible', true);
+                            window.StorageManager.setState('ui.visible', true);
                         } else {
-                            window.StorageManager.setState('ui.window.visible', null);
+                            window.StorageManager.setState('ui.visible', null);
                         }
                     }
                     return newState;
@@ -114,10 +114,10 @@
                     if (window.StorageManager) {
                         if (newState) {
                             // 打开窗口：保存 visible = true
-                            window.StorageManager.setState('ui.window.visible', true);
+                            window.StorageManager.setState('ui.visible', true);
                         } else {
                             // 关闭窗口：删除 visible 键
-                            window.StorageManager.setState('ui.window.visible', null);
+                            window.StorageManager.setState('ui.visible', null);
                         }
                     }
                 },
@@ -192,34 +192,30 @@
         console.log('[React UI] ✅ React 应用已挂载');
     }
     
-    // P0: 等待 APP_INITIALIZED 事件后再挂载
+    // P0: 等待初始化完成后挂载（轮询检查，不使用事件）
     const waitForInitialization = () => {
-        // 检查是否已经初始化完成（兜底机制）
+        console.log('[React UI] 🔍 检查初始化状态...');
+        
+        // 检查是否已经初始化完成
         if (window.__AGENT_INITIALIZED__) {
-            console.log('[React UI] 📢 检测到 __AGENT_INITIALIZED__ 标志，直接挂载');
+            console.log('[React UI] ✅ 检测到初始化完成，开始挂载');
             mountApp();
             return;
         }
         
-        if (!window.EventManager) {
-            // EventManager 还未就绪，稍后重试
-            setTimeout(waitForInitialization, 50);
-            return;
-        }
-        
-        // 注册初始化完成事件监听器
-        window.EventManager.on('APP_INITIALIZED', () => {
-            console.log('[React UI] 📢 收到 APP_INITIALIZED 事件，开始挂载');
-            mountApp();
-        });
-        
-        console.log('[React UI] ✅ 已注册 APP_INITIALIZED 监听器，等待初始化完成...');
+        // 未初始化，100ms 后重试
+        console.log('[React UI] ⏳ 等待初始化完成...');
+        setTimeout(waitForInitialization, 100);
     };
     
     // 页面加载完成后开始等待
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', waitForInitialization);
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('[React UI] 📄 DOMContentLoaded，开始等待初始化');
+            waitForInitialization();
+        });
     } else {
+        console.log('[React UI] 📄 DOM 已就绪，开始等待初始化');
         waitForInitialization();
     }
     

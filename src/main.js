@@ -6,6 +6,9 @@
 (function() {
     'use strict';
     
+    // 记录启动时间
+    const startTime = Date.now();
+    
     // 标记是否已经初始化
     let isInitialized = false;
     
@@ -20,48 +23,50 @@
         }
         isInitialized = true;
         
-        console.log('[Main] 🚀 AI Agent v5.0 正在启动...');
+        console.log('[Main] 🚀 AI Agent v5.1 正在启动...');
+        console.log('[Main] 📅 时间:', new Date().toISOString());
         
         try {
             // 1. 初始化核心工具层
+            console.log('[Main] 🔧 步骤 1/6: 初始化核心工具层...');
             await initCoreUtilities();
             console.log('[Main] ✅ 核心工具层已初始化');
             
             // 2. 初始化服务层
+            console.log('[Main] 🔧 步骤 2/6: 初始化服务层...');
             await initServices();
             console.log('[Main] ✅ 服务层已初始化');
             
             // 3. 初始化基础设施层
+            console.log('[Main] 🔧 步骤 3/6: 初始化基础设施层...');
             await initInfrastructure();
             console.log('[Main] ✅ 基础设施层已初始化');
             
             // 4. 启动业务逻辑层（园区工厂）
+            console.log('[Main] 🔧 步骤 4/6: 启动业务逻辑层...');
             await initBusinessLayer();
             console.log('[Main] ✅ 业务逻辑层已启动');
             
-            // 5. 设置事件监听（连接 UI 到 Client）
-            setupEventListeners();
-            console.log('[Main] ✅ 事件监听已设置');
+            // 5. 初始化全局快捷键
+            console.log('[Main] 🔧 步骤 5/6: 初始化全局快捷键...');
+            initGlobalShortcuts();
+            console.log('[Main] ✅ 全局快捷键已初始化');
             
-            // 6. 初始化快捷键系统
-            initShortcuts();
-            console.log('[Main] ✅ 快捷键系统已初始化');
-            
-            // 7. 暴露全局调试接口
+            // 6. 暴露全局调试接口
+            console.log('[Main] 🔧 步骤 6/6: 暴露全局调试接口...');
             exposeDebugInterface();
             console.log('[Main] ✅ 调试接口已暴露');
             
-            console.log('[Main] 🎉 AI Agent v5.0 启动成功!');
+            console.log('[Main] 🎉 AI Agent v5.1 启动成功!');
             
-            // P0: 设置全局初始化完成标志（兜底机制）
+            // P0: 设置全局初始化完成标志
             window.__AGENT_INITIALIZED__ = true;
-            
-            // P0: 触发初始化完成事件，通知 UI 可以挂载
-            EventManager.emit('APP_INITIALIZED');
-            console.log('[Main] 📢 已发送 APP_INITIALIZED 事件');
+            console.log('[Main] ✅ 初始化完成标志已设置');
+            console.log('[Main] 📊 总耗时:', Date.now() - startTime, 'ms');
             
         } catch (error) {
             console.error('[Main] ❌ 启动失败:', error);
+            console.error('[Main] 📋 错误堆栈:', error.stack);
             throw error;
         }
     }
@@ -86,11 +91,6 @@
             console.log('[Main] ✅ StorageManager 已初始化');
         }
         
-        // ConfigManager
-        await ConfigManager.init({
-            eventManager: EventManager
-        });
-        
         // ProviderManager
         await ProviderManager.init();
         
@@ -100,16 +100,12 @@
     
     /**
      * 初始化基础设施层
+     * 注意: AIAgent 由 WebAgentClient 统一初始化,这里只确保依赖模块就绪
      */
     async function initInfrastructure() {
-        // AIAgent
-        AIAgent.init({
-            autoAttachPageContext: true,
-            maxHistoryLength: 30,
-            defaultModel: ConfigManager.get('model') || 'auto',
-            defaultTemperature: ConfigManager.get('temperature') || 0.7,
-            defaultMaxTokens: ConfigManager.get('maxTokens') || 4096
-        });
+        // 基础设施层模块已在服务层初始化
+        // AIAgent 将在 WebAgentClient.init() 中初始化
+        console.log('[Main] ℹ️ AIAgent 将由 WebAgentClient 初始化');
     }
     
     /**
@@ -121,68 +117,28 @@
     }
     
     /**
-     * 设置事件监听（连接 UI 事件到 WebAgentClient）
+     * 初始化全局快捷键（Alt+A / Ctrl+Shift+A）
      */
-    function setupEventListeners() {
-        // 监听用户消息发送事件
-        EventManager.on(EventManager.EventTypes.CHAT_MESSAGE_SENT, async (message) => {
-            try {
-                await WebAgentClient.handleUserMessage(message);
-            } catch (error) {
-                console.error('[Main] 处理消息失败:', error);
-            }
-        });
-        
-        // 监听清空聊天事件
-        EventManager.on(EventManager.EventTypes.CHAT_CLEAR, () => {
-            WebAgentClient.handleClearChat();
-        });
-        
-        // 监听取消请求事件
-        EventManager.on(EventManager.EventTypes.STOP_REQUEST, () => {
-            WebAgentClient.handleCancelRequest();
-        });
-        
-        // 监听代码执行事件
-        EventManager.on('agent:execute:code', async (data) => {
-            try {
-                await WebAgentClient.handleCodeExecution(data.code);
-            } catch (error) {
-                console.error('[Main] 代码执行失败:', error);
-            }
-        });
-    }
-    
-    /**
-     * 初始化快捷键系统
-     */
-    function initShortcuts() {
-        if (typeof ShortcutManager !== 'undefined') {
-            ShortcutManager.init();
-            
-            // 注册全局快捷键
-            registerGlobalShortcuts();
-        }
-    }
-    
-    /**
-     * 注册全局快捷键
-     */
-    function registerGlobalShortcuts() {
+    function initGlobalShortcuts() {
         console.log('[Main] ⌨️ 注册全局快捷键...');
         
-        // Ctrl+Shift+A: 打开/关闭聊天窗口（全局）
-        ShortcutManager.register('ctrl+shift+a', (e) => {
-            toggleChatWindow();
-            return false;
-        }, '打开/关闭聊天窗口');
+        function handleKeyDown(e) {
+            // Alt+A: 打开/关闭聊天窗口
+            if (e.altKey && e.key.toLowerCase() === 'a') {
+                toggleChatWindow();
+                e.preventDefault();
+                return;
+            }
+            
+            // Ctrl+Shift+A: 打开/关闭聊天窗口（备选）
+            if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'a') {
+                toggleChatWindow();
+                e.preventDefault();
+                return;
+            }
+        }
         
-        // Alt+A: 打开/关闭聊天窗口（备选）
-        ShortcutManager.register('alt+a', (e) => {
-            toggleChatWindow();
-            return false;
-        }, '打开/关闭聊天窗口（备选）');
-        
+        window.addEventListener('keydown', handleKeyDown);
         console.log('[Main] ✅ 全局快捷键已注册');
     }
     

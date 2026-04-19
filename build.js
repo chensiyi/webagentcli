@@ -22,12 +22,13 @@ const IS_RELEASE = process.env.RELEASE === 'true' || process.argv.includes('--re
 
 // UserScript 头部模板
 const USERSCRIPT_HEADER = `// ==UserScript==
-// @name         Free Web AI Agent
+// @name         Web AI Agent
 // @namespace    https://github.com/chensiyi1994
 // @version      ${VERSION}
 // @description  基于ai模型的Web AI 助手,支持 JS 执行
 // @author       chensiyi1994
 // @match        *://*/*
+// @match        file:///*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_addStyle
 // @grant        GM_getValue
@@ -56,7 +57,6 @@ const modules = [
     'core/ErrorTracker.js',             // 错误追踪器
     
     // ==================== Services Layer (服务层) ====================
-    'services/config/ConfigManager.js',           // 配置管理
     'services/storage/StorageManager.js',         // 存储管理
     'services/provider/ProviderManager.js',       // 供应商管理
     'services/model-manager/ModelManager.js',     // 模型管理
@@ -76,9 +76,6 @@ const modules = [
     
     // ==================== Business Logic Layer (业务逻辑层) ====================
     'business/WebAgentClient.js',                 // Web Agent 客户端（业务编排器）
-    
-    // ==================== Application Layer (应用层) ====================
-    'app/shortcuts/ShortcutManager.js',           // 快捷键管理器
     
     // React UI (Phase 2: 已启用)
     'vendor/react.production.min.js',             // React 运行时

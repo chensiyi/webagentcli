@@ -36,8 +36,7 @@ const EventManager = (function() {
         CHAT_CLEARED: 'agent:chat:cleared',
         REQUEST_CANCELLED: 'agent:request:cancelled',
         
-        // 配置相关
-        CONFIG_UPDATED: 'agent:config:updated',
+        // 配置相关(统一使用 SETTINGS_*)
         SETTINGS_OPEN: 'agent:settings:open',
         SETTINGS_SAVED: 'agent:settings:saved',
         SETTINGS_UPDATED: 'agent:settings:updated',

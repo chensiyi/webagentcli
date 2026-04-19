@@ -31,7 +31,7 @@ class OpenRouterClient extends BaseAPIClient {
         
         // OpenRouter 特定的头部
         headers['HTTP-Referer'] = window.location.href;
-        headers['X-Title'] = 'Free Web AI Agent';
+        headers['X-Title'] = 'Web AI Agent';
         
         return headers;
     }

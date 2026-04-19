@@ -8,8 +8,6 @@
  * 4. 本地服务自动发现
  */
 
-// 注意：此文件通过 build.js 合并，EventManager 和 ConfigManager 已在全局作用域
-
 // ==================== 模型模板定义 ====================
 
 const ModelTemplates = {
