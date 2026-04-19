@@ -22,6 +22,177 @@
         const [inputValue, setInputValue] = React.useState('');
         const messagesEndRef = React.useRef(null);
         
+        // P0: 历史消息导航索引（用于 Ctrl+ArrowUp/Down）
+        const [historyNavIndex, setHistoryNavIndex] = React.useState(-1);
+        
+        // P2: 监听模型列表更新事件，自动重新加载
+        React.useEffect(() => {
+            if (!window.EventManager) return;
+            
+            const EventManager = window.EventManager;
+            
+            // 监听模型更新事件
+            const handleModelsUpdated = () => {
+                console.log('[ChatWindow] 🔄 检测到模型列表更新，重新加载...');
+                // 触发 useAgent 重新加载模型
+                if (window.useAgent && window.useAgent.reloadModels) {
+                    window.useAgent.reloadModels();
+                }
+            };
+            
+            // 监听供应商更新事件
+            const handleProviderUpdated = () => {
+                console.log('[ChatWindow] 🔄 检测到供应商更新，重新加载模型...');
+                if (window.useAgent && window.useAgent.reloadModels) {
+                    window.useAgent.reloadModels();
+                }
+            };
+            
+            const modelsUpdatedId = EventManager.on('agent:models:updated', handleModelsUpdated);
+            const providerUpdatedId = EventManager.on('agent:provider:updated', handleProviderUpdated);
+            
+            return () => {
+                EventManager.off('agent:models:updated', modelsUpdatedId);
+                EventManager.off('agent:provider:updated', providerUpdatedId);
+            };
+        }, []);
+        
+        /**
+         * 注册聊天窗口内的快捷键（仅在窗口打开时）
+         */
+        React.useEffect(() => {
+            if (!isOpen || !window.ShortcutManager) {
+                return;
+            }
+            
+            const ShortcutManager = window.ShortcutManager;
+            
+            // Ctrl+Enter: 发送消息
+            ShortcutManager.register('ctrl+enter', (e) => {
+                if (inputValue.trim() && !isProcessing) {
+                    handleSend();
+                }
+                return false; // 阻止默认行为
+            }, '发送消息');
+            
+            // Escape: 停止生成或关闭窗口
+            ShortcutManager.register('escape', (e) => {
+                if (isProcessing) {
+                    stopGeneration();
+                } else if (isOpen) {
+                    onClose();
+                }
+                return false;
+            }, '停止生成/关闭窗口');
+            
+            /**
+             * Ctrl+ArrowUp: 导航到上一条用户消息
+             * 
+             * 功能说明:
+             * - 从当前输入框内容开始，向上查找最近的用户消息
+             * - 将找到的消息内容填充到输入框
+             * - 再次按下继续向上查找
+             * - 到达第一条消息后循环到最后一条
+             * 
+             * 使用场景:
+             * - 快速重新发送之前的消息
+             * - 查看和修改历史提问
+             * - 避免重复输入相同内容
+             * 
+             * 示例:
+             * ```
+             * 历史记录: ["你好", "帮我分析页面", "谢谢"]
+             * 当前输入: ""
+             * 第1次按 Ctrl+ArrowUp → 输入框: "谢谢"
+             * 第2次按 Ctrl+ArrowUp → 输入框: "帮我分析页面"
+             * 第3次按 Ctrl+ArrowUp → 输入框: "你好"
+             * 第4次按 Ctrl+ArrowUp → 输入框: "谢谢" (循环)
+             * ```
+             */
+            ShortcutManager.register('ctrl+arrowup', (e) => {
+                // 获取所有用户消息
+                const userMessages = messages.filter(msg => msg.role === 'user').map(msg => msg.content);
+                
+                if (userMessages.length === 0) {
+                    return false; // 没有历史消息
+                }
+                
+                // 计算下一个索引
+                let nextIndex;
+                if (historyNavIndex === -1) {
+                    // 首次按下，从最后一条开始
+                    nextIndex = userMessages.length - 1;
+                } else {
+                    // 向上移动，循环到开头
+                    nextIndex = historyNavIndex > 0 ? historyNavIndex - 1 : userMessages.length - 1;
+                }
+                
+                // 更新索引和输入框内容
+                setHistoryNavIndex(nextIndex);
+                setInputValue(userMessages[nextIndex]);
+                
+                console.log(`[ChatWindow] ⬆️ 导航到第 ${nextIndex + 1}/${userMessages.length} 条用户消息`);
+                return false;
+            }, '导航到上一条用户消息');
+            
+            /**
+             * Ctrl+ArrowDown: 导航到下一条用户消息
+             * 
+             * 功能说明:
+             * - 与 Ctrl+ArrowUp 相反方向导航
+             * - 向下查找下一条用户消息
+             * - 到达最后一条消息后循环到第一条
+             * 
+             * 使用场景:
+             * - 在历史消息中向前导航
+             * - 撤销 ArrowUp 的操作
+             * 
+             * 示例:
+             * ```
+             * 当前位置: "你好" (索引 0)
+             * 按 Ctrl+ArrowDown → 输入框: "帮我分析页面" (索引 1)
+             * 按 Ctrl+ArrowDown → 输入框: "谢谢" (索引 2)
+             * 按 Ctrl+ArrowDown → 输入框: "你好" (索引 0, 循环)
+             * ```
+             */
+            ShortcutManager.register('ctrl+arrowdown', (e) => {
+                // 获取所有用户消息
+                const userMessages = messages.filter(msg => msg.role === 'user').map(msg => msg.content);
+                
+                if (userMessages.length === 0) {
+                    return false; // 没有历史消息
+                }
+                
+                // 计算下一个索引
+                let nextIndex;
+                if (historyNavIndex === -1) {
+                    // 首次按下，从第一条开始
+                    nextIndex = 0;
+                } else {
+                    // 向下移动，循环到末尾
+                    nextIndex = historyNavIndex < userMessages.length - 1 ? historyNavIndex + 1 : 0;
+                }
+                
+                // 更新索引和输入框内容
+                setHistoryNavIndex(nextIndex);
+                setInputValue(userMessages[nextIndex]);
+                
+                console.log(`[ChatWindow] ⬇️ 导航到第 ${nextIndex + 1}/${userMessages.length} 条用户消息`);
+                return false;
+            }, '导航到下一条用户消息');
+            
+            console.log('[ChatWindow] ✅ 聊天窗口快捷键已注册');
+            
+            // 清理：窗口关闭时注销快捷键
+            return () => {
+                ShortcutManager.unregister('ctrl+enter');
+                ShortcutManager.unregister('escape');
+                ShortcutManager.unregister('ctrl+arrowup');
+                ShortcutManager.unregister('ctrl+arrowdown');
+                console.log('[ChatWindow] 🗑️ 聊天窗口快捷键已注销');
+            };
+        }, [isOpen, inputValue, isProcessing, messages, historyNavIndex]);
+        
         // 从 StorageManager 加载窗口位置和大小（如果可用）
         const loadWindowState = () => {
             if (window.StorageManager) {
@@ -196,15 +367,19 @@
             
             const message = inputValue;
             setInputValue('');
+            setHistoryNavIndex(-1); // 重置历史导航索引
             await sendMessage(message);
         }
         
-        // 处理键盘事件
+        // 处理键盘事件（仅处理 Enter 发送）
         function handleKeyDown(e) {
+            // 只在输入框有焦点时处理 Enter
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
+                e.stopPropagation(); // 阻止事件传播到 ShortcutManager
                 handleSend();
             }
+            // 其他按键（包括 Ctrl+ArrowUp/Down, Escape）让 ShortcutManager 处理
         }
         
         // 渲染消息列表
@@ -294,8 +469,12 @@
                         availableModels.map(model => 
                             React.createElement('option', {
                                 key: model.id,
-                                value: model.id
-                            }, model.name)
+                                value: model.id,
+                                style: {
+                                    color: model.invalid ? '#999' : '#000',
+                                    fontStyle: model.invalid ? 'italic' : 'normal'
+                                }
+                            }, model.name + (model.invalid ? ' ⚠️' : ''))
                         )
                     ]),
                     

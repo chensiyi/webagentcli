@@ -83,17 +83,13 @@ const CodeExecutor = (function() {
         return new Promise((resolve, reject) => {
             try {
                 // 1. 安全检查
-                if (isHighRiskCode(code)) {
-                    const riskType = getHighRiskType(code);
-                    
-                    // 如果启用严格模式，直接拒绝
-                    if (options.strictMode) {
-                        reject(new Error(`⚠️ 检测到高危操作：${riskType}\n\n为保护您的数据安全，已阻止执行。\n\n如果您确定代码安全，请关闭严格模式。`));
-                        return;
-                    }
-                    
-                    // 否则警告用户
-                    console.warn(`[CodeExecutor] ⚠️ 检测到高危操作: ${riskType}`);
+                const isHighRisk = isHighRiskCode(code);
+                const riskType = isHighRisk ? getHighRiskType(code) : null;
+                
+                // 如果启用严格模式且是高危代码，直接拒绝
+                if (options.strictMode && isHighRisk) {
+                    reject(new Error(`⚠️ 检测到高危操作：${riskType}\n\n为保护您的数据安全，已阻止执行。`));
+                    return;
                 }
 
                 // 2. 在沙箱环境中执行
@@ -105,7 +101,9 @@ const CodeExecutor = (function() {
                 resolve({
                     success: true,
                     result: formattedResult,
-                    rawResult: result
+                    rawResult: result,
+                    isHighRisk,
+                    riskType
                 });
 
             } catch (error) {
@@ -119,15 +117,23 @@ const CodeExecutor = (function() {
     }
 
     /**
-     * 格式化执行结果
+     * 格式化执行结果（P2: 支持压缩）
      */
-    function formatResult(result) {
+    function formatResult(result, options = {}) {
+        const maxLength = options.maxLength || 5000;  // 默认最大 5000 字符
+        
         // null 或 undefined
         if (result === null) return 'null';
         if (result === undefined) return 'undefined';
 
         // 基本类型
-        if (typeof result === 'string') return `"${result}"`;
+        if (typeof result === 'string') {
+            // P2: 字符串截断
+            if (result.length > maxLength) {
+                return `"${result.substring(0, maxLength)}..." (已截断，总长度: ${result.length} 字符)`;
+            }
+            return `"${result}"`;
+        }
         if (typeof result === 'number' || typeof result === 'boolean') return String(result);
         if (typeof result === 'function') return `[Function: ${result.name || 'anonymous'}]`;
 
@@ -135,7 +141,14 @@ const CodeExecutor = (function() {
         if (typeof result === 'object') {
             try {
                 // 尝试 JSON 序列化
-                return JSON.stringify(result, null, 2);
+                const jsonStr = JSON.stringify(result, null, 2);
+                
+                // P2: JSON 结果截断
+                if (jsonStr.length > maxLength) {
+                    return jsonStr.substring(0, maxLength) + '\n... (已截断，总长度: ${jsonStr.length} 字符)';
+                }
+                
+                return jsonStr;
             } catch (e) {
                 // 处理循环引用
                 return `[${result.constructor?.name || 'Object'}] (无法序列化)`;
@@ -225,6 +238,7 @@ const CodeExecutor = (function() {
         executeBatch,
         extractCodeBlocks,
         isHighRiskCode,
+        getHighRiskType,
         clearQueue,
         getState
     };

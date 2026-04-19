@@ -15,7 +15,7 @@ const path = require('path');
 const SRC_DIR = path.join(__dirname, 'src');
 const DIST_DIR = path.join(__dirname, 'dist');
 const OUTPUT_FILE = path.join(DIST_DIR, 'agent.user.js');
-const VERSION = process.env.VERSION || '5.0.0';
+const VERSION = process.env.VERSION || '5.1.0';
 const BUILD_DATE = new Date().toISOString().split('T')[0];
 // 发布模式：通过环境变量 RELEASE=true 启用，或手动设置
 const IS_RELEASE = process.env.RELEASE === 'true' || process.argv.includes('--release');
@@ -88,6 +88,7 @@ const modules = [
     'app/ui/components/MessageItem.jsx',          // Message Item 组件
     'app/ui/components/ChatWindow.jsx',           // Chat Window 组件
     'app/ui/components/SettingsDialog.jsx',       // Settings Dialog 组件
+    'app/ui/components/CodeConfirmDialog.jsx',    // P0: Code Confirm Dialog 组件
     'app/ui/index.jsx',                           // React 根组件
     
     // ==================== Main Entry (程序入口) ====================

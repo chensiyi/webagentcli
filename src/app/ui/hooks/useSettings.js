@@ -10,7 +10,6 @@
      */
     function useSettings() {
         const [settings, setSettings] = React.useState({
-            apiKey: '',
             model: 'auto',
             temperature: 0.7,
             maxTokens: 4096,
@@ -33,7 +32,6 @@
                 const providers = ProviderManager.getAllProviders();
                 
                 setSettings({
-                    apiKey: config.apiKey || '',
                     model: config.model || 'auto',
                     temperature: config.temperature || 0.7,
                     maxTokens: config.maxTokens || 4096,
@@ -52,10 +50,7 @@
             try {
                 setIsLoading(true);
                 
-                // 保存基础配置
-                if (newSettings.apiKey !== undefined) {
-                    ConfigManager.set('apiKey', newSettings.apiKey);
-                }
+                // 保存基础配置（不再包含 apiKey）
                 if (newSettings.model !== undefined) {
                     ConfigManager.set('model', newSettings.model);
                 }
@@ -130,13 +125,93 @@
             }
         }
         
+        // P2: 更新供应商（包括 API Key）
+        async function updateProvider(providerId, updates) {
+            try {
+                await ProviderManager.updateProvider(providerId, updates);
+                
+                // 重新加载供应商列表
+                const providers = ProviderManager.getAllProviders();
+                setSettings(prev => ({ ...prev, providers }));
+                
+                console.log('[useSettings] ✅ 供应商已更新');
+                
+            } catch (error) {
+                console.error('[useSettings] 更新供应商失败:', error);
+                throw error;
+            }
+        }
+        
+        // P2: 刷新供应商模型
+        async function refreshProviderModels(providerId) {
+            try {
+                const result = await ProviderManager.refreshProviderModels(providerId);
+                
+                // 重新加载供应商列表
+                const providers = ProviderManager.getAllProviders();
+                setSettings(prev => ({ ...prev, providers }));
+                
+                console.log('[useSettings] ✅ 模型已刷新', result);
+                return result;
+                
+            } catch (error) {
+                console.error('[useSettings] 刷新模型失败:', error);
+                throw error;
+            }
+        }
+        
+        // P2: 切换模型启用状态
+        async function toggleModelEnabled(providerId, modelId, currentEnabled) {
+            try {
+                const provider = ProviderManager.getProviderById(providerId);
+                if (!provider) throw new Error('供应商不存在');
+                
+                const models = provider.models.map(m => 
+                    m.id === modelId ? { ...m, enabled: !currentEnabled } : m
+                );
+                
+                await ProviderManager.updateProvider(providerId, { models });
+                
+                // 重新加载供应商列表
+                const providers = ProviderManager.getAllProviders();
+                setSettings(prev => ({ ...prev, providers }));
+                
+                console.log('[useSettings] ✅ 模型状态已更新');
+                
+            } catch (error) {
+                console.error('[useSettings] 更新模型状态失败:', error);
+                throw error;
+            }
+        }
+        
+        // P2: 切换供应商启用状态
+        async function toggleProviderEnabled(providerId, enabled) {
+            try {
+                await ProviderManager.toggleProviderEnabled(providerId, enabled);
+                
+                // 重新加载供应商列表
+                const providers = ProviderManager.getAllProviders();
+                setSettings(prev => ({ ...prev, providers }));
+                
+                console.log('[useSettings] ✅ 供应商状态已更新');
+                
+            } catch (error) {
+                console.error('[useSettings] 更新供应商状态失败:', error);
+                throw error;
+            }
+        }
+        
         return {
             settings,
             isLoading,
             saveSettings,
             addProvider,
+            updateProvider,  // P2: 更新供应商
             deleteProvider,
+            toggleProviderEnabled,  // P2: 切换供应商启用状态
             addModelToProvider,
+            refreshProviderModels,  // P2: 刷新模型
+            toggleModelEnabled,  // P2: 切换模型状态
             reloadSettings: loadSettings
         };
     }

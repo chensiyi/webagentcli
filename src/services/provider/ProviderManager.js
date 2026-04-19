@@ -258,8 +258,27 @@ async function init() {
         await saveProviders();
     }
     
-    // 加载 OpenRouter 模型列表
-    await loadOpenRouterModels();
+    // P2: 加载所有启用供应商的模型列表
+    const enabledProviders = providers.filter(p => {
+        // 启用的供应商
+        if (p.enabled === false) return false;
+        
+        // 本地服务不需要 API Key
+        if (p.isLocal) return true;
+        
+        // 云端服务需要 API Key
+        return p.apiKey;
+    });
+    
+    console.log(`[ProviderManager] 🔄 正在加载 ${enabledProviders.length} 个启用供应商的模型...`);
+    
+    for (const provider of enabledProviders) {
+        try {
+            await loadProviderModels(provider.id);
+        } catch (error) {
+            console.error(`[ProviderManager] ⚠️ 加载 ${provider.name} 模型失败:`, error.message);
+        }
+    }
     
     console.log('[ProviderManager] Initialized with', providers.length, 'providers');
 }
@@ -289,51 +308,174 @@ async function saveProviders() {
 }
 
 /**
- * 加载 OpenRouter 模型列表
+ * P2: 通用模型拉取（根据供应商 template）
+ * @param {Object} provider - 供应商对象
+ * @returns {Promise<Array>} 模型列表
  */
-async function loadOpenRouterModels() {
+async function fetchModelsFromProvider(provider) {
+    // P2: 本地服务不需要 API Key
+    if (!provider.isLocal && !provider.apiKey) {
+        throw new Error('API Key 未配置');
+    }
+    
+    // P2: 统一转换为小写进行比较
+    const template = (provider.template || '').toLowerCase();
+    
+    // 根据不同 template 调用不同 API
+    switch (template) {
+        case 'openai':
+            return await fetchOpenAIModels(provider);
+        case 'openrouter':
+            return await fetchOpenRouterModels(provider);
+        default:
+            throw new Error(`不支持的 template: ${provider.template}`);
+    }
+}
+
+/**
+ * 获取 OpenAI 兼容接口的模型列表
+ */
+async function fetchOpenAIModels(provider) {
+    const url = `${provider.baseUrl}/models`;
+    
+    // P2: 本地服务不需要 API Key
+    const headers = {
+        'Content-Type': 'application/json'
+    };
+    
+    if (!provider.isLocal && provider.apiKey) {
+        headers['Authorization'] = `Bearer ${provider.apiKey}`;
+    }
+    
+    const response = await fetch(url, { headers });
+    
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    
+    if (data.data && Array.isArray(data.data)) {
+        return data.data.map(model => ({
+            id: model.id,
+            name: model.name || model.id,
+            enabled: true,
+            contextLength: null,
+            pricing: null
+        }));
+    }
+    
+    return [];
+}
+
+/**
+ * 获取 OpenRouter 模型列表
+ */
+async function fetchOpenRouterModels(provider) {
+    const response = await fetch('https://openrouter.ai/api/v1/models', {
+        headers: {
+            'Authorization': `Bearer ${provider.apiKey}`,
+            'Content-Type': 'application/json'
+        }
+    });
+    
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    
+    if (data.data && Array.isArray(data.data)) {
+        return data.data.map(model => ({
+            id: model.id,
+            name: model.name || model.id,
+            enabled: true,
+            contextLength: model.context_length,
+            pricing: model.pricing
+        }));
+    }
+    
+    return [];
+}
+
+/**
+ * P2: 加载指定供应商的模型列表（智能对比）
+ * @param {string} providerId - 供应商 ID
+ */
+async function loadProviderModels(providerId) {
     try {
-        const openrouter = providers.find(p => p.id === 'openrouter');
-        if (!openrouter) return;
-        
-        // 如果没有 API Key，跳过
-        if (!openrouter.apiKey) {
-            console.log('[ProviderManager] OpenRouter API Key 未配置，跳过模型加载');
+        const provider = providers.find(p => p.id === providerId);
+        if (!provider) {
+            console.log('[ProviderManager] 供应商不存在:', providerId);
             return;
         }
         
-        console.log('[ProviderManager] 🔄 正在加载 OpenRouter 模型列表...');
-        
-        const response = await fetch('https://openrouter.ai/api/v1/models', {
-            headers: {
-                'Authorization': `Bearer ${openrouter.apiKey}`,
-                'Content-Type': 'application/json'
-            }
-        });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        // 如果供应商被禁用，跳过
+        if (provider.enabled === false) {
+            console.log('[ProviderManager] 供应商已禁用，跳过模型加载:', provider.name);
+            return;
         }
         
-        const data = await response.json();
+        console.log(`[ProviderManager] 🔄 正在加载 ${provider.name} 模型列表...`);
         
-        if (data.data && Array.isArray(data.data)) {
-            // 转换为内部格式
-            openrouter.models = data.data.map(model => ({
-                id: model.id,
-                name: model.name || model.id,
-                enabled: true,  // 默认启用
-                contextLength: model.context_length,
-                pricing: model.pricing
-            }));
+        // 通用拉取
+        const newModels = await fetchModelsFromProvider(provider);
+        
+        if (newModels.length === 0) {
+            console.log(`[ProviderManager] ⚠️ ${provider.name} 未返回模型列表`);
+            return;
+        }
+        
+        // P2: 智能对比新旧模型
+        if (provider.models && provider.models.length > 0) {
+            const oldModelIds = new Set(provider.models.map(m => m.id));
+            const newModelIds = new Set(newModels.map(m => m.id));
             
-            await saveProviders();
-            console.log(`[ProviderManager] ✅ 加载了 ${openrouter.models.length} 个 OpenRouter 模型`);
+            // 新增的模型
+            const added = newModels.filter(m => !oldModelIds.has(m.id));
+            // 移除的模型
+            const removed = provider.models.filter(m => !newModelIds.has(m.id));
+            // 保留的模型（保持原有 enabled 状态）
+            const kept = newModels.map(m => {
+                const oldModel = provider.models.find(om => om.id === m.id);
+                return oldModel ? { ...m, enabled: oldModel.enabled } : m;
+            });
+            
+            console.log(`[ProviderManager] 📊 ${provider.name} 模型变化:`);
+            console.log(`   ➕ 新增: ${added.length} 个`);
+            console.log(`   ➖ 移除: ${removed.length} 个`);
+            console.log(`   ✅ 保留: ${kept.length} 个`);
+            
+            if (added.length > 0) {
+                console.log('[ProviderManager] 新增模型:', added.slice(0, 5).map(m => m.id).join(', '));
+                if (added.length > 5) {
+                    console.log(`   ... 还有 ${added.length - 5} 个`);
+                }
+            }
+            if (removed.length > 0) {
+                console.log('[ProviderManager] 移除模型:', removed.slice(0, 5).map(m => m.id).join(', '));
+            }
+            
+            // 合并模型列表
+            provider.models = [...kept, ...added];
+        } else {
+            // 首次加载，直接使用新列表
+            provider.models = newModels;
         }
+        
+        await saveProviders();
+        console.log(`[ProviderManager] ✅ ${provider.name} 总计 ${provider.models.length} 个模型`);
         
     } catch (error) {
-        console.error('[ProviderManager] ❌ 加载 OpenRouter 模型失败:', error);
+        console.error(`[ProviderManager] ❌ 加载 ${providerId} 模型失败:`, error);
     }
+}
+
+/**
+ * 加载 OpenRouter 模型列表（P2: 智能对比）- 向后兼容
+ */
+async function loadOpenRouterModels() {
+    await loadProviderModels('openrouter');
 }
 
 /**
@@ -515,10 +657,27 @@ async function clearProviderModels(providerId) {
 function getAllAvailableModels() {
     const allModels = [];
     
+    console.log('[ProviderManager] 🔍 获取可用模型，供应商数量:', providers.length);
+    
     for (const provider of providers) {
-        if (!provider.enabled) continue;
+        // P2: 跳过禁用的供应商
+        if (provider.enabled === false) {
+            console.log(`[ProviderManager] ⚠️ 跳过禁用供应商: ${provider.name}`);
+            continue;
+        }
+        
+        // P2: 检查 API Key（本地服务不需要）
+        if (!provider.isLocal && !provider.apiKey) {
+            console.log(`[ProviderManager] ⚠️ 跳过无 API Key 供应商: ${provider.name}`);
+            continue;
+        }
+        
+        console.log(`[ProviderManager] ✅ 处理供应商: ${provider.name}, 模型数量: ${provider.models?.length || 0}`);
         
         for (const model of provider.models) {
+            // P2: 跳过禁用的模型
+            if (model.enabled === false) continue;
+            
             allModels.push({
                 ...model,
                 providerId: provider.id,
@@ -528,6 +687,7 @@ function getAllAvailableModels() {
         }
     }
     
+    console.log('[ProviderManager] 📊 总计可用模型:', allModels.length);
     return allModels;
 }
 
@@ -720,6 +880,56 @@ async function testProviderConnectionInternal(provider) {
 }
 
 /**
+ * P2: 刷新指定供应商的模型列表
+ * @param {string} providerId - 供应商 ID
+ * @returns {Promise<Object>} 返回变化统计
+ */
+async function refreshProviderModels(providerId) {
+    const provider = providers.find(p => p.id === providerId);
+    if (!provider) {
+        throw new Error(`供应商 ${providerId} 不存在`);
+    }
+    
+    const oldCount = provider.models ? provider.models.length : 0;
+    await loadProviderModels(providerId);
+    const newCount = provider.models ? provider.models.length : 0;
+    
+    return {
+        success: true,
+        oldCount,
+        newCount,
+        added: newCount > oldCount ? newCount - oldCount : 0,
+        removed: oldCount > newCount ? oldCount - newCount : 0
+    };
+}
+
+/**
+ * P2: 切换供应商启用状态
+ * @param {string} providerId - 供应商 ID
+ * @param {boolean} enabled - 是否启用
+ */
+async function toggleProviderEnabled(providerId, enabled) {
+    const provider = providers.find(p => p.id === providerId);
+    if (!provider) {
+        throw new Error(`供应商 ${providerId} 不存在`);
+    }
+    
+    provider.enabled = enabled;
+    
+    // P2: 如果禁用供应商，同时禁用其所有模型（但保留在列表中）
+    if (!enabled && provider.models) {
+        provider.models = provider.models.map(m => ({ ...m, enabled: false }));
+        console.log(`[ProviderManager] ⚠️ 已禁用 ${provider.name} 及其所有模型`);
+    } else if (enabled && provider.models) {
+        // 启用时，恢复模型的原始状态（不自动启用，由用户手动控制）
+        console.log(`[ProviderManager] ✅ 已启用 ${provider.name}，请手动启用需要的模型`);
+    }
+    
+    await saveProviders();
+    console.log(`[ProviderManager] ${enabled ? '✅ 启用' : '⚠️ 禁用'} 供应商: ${provider.name}`);
+}
+
+/**
  * v4.0.0: 数据迁移 - 为本地服务自动添加 isLocal 标志
  */
 async function migrateProvidersData() {
@@ -783,8 +993,10 @@ const ProviderManager = {
     addProvider,
     updateProvider,
     deleteProvider,
+    toggleProviderEnabled,  // P2: 切换供应商启用状态
     addModelsToProvider,
     clearProviderModels,
+    refreshProviderModels,  // P2: 刷新模型列表
     getAllAvailableModels,
     getAvailableTemplates,
     getTemplate,

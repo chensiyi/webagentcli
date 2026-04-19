@@ -13,8 +13,12 @@
             isLoading, 
             saveSettings,
             addProvider,
+            updateProvider,  // P2: 更新供应商
             deleteProvider,
-            addModelToProvider
+            toggleProviderEnabled,  // P2: 切换供应商启用状态
+            addModelToProvider,
+            refreshProviderModels,  // P2: 刷新模型
+            toggleModelEnabled  // P2: 切换模型状态
         } = window.useSettings();
         
         const [activeTab, setActiveTab] = React.useState('basic'); // basic, providers
@@ -29,6 +33,15 @@
             providerId: '',
             modelId: '',
             modelName: ''
+        });
+        
+        // P2: 编辑供应商对话框状态
+        const [editingProvider, setEditingProvider] = React.useState(null);
+        const [editFormData, setEditFormData] = React.useState({
+            name: '',
+            baseUrl: '',
+            apiKey: '',
+            isLocal: false
         });
         
         // 通用样式
@@ -75,6 +88,36 @@
         React.useEffect(() => {
             setFormData(settings);
         }, [settings]);
+        
+        // 注册 Escape 快捷键（仅在对话框打开时）
+        React.useEffect(() => {
+            if (!isOpen || !window.ShortcutManager) {
+                return;
+            }
+            
+            /**
+             * Escape: 关闭设置对话框
+             * 
+             * 功能说明:
+             * - 按 Escape 键关闭设置对话框
+             * - 不保存未保存的更改
+             */
+            window.ShortcutManager.register('escape', (e) => {
+                if (onClose) {
+                    onClose();
+                    console.log('[SettingsDialog] ⌨️ Escape 关闭设置对话框');
+                }
+                return false;
+            }, '关闭设置对话框');
+            
+            console.log('[SettingsDialog] ✅ 设置对话框快捷键已注册');
+            
+            // 清理：对话框关闭时注销快捷键
+            return () => {
+                window.ShortcutManager.unregister('escape');
+                console.log('[SettingsDialog] 🗑️ 设置对话框快捷键已注销');
+            };
+        }, [isOpen, onClose]);
         
         if (!isOpen) return null;
         
@@ -159,35 +202,121 @@
             }
         }
         
+        // P2: 打开编辑供应商对话框
+        function handleEditProvider(provider) {
+            setEditingProvider(provider);
+            setEditFormData({
+                name: provider.name,
+                baseUrl: provider.baseUrl,
+                apiKey: '',  // 不显示原有 API Key
+                isLocal: provider.isLocal || false
+            });
+        }
+        
+        // P2: 关闭编辑对话框
+        function handleCloseEdit() {
+            setEditingProvider(null);
+            setEditFormData({
+                name: '',
+                baseUrl: '',
+                apiKey: '',
+                isLocal: false
+            });
+        }
+        
+        // P2: 保存编辑的供应商
+        async function handleSaveEdit() {
+            if (!editingProvider) return;
+            
+            try {
+                const updates = {
+                    name: editFormData.name,
+                    baseUrl: editFormData.baseUrl,
+                    isLocal: editFormData.isLocal
+                };
+                
+                // 如果填写了新的 API Key，则更新
+                if (editFormData.apiKey.trim()) {
+                    updates.apiKey = editFormData.apiKey;
+                }
+                
+                await updateProvider(editingProvider.id, updates);
+                
+                // P2: 触发事件通知模型列表更新
+                if (window.EventManager) {
+                    window.EventManager.emit(window.EventManager.EventTypes.PROVIDER_UPDATED, {
+                        providerId: editingProvider.id
+                    });
+                }
+                
+                alert('✅ 供应商已更新');
+                handleCloseEdit();
+                
+            } catch (error) {
+                alert('❌ 更新失败: ' + error.message);
+            }
+        }
+        
+        // P2: 刷新供应商模型
+        async function handleRefreshModels(providerId) {
+            if (!confirm('确定要刷新模型列表吗？\n系统将对比新旧模型并自动保留已有配置。')) return;
+            
+            try {
+                const result = await refreshProviderModels(providerId);
+                
+                // P2: 触发事件通知模型列表更新
+                if (window.EventManager) {
+                    window.EventManager.emit(window.EventManager.EventTypes.MODELS_UPDATED, {
+                        providerId,
+                        ...result
+                    });
+                }
+                
+                alert(`✅ 模型已刷新\n新增: ${result.added} 个\n移除: ${result.removed} 个\n总计: ${result.newCount} 个`);
+            } catch (error) {
+                alert('❌ 刷新失败: ' + error.message);
+            }
+        }
+        
+        // P2: 切换模型启用状态
+        async function handleToggleModel(providerId, modelId, currentEnabled) {
+            try {
+                await toggleModelEnabled(providerId, modelId, currentEnabled);
+                
+                // P2: 触发事件通知模型列表更新
+                if (window.EventManager) {
+                    window.EventManager.emit(window.EventManager.EventTypes.MODELS_UPDATED, {
+                        providerId,
+                        modelId,
+                        enabled: !currentEnabled
+                    });
+                }
+            } catch (error) {
+                alert('❌ 操作失败: ' + error.message);
+            }
+        }
+        
+        // P2: 切换供应商启用状态
+        async function handleToggleProvider(providerId, currentEnabled) {
+            try {
+                await toggleProviderEnabled(providerId, !currentEnabled);
+                
+                // P2: 触发事件通知模型列表更新
+                if (window.EventManager) {
+                    window.EventManager.emit(window.EventManager.EventTypes.PROVIDER_UPDATED, {
+                        providerId,
+                        enabled: !currentEnabled
+                    });
+                }
+            } catch (error) {
+                alert('❌ 操作失败: ' + error.message);
+            }
+        }
+
         // 渲染基础设置标签页
         function renderBasicTab() {
             return React.createElement('div', { className: 'settings-tab-content' }, [
-                // API Key
-                React.createElement('div', { 
-                    key: 'apikey', 
-                    style: { marginBottom: '15px' }
-                }, [
-                    React.createElement('label', { 
-                        key: 'label',
-                        style: { display: 'block', marginBottom: '5px', fontWeight: 'bold', fontSize: '14px' }
-                    }, 'API Key:'),
-                    React.createElement('input', {
-                        key: 'input',
-                        type: 'password',
-                        value: formData.apiKey,
-                        onChange: (e) => setFormData(prev => ({ ...prev, apiKey: e.target.value })),
-                        placeholder: '输入 API Key',
-                        style: {
-                            width: '100%',
-                            padding: '8px 12px',
-                            fontSize: '14px',
-                            border: '1px solid #ddd',
-                            borderRadius: '4px',
-                            boxSizing: 'border-box'
-                        }
-                    })
-                ]),
-                
+
                 // Model
                 React.createElement('div', { key: 'model', className: 'form-group' }, [
                     React.createElement('label', { key: 'label' }, '默认模型:'),
@@ -241,17 +370,174 @@
         // 渲染供应商管理标签页
         function renderProvidersTab() {
             const providerElements = settings.providers.map(provider => {
-                return React.createElement('div', { key: provider.id, className: 'provider-item' }, [
-                    React.createElement('div', { key: 'info', className: 'provider-info' }, [
-                        React.createElement('strong', { key: 'name' }, provider.name),
-                        React.createElement('span', { key: 'url' }, provider.baseUrl),
-                        React.createElement('span', { key: 'models' }, `${provider.models?.length || 0} 个模型`)
+                return React.createElement('div', { 
+                    key: provider.id, 
+                    className: 'provider-item',
+                    style: {
+                        padding: '15px',
+                        marginBottom: '15px',
+                        background: '#f8f9fa',
+                        borderRadius: '8px',
+                        border: '1px solid #e9ecef'
+                    }
+                }, [
+                    // 供应商头部信息
+                    React.createElement('div', { 
+                        key: 'header',
+                        style: {
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            marginBottom: '10px'
+                        }
+                    }, [
+                        React.createElement('div', { key: 'info', style: { display: 'flex', alignItems: 'center', gap: '10px' } }, [
+                            // P2: 供应商启用开关
+                            React.createElement('label', {
+                                key: 'toggle',
+                                style: {
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    cursor: 'pointer',
+                                    fontSize: '13px'
+                                }
+                            }, [
+                                React.createElement('input', {
+                                    type: 'checkbox',
+                                    checked: provider.enabled !== false,
+                                    onChange: () => handleToggleProvider(provider.id, provider.enabled),
+                                    style: { marginRight: '5px' }
+                                }),
+                                provider.enabled !== false ? '启用' : '禁用'
+                            ]),
+                            
+                            React.createElement('strong', { 
+                                key: 'name',
+                                style: { 
+                                    fontSize: '16px',
+                                    color: provider.enabled === false ? '#6c757d' : '#212529'
+                                }
+                            }, provider.name),
+                            React.createElement('span', { 
+                                key: 'badge',
+                                style: {
+                                    fontSize: '12px',
+                                    padding: '2px 8px',
+                                    background: provider.isLocal ? '#28a745' : '#007bff',
+                                    color: 'white',
+                                    borderRadius: '12px',
+                                    marginRight: '10px'
+                                }
+                            }, provider.isLocal ? '本地' : '云端'),
+                            React.createElement('span', { 
+                                key: 'models',
+                                style: { fontSize: '13px', color: '#6c757d' }
+                            }, `${provider.models?.length || 0} 个模型`)
+                        ]),
+                        React.createElement('div', { key: 'actions', style: { display: 'flex', gap: '5px' } }, [
+                            React.createElement('button', {
+                                key: 'edit',
+                                onClick: () => handleEditProvider(provider),
+                                style: {
+                                    padding: '5px 10px',
+                                    fontSize: '12px',
+                                    background: '#ffc107',
+                                    color: '#212529',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                }
+                            }, '✏️ 编辑'),
+                            React.createElement('button', {
+                                key: 'refresh',
+                                onClick: () => handleRefreshModels(provider.id),
+                                style: {
+                                    padding: '5px 10px',
+                                    fontSize: '12px',
+                                    background: '#17a2b8',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                }
+                            }, '🔄 刷新'),
+                            React.createElement('button', {
+                                key: 'delete',
+                                onClick: () => handleDeleteProvider(provider.id),
+                                style: {
+                                    padding: '5px 10px',
+                                    fontSize: '12px',
+                                    background: '#dc3545',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                }
+                            }, '🗑️')
+                        ])
                     ]),
-                    React.createElement('button', {
-                        key: 'delete',
-                        onClick: () => handleDeleteProvider(provider.id),
-                        className: 'btn btn-danger btn-small'
-                    }, '🗑️ 删除')
+                    
+                    // P2: 模型列表
+                    provider.models && provider.models.length > 0 ? React.createElement('div', {
+                        key: 'models',
+                        style: {
+                            marginTop: '10px',
+                            paddingTop: '10px',
+                            borderTop: '1px solid #dee2e6'
+                        }
+                    }, [
+                        React.createElement('div', { 
+                            key: 'title',
+                            style: { fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', color: '#495057' }
+                        }, '模型列表:'),
+                        React.createElement('div', { 
+                            key: 'list',
+                            style: {
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+                                gap: '8px'
+                            }
+                        }, provider.models.map(model => 
+                            React.createElement('div', {
+                                key: model.id,
+                                style: {
+                                    padding: '8px 10px',
+                                    background: 'white',
+                                    borderRadius: '4px',
+                                    border: '1px solid #dee2e6',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    fontSize: '12px'
+                                }
+                            }, [
+                                React.createElement('span', {
+                                    key: 'name',
+                                    style: {
+                                        color: model.enabled ? '#212529' : '#6c757d',
+                                        textDecoration: model.enabled ? 'none' : 'line-through'
+                                    }
+                                }, model.name || model.id),
+                                React.createElement('label', {
+                                    key: 'toggle',
+                                    style: {
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        cursor: 'pointer',
+                                        fontSize: '11px'
+                                    }
+                                }, [
+                                    React.createElement('input', {
+                                        type: 'checkbox',
+                                        checked: model.enabled,
+                                        onChange: () => handleToggleModel(provider.id, model.id, model.enabled),
+                                        style: { marginRight: '5px' }
+                                    }),
+                                    model.enabled ? '启用' : '禁用'
+                                ])
+                            ])
+                        ))
+                    ]) : null
                 ]);
             });
             
@@ -452,7 +738,165 @@
                     }
                 },
                     activeTab === 'basic' ? renderBasicTab() : renderProvidersTab()
-                )
+                ),
+                
+                // P2: 编辑供应商对话框
+                editingProvider ? React.createElement('div', {
+                    key: 'edit-overlay',
+                    style: {
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        background: 'rgba(0, 0, 0, 0.5)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 1000001
+                    },
+                    onClick: handleCloseEdit
+                }, [
+                    React.createElement('div', {
+                        key: 'edit-modal',
+                        onClick: (e) => e.stopPropagation(),
+                        style: {
+                            background: 'white',
+                            borderRadius: '8px',
+                            padding: '24px',
+                            width: '500px',
+                            maxWidth: '90%'
+                        }
+                    }, [
+                        React.createElement('h3', {
+                            key: 'title',
+                            style: { margin: '0 0 20px 0', fontSize: '18px' }
+                        }, `✏️ 编辑供应商: ${editingProvider.name}`),
+                        
+                        React.createElement('div', { key: 'form' }, [
+                            React.createElement('div', { key: 'name', style: { marginBottom: '15px' } }, [
+                                React.createElement('label', { 
+                                    key: 'label',
+                                    style: { display: 'block', marginBottom: '5px', fontWeight: 'bold', fontSize: '14px' }
+                                }, '供应商名称:'),
+                                React.createElement('input', {
+                                    key: 'input',
+                                    type: 'text',
+                                    value: editFormData.name,
+                                    onChange: (e) => setEditFormData(prev => ({ ...prev, name: e.target.value })),
+                                    style: {
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        fontSize: '14px',
+                                        border: '1px solid #ddd',
+                                        borderRadius: '4px',
+                                        boxSizing: 'border-box'
+                                    }
+                                })
+                            ]),
+                            
+                            React.createElement('div', { key: 'url', style: { marginBottom: '15px' } }, [
+                                React.createElement('label', { 
+                                    key: 'label',
+                                    style: { display: 'block', marginBottom: '5px', fontWeight: 'bold', fontSize: '14px' }
+                                }, 'Base URL:'),
+                                React.createElement('input', {
+                                    key: 'input',
+                                    type: 'text',
+                                    value: editFormData.baseUrl,
+                                    onChange: (e) => setEditFormData(prev => ({ ...prev, baseUrl: e.target.value })),
+                                    style: {
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        fontSize: '14px',
+                                        border: '1px solid #ddd',
+                                        borderRadius: '4px',
+                                        boxSizing: 'border-box'
+                                    }
+                                })
+                            ]),
+                            
+                            React.createElement('div', { key: 'apikey', style: { marginBottom: '15px' } }, [
+                                React.createElement('label', { 
+                                    key: 'label',
+                                    style: { display: 'block', marginBottom: '5px', fontWeight: 'bold', fontSize: '14px' }
+                                }, 'API Key (留空不修改):'),
+                                React.createElement('input', {
+                                    key: 'input',
+                                    type: 'password',
+                                    value: editFormData.apiKey,
+                                    onChange: (e) => setEditFormData(prev => ({ ...prev, apiKey: e.target.value })),
+                                    placeholder: '输入新的 API Key',
+                                    style: {
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        fontSize: '14px',
+                                        border: '1px solid #ddd',
+                                        borderRadius: '4px',
+                                        boxSizing: 'border-box'
+                                    }
+                                })
+                            ]),
+                            
+                            React.createElement('div', { key: 'local', style: { marginBottom: '20px' } }, [
+                                React.createElement('label', {
+                                    key: 'label',
+                                    style: {
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        cursor: 'pointer',
+                                        fontSize: '14px'
+                                    }
+                                }, [
+                                    React.createElement('input', {
+                                        key: 'checkbox',
+                                        type: 'checkbox',
+                                        checked: editFormData.isLocal,
+                                        onChange: (e) => setEditFormData(prev => ({ ...prev, isLocal: e.target.checked })),
+                                        style: { marginRight: '8px' }
+                                    }),
+                                    '本地服务 (如 LM Studio, Ollama)'
+                                ])
+                            ]),
+                            
+                            React.createElement('div', {
+                                key: 'actions',
+                                style: {
+                                    display: 'flex',
+                                    gap: '10px',
+                                    justifyContent: 'flex-end'
+                                }
+                            }, [
+                                React.createElement('button', {
+                                    key: 'cancel',
+                                    onClick: handleCloseEdit,
+                                    style: {
+                                        padding: '8px 16px',
+                                        fontSize: '14px',
+                                        background: '#6c757d',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer'
+                                    }
+                                }, '取消'),
+                                React.createElement('button', {
+                                    key: 'save',
+                                    onClick: handleSaveEdit,
+                                    style: {
+                                        padding: '8px 16px',
+                                        fontSize: '14px',
+                                        background: '#007bff',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer'
+                                    }
+                                }, '💾 保存')
+                            ])
+                        ])
+                    ])
+                ]) : null
             ])
         ]);
     }

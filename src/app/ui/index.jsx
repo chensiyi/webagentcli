@@ -21,6 +21,15 @@
     function App() {
         const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
         
+        // P0: 高危代码确认对话框状态
+        const [codeConfirm, setCodeConfirm] = React.useState({
+            isOpen: false,
+            code: '',
+            riskType: '',
+            resolve: null,
+            reject: null
+        });
+        
         // 从 StorageManager 加载窗口可见性状态（默认隐藏）
         const getInitialChatState = () => {
             if (window.StorageManager) {
@@ -31,6 +40,67 @@
         };
         
         const [isChatOpen, setIsChatOpen] = React.useState(getInitialChatState());
+        
+        // P0: 监听高危代码确认事件
+        React.useEffect(() => {
+            if (!EventManager || !window.CodeConfirmDialog) return;
+            
+            const confirmationId = EventManager.on(
+                EventManager.EventTypes.CODE_CONFIRMATION_REQUIRED,
+                (data) => {
+                    setCodeConfirm({
+                        isOpen: true,
+                        code: data.code,
+                        riskType: data.riskType,
+                        resolve: data.resolve,
+                        reject: data.reject
+                    });
+                }
+            );
+            
+            return () => {
+                EventManager.off(EventManager.EventTypes.CODE_CONFIRMATION_REQUIRED, confirmationId);
+            };
+        }, []);
+        
+        // 监听快捷键切换窗口事件
+        React.useEffect(() => {
+            if (!window.EventManager) return;
+            
+            const handler = () => {
+                setIsChatOpen(prev => {
+                    const newState = !prev;
+                    // 同步到 StorageManager
+                    if (window.StorageManager) {
+                        if (newState) {
+                            window.StorageManager.setState('ui.window.visible', true);
+                        } else {
+                            window.StorageManager.setState('ui.window.visible', null);
+                        }
+                    }
+                    return newState;
+                });
+            };
+            
+            window.EventManager.on('TOGGLE_CHAT_WINDOW', handler);
+            return () => window.EventManager.off('TOGGLE_CHAT_WINDOW', handler);
+        }, []);
+
+        // P0: 处理确认
+        function handleCodeConfirm() {
+            if (codeConfirm.resolve) {
+                codeConfirm.resolve();
+            }
+            setCodeConfirm({ isOpen: false, code: '', riskType: '', resolve: null, reject: null });
+        }
+        
+        // P0: 处理取消
+        function handleCodeCancel() {
+            if (codeConfirm.reject) {
+                codeConfirm.reject(new Error('用户取消了高危代码执行'));
+            }
+            setCodeConfirm({ isOpen: false, code: '', riskType: '', resolve: null, reject: null });
+        }
         
         return React.createElement('div', null, [
             // 机器人图标按钮（切换聊天窗口）
@@ -85,6 +155,16 @@
                 key: 'settings',
                 isOpen: isSettingsOpen,
                 onClose: () => setIsSettingsOpen(false)
+            }) : null,
+            
+            // P0: 高危代码确认对话框
+            window.CodeConfirmDialog ? React.createElement(window.CodeConfirmDialog, {
+                key: 'code-confirm',
+                isOpen: codeConfirm.isOpen,
+                code: codeConfirm.code,
+                riskType: codeConfirm.riskType,
+                onConfirm: handleCodeConfirm,
+                onCancel: handleCodeCancel
             }) : null
         ]);
     }
@@ -112,11 +192,35 @@
         console.log('[React UI] ✅ React 应用已挂载');
     }
     
-    // 页面加载完成后挂载
+    // P0: 等待 APP_INITIALIZED 事件后再挂载
+    const waitForInitialization = () => {
+        // 检查是否已经初始化完成（兜底机制）
+        if (window.__AGENT_INITIALIZED__) {
+            console.log('[React UI] 📢 检测到 __AGENT_INITIALIZED__ 标志，直接挂载');
+            mountApp();
+            return;
+        }
+        
+        if (!window.EventManager) {
+            // EventManager 还未就绪，稍后重试
+            setTimeout(waitForInitialization, 50);
+            return;
+        }
+        
+        // 注册初始化完成事件监听器
+        window.EventManager.on('APP_INITIALIZED', () => {
+            console.log('[React UI] 📢 收到 APP_INITIALIZED 事件，开始挂载');
+            mountApp();
+        });
+        
+        console.log('[React UI] ✅ 已注册 APP_INITIALIZED 监听器，等待初始化完成...');
+    };
+    
+    // 页面加载完成后开始等待
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', mountApp);
+        document.addEventListener('DOMContentLoaded', waitForInitialization);
     } else {
-        mountApp();
+        waitForInitialization();
     }
     
 })();

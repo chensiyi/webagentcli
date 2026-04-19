@@ -83,17 +83,24 @@ const AIAgent = (function() {
      * @returns {Promise<Object>} 响应结果
      */
     async function sendMessage(userMessage, options = {}) {
+        console.log('[AIAgent] 📤 收到 sendMessage 调用');
+        console.log('[AIAgent] 📋 消息:', userMessage.substring(0, 100));
+        
         // 1. 验证状态
         if (!agentState.isInitialized) {
+            console.error('[AIAgent] ❌ Agent 未初始化');
             throw new Error('Agent 未初始化，请先调用 init()');
         }
         
         if (agentState.isProcessing) {
+            console.error('[AIAgent] ❌ Agent 正在处理中');
             throw new Error('Agent 正在处理中，请稍后');
         }
 
         agentState.isProcessing = true;
         agentState.lastError = null;
+        
+        console.log('[AIAgent] ✅ 状态检查通过，开始构建上下文...');
         
         // 创建中止控制器
         const abortController = options.abortController || new AbortController();
@@ -120,6 +127,10 @@ const AIAgent = (function() {
             Utils.debugLog(`[AIAgent] 发送消息，模型: ${selectedModel}`);
 
             // 5. 通过 API Router 发送请求（委托给底层模块）
+            console.log('[AIAgent] 🚀 调用 APIRouter.sendRequest...');
+            console.log('[AIAgent] 📊 消息数量:', messages.length);
+            console.log('[AIAgent] 🎯 模型:', selectedModel);
+            
             const result = await dependencies.APIRouter.sendRequest(
                 {
                     messages,  // ✅ 传递完整的消息数组（包含 System Prompt）
@@ -128,6 +139,8 @@ const AIAgent = (function() {
                 },
                 options.onChunk // 流式回调
             );
+            
+            console.log('[AIAgent] 📨 APIRouter 返回结果:', result);
 
             // 6. 处理响应
             if (result.success) {

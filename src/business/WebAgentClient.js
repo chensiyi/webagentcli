@@ -5,6 +5,18 @@
 const WebAgentClient = (function() {
     'use strict';
 
+    // ==================== 工具函数 ====================
+    
+    /**
+     * HTML转义，防止XSS攻击
+     */
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
     // ==================== 客户端状态 ====================
     const clientState = {
         isInitialized: false,
@@ -30,7 +42,11 @@ const WebAgentClient = (function() {
         executionQueue: [],
         isExecuting: false,
         maxExecutionQueueSize: 20,  // 最大执行队列长度
-        autoExecuteCode: true  // 是否自动执行代码（默认启用）
+        autoExecuteCode: true,  // 是否自动执行代码（默认启用）
+        
+        // P0: 代码执行任务管理
+        codeExecutionTasks: new Map(),  // messageId -> { tasks[], abortController }
+        currentAbortController: null  // 当前消息的取消控制器
     };
 
     // ==================== 初始化 ====================
@@ -98,7 +114,13 @@ const WebAgentClient = (function() {
      * @returns {Promise<Object>} 响应结果
      */
     async function handleUserMessage(message, options = {}) {
+        console.log('[WebAgentClient] 📥 handleUserMessage 被调用');
+        console.log('[WebAgentClient] 📋 消息:', message.substring(0, 100));
+        console.log('[WebAgentClient] 🔧 isInitialized:', clientState.isInitialized);
+        console.log('[WebAgentClient] 🔧 isProcessing:', clientState.isProcessing);
+        
         if (!clientState.isInitialized) {
+            console.error('[WebAgentClient] ❌ 未初始化');
             throw new Error('WebAgentClient 未初始化');
         }
 
@@ -122,6 +144,14 @@ const WebAgentClient = (function() {
 
         clientState.isProcessing = true;
         clientState.lastError = null;
+        
+        // P0: 取消当前所有代码执行任务（仅当不是系统反馈消息时）
+        const isSystemFeedback = message.includes('[SYSTEM: Code Execution Results]');
+        if (!isSystemFeedback) {
+            cancelAllCodeExecutions();
+        } else {
+            console.log('[WebAgentClient] ⚠️ 系统反馈消息，保留当前任务状态用于保存');
+        }
 
         try {
             // 1. 验证消息
@@ -185,12 +215,17 @@ const WebAgentClient = (function() {
             }
 
             // 3. 发送消息到 AIAgent
+            console.log('[WebAgentClient] 📤 准备发送消息到 AIAgent...');
+            console.log('[WebAgentClient] 📋 消息内容:', message.substring(0, 100));
+            console.log('[WebAgentClient] ⚙️ 配置:', { model: options.model, temperature: options.temperature });
+            
             const result = await AIAgent.sendMessage(message, {
                 model: options.model,
                 temperature: options.temperature,
                 maxTokens: options.maxTokens,
                 includePageContext: options.includePageContext,
                 onChunk: (chunk) => {
+                    console.log('[WebAgentClient] 📨 收到流式 chunk:', chunk.substring(0, 50));
                     // 触发流式更新事件
                     EventManager.emit(EventManager.EventTypes.MESSAGE_STREAMING, {
                         chunk,
@@ -198,43 +233,51 @@ const WebAgentClient = (function() {
                     });
                 }
             });
+            
+            console.log('[WebAgentClient] ✅ AIAgent 返回结果:', result);
 
             // 3. 更新会话统计
             clientState.currentSession.messageCount += 2; // user + assistant
 
-            // 4. 检查是否有代码块
-            if (result.content && result.content.includes('```')) {
-                EventManager.emit(EventManager.EventTypes.CODE_BLOCKS_DETECTED, {
-                    content: result.content,
+            // P0: 流式完成后，检测并执行代码块
+            console.log('[WebAgentClient] 🔍 检查响应内容是否包含代码块...');
+            console.log('[WebAgentClient] 📄 响应长度:', result.content?.length || 0);
+            
+            let hasCodeBlocks = false;
+            
+            if (result.content && result.content.includes('```runjs')) {
+                console.log('[WebAgentClient] ✅ 检测到 runjs 代码块，开始执行');
+                hasCodeBlocks = true;
+                
+                // ✅ 先触发 MESSAGE_COMPLETE，让 UI 正常显示代码块
+                EventManager.emit(EventManager.EventTypes.MESSAGE_COMPLETE, {
+                    result,
                     sessionId: clientState.currentSession.id
                 });
+                console.log('[WebAgentClient] ✅ MESSAGE_COMPLETE 已触发');
                 
-                // 如果启用了自动执行，提取并执行代码，然后更新结果
-                if (clientState.autoExecuteCode) {
-                    const executedContent = await extractAndExecuteCode(result.content);
-                    if (executedContent) {
-                        // 更新返回结果，包含执行结果
-                        result.content = executedContent;
-                        
-                        // 同步更新 AIAgent 的对话历史（确保会话记录包含执行结果）
-                        const agentState = AIAgent.getState();
-                        const history = agentState.history || [];
-                        if (history.length > 0) {
-                            const lastMsg = history[history.length - 1];
-                            if (lastMsg.role === 'assistant') {
-                                lastMsg.content = executedContent;
-                                console.log('[WebAgentClient] 💾 已同步更新 AIAgent 历史记录');
-                            }
-                        }
-                    }
-                }
+                // 等待 React 完成渲染后再执行代码
+                await new Promise(resolve => {
+                    requestAnimationFrame(() => {
+                        requestAnimationFrame(() => {
+                            setTimeout(resolve, 0);
+                        });
+                    });
+                });
+                console.log('[WebAgentClient] ⏳ React 渲染完成，开始执行代码');
+                
+                await executeCodeBlocksAfterStreaming(result.content, clientState.currentSession.id);
+                
+                console.log('[WebAgentClient] ⏳ 等待执行结果反馈消息处理...');
+            } else {
+                console.log('[WebAgentClient] ℹ️ 未检测到 runjs 代码块');
+                
+                // 没有代码块，正常触发 MESSAGE_COMPLETE
+                EventManager.emit(EventManager.EventTypes.MESSAGE_COMPLETE, {
+                    result,
+                    sessionId: clientState.currentSession.id
+                });
             }
-
-            // 5. 触发完成事件
-            EventManager.emit(EventManager.EventTypes.MESSAGE_COMPLETE, {
-                result,
-                sessionId: clientState.currentSession.id
-            });
 
             // 6. 自动保存会话状态（防抖）
             debouncedSaveSession();
@@ -254,6 +297,196 @@ const WebAgentClient = (function() {
             
             // 处理队列中的下一条消息
             processNextMessage();
+        }
+    }
+
+    /**
+     * P0: 取消所有代码执行任务
+     */
+    function cancelAllCodeExecutions() {
+        // 清空执行队列
+        clientState.executionQueue = [];
+        clientState.isExecuting = false;
+        
+        // P0: 清空当前消息任务跟踪
+        clientState.currentMessageTasks = [];
+        
+        console.log('[WebAgentClient] ⛔ 已取消所有代码执行任务');
+    }
+
+    /**
+     * P0: 生成稳定的代码块 ID（基于代码内容）
+     * @param {string} code - 代码内容
+     * @returns {string} 稳定的 ID
+     */
+    function generateCodeId(code) {
+        // 使用简单的 hash 算法，基于代码内容生成稳定 ID
+        let hash = 0;
+        for (let i = 0; i < code.length; i++) {
+            const char = code.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convert to 32bit integer
+        }
+        return 'code_' + Math.abs(hash).toString(36);
+    }
+
+    /**
+     * P0: 流式完成后检测并执行代码块
+     * @param {string} content - AI 回复内容
+     * @param {string} sessionId - 会话 ID
+     */
+    async function executeCodeBlocksAfterStreaming(content, sessionId) {
+        // P2: 检查是否启用自动执行
+        if (!clientState.autoExecuteCode) {
+            console.log('[WebAgentClient] ⚠️ 自动执行代码已禁用，跳过');
+            return;
+        }
+        
+        // 提取所有代码块
+        const codeBlockRegex = /```runjs\n([\s\S]*?)```/g;
+        let match;
+        const tasks = [];
+        
+        while ((match = codeBlockRegex.exec(content)) !== null) {
+            const code = match[1].trim();
+            // P0: 使用基于代码内容的稳定 ID，与 UI 端保持一致
+            const blockId = generateCodeId(code);
+            
+            // 检查是否高危
+            const CodeExecutor = AIAgent.getDependencies()?.CodeExecutor;
+            const isHighRisk = CodeExecutor ? CodeExecutor.isHighRiskCode(code) : false;
+            const riskType = isHighRisk && CodeExecutor ? CodeExecutor.getHighRiskType(code) : null;
+            
+            tasks.push({
+                code,
+                blockId,
+                isHighRisk,
+                riskType,
+                status: 'pending',
+                result: null
+            });
+        }
+        
+        if (tasks.length === 0) return;
+        
+        console.log(`[WebAgentClient] 📦 检测到 ${tasks.length} 个代码块`);
+        
+        // 初始化任务跟踪
+        clientState.currentMessageTasks = tasks;
+        
+        // 触发UI事件，显示代码块和执行按钮
+        tasks.forEach(task => {
+            EventManager.emit(EventManager.EventTypes.CODE_BLOCK_DETECTED, {
+                code: task.code,
+                isHighRisk: task.isHighRisk,
+                riskType: task.riskType,
+                blockId: task.blockId,
+                sessionId
+            });
+        });
+        
+        // 执行普通代码（非高危）
+        for (const task of tasks) {
+            if (task.isHighRisk) {
+                task.status = 'pending_high_risk';
+                console.log('[WebAgentClient] ⚠️ 高危代码，等待用户确认');
+                continue;
+            }
+            
+            task.status = 'executing';
+            console.log('[WebAgentClient] ▶️ 执行代码块', { blockId: task.blockId, code: task.code.substring(0, 50) });
+            
+            try {
+                const result = await handleCodeExecution(task.code, {
+                    strictMode: false,
+                    autoGenerated: true,
+                    blockId: task.blockId,
+                    sessionId
+                });
+                
+                console.log('[WebAgentClient] ✅ 代码块执行成功', { blockId: task.blockId, result });
+                task.status = 'completed';
+                task.result = result;
+            } catch (error) {
+                console.log('[WebAgentClient] ❌ 代码块执行失败', { blockId: task.blockId, error: error.message });
+                task.status = 'failed';
+                task.result = { success: false, error: error.message };
+                console.error('[WebAgentClient] ❌ 代码块执行失败:', error);
+            }
+        }
+        
+        // 检查是否所有任务都完成了
+        await checkAllTasksCompleted();
+    }
+
+    /**
+     * P0: 检查所有任务是否完成，如果完成则通知大模型
+     */
+    async function checkAllTasksCompleted() {
+        if (!clientState.currentMessageTasks || clientState.currentMessageTasks.length === 0) {
+            return;
+        }
+        
+        // 检查是否所有任务都已完成（仅 completed 或 failed，pending_high_risk 不算完成）
+        const allDone = clientState.currentMessageTasks.every(task => 
+            task.status === 'completed' || 
+            task.status === 'failed'
+        );
+        
+        // 检查是否有高危代码等待执行
+        const hasPendingHighRisk = clientState.currentMessageTasks.some(task => 
+            task.status === 'pending_high_risk'
+        );
+        
+        if (hasPendingHighRisk) {
+            console.log('[WebAgentClient] ⚠️ 有高危代码等待用户确认，阻塞等待');
+            return;
+        }
+        
+        if (allDone) {
+            console.log('[WebAgentClient] ✅ 所有代码任务已完成，准备通知大模型');
+            
+            // 构建执行结果摘要
+            const results = clientState.currentMessageTasks.map(task => ({
+                blockId: task.blockId,
+                status: task.status,
+                result: task.result
+            }));
+            
+            // P2: 触发事件，让 UI 知道代码执行完成
+            EventManager.emit(EventManager.EventTypes.CODE_BATCH_EXECUTED, {
+                results,
+                sessionId: clientState.currentSession.id
+            });
+            
+            // ✅ 将执行结果作为系统反馈消息加入队列
+            try {
+                const summary = results.map(r => {
+                    const statusText = r.status === 'completed' ? '✅ 成功' : 
+                                      r.status === 'failed' ? '❌ 失败' : 
+                                      '⏸️ 待执行';
+                    return `代码块 ${r.blockId} : ${statusText}\n${r.result?.result || r.result?.error || ''}`;
+                }).join('\n\n');
+                
+                const systemMessage = `[SYSTEM: Code Execution Results]\n\n${summary}\n\n请根据以上执行结果继续对话。如果需要进一步操作，请用自然语言描述，不要生成代码。`;
+                
+                console.log('[WebAgentClient] 📤 将执行结果作为系统消息加入队列');
+                
+                // 调用 handleUserMessage，此时 isProcessing=true，会自动加入队列
+                await handleUserMessage(systemMessage, {
+                    includePageContext: false
+                });
+                
+                console.log('[WebAgentClient] ✅ 执行结果反馈消息已加入队列');
+            } catch (error) {
+                console.error('[WebAgentClient] ❌ 加入执行结果反馈失败:', error);
+            }
+            
+            // P0: 在清理任务列表之前保存执行状态
+            await saveSession();
+            
+            // 清理任务列表
+            clientState.currentMessageTasks = [];
         }
     }
 
@@ -290,14 +523,18 @@ const WebAgentClient = (function() {
             clientState.isExecuting = true;
 
             const result = await AIAgent.executeCode(code, {
-                strictMode: options.strictMode !== false
+                strictMode: options.strictMode !== false,
+                requireConfirmation: options.requireConfirmation === true  // P0: 高危代码确认
             });
 
             EventManager.emit(EventManager.EventTypes.CODE_EXECUTED, {
                 code,
+                blockId: options.blockId,  // P0: 传递 blockId
                 result,
                 sessionId: clientState.currentSession.id
             });
+            
+            console.log('[WebAgentClient] 📡 CODE_EXECUTED 事件已发送', { blockId: options.blockId, success: result.success });
 
             return result;
 
@@ -487,6 +724,69 @@ const WebAgentClient = (function() {
     }
 
     /**
+     * P0: 手动执行高危代码（用户点击按钮）
+     * @param {string} code - 代码内容
+     * @param {string} blockId - 代码块ID
+     */
+    async function executeHighRiskCode(code, blockId) {
+        console.log('[WebAgentClient] 🔴 用户确认执行高危代码');
+        
+        // 更新任务状态为执行中
+        if (clientState.currentMessageTasks) {
+            const task = clientState.currentMessageTasks.find(t => t.blockId === blockId);
+            if (task) {
+                task.status = 'executing';
+            }
+        }
+        
+        try {
+            const result = await handleCodeExecution(code, {
+                strictMode: false,
+                autoGenerated: true,
+                blockId
+            });
+            
+            // 更新任务状态
+            if (clientState.currentMessageTasks) {
+                const task = clientState.currentMessageTasks.find(t => t.blockId === blockId);
+                if (task) {
+                    task.status = 'completed';
+                    task.result = result;
+                }
+            }
+            
+            // 触发执行完成事件
+            EventManager.emit(EventManager.EventTypes.CODE_EXECUTED, {
+                code,
+                blockId,
+                result,
+                sessionId: clientState.currentSession.id
+            });
+            
+            // 检查是否所有任务都完成了
+            await checkAllTasksCompleted();
+            
+            return result;
+        } catch (error) {
+            console.error('[WebAgentClient] ❌ 高危代码执行失败:', error);
+            
+            // 更新任务状态
+            if (clientState.currentMessageTasks) {
+                const task = clientState.currentMessageTasks.find(t => t.blockId === blockId);
+                if (task) {
+                    task.status = 'failed';
+                    task.result = { success: false, error: error.message };
+                }
+            }
+            
+            // 检查是否所有任务都完成了
+            await checkAllTasksCompleted();
+            
+            throw error;
+        }
+    }
+
+    /**
      * 清空对话
      */
     function handleClearChat() {
@@ -529,12 +829,11 @@ const WebAgentClient = (function() {
 
         AIAgent.cancelRequest();
         
+        // P0: 取消所有代码执行
+        cancelAllCodeExecutions();
+        
         // 清空消息队列
         clientState.messageQueue = [];
-        
-        // 清空执行队列
-        clientState.executionQueue = [];
-        clientState.isExecuting = false;
         
         EventManager.emit(EventManager.EventTypes.REQUEST_CANCELLED, {
             sessionId: clientState.currentSession.id
@@ -693,6 +992,45 @@ const WebAgentClient = (function() {
                     }
                     
                     console.log('[WebAgentClient] 📂 会话已恢复:', savedSession.id);
+                    
+                    // P2: 触发事件通知 UI 更新
+                    EventManager.emit(EventManager.EventTypes.SESSION_RESTORED, {
+                        session: savedSession,
+                        messageCount: savedMessages.length
+                    });
+                    
+                    // P0: 恢复代码块执行状态（延迟执行，等待DOM渲染完成）
+                    const codeExecutionStates = window.StorageManager.getState('session.codeExecutionStates');
+                    if (codeExecutionStates && Array.isArray(codeExecutionStates) && codeExecutionStates.length > 0) {
+                        console.log('[WebAgentClient] 🔄 准备恢复', codeExecutionStates.length, '个代码块执行状态');
+                        
+                        // 等待 DOM 渲染完成后更新状态
+                        setTimeout(() => {
+                            codeExecutionStates.forEach(state => {
+                                const statusEl = document.querySelector(`.code-execution-status[data-code-id="${state.blockId}"]`);
+                                const resultEl = document.querySelector(`.code-execution-result[data-code-id="${state.blockId}"]`);
+                                
+                                if (statusEl && resultEl) {
+                                    if (state.status === 'completed') {
+                                        statusEl.className = 'code-execution-status completed';
+                                        statusEl.textContent = '✅ 执行成功';
+                                        resultEl.style.display = 'block';
+                                        resultEl.innerHTML = `<pre style="white-space: pre-wrap; word-break: break-word;">${escapeHtml(state.result?.result || '')}</pre>`;
+                                        console.log(`[WebAgentClient] ✅ 恢复代码块 ${state.blockId} 为已完成`);
+                                    } else if (state.status === 'failed') {
+                                        statusEl.className = 'code-execution-status failed';
+                                        statusEl.textContent = '❌ 执行失败';
+                                        resultEl.style.display = 'block';
+                                        resultEl.innerHTML = `<pre style="color: red; white-space: pre-wrap; word-break: break-word;">${escapeHtml(state.result?.error || '')}</pre>`;
+                                        console.log(`[WebAgentClient] ❌ 恢复代码块 ${state.blockId} 为失败`);
+                                    }
+                                } else {
+                                    console.warn(`[WebAgentClient] ⚠️ 未找到代码块 ${state.blockId} 的DOM元素`);
+                                }
+                            });
+                        }, 500); // 等待500ms让React完成渲染
+                    }
+                    
                     return;
                 }
             }
@@ -717,6 +1055,25 @@ const WebAgentClient = (function() {
                 // 保存会话信息
                 window.StorageManager.setState('session.current', clientState.currentSession);
                 window.StorageManager.setState('session.messages', messages);
+                
+                // P0: 保存代码块执行状态（用于刷新后恢复UI）
+                // 只有在有任务时才保存，避免覆盖已保存的状态
+                if (clientState.currentMessageTasks && clientState.currentMessageTasks.length > 0) {
+                    const codeExecutionStates = clientState.currentMessageTasks
+                        .filter(task => task.status === 'completed' || task.status === 'failed')
+                        .map(task => ({
+                            blockId: task.blockId,
+                            status: task.status,
+                            result: task.result
+                        }));
+                    
+                    if (codeExecutionStates.length > 0) {
+                        window.StorageManager.setState('session.codeExecutionStates', codeExecutionStates);
+                        console.log('[WebAgentClient] 💾 保存了', codeExecutionStates.length, '个代码块执行状态');
+                    }
+                } else {
+                    console.log('[WebAgentClient] 💾 无当前任务，保留已有的代码执行状态');
+                }
                 
                 console.log('[WebAgentClient] 💾 会话已保存:', messages.length, '条消息');
             }
@@ -755,6 +1112,12 @@ const WebAgentClient = (function() {
      */
     async function handleError(error, originalMessage, options) {
         console.error('[WebAgentClient] 错误处理:', error);
+
+        // P2: 触发 MESSAGE_ERROR 事件，通知 UI
+        EventManager.emit(EventManager.EventTypes.MESSAGE_ERROR, {
+            error: error.message || String(error),
+            sessionId: clientState.currentSession.id
+        });
 
         // 记录错误
         if (ErrorTracker) {
@@ -868,6 +1231,7 @@ const WebAgentClient = (function() {
         handleCodeExecution,
         handleCodeFromMessage,
         extractAndExecuteCode,  // 自动提取并执行代码
+        executeHighRiskCode,    // P0: 手动执行高危代码
         handleClearChat,
         handleCancelRequest,
         

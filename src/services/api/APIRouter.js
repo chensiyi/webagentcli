@@ -53,11 +53,20 @@ const APIRouter = (function() {
      * @returns {Promise<Object>}
      */
     async function sendRequest(params, onChunk) {
+        console.log('[API Router] 📥 收到 sendRequest 调用');
+        
         const { messages, config, abortController } = params;  // ✅ 直接使用完整的 messages
+        
+        console.log('[API Router] 📊 消息数量:', messages?.length);
+        console.log('[API Router] ⚙️ 配置模型:', config?.model);
         
         let modelsToTry = getAvailableModels(config.model);
         
+        console.log('[API Router] 📋 可用模型数量:', modelsToTry.length);
+        console.log('[API Router] 🎯 当前配置模型:', config.model);
+        
         if (modelsToTry.length === 0) {
+            console.error('[API Router] ❌ 没有可用模型！');
             // 如果没有可用模型，返回错误
             ErrorTracker.report(
                 '没有可用的模型，请检查提供商配置',
@@ -67,7 +76,7 @@ const APIRouter = (function() {
             );
             return { 
                 success: false, 
-                error: '没有可用的模型。请检查提供商配置。',
+                error: '没有可用的模型。请检查提供商配置（API Key、启用状态）。',
                 attempts: 0 
             };
         }

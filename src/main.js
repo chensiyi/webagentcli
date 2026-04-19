@@ -53,6 +53,13 @@
             
             console.log('[Main] 🎉 AI Agent v5.0 启动成功!');
             
+            // P0: 设置全局初始化完成标志（兜底机制）
+            window.__AGENT_INITIALIZED__ = true;
+            
+            // P0: 触发初始化完成事件，通知 UI 可以挂载
+            EventManager.emit('APP_INITIALIZED');
+            console.log('[Main] 📢 已发送 APP_INITIALIZED 事件');
+            
         } catch (error) {
             console.error('[Main] ❌ 启动失败:', error);
             throw error;
@@ -152,26 +159,74 @@
     function initShortcuts() {
         if (typeof ShortcutManager !== 'undefined') {
             ShortcutManager.init();
+            
+            // 注册全局快捷键
+            registerGlobalShortcuts();
         }
     }
     
-
+    /**
+     * 注册全局快捷键
+     */
+    function registerGlobalShortcuts() {
+        console.log('[Main] ⌨️ 注册全局快捷键...');
+        
+        // Ctrl+Shift+A: 打开/关闭聊天窗口（全局）
+        ShortcutManager.register('ctrl+shift+a', (e) => {
+            toggleChatWindow();
+            return false;
+        }, '打开/关闭聊天窗口');
+        
+        // Alt+A: 打开/关闭聊天窗口（备选）
+        ShortcutManager.register('alt+a', (e) => {
+            toggleChatWindow();
+            return false;
+        }, '打开/关闭聊天窗口（备选）');
+        
+        console.log('[Main] ✅ 全局快捷键已注册');
+    }
     
+    /**
+     * 切换聊天窗口显示状态
+     */
+    function toggleChatWindow() {
+        try {
+            // 通过 EventManager 发送切换事件
+            if (window.EventManager) {
+                window.EventManager.emit('TOGGLE_CHAT_WINDOW');
+                console.log('[Main] ⌨️ 通过 EventManager 切换聊天窗口');
+            } else {
+                console.warn('[Main] ⚠️ EventManager 未就绪');
+            }
+        } catch (error) {
+            console.error('[Main] ❌ 切换聊天窗口失败:', error);
+        }
+    }
+
     /**
      * 暴露全局调试接口
      */
     function exposeDebugInterface() {
+        // P2: 同时暴露到 window 和 unsafeWindow
+        if (typeof window !== 'undefined') {
+            window.WebAgentClient = WebAgentClient;
+            window.AIAgent = AIAgent;
+            window.EventManager = EventManager;
+            console.log('[Main] ✅ 已暴露到 window');
+        }
+        
         if (typeof unsafeWindow !== 'undefined') {
             unsafeWindow.WebAgentClient = WebAgentClient;
             unsafeWindow.AIAgent = AIAgent;
             unsafeWindow.EventManager = EventManager;
-            
-            console.log('[Main] 💡 调试接口已暴露:');
-            console.log('   - window.WebAgentClient - 业务逻辑层');
-            console.log('   - window.AIAgent - 基础设施层');
-            console.log('   - window.EventManager - 事件总线');
-            console.log('   示例: await window.WebAgentClient.handleUserMessage("你好")');
+            console.log('[Main] ✅ 已暴露到 unsafeWindow');
         }
+        
+        console.log('[Main] 💡 调试接口已暴露:');
+        console.log('   - window.WebAgentClient - 业务逻辑层');
+        console.log('   - window.AIAgent - 基础设施层');
+        console.log('   - window.EventManager - 事件总线');
+        console.log('   示例: await window.WebAgentClient.handleUserMessage("你好")');
     }
     
     // 页面加载完成后初始化

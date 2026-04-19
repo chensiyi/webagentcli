@@ -26,9 +26,11 @@ const EventManager = (function() {
         
         // 代码执行
         CODE_BLOCKS_DETECTED: 'agent:code:blocks:detected',
+        CODE_BLOCK_DETECTED: 'agent:code:block:detected',  // P0: 单个代码块检测
         CODE_EXECUTED: 'agent:code:executed',
         CODE_EXECUTION_ERROR: 'agent:code:execution:error',
         CODE_BATCH_EXECUTED: 'agent:code:batch:executed',
+        CODE_CONFIRMATION_REQUIRED: 'agent:code:confirmation:required',  // P0: 高危代码确认
         
         // 会话管理
         CHAT_CLEARED: 'agent:chat:cleared',
@@ -39,6 +41,13 @@ const EventManager = (function() {
         SETTINGS_OPEN: 'agent:settings:open',
         SETTINGS_SAVED: 'agent:settings:saved',
         SETTINGS_UPDATED: 'agent:settings:updated',
+        
+        // P2: 模型和供应商管理
+        MODELS_UPDATED: 'agent:models:updated',  // 模型列表更新
+        PROVIDER_UPDATED: 'agent:provider:updated',  // 供应商配置更新
+        
+        // P2: 会话管理
+        SESSION_RESTORED: 'agent:session:restored',  // 会话恢复
         
         // API 相关
         API_CALL_START: 'agent:api:call:start',

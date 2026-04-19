@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Free Web AI Agent
 // @namespace    https://github.com/chensiyi1994
-// @version      5.0.0
+// @version      5.1.0
 // @description  基于ai模型的Web AI 助手,支持 JS 执行
 // @author       chensiyi1994
 // @match        *://*/*
@@ -14,9 +14,9 @@
 // ==/UserScript==
 
 // 构建信息
-// 版本: 5.0.0
-// 日期: 2026-04-18
-// 模块数: 27
+// 版本: 5.1.0
+// 日期: 2026-04-19
+// 模块数: 28
 
 
 // =====================================================
@@ -30,7 +30,7 @@ const Utils = (function() {
     'use strict';
     
     // 调试模式开关（生产环境设为 false）
-    const DEBUG_MODE = true;
+    const DEBUG_MODE = false; // 发布模式已关闭调试日志
     
     /**
      * 条件日志输出（仅在 DEBUG_MODE 为 true 时输出）
@@ -118,9 +118,11 @@ const EventManager = (function() {
         
         // 代码执行
         CODE_BLOCKS_DETECTED: 'agent:code:blocks:detected',
+        CODE_BLOCK_DETECTED: 'agent:code:block:detected',  // P0: 单个代码块检测
         CODE_EXECUTED: 'agent:code:executed',
         CODE_EXECUTION_ERROR: 'agent:code:execution:error',
         CODE_BATCH_EXECUTED: 'agent:code:batch:executed',
+        CODE_CONFIRMATION_REQUIRED: 'agent:code:confirmation:required',  // P0: 高危代码确认
         
         // 会话管理
         CHAT_CLEARED: 'agent:chat:cleared',
@@ -131,6 +133,13 @@ const EventManager = (function() {
         SETTINGS_OPEN: 'agent:settings:open',
         SETTINGS_SAVED: 'agent:settings:saved',
         SETTINGS_UPDATED: 'agent:settings:updated',
+        
+        // P2: 模型和供应商管理
+        MODELS_UPDATED: 'agent:models:updated',  // 模型列表更新
+        PROVIDER_UPDATED: 'agent:provider:updated',  // 供应商配置更新
+        
+        // P2: 会话管理
+        SESSION_RESTORED: 'agent:session:restored',  // 会话恢复
         
         // API 相关
         API_CALL_START: 'agent:api:call:start',
@@ -1638,8 +1647,27 @@ async function init() {
         await saveProviders();
     }
     
-    // 加载 OpenRouter 模型列表
-    await loadOpenRouterModels();
+    // P2: 加载所有启用供应商的模型列表
+    const enabledProviders = providers.filter(p => {
+        // 启用的供应商
+        if (p.enabled === false) return false;
+        
+        // 本地服务不需要 API Key
+        if (p.isLocal) return true;
+        
+        // 云端服务需要 API Key
+        return p.apiKey;
+    });
+    
+    console.log(`[ProviderManager] 🔄 正在加载 ${enabledProviders.length} 个启用供应商的模型...`);
+    
+    for (const provider of enabledProviders) {
+        try {
+            await loadProviderModels(provider.id);
+        } catch (error) {
+            console.error(`[ProviderManager] ⚠️ 加载 ${provider.name} 模型失败:`, error.message);
+        }
+    }
     
     console.log('[ProviderManager] Initialized with', providers.length, 'providers');
 }
@@ -1669,51 +1697,174 @@ async function saveProviders() {
 }
 
 /**
- * 加载 OpenRouter 模型列表
+ * P2: 通用模型拉取（根据供应商 template）
+ * @param {Object} provider - 供应商对象
+ * @returns {Promise<Array>} 模型列表
  */
-async function loadOpenRouterModels() {
+async function fetchModelsFromProvider(provider) {
+    // P2: 本地服务不需要 API Key
+    if (!provider.isLocal && !provider.apiKey) {
+        throw new Error('API Key 未配置');
+    }
+    
+    // P2: 统一转换为小写进行比较
+    const template = (provider.template || '').toLowerCase();
+    
+    // 根据不同 template 调用不同 API
+    switch (template) {
+        case 'openai':
+            return await fetchOpenAIModels(provider);
+        case 'openrouter':
+            return await fetchOpenRouterModels(provider);
+        default:
+            throw new Error(`不支持的 template: ${provider.template}`);
+    }
+}
+
+/**
+ * 获取 OpenAI 兼容接口的模型列表
+ */
+async function fetchOpenAIModels(provider) {
+    const url = `${provider.baseUrl}/models`;
+    
+    // P2: 本地服务不需要 API Key
+    const headers = {
+        'Content-Type': 'application/json'
+    };
+    
+    if (!provider.isLocal && provider.apiKey) {
+        headers['Authorization'] = `Bearer ${provider.apiKey}`;
+    }
+    
+    const response = await fetch(url, { headers });
+    
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    
+    if (data.data && Array.isArray(data.data)) {
+        return data.data.map(model => ({
+            id: model.id,
+            name: model.name || model.id,
+            enabled: true,
+            contextLength: null,
+            pricing: null
+        }));
+    }
+    
+    return [];
+}
+
+/**
+ * 获取 OpenRouter 模型列表
+ */
+async function fetchOpenRouterModels(provider) {
+    const response = await fetch('https://openrouter.ai/api/v1/models', {
+        headers: {
+            'Authorization': `Bearer ${provider.apiKey}`,
+            'Content-Type': 'application/json'
+        }
+    });
+    
+    if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    
+    if (data.data && Array.isArray(data.data)) {
+        return data.data.map(model => ({
+            id: model.id,
+            name: model.name || model.id,
+            enabled: true,
+            contextLength: model.context_length,
+            pricing: model.pricing
+        }));
+    }
+    
+    return [];
+}
+
+/**
+ * P2: 加载指定供应商的模型列表（智能对比）
+ * @param {string} providerId - 供应商 ID
+ */
+async function loadProviderModels(providerId) {
     try {
-        const openrouter = providers.find(p => p.id === 'openrouter');
-        if (!openrouter) return;
-        
-        // 如果没有 API Key，跳过
-        if (!openrouter.apiKey) {
-            console.log('[ProviderManager] OpenRouter API Key 未配置，跳过模型加载');
+        const provider = providers.find(p => p.id === providerId);
+        if (!provider) {
+            console.log('[ProviderManager] 供应商不存在:', providerId);
             return;
         }
         
-        console.log('[ProviderManager] 🔄 正在加载 OpenRouter 模型列表...');
-        
-        const response = await fetch('https://openrouter.ai/api/v1/models', {
-            headers: {
-                'Authorization': `Bearer ${openrouter.apiKey}`,
-                'Content-Type': 'application/json'
-            }
-        });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        // 如果供应商被禁用，跳过
+        if (provider.enabled === false) {
+            console.log('[ProviderManager] 供应商已禁用，跳过模型加载:', provider.name);
+            return;
         }
         
-        const data = await response.json();
+        console.log(`[ProviderManager] 🔄 正在加载 ${provider.name} 模型列表...`);
         
-        if (data.data && Array.isArray(data.data)) {
-            // 转换为内部格式
-            openrouter.models = data.data.map(model => ({
-                id: model.id,
-                name: model.name || model.id,
-                enabled: true,  // 默认启用
-                contextLength: model.context_length,
-                pricing: model.pricing
-            }));
+        // 通用拉取
+        const newModels = await fetchModelsFromProvider(provider);
+        
+        if (newModels.length === 0) {
+            console.log(`[ProviderManager] ⚠️ ${provider.name} 未返回模型列表`);
+            return;
+        }
+        
+        // P2: 智能对比新旧模型
+        if (provider.models && provider.models.length > 0) {
+            const oldModelIds = new Set(provider.models.map(m => m.id));
+            const newModelIds = new Set(newModels.map(m => m.id));
             
-            await saveProviders();
-            console.log(`[ProviderManager] ✅ 加载了 ${openrouter.models.length} 个 OpenRouter 模型`);
+            // 新增的模型
+            const added = newModels.filter(m => !oldModelIds.has(m.id));
+            // 移除的模型
+            const removed = provider.models.filter(m => !newModelIds.has(m.id));
+            // 保留的模型（保持原有 enabled 状态）
+            const kept = newModels.map(m => {
+                const oldModel = provider.models.find(om => om.id === m.id);
+                return oldModel ? { ...m, enabled: oldModel.enabled } : m;
+            });
+            
+            console.log(`[ProviderManager] 📊 ${provider.name} 模型变化:`);
+            console.log(`   ➕ 新增: ${added.length} 个`);
+            console.log(`   ➖ 移除: ${removed.length} 个`);
+            console.log(`   ✅ 保留: ${kept.length} 个`);
+            
+            if (added.length > 0) {
+                console.log('[ProviderManager] 新增模型:', added.slice(0, 5).map(m => m.id).join(', '));
+                if (added.length > 5) {
+                    console.log(`   ... 还有 ${added.length - 5} 个`);
+                }
+            }
+            if (removed.length > 0) {
+                console.log('[ProviderManager] 移除模型:', removed.slice(0, 5).map(m => m.id).join(', '));
+            }
+            
+            // 合并模型列表
+            provider.models = [...kept, ...added];
+        } else {
+            // 首次加载，直接使用新列表
+            provider.models = newModels;
         }
+        
+        await saveProviders();
+        console.log(`[ProviderManager] ✅ ${provider.name} 总计 ${provider.models.length} 个模型`);
         
     } catch (error) {
-        console.error('[ProviderManager] ❌ 加载 OpenRouter 模型失败:', error);
+        console.error(`[ProviderManager] ❌ 加载 ${providerId} 模型失败:`, error);
     }
+}
+
+/**
+ * 加载 OpenRouter 模型列表（P2: 智能对比）- 向后兼容
+ */
+async function loadOpenRouterModels() {
+    await loadProviderModels('openrouter');
 }
 
 /**
@@ -1895,10 +2046,27 @@ async function clearProviderModels(providerId) {
 function getAllAvailableModels() {
     const allModels = [];
     
+    console.log('[ProviderManager] 🔍 获取可用模型，供应商数量:', providers.length);
+    
     for (const provider of providers) {
-        if (!provider.enabled) continue;
+        // P2: 跳过禁用的供应商
+        if (provider.enabled === false) {
+            console.log(`[ProviderManager] ⚠️ 跳过禁用供应商: ${provider.name}`);
+            continue;
+        }
+        
+        // P2: 检查 API Key（本地服务不需要）
+        if (!provider.isLocal && !provider.apiKey) {
+            console.log(`[ProviderManager] ⚠️ 跳过无 API Key 供应商: ${provider.name}`);
+            continue;
+        }
+        
+        console.log(`[ProviderManager] ✅ 处理供应商: ${provider.name}, 模型数量: ${provider.models?.length || 0}`);
         
         for (const model of provider.models) {
+            // P2: 跳过禁用的模型
+            if (model.enabled === false) continue;
+            
             allModels.push({
                 ...model,
                 providerId: provider.id,
@@ -1908,6 +2076,7 @@ function getAllAvailableModels() {
         }
     }
     
+    console.log('[ProviderManager] 📊 总计可用模型:', allModels.length);
     return allModels;
 }
 
@@ -2100,6 +2269,56 @@ async function testProviderConnectionInternal(provider) {
 }
 
 /**
+ * P2: 刷新指定供应商的模型列表
+ * @param {string} providerId - 供应商 ID
+ * @returns {Promise<Object>} 返回变化统计
+ */
+async function refreshProviderModels(providerId) {
+    const provider = providers.find(p => p.id === providerId);
+    if (!provider) {
+        throw new Error(`供应商 ${providerId} 不存在`);
+    }
+    
+    const oldCount = provider.models ? provider.models.length : 0;
+    await loadProviderModels(providerId);
+    const newCount = provider.models ? provider.models.length : 0;
+    
+    return {
+        success: true,
+        oldCount,
+        newCount,
+        added: newCount > oldCount ? newCount - oldCount : 0,
+        removed: oldCount > newCount ? oldCount - newCount : 0
+    };
+}
+
+/**
+ * P2: 切换供应商启用状态
+ * @param {string} providerId - 供应商 ID
+ * @param {boolean} enabled - 是否启用
+ */
+async function toggleProviderEnabled(providerId, enabled) {
+    const provider = providers.find(p => p.id === providerId);
+    if (!provider) {
+        throw new Error(`供应商 ${providerId} 不存在`);
+    }
+    
+    provider.enabled = enabled;
+    
+    // P2: 如果禁用供应商，同时禁用其所有模型（但保留在列表中）
+    if (!enabled && provider.models) {
+        provider.models = provider.models.map(m => ({ ...m, enabled: false }));
+        console.log(`[ProviderManager] ⚠️ 已禁用 ${provider.name} 及其所有模型`);
+    } else if (enabled && provider.models) {
+        // 启用时，恢复模型的原始状态（不自动启用，由用户手动控制）
+        console.log(`[ProviderManager] ✅ 已启用 ${provider.name}，请手动启用需要的模型`);
+    }
+    
+    await saveProviders();
+    console.log(`[ProviderManager] ${enabled ? '✅ 启用' : '⚠️ 禁用'} 供应商: ${provider.name}`);
+}
+
+/**
  * v4.0.0: 数据迁移 - 为本地服务自动添加 isLocal 标志
  */
 async function migrateProvidersData() {
@@ -2163,8 +2382,10 @@ const ProviderManager = {
     addProvider,
     updateProvider,
     deleteProvider,
+    toggleProviderEnabled,  // P2: 切换供应商启用状态
     addModelsToProvider,
     clearProviderModels,
+    refreshProviderModels,  // P2: 刷新模型列表
     getAllAvailableModels,
     getAvailableTemplates,
     getTemplate,
@@ -3478,11 +3699,20 @@ const APIRouter = (function() {
      * @returns {Promise<Object>}
      */
     async function sendRequest(params, onChunk) {
+        console.log('[API Router] 📥 收到 sendRequest 调用');
+        
         const { messages, config, abortController } = params;  // ✅ 直接使用完整的 messages
+        
+        console.log('[API Router] 📊 消息数量:', messages?.length);
+        console.log('[API Router] ⚙️ 配置模型:', config?.model);
         
         let modelsToTry = getAvailableModels(config.model);
         
+        console.log('[API Router] 📋 可用模型数量:', modelsToTry.length);
+        console.log('[API Router] 🎯 当前配置模型:', config.model);
+        
         if (modelsToTry.length === 0) {
+            console.error('[API Router] ❌ 没有可用模型！');
             // 如果没有可用模型，返回错误
             ErrorTracker.report(
                 '没有可用的模型，请检查提供商配置',
@@ -3492,7 +3722,7 @@ const APIRouter = (function() {
             );
             return { 
                 success: false, 
-                error: '没有可用的模型。请检查提供商配置。',
+                error: '没有可用的模型。请检查提供商配置（API Key、启用状态）。',
                 attempts: 0 
             };
         }
@@ -3761,17 +3991,13 @@ const CodeExecutor = (function() {
         return new Promise((resolve, reject) => {
             try {
                 // 1. 安全检查
-                if (isHighRiskCode(code)) {
-                    const riskType = getHighRiskType(code);
-                    
-                    // 如果启用严格模式，直接拒绝
-                    if (options.strictMode) {
-                        reject(new Error(`⚠️ 检测到高危操作：${riskType}\n\n为保护您的数据安全，已阻止执行。\n\n如果您确定代码安全，请关闭严格模式。`));
-                        return;
-                    }
-                    
-                    // 否则警告用户
-                    console.warn(`[CodeExecutor] ⚠️ 检测到高危操作: ${riskType}`);
+                const isHighRisk = isHighRiskCode(code);
+                const riskType = isHighRisk ? getHighRiskType(code) : null;
+                
+                // 如果启用严格模式且是高危代码，直接拒绝
+                if (options.strictMode && isHighRisk) {
+                    reject(new Error(`⚠️ 检测到高危操作：${riskType}\n\n为保护您的数据安全，已阻止执行。`));
+                    return;
                 }
 
                 // 2. 在沙箱环境中执行
@@ -3783,7 +4009,9 @@ const CodeExecutor = (function() {
                 resolve({
                     success: true,
                     result: formattedResult,
-                    rawResult: result
+                    rawResult: result,
+                    isHighRisk,
+                    riskType
                 });
 
             } catch (error) {
@@ -3797,15 +4025,23 @@ const CodeExecutor = (function() {
     }
 
     /**
-     * 格式化执行结果
+     * 格式化执行结果（P2: 支持压缩）
      */
-    function formatResult(result) {
+    function formatResult(result, options = {}) {
+        const maxLength = options.maxLength || 5000;  // 默认最大 5000 字符
+        
         // null 或 undefined
         if (result === null) return 'null';
         if (result === undefined) return 'undefined';
 
         // 基本类型
-        if (typeof result === 'string') return `"${result}"`;
+        if (typeof result === 'string') {
+            // P2: 字符串截断
+            if (result.length > maxLength) {
+                return `"${result.substring(0, maxLength)}..." (已截断，总长度: ${result.length} 字符)`;
+            }
+            return `"${result}"`;
+        }
         if (typeof result === 'number' || typeof result === 'boolean') return String(result);
         if (typeof result === 'function') return `[Function: ${result.name || 'anonymous'}]`;
 
@@ -3813,7 +4049,14 @@ const CodeExecutor = (function() {
         if (typeof result === 'object') {
             try {
                 // 尝试 JSON 序列化
-                return JSON.stringify(result, null, 2);
+                const jsonStr = JSON.stringify(result, null, 2);
+                
+                // P2: JSON 结果截断
+                if (jsonStr.length > maxLength) {
+                    return jsonStr.substring(0, maxLength) + '\n... (已截断，总长度: ${jsonStr.length} 字符)';
+                }
+                
+                return jsonStr;
             } catch (e) {
                 // 处理循环引用
                 return `[${result.constructor?.name || 'Object'}] (无法序列化)`;
@@ -3903,6 +4146,7 @@ const CodeExecutor = (function() {
         executeBatch,
         extractCodeBlocks,
         isHighRiskCode,
+        getHighRiskType,
         clearQueue,
         getState
     };
@@ -3998,17 +4242,24 @@ const AIAgent = (function() {
      * @returns {Promise<Object>} 响应结果
      */
     async function sendMessage(userMessage, options = {}) {
+        console.log('[AIAgent] 📤 收到 sendMessage 调用');
+        console.log('[AIAgent] 📋 消息:', userMessage.substring(0, 100));
+        
         // 1. 验证状态
         if (!agentState.isInitialized) {
+            console.error('[AIAgent] ❌ Agent 未初始化');
             throw new Error('Agent 未初始化，请先调用 init()');
         }
         
         if (agentState.isProcessing) {
+            console.error('[AIAgent] ❌ Agent 正在处理中');
             throw new Error('Agent 正在处理中，请稍后');
         }
 
         agentState.isProcessing = true;
         agentState.lastError = null;
+        
+        console.log('[AIAgent] ✅ 状态检查通过，开始构建上下文...');
         
         // 创建中止控制器
         const abortController = options.abortController || new AbortController();
@@ -4035,6 +4286,10 @@ const AIAgent = (function() {
             Utils.debugLog(`[AIAgent] 发送消息，模型: ${selectedModel}`);
 
             // 5. 通过 API Router 发送请求（委托给底层模块）
+            console.log('[AIAgent] 🚀 调用 APIRouter.sendRequest...');
+            console.log('[AIAgent] 📊 消息数量:', messages.length);
+            console.log('[AIAgent] 🎯 模型:', selectedModel);
+            
             const result = await dependencies.APIRouter.sendRequest(
                 {
                     messages,  // ✅ 传递完整的消息数组（包含 System Prompt）
@@ -4043,6 +4298,8 @@ const AIAgent = (function() {
                 },
                 options.onChunk // 流式回调
             );
+            
+            console.log('[AIAgent] 📨 APIRouter 返回结果:', result);
 
             // 6. 处理响应
             if (result.success) {
@@ -4708,6 +4965,18 @@ Array.from(document.querySelectorAll('a')).map(a => a.href)
 const WebAgentClient = (function() {
     'use strict';
 
+    // ==================== 工具函数 ====================
+    
+    /**
+     * HTML转义，防止XSS攻击
+     */
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
     // ==================== 客户端状态 ====================
     const clientState = {
         isInitialized: false,
@@ -4733,7 +5002,11 @@ const WebAgentClient = (function() {
         executionQueue: [],
         isExecuting: false,
         maxExecutionQueueSize: 20,  // 最大执行队列长度
-        autoExecuteCode: true  // 是否自动执行代码（默认启用）
+        autoExecuteCode: true,  // 是否自动执行代码（默认启用）
+        
+        // P0: 代码执行任务管理
+        codeExecutionTasks: new Map(),  // messageId -> { tasks[], abortController }
+        currentAbortController: null  // 当前消息的取消控制器
     };
 
     // ==================== 初始化 ====================
@@ -4801,7 +5074,13 @@ const WebAgentClient = (function() {
      * @returns {Promise<Object>} 响应结果
      */
     async function handleUserMessage(message, options = {}) {
+        console.log('[WebAgentClient] 📥 handleUserMessage 被调用');
+        console.log('[WebAgentClient] 📋 消息:', message.substring(0, 100));
+        console.log('[WebAgentClient] 🔧 isInitialized:', clientState.isInitialized);
+        console.log('[WebAgentClient] 🔧 isProcessing:', clientState.isProcessing);
+        
         if (!clientState.isInitialized) {
+            console.error('[WebAgentClient] ❌ 未初始化');
             throw new Error('WebAgentClient 未初始化');
         }
 
@@ -4825,6 +5104,14 @@ const WebAgentClient = (function() {
 
         clientState.isProcessing = true;
         clientState.lastError = null;
+        
+        // P0: 取消当前所有代码执行任务（仅当不是系统反馈消息时）
+        const isSystemFeedback = message.includes('[SYSTEM: Code Execution Results]');
+        if (!isSystemFeedback) {
+            cancelAllCodeExecutions();
+        } else {
+            console.log('[WebAgentClient] ⚠️ 系统反馈消息，保留当前任务状态用于保存');
+        }
 
         try {
             // 1. 验证消息
@@ -4888,12 +5175,17 @@ const WebAgentClient = (function() {
             }
 
             // 3. 发送消息到 AIAgent
+            console.log('[WebAgentClient] 📤 准备发送消息到 AIAgent...');
+            console.log('[WebAgentClient] 📋 消息内容:', message.substring(0, 100));
+            console.log('[WebAgentClient] ⚙️ 配置:', { model: options.model, temperature: options.temperature });
+            
             const result = await AIAgent.sendMessage(message, {
                 model: options.model,
                 temperature: options.temperature,
                 maxTokens: options.maxTokens,
                 includePageContext: options.includePageContext,
                 onChunk: (chunk) => {
+                    console.log('[WebAgentClient] 📨 收到流式 chunk:', chunk.substring(0, 50));
                     // 触发流式更新事件
                     EventManager.emit(EventManager.EventTypes.MESSAGE_STREAMING, {
                         chunk,
@@ -4901,43 +5193,51 @@ const WebAgentClient = (function() {
                     });
                 }
             });
+            
+            console.log('[WebAgentClient] ✅ AIAgent 返回结果:', result);
 
             // 3. 更新会话统计
             clientState.currentSession.messageCount += 2; // user + assistant
 
-            // 4. 检查是否有代码块
-            if (result.content && result.content.includes('```')) {
-                EventManager.emit(EventManager.EventTypes.CODE_BLOCKS_DETECTED, {
-                    content: result.content,
+            // P0: 流式完成后，检测并执行代码块
+            console.log('[WebAgentClient] 🔍 检查响应内容是否包含代码块...');
+            console.log('[WebAgentClient] 📄 响应长度:', result.content?.length || 0);
+            
+            let hasCodeBlocks = false;
+            
+            if (result.content && result.content.includes('```runjs')) {
+                console.log('[WebAgentClient] ✅ 检测到 runjs 代码块，开始执行');
+                hasCodeBlocks = true;
+                
+                // ✅ 先触发 MESSAGE_COMPLETE，让 UI 正常显示代码块
+                EventManager.emit(EventManager.EventTypes.MESSAGE_COMPLETE, {
+                    result,
                     sessionId: clientState.currentSession.id
                 });
+                console.log('[WebAgentClient] ✅ MESSAGE_COMPLETE 已触发');
                 
-                // 如果启用了自动执行，提取并执行代码，然后更新结果
-                if (clientState.autoExecuteCode) {
-                    const executedContent = await extractAndExecuteCode(result.content);
-                    if (executedContent) {
-                        // 更新返回结果，包含执行结果
-                        result.content = executedContent;
-                        
-                        // 同步更新 AIAgent 的对话历史（确保会话记录包含执行结果）
-                        const agentState = AIAgent.getState();
-                        const history = agentState.history || [];
-                        if (history.length > 0) {
-                            const lastMsg = history[history.length - 1];
-                            if (lastMsg.role === 'assistant') {
-                                lastMsg.content = executedContent;
-                                console.log('[WebAgentClient] 💾 已同步更新 AIAgent 历史记录');
-                            }
-                        }
-                    }
-                }
+                // 等待 React 完成渲染后再执行代码
+                await new Promise(resolve => {
+                    requestAnimationFrame(() => {
+                        requestAnimationFrame(() => {
+                            setTimeout(resolve, 0);
+                        });
+                    });
+                });
+                console.log('[WebAgentClient] ⏳ React 渲染完成，开始执行代码');
+                
+                await executeCodeBlocksAfterStreaming(result.content, clientState.currentSession.id);
+                
+                console.log('[WebAgentClient] ⏳ 等待执行结果反馈消息处理...');
+            } else {
+                console.log('[WebAgentClient] ℹ️ 未检测到 runjs 代码块');
+                
+                // 没有代码块，正常触发 MESSAGE_COMPLETE
+                EventManager.emit(EventManager.EventTypes.MESSAGE_COMPLETE, {
+                    result,
+                    sessionId: clientState.currentSession.id
+                });
             }
-
-            // 5. 触发完成事件
-            EventManager.emit(EventManager.EventTypes.MESSAGE_COMPLETE, {
-                result,
-                sessionId: clientState.currentSession.id
-            });
 
             // 6. 自动保存会话状态（防抖）
             debouncedSaveSession();
@@ -4957,6 +5257,196 @@ const WebAgentClient = (function() {
             
             // 处理队列中的下一条消息
             processNextMessage();
+        }
+    }
+
+    /**
+     * P0: 取消所有代码执行任务
+     */
+    function cancelAllCodeExecutions() {
+        // 清空执行队列
+        clientState.executionQueue = [];
+        clientState.isExecuting = false;
+        
+        // P0: 清空当前消息任务跟踪
+        clientState.currentMessageTasks = [];
+        
+        console.log('[WebAgentClient] ⛔ 已取消所有代码执行任务');
+    }
+
+    /**
+     * P0: 生成稳定的代码块 ID（基于代码内容）
+     * @param {string} code - 代码内容
+     * @returns {string} 稳定的 ID
+     */
+    function generateCodeId(code) {
+        // 使用简单的 hash 算法，基于代码内容生成稳定 ID
+        let hash = 0;
+        for (let i = 0; i < code.length; i++) {
+            const char = code.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convert to 32bit integer
+        }
+        return 'code_' + Math.abs(hash).toString(36);
+    }
+
+    /**
+     * P0: 流式完成后检测并执行代码块
+     * @param {string} content - AI 回复内容
+     * @param {string} sessionId - 会话 ID
+     */
+    async function executeCodeBlocksAfterStreaming(content, sessionId) {
+        // P2: 检查是否启用自动执行
+        if (!clientState.autoExecuteCode) {
+            console.log('[WebAgentClient] ⚠️ 自动执行代码已禁用，跳过');
+            return;
+        }
+        
+        // 提取所有代码块
+        const codeBlockRegex = /```runjs\n([\s\S]*?)```/g;
+        let match;
+        const tasks = [];
+        
+        while ((match = codeBlockRegex.exec(content)) !== null) {
+            const code = match[1].trim();
+            // P0: 使用基于代码内容的稳定 ID，与 UI 端保持一致
+            const blockId = generateCodeId(code);
+            
+            // 检查是否高危
+            const CodeExecutor = AIAgent.getDependencies()?.CodeExecutor;
+            const isHighRisk = CodeExecutor ? CodeExecutor.isHighRiskCode(code) : false;
+            const riskType = isHighRisk && CodeExecutor ? CodeExecutor.getHighRiskType(code) : null;
+            
+            tasks.push({
+                code,
+                blockId,
+                isHighRisk,
+                riskType,
+                status: 'pending',
+                result: null
+            });
+        }
+        
+        if (tasks.length === 0) return;
+        
+        console.log(`[WebAgentClient] 📦 检测到 ${tasks.length} 个代码块`);
+        
+        // 初始化任务跟踪
+        clientState.currentMessageTasks = tasks;
+        
+        // 触发UI事件，显示代码块和执行按钮
+        tasks.forEach(task => {
+            EventManager.emit(EventManager.EventTypes.CODE_BLOCK_DETECTED, {
+                code: task.code,
+                isHighRisk: task.isHighRisk,
+                riskType: task.riskType,
+                blockId: task.blockId,
+                sessionId
+            });
+        });
+        
+        // 执行普通代码（非高危）
+        for (const task of tasks) {
+            if (task.isHighRisk) {
+                task.status = 'pending_high_risk';
+                console.log('[WebAgentClient] ⚠️ 高危代码，等待用户确认');
+                continue;
+            }
+            
+            task.status = 'executing';
+            console.log('[WebAgentClient] ▶️ 执行代码块', { blockId: task.blockId, code: task.code.substring(0, 50) });
+            
+            try {
+                const result = await handleCodeExecution(task.code, {
+                    strictMode: false,
+                    autoGenerated: true,
+                    blockId: task.blockId,
+                    sessionId
+                });
+                
+                console.log('[WebAgentClient] ✅ 代码块执行成功', { blockId: task.blockId, result });
+                task.status = 'completed';
+                task.result = result;
+            } catch (error) {
+                console.log('[WebAgentClient] ❌ 代码块执行失败', { blockId: task.blockId, error: error.message });
+                task.status = 'failed';
+                task.result = { success: false, error: error.message };
+                console.error('[WebAgentClient] ❌ 代码块执行失败:', error);
+            }
+        }
+        
+        // 检查是否所有任务都完成了
+        await checkAllTasksCompleted();
+    }
+
+    /**
+     * P0: 检查所有任务是否完成，如果完成则通知大模型
+     */
+    async function checkAllTasksCompleted() {
+        if (!clientState.currentMessageTasks || clientState.currentMessageTasks.length === 0) {
+            return;
+        }
+        
+        // 检查是否所有任务都已完成（仅 completed 或 failed，pending_high_risk 不算完成）
+        const allDone = clientState.currentMessageTasks.every(task => 
+            task.status === 'completed' || 
+            task.status === 'failed'
+        );
+        
+        // 检查是否有高危代码等待执行
+        const hasPendingHighRisk = clientState.currentMessageTasks.some(task => 
+            task.status === 'pending_high_risk'
+        );
+        
+        if (hasPendingHighRisk) {
+            console.log('[WebAgentClient] ⚠️ 有高危代码等待用户确认，阻塞等待');
+            return;
+        }
+        
+        if (allDone) {
+            console.log('[WebAgentClient] ✅ 所有代码任务已完成，准备通知大模型');
+            
+            // 构建执行结果摘要
+            const results = clientState.currentMessageTasks.map(task => ({
+                blockId: task.blockId,
+                status: task.status,
+                result: task.result
+            }));
+            
+            // P2: 触发事件，让 UI 知道代码执行完成
+            EventManager.emit(EventManager.EventTypes.CODE_BATCH_EXECUTED, {
+                results,
+                sessionId: clientState.currentSession.id
+            });
+            
+            // ✅ 将执行结果作为系统反馈消息加入队列
+            try {
+                const summary = results.map(r => {
+                    const statusText = r.status === 'completed' ? '✅ 成功' : 
+                                      r.status === 'failed' ? '❌ 失败' : 
+                                      '⏸️ 待执行';
+                    return `代码块 ${r.blockId} : ${statusText}\n${r.result?.result || r.result?.error || ''}`;
+                }).join('\n\n');
+                
+                const systemMessage = `[SYSTEM: Code Execution Results]\n\n${summary}\n\n请根据以上执行结果继续对话。如果需要进一步操作，请用自然语言描述，不要生成代码。`;
+                
+                console.log('[WebAgentClient] 📤 将执行结果作为系统消息加入队列');
+                
+                // 调用 handleUserMessage，此时 isProcessing=true，会自动加入队列
+                await handleUserMessage(systemMessage, {
+                    includePageContext: false
+                });
+                
+                console.log('[WebAgentClient] ✅ 执行结果反馈消息已加入队列');
+            } catch (error) {
+                console.error('[WebAgentClient] ❌ 加入执行结果反馈失败:', error);
+            }
+            
+            // P0: 在清理任务列表之前保存执行状态
+            await saveSession();
+            
+            // 清理任务列表
+            clientState.currentMessageTasks = [];
         }
     }
 
@@ -4993,14 +5483,18 @@ const WebAgentClient = (function() {
             clientState.isExecuting = true;
 
             const result = await AIAgent.executeCode(code, {
-                strictMode: options.strictMode !== false
+                strictMode: options.strictMode !== false,
+                requireConfirmation: options.requireConfirmation === true  // P0: 高危代码确认
             });
 
             EventManager.emit(EventManager.EventTypes.CODE_EXECUTED, {
                 code,
+                blockId: options.blockId,  // P0: 传递 blockId
                 result,
                 sessionId: clientState.currentSession.id
             });
+            
+            console.log('[WebAgentClient] 📡 CODE_EXECUTED 事件已发送', { blockId: options.blockId, success: result.success });
 
             return result;
 
@@ -5190,6 +5684,69 @@ const WebAgentClient = (function() {
     }
 
     /**
+     * P0: 手动执行高危代码（用户点击按钮）
+     * @param {string} code - 代码内容
+     * @param {string} blockId - 代码块ID
+     */
+    async function executeHighRiskCode(code, blockId) {
+        console.log('[WebAgentClient] 🔴 用户确认执行高危代码');
+        
+        // 更新任务状态为执行中
+        if (clientState.currentMessageTasks) {
+            const task = clientState.currentMessageTasks.find(t => t.blockId === blockId);
+            if (task) {
+                task.status = 'executing';
+            }
+        }
+        
+        try {
+            const result = await handleCodeExecution(code, {
+                strictMode: false,
+                autoGenerated: true,
+                blockId
+            });
+            
+            // 更新任务状态
+            if (clientState.currentMessageTasks) {
+                const task = clientState.currentMessageTasks.find(t => t.blockId === blockId);
+                if (task) {
+                    task.status = 'completed';
+                    task.result = result;
+                }
+            }
+            
+            // 触发执行完成事件
+            EventManager.emit(EventManager.EventTypes.CODE_EXECUTED, {
+                code,
+                blockId,
+                result,
+                sessionId: clientState.currentSession.id
+            });
+            
+            // 检查是否所有任务都完成了
+            await checkAllTasksCompleted();
+            
+            return result;
+        } catch (error) {
+            console.error('[WebAgentClient] ❌ 高危代码执行失败:', error);
+            
+            // 更新任务状态
+            if (clientState.currentMessageTasks) {
+                const task = clientState.currentMessageTasks.find(t => t.blockId === blockId);
+                if (task) {
+                    task.status = 'failed';
+                    task.result = { success: false, error: error.message };
+                }
+            }
+            
+            // 检查是否所有任务都完成了
+            await checkAllTasksCompleted();
+            
+            throw error;
+        }
+    }
+
+    /**
      * 清空对话
      */
     function handleClearChat() {
@@ -5232,12 +5789,11 @@ const WebAgentClient = (function() {
 
         AIAgent.cancelRequest();
         
+        // P0: 取消所有代码执行
+        cancelAllCodeExecutions();
+        
         // 清空消息队列
         clientState.messageQueue = [];
-        
-        // 清空执行队列
-        clientState.executionQueue = [];
-        clientState.isExecuting = false;
         
         EventManager.emit(EventManager.EventTypes.REQUEST_CANCELLED, {
             sessionId: clientState.currentSession.id
@@ -5396,6 +5952,45 @@ const WebAgentClient = (function() {
                     }
                     
                     console.log('[WebAgentClient] 📂 会话已恢复:', savedSession.id);
+                    
+                    // P2: 触发事件通知 UI 更新
+                    EventManager.emit(EventManager.EventTypes.SESSION_RESTORED, {
+                        session: savedSession,
+                        messageCount: savedMessages.length
+                    });
+                    
+                    // P0: 恢复代码块执行状态（延迟执行，等待DOM渲染完成）
+                    const codeExecutionStates = window.StorageManager.getState('session.codeExecutionStates');
+                    if (codeExecutionStates && Array.isArray(codeExecutionStates) && codeExecutionStates.length > 0) {
+                        console.log('[WebAgentClient] 🔄 准备恢复', codeExecutionStates.length, '个代码块执行状态');
+                        
+                        // 等待 DOM 渲染完成后更新状态
+                        setTimeout(() => {
+                            codeExecutionStates.forEach(state => {
+                                const statusEl = document.querySelector(`.code-execution-status[data-code-id="${state.blockId}"]`);
+                                const resultEl = document.querySelector(`.code-execution-result[data-code-id="${state.blockId}"]`);
+                                
+                                if (statusEl && resultEl) {
+                                    if (state.status === 'completed') {
+                                        statusEl.className = 'code-execution-status completed';
+                                        statusEl.textContent = '✅ 执行成功';
+                                        resultEl.style.display = 'block';
+                                        resultEl.innerHTML = `<pre style="white-space: pre-wrap; word-break: break-word;">${escapeHtml(state.result?.result || '')}</pre>`;
+                                        console.log(`[WebAgentClient] ✅ 恢复代码块 ${state.blockId} 为已完成`);
+                                    } else if (state.status === 'failed') {
+                                        statusEl.className = 'code-execution-status failed';
+                                        statusEl.textContent = '❌ 执行失败';
+                                        resultEl.style.display = 'block';
+                                        resultEl.innerHTML = `<pre style="color: red; white-space: pre-wrap; word-break: break-word;">${escapeHtml(state.result?.error || '')}</pre>`;
+                                        console.log(`[WebAgentClient] ❌ 恢复代码块 ${state.blockId} 为失败`);
+                                    }
+                                } else {
+                                    console.warn(`[WebAgentClient] ⚠️ 未找到代码块 ${state.blockId} 的DOM元素`);
+                                }
+                            });
+                        }, 500); // 等待500ms让React完成渲染
+                    }
+                    
                     return;
                 }
             }
@@ -5420,6 +6015,25 @@ const WebAgentClient = (function() {
                 // 保存会话信息
                 window.StorageManager.setState('session.current', clientState.currentSession);
                 window.StorageManager.setState('session.messages', messages);
+                
+                // P0: 保存代码块执行状态（用于刷新后恢复UI）
+                // 只有在有任务时才保存，避免覆盖已保存的状态
+                if (clientState.currentMessageTasks && clientState.currentMessageTasks.length > 0) {
+                    const codeExecutionStates = clientState.currentMessageTasks
+                        .filter(task => task.status === 'completed' || task.status === 'failed')
+                        .map(task => ({
+                            blockId: task.blockId,
+                            status: task.status,
+                            result: task.result
+                        }));
+                    
+                    if (codeExecutionStates.length > 0) {
+                        window.StorageManager.setState('session.codeExecutionStates', codeExecutionStates);
+                        console.log('[WebAgentClient] 💾 保存了', codeExecutionStates.length, '个代码块执行状态');
+                    }
+                } else {
+                    console.log('[WebAgentClient] 💾 无当前任务，保留已有的代码执行状态');
+                }
                 
                 console.log('[WebAgentClient] 💾 会话已保存:', messages.length, '条消息');
             }
@@ -5458,6 +6072,12 @@ const WebAgentClient = (function() {
      */
     async function handleError(error, originalMessage, options) {
         console.error('[WebAgentClient] 错误处理:', error);
+
+        // P2: 触发 MESSAGE_ERROR 事件，通知 UI
+        EventManager.emit(EventManager.EventTypes.MESSAGE_ERROR, {
+            error: error.message || String(error),
+            sessionId: clientState.currentSession.id
+        });
 
         // 记录错误
         if (ErrorTracker) {
@@ -5571,6 +6191,7 @@ const WebAgentClient = (function() {
         handleCodeExecution,
         handleCodeFromMessage,
         extractAndExecuteCode,  // 自动提取并执行代码
+        executeHighRiskCode,    // P0: 手动执行高危代码
         handleClearChat,
         handleCancelRequest,
         
@@ -6125,7 +6746,6 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
      */
     function useSettings() {
         const [settings, setSettings] = React.useState({
-            apiKey: '',
             model: 'auto',
             temperature: 0.7,
             maxTokens: 4096,
@@ -6148,7 +6768,6 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
                 const providers = ProviderManager.getAllProviders();
                 
                 setSettings({
-                    apiKey: config.apiKey || '',
                     model: config.model || 'auto',
                     temperature: config.temperature || 0.7,
                     maxTokens: config.maxTokens || 4096,
@@ -6167,10 +6786,7 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
             try {
                 setIsLoading(true);
                 
-                // 保存基础配置
-                if (newSettings.apiKey !== undefined) {
-                    ConfigManager.set('apiKey', newSettings.apiKey);
-                }
+                // 保存基础配置（不再包含 apiKey）
                 if (newSettings.model !== undefined) {
                     ConfigManager.set('model', newSettings.model);
                 }
@@ -6245,13 +6861,93 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
             }
         }
         
+        // P2: 更新供应商（包括 API Key）
+        async function updateProvider(providerId, updates) {
+            try {
+                await ProviderManager.updateProvider(providerId, updates);
+                
+                // 重新加载供应商列表
+                const providers = ProviderManager.getAllProviders();
+                setSettings(prev => ({ ...prev, providers }));
+                
+                console.log('[useSettings] ✅ 供应商已更新');
+                
+            } catch (error) {
+                console.error('[useSettings] 更新供应商失败:', error);
+                throw error;
+            }
+        }
+        
+        // P2: 刷新供应商模型
+        async function refreshProviderModels(providerId) {
+            try {
+                const result = await ProviderManager.refreshProviderModels(providerId);
+                
+                // 重新加载供应商列表
+                const providers = ProviderManager.getAllProviders();
+                setSettings(prev => ({ ...prev, providers }));
+                
+                console.log('[useSettings] ✅ 模型已刷新', result);
+                return result;
+                
+            } catch (error) {
+                console.error('[useSettings] 刷新模型失败:', error);
+                throw error;
+            }
+        }
+        
+        // P2: 切换模型启用状态
+        async function toggleModelEnabled(providerId, modelId, currentEnabled) {
+            try {
+                const provider = ProviderManager.getProviderById(providerId);
+                if (!provider) throw new Error('供应商不存在');
+                
+                const models = provider.models.map(m => 
+                    m.id === modelId ? { ...m, enabled: !currentEnabled } : m
+                );
+                
+                await ProviderManager.updateProvider(providerId, { models });
+                
+                // 重新加载供应商列表
+                const providers = ProviderManager.getAllProviders();
+                setSettings(prev => ({ ...prev, providers }));
+                
+                console.log('[useSettings] ✅ 模型状态已更新');
+                
+            } catch (error) {
+                console.error('[useSettings] 更新模型状态失败:', error);
+                throw error;
+            }
+        }
+        
+        // P2: 切换供应商启用状态
+        async function toggleProviderEnabled(providerId, enabled) {
+            try {
+                await ProviderManager.toggleProviderEnabled(providerId, enabled);
+                
+                // 重新加载供应商列表
+                const providers = ProviderManager.getAllProviders();
+                setSettings(prev => ({ ...prev, providers }));
+                
+                console.log('[useSettings] ✅ 供应商状态已更新');
+                
+            } catch (error) {
+                console.error('[useSettings] 更新供应商状态失败:', error);
+                throw error;
+            }
+        }
+        
         return {
             settings,
             isLoading,
             saveSettings,
             addProvider,
+            updateProvider,  // P2: 更新供应商
             deleteProvider,
+            toggleProviderEnabled,  // P2: 切换供应商启用状态
             addModelToProvider,
+            refreshProviderModels,  // P2: 刷新模型
+            toggleModelEnabled,  // P2: 切换模型状态
             reloadSettings: loadSettings
         };
     }
@@ -6283,10 +6979,76 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
         const [currentModel, setCurrentModel] = React.useState('auto');
         const [availableModels, setAvailableModels] = React.useState([]);
         
-        // 加载历史消息
+        // P0: 动态获取 WebAgentClient 和 EventManager（每次调用时获取最新引用）
+        const getWebAgentClient = () => window.WebAgentClient;
+        const getEventManager = () => window.EventManager;
+        
+        // 加载历史消息 + 监听会话恢复事件（P2: 由 WebAgentClient 统一管理，这里只监听事件）
         React.useEffect(() => {
-            loadHistory();
+            console.log('[useAgent] 🔄 组件挂载，开始加载历史');
+            
+            // P2: 从 AIAgent 获取当前历史（如果已初始化）
+            const loadHistoryFromAIAgent = () => {
+                const AIAgent = window.AIAgent;
+                if (AIAgent && AIAgent.getState) {
+                    try {
+                        const agentState = AIAgent.getState();
+                        console.log('[useAgent] 🔍 检查 AIAgent 状态:', {
+                            isInitialized: agentState.isInitialized,
+                            historyLength: agentState.history?.length || 0
+                        });
+                        
+                        if (agentState.history && agentState.history.length > 0) {
+                            // 将 AIAgent 历史转换为 UI 消息格式
+                            const uiMessages = agentState.history.map((msg, index) => ({
+                                id: msg.id || `msg_${index}_${Date.now()}`,
+                                role: msg.role,
+                                content: msg.content,
+                                timestamp: msg.timestamp || new Date().toISOString(),
+                                isStreaming: false
+                            }));
+                            setMessages(uiMessages);
+                            console.log('[useAgent] 📂 从 AIAgent 恢复', uiMessages.length, '条历史消息');
+                            return true; // 成功加载
+                        } else {
+                            console.log('[useAgent] ℹ️ AIAgent 没有历史消息');
+                            return false;
+                        }
+                    } catch (error) {
+                        console.warn('[useAgent] ⚠️ 从 AIAgent 加载历史失败:', error);
+                        return false;
+                    }
+                } else {
+                    console.warn('[useAgent] ⚠️ AIAgent 未就绪');
+                    return false;
+                }
+            };
+            
+            // P2: 监听会话恢复事件
+            let sessionRestoredHandler = null;
+            if (window.EventManager) {
+                sessionRestoredHandler = (data) => {
+                    console.log('[useAgent] 📂 会话已恢复，重新加载历史');
+                    setTimeout(() => {
+                        loadHistoryFromAIAgent();
+                    }, 50);
+                };
+                
+                window.EventManager.on(EventManager.EventTypes.SESSION_RESTORED, sessionRestoredHandler);
+            }
+            
+            // 尝试立即加载历史（此时应该已经初始化完成）
+            loadHistoryFromAIAgent();
+            
+            // 加载模型列表
             loadModels();
+            
+            // 清理函数：组件卸载时移除事件监听器
+            return () => {
+                if (sessionRestoredHandler) {
+                    window.EventManager.off(EventManager.EventTypes.SESSION_RESTORED, sessionRestoredHandler);
+                }
+            };
         }, []);
         
         async function loadModels() {
@@ -6326,7 +7088,7 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
                 const models = [];
                 
                 // 添加 auto 选项
-                models.push({ id: 'auto', name: '🚀 Auto (自动选择)', provider: 'System' });
+                models.push({ id: 'auto', name: '🚀 Auto (自动选择)', provider: 'System', invalid: false });
                 
                 // 收集所有供应商的模型
                 providers.forEach(provider => {
@@ -6336,11 +7098,18 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
                                 models.push({
                                     id: model.id,
                                     name: `${model.name || model.id} (${provider.name})`,
-                                    provider: provider.name
+                                    provider: provider.name,
+                                    invalid: model.invalid || false  // P2: 标记无效模型
                                 });
                             }
                         });
                     }
+                });
+                
+                // P2: 排序 - 有效模型在前，无效模型在后
+                models.sort((a, b) => {
+                    if (a.invalid === b.invalid) return 0;
+                    return a.invalid ? 1 : -1;
                 });
                 
                 setAvailableModels(models);
@@ -6367,6 +7136,11 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
         
         // 发送消息
         async function sendMessage(userMessage) {
+            console.log('[useAgent] 📤 sendMessage 被调用');
+            console.log('[useAgent] 📋 消息:', userMessage.substring(0, 100));
+            console.log('[useAgent] 🔧 WebAgentClient 存在:', !!WebAgentClient);
+            console.log('[useAgent] 🔧 isProcessing:', isProcessing);
+            
             if (!userMessage.trim() || isProcessing) return;
             
             try {
@@ -6397,8 +7171,23 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
                 setMessages(prev => [...prev, aiMsg]);
                 
                 // 通过 WebAgentClient 发送消息
+                const WebAgentClient = getWebAgentClient();
+                console.log('[useAgent] 🚀 调用 WebAgentClient.handleUserMessage...');
                 if (WebAgentClient && WebAgentClient.handleUserMessage) {
-                    await WebAgentClient.handleUserMessage(userMessage);
+                    try {
+                        await WebAgentClient.handleUserMessage(userMessage);
+                        console.log('[useAgent] ✅ WebAgentClient.handleUserMessage 返回');
+                        // 注意：isProcessing 和 streamingMessageId 由 MESSAGE_COMPLETE 事件处理
+                    } catch (error) {
+                        console.error('[useAgent] ❌ WebAgentClient 处理失败:', error);
+                        setIsProcessing(false);
+                        setStreamingMessageId(null);
+                        throw error;
+                    }
+                } else {
+                    console.error('[useAgent] ❌ WebAgentClient 或 handleUserMessage 不存在');
+                    setIsProcessing(false);
+                    setStreamingMessageId(null);
                 }
                 
             } catch (error) {
@@ -6430,6 +7219,7 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
         
         // 清空聊天
         function clearChat() {
+            const WebAgentClient = getWebAgentClient();
             if (WebAgentClient && WebAgentClient.handleClearChat) {
                 WebAgentClient.handleClearChat();
             }
@@ -6438,6 +7228,7 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
         
         // 停止生成
         function stopGeneration() {
+            const WebAgentClient = getWebAgentClient();
             if (WebAgentClient && WebAgentClient.stopGeneration) {
                 WebAgentClient.stopGeneration();
             }
@@ -6464,7 +7255,11 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
         
         // 监听消息更新事件
         React.useEffect(() => {
-            if (!EventManager) return;
+            const EventManager = getEventManager();
+            if (!EventManager) {
+                console.warn('[useAgent] ⚠️ EventManager 未加载');
+                return;
+            }
             
             // 监听流式消息更新
             const onStreamingId = EventManager.on(EventManager.EventTypes.MESSAGE_STREAMING, (data) => {
@@ -6480,19 +7275,39 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
             
             // 监听消息完成
             const onCompleteId = EventManager.on(EventManager.EventTypes.MESSAGE_COMPLETE, (data) => {
+                console.log('[useAgent] 📨 收到 MESSAGE_COMPLETE 事件');
+                console.log('[useAgent] 🔍 streamingMessageId:', streamingMessageId);
+                console.log('[useAgent] 🔍 data.result:', data.result ? '存在' : '不存在');
+                console.log('[useAgent] 🔍 data.result.content 长度:', data.result?.content?.length || 0);
+                
                 if (streamingMessageId && data.result) {
-                    setMessages(prev => prev.map(msg => 
-                        msg.id === streamingMessageId 
-                            ? { 
-                                ...msg, 
-                                isStreaming: false,
-                                content: data.result.content || msg.content  // ← 更新为包含执行结果的完整内容
-                              }
-                            : msg
-                    ));
+                    console.log('[useAgent] ✅ 开始更新消息', streamingMessageId);
+                    setMessages(prev => {
+                        console.log('[useAgent] 📋 当前 messages 数量:', prev.length);
+                        const updated = prev.map(msg => {
+                            if (msg.id === streamingMessageId) {
+                                console.log('[useAgent] ✏️ 找到匹配的消息，更新内容');
+                                console.log('[useAgent] 📄 新内容长度:', data.result.content.length);
+                                return { 
+                                    ...msg, 
+                                    isStreaming: false,
+                                    content: data.result.content || msg.content
+                                };
+                            }
+                            return msg;
+                        });
+                        console.log('[useAgent] ✅ 消息更新完成');
+                        return updated;
+                    });
                     console.log('[useAgent] ✅ 消息完成，内容长度:', (data.result.content || '').length);
                     setIsProcessing(false);
                     setStreamingMessageId(null);
+                    console.log('[useAgent] 🧹 streamingMessageId 已清空');
+                } else {
+                    console.warn('[useAgent] ⚠️ MESSAGE_COMPLETE 被忽略:', {
+                        hasStreamingId: !!streamingMessageId,
+                        hasResult: !!data.result
+                    });
                 }
             });
             
@@ -6503,10 +7318,42 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
                 setStreamingMessageId(null);
             });
             
+            // P2: 监听单个代码执行完成，更新 UI
+            const onCodeExecutedId = EventManager.on(EventManager.EventTypes.CODE_EXECUTED, (data) => {
+                console.log('[useAgent] ✅ 代码执行完成:', data.blockId);
+                // 注意：代码执行结果由 WebAgentClient 自动反馈给大模型
+                // 这里只需要记录日志，不需要更新 UI（UI 由 MESSAGE_COMPLETE 更新）
+            });
+            
+            // 注意：SESSION_RESTORED 监听器已在第一个 useEffect 中注册，无需重复注册
+            
+            // P0: 监听代码批量执行完成
+            const onCodeBatchId = EventManager.on(EventManager.EventTypes.CODE_BATCH_EXECUTED, (data) => {
+                console.log('[useAgent] 📊 代码批量执行完成', data.results.length, '个结果');
+                console.log('[useAgent] 🔄 准备接收最终回复，创建新的消息占位符');
+                
+                // 创建新的 AI 消息占位符（用于接收最终回复）
+                const aiMessageId = 'ai_' + Date.now();
+                setStreamingMessageId(aiMessageId);
+                
+                const aiMsg = {
+                    id: aiMessageId,
+                    role: 'assistant',
+                    content: '',
+                    isStreaming: true,
+                    timestamp: new Date().toISOString()
+                };
+                
+                setMessages(prev => [...prev, aiMsg]);
+                console.log('[useAgent] ✅ 新消息占位符已创建:', aiMessageId);
+            });
+            
             return () => {
                 EventManager.off(EventManager.EventTypes.MESSAGE_STREAMING, onStreamingId);
                 EventManager.off(EventManager.EventTypes.MESSAGE_COMPLETE, onCompleteId);
                 EventManager.off(EventManager.EventTypes.MESSAGE_ERROR, onErrorId);
+                EventManager.off(EventManager.EventTypes.CODE_EXECUTED, onCodeExecutedId);
+                EventManager.off(EventManager.EventTypes.CODE_BATCH_EXECUTED, onCodeBatchId);
             };
         }, [streamingMessageId]);
         
@@ -6520,7 +7367,8 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
             clearChat,
             stopGeneration,
             switchModel,
-            reloadHistory: loadHistory
+            reloadHistory: loadHistory,
+            reloadModels: loadModels  // P2: 暴露重新加载模型的方法
         };
     }
     
@@ -6541,14 +7389,45 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
     'use strict';
     
     /**
+     * P0: 生成稳定的代码块 ID（基于代码内容）
+     * @param {string} code - 代码内容
+     * @returns {string} 稳定的 ID
+     */
+    function generateCodeId(code) {
+        // 使用简单的 hash 算法，基于代码内容生成稳定 ID
+        let hash = 0;
+        for (let i = 0; i < code.length; i++) {
+            const char = code.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convert to 32bit integer
+        }
+        return 'code_' + Math.abs(hash).toString(36);
+    }
+    
+    /**
      * 渲染代码块
      */
-    function renderCodeBlock(code, language) {
-        const codeId = 'code_' + Math.random().toString(36).substr(2, 9);
+    function renderCodeBlock(code, language, messageId) {
+        // P0: 必须 trim()，与 WebAgentClient 保持一致
+        const trimmedCode = code.trim();
+        const codeId = generateCodeId(trimmedCode); // 使用稳定的 ID
+        const isRunjs = language === 'runjs';
+        
+        // P0: 检查是否高危（需要 WebAgentClient）
+        let isHighRisk = false;
+        let riskType = null;
+        if (isRunjs && window.WebAgentClient) {
+            const CodeExecutor = window.AIAgent?.getDependencies?.()?.CodeExecutor;
+            if (CodeExecutor) {
+                isHighRisk = CodeExecutor.isHighRiskCode(code);
+                riskType = isHighRisk ? CodeExecutor.getHighRiskType(code) : null;
+            }
+        }
         
         return React.createElement('div', { 
             key: codeId,
             className: 'code-block',
+            'data-code-id': codeId,
             style: {
                 background: '#f5f5f5',
                 border: '1px solid #ddd',
@@ -6564,9 +7443,41 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
                     padding: '5px 10px',
                     fontSize: '12px',
                     color: '#666',
-                    borderBottom: '1px solid #ddd'
+                    borderBottom: '1px solid #ddd',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
                 }
-            }, language || 'text'),
+            }, [
+                React.createElement('span', { key: 'lang' }, language || 'text'),
+                
+                // P0: 高危代码执行按钮
+                isHighRisk ? React.createElement('button', {
+                    key: 'execute-btn',
+                    className: 'btn-execute-high-risk',
+                    onClick: () => executeHighRiskCode(code, codeId),
+                    style: {
+                        padding: '3px 8px',
+                        fontSize: '11px',
+                        background: '#dc3545',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '3px',
+                        cursor: 'pointer'
+                    }
+                }, '⚠️ 执行高危代码') : null,
+                
+                // P0: 执行状态
+                React.createElement('span', {
+                    key: 'status',
+                    className: 'code-execution-status',
+                    'data-code-id': codeId,
+                    style: {
+                        fontSize: '11px',
+                        color: '#6c757d'
+                    }
+                }, isRunjs ? '等待执行...' : '')
+            ]),
             React.createElement('pre', {
                 key: 'code',
                 style: {
@@ -6576,14 +7487,78 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
                     lineHeight: '1.5',
                     margin: 0
                 }
-            }, code)
+            }, code),
+            
+            // P0: 执行结果区域
+            React.createElement('div', {
+                key: 'result',
+                className: 'code-execution-result',
+                'data-code-id': codeId,
+                style: {
+                    padding: '8px 10px',
+                    background: '#fff',
+                    borderTop: '1px solid #ddd',
+                    fontSize: '12px',
+                    display: 'none'  // 默认隐藏，有结果时显示
+                }
+            }, '')
         ]);
+    }
+    
+    /**
+     * P0: 执行高危代码
+     */
+    function executeHighRiskCode(code, codeId) {
+        if (!window.WebAgentClient || !window.WebAgentClient.executeHighRiskCode) {
+            console.error('[MessageItem] WebAgentClient 未就绪');
+            return;
+        }
+        
+        // 更新状态为执行中
+        updateCodeStatus(codeId, 'executing');
+        
+        window.WebAgentClient.executeHighRiskCode(code, codeId)
+            .then(result => {
+                updateCodeStatus(codeId, 'completed', result.result);
+            })
+            .catch(error => {
+                updateCodeStatus(codeId, 'failed', error.message);
+            });
+    }
+    
+    /**
+     * P0: 更新代码执行状态
+     */
+    function updateCodeStatus(codeId, status, result = null) {
+        const statusEl = document.querySelector(`.code-execution-status[data-code-id="${codeId}"]`);
+        const resultEl = document.querySelector(`.code-execution-result[data-code-id="${codeId}"]`);
+        
+        if (!statusEl || !resultEl) return;
+        
+        switch (status) {
+            case 'executing':
+                statusEl.textContent = '⏳ 执行中...';
+                statusEl.style.color = '#004085';
+                break;
+            case 'completed':
+                statusEl.textContent = '✅ 执行成功';
+                statusEl.style.color = '#155724';
+                resultEl.style.display = 'block';
+                resultEl.textContent = String(result);
+                break;
+            case 'failed':
+                statusEl.textContent = '❌ 执行失败';
+                statusEl.style.color = '#721c24';
+                resultEl.style.display = 'block';
+                resultEl.textContent = String(result);
+                break;
+        }
     }
     
     /**
      * 解析消息内容（提取代码块）
      */
-    function parseMessageContent(content) {
+    function parseMessageContent(content, messageId) {
         if (!content) return [];
         
         const elements = [];
@@ -6601,7 +7576,8 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
             }
             
             // 添加代码块
-            elements.push(renderCodeBlock(match[2], match[1]));
+            // P0: 必须 trim()，与 WebAgentClient 保持一致
+            elements.push(renderCodeBlock(match[2].trim(), match[1], messageId));
             
             lastIndex = codeBlockRegex.lastIndex;
         }
@@ -6622,7 +7598,78 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
      */
     function MessageItem({ message }) {
         const isUser = message.role === 'user';
-        const contentElements = parseMessageContent(message.content);
+        const contentElements = parseMessageContent(message.content, message.id);
+        
+        // P0: 使用 ref 保存监听器 ID
+        const listenerRefs = React.useRef({ executedId: null, errorId: null });
+        
+        // P0: 组件挂载时立即注册监听器（不依赖 useEffect）
+        React.useLayoutEffect(() => {
+            console.log('[MessageItem] 🔍 useLayoutEffect 执行', { messageId: message.id, isUser, role: message.role });
+            
+            if (!window.EventManager || isUser) {
+                console.log('[MessageItem] ⚠️ 跳过监听（非 assistant 消息或 EventManager 未就绪）');
+                return;
+            }
+            
+            // 清理旧的监听器
+            if (listenerRefs.current.executedId) {
+                window.EventManager.off(window.EventManager.EventTypes.CODE_EXECUTED, listenerRefs.current.executedId);
+            }
+            if (listenerRefs.current.errorId) {
+                window.EventManager.off(window.EventManager.EventTypes.CODE_EXECUTION_ERROR, listenerRefs.current.errorId);
+            }
+            
+            const onCodeExecuted = (data) => {
+                console.log('[MessageItem] 📨 收到 CODE_EXECUTED 事件:', data.blockId);
+                console.log('[MessageItem] 🔍 尝试更新状态:', data.blockId);
+                
+                // 检查是否是当前消息的代码块
+                if (data.blockId) {
+                    // 检查 DOM 元素是否存在
+                    const statusEl = document.querySelector(`.code-execution-status[data-code-id="${data.blockId}"]`);
+                    const resultEl = document.querySelector(`.code-execution-result[data-code-id="${data.blockId}"]`);
+                    
+                    console.log('[MessageItem] 🔍 DOM 元素检查:', {
+                        blockId: data.blockId,
+                        statusElExists: !!statusEl,
+                        resultElExists: !!resultEl
+                    });
+                    
+                    if (!statusEl || !resultEl) {
+                        console.warn('[MessageItem] ⚠️ DOM 元素不存在，无法更新');
+                        return;
+                    }
+                    
+                    updateCodeStatus(data.blockId, 'completed', data.result?.result);
+                    console.log('[MessageItem] ✅ 状态更新完成');
+                }
+            };
+            
+            const onCodeError = (data) => {
+                console.log('[MessageItem] 📨 收到 CODE_EXECUTION_ERROR 事件:', data.blockId);
+                if (data.blockId) {
+                    updateCodeStatus(data.blockId, 'failed', data.error?.message || data.error);
+                }
+            };
+            
+            const executedId = window.EventManager.on(window.EventManager.EventTypes.CODE_EXECUTED, onCodeExecuted);
+            const errorId = window.EventManager.on(window.EventManager.EventTypes.CODE_EXECUTION_ERROR, onCodeError);
+            
+            listenerRefs.current = { executedId, errorId };
+            
+            console.log('[MessageItem] ✅ 事件监听器已注册', { executedId, errorId });
+            
+            return () => {
+                console.log('[MessageItem] 🧹 清理事件监听器');
+                if (listenerRefs.current.executedId) {
+                    window.EventManager.off(window.EventManager.EventTypes.CODE_EXECUTED, listenerRefs.current.executedId);
+                }
+                if (listenerRefs.current.errorId) {
+                    window.EventManager.off(window.EventManager.EventTypes.CODE_EXECUTION_ERROR, listenerRefs.current.errorId);
+                }
+            };
+        }, [isUser, message.id]);
         
         return React.createElement('div', {
             className: `message-item ${isUser ? 'user-message' : 'assistant-message'}`,
@@ -6695,6 +7742,177 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
         
         const [inputValue, setInputValue] = React.useState('');
         const messagesEndRef = React.useRef(null);
+        
+        // P0: 历史消息导航索引（用于 Ctrl+ArrowUp/Down）
+        const [historyNavIndex, setHistoryNavIndex] = React.useState(-1);
+        
+        // P2: 监听模型列表更新事件，自动重新加载
+        React.useEffect(() => {
+            if (!window.EventManager) return;
+            
+            const EventManager = window.EventManager;
+            
+            // 监听模型更新事件
+            const handleModelsUpdated = () => {
+                console.log('[ChatWindow] 🔄 检测到模型列表更新，重新加载...');
+                // 触发 useAgent 重新加载模型
+                if (window.useAgent && window.useAgent.reloadModels) {
+                    window.useAgent.reloadModels();
+                }
+            };
+            
+            // 监听供应商更新事件
+            const handleProviderUpdated = () => {
+                console.log('[ChatWindow] 🔄 检测到供应商更新，重新加载模型...');
+                if (window.useAgent && window.useAgent.reloadModels) {
+                    window.useAgent.reloadModels();
+                }
+            };
+            
+            const modelsUpdatedId = EventManager.on('agent:models:updated', handleModelsUpdated);
+            const providerUpdatedId = EventManager.on('agent:provider:updated', handleProviderUpdated);
+            
+            return () => {
+                EventManager.off('agent:models:updated', modelsUpdatedId);
+                EventManager.off('agent:provider:updated', providerUpdatedId);
+            };
+        }, []);
+        
+        /**
+         * 注册聊天窗口内的快捷键（仅在窗口打开时）
+         */
+        React.useEffect(() => {
+            if (!isOpen || !window.ShortcutManager) {
+                return;
+            }
+            
+            const ShortcutManager = window.ShortcutManager;
+            
+            // Ctrl+Enter: 发送消息
+            ShortcutManager.register('ctrl+enter', (e) => {
+                if (inputValue.trim() && !isProcessing) {
+                    handleSend();
+                }
+                return false; // 阻止默认行为
+            }, '发送消息');
+            
+            // Escape: 停止生成或关闭窗口
+            ShortcutManager.register('escape', (e) => {
+                if (isProcessing) {
+                    stopGeneration();
+                } else if (isOpen) {
+                    onClose();
+                }
+                return false;
+            }, '停止生成/关闭窗口');
+            
+            /**
+             * Ctrl+ArrowUp: 导航到上一条用户消息
+             * 
+             * 功能说明:
+             * - 从当前输入框内容开始，向上查找最近的用户消息
+             * - 将找到的消息内容填充到输入框
+             * - 再次按下继续向上查找
+             * - 到达第一条消息后循环到最后一条
+             * 
+             * 使用场景:
+             * - 快速重新发送之前的消息
+             * - 查看和修改历史提问
+             * - 避免重复输入相同内容
+             * 
+             * 示例:
+             * ```
+             * 历史记录: ["你好", "帮我分析页面", "谢谢"]
+             * 当前输入: ""
+             * 第1次按 Ctrl+ArrowUp → 输入框: "谢谢"
+             * 第2次按 Ctrl+ArrowUp → 输入框: "帮我分析页面"
+             * 第3次按 Ctrl+ArrowUp → 输入框: "你好"
+             * 第4次按 Ctrl+ArrowUp → 输入框: "谢谢" (循环)
+             * ```
+             */
+            ShortcutManager.register('ctrl+arrowup', (e) => {
+                // 获取所有用户消息
+                const userMessages = messages.filter(msg => msg.role === 'user').map(msg => msg.content);
+                
+                if (userMessages.length === 0) {
+                    return false; // 没有历史消息
+                }
+                
+                // 计算下一个索引
+                let nextIndex;
+                if (historyNavIndex === -1) {
+                    // 首次按下，从最后一条开始
+                    nextIndex = userMessages.length - 1;
+                } else {
+                    // 向上移动，循环到开头
+                    nextIndex = historyNavIndex > 0 ? historyNavIndex - 1 : userMessages.length - 1;
+                }
+                
+                // 更新索引和输入框内容
+                setHistoryNavIndex(nextIndex);
+                setInputValue(userMessages[nextIndex]);
+                
+                console.log(`[ChatWindow] ⬆️ 导航到第 ${nextIndex + 1}/${userMessages.length} 条用户消息`);
+                return false;
+            }, '导航到上一条用户消息');
+            
+            /**
+             * Ctrl+ArrowDown: 导航到下一条用户消息
+             * 
+             * 功能说明:
+             * - 与 Ctrl+ArrowUp 相反方向导航
+             * - 向下查找下一条用户消息
+             * - 到达最后一条消息后循环到第一条
+             * 
+             * 使用场景:
+             * - 在历史消息中向前导航
+             * - 撤销 ArrowUp 的操作
+             * 
+             * 示例:
+             * ```
+             * 当前位置: "你好" (索引 0)
+             * 按 Ctrl+ArrowDown → 输入框: "帮我分析页面" (索引 1)
+             * 按 Ctrl+ArrowDown → 输入框: "谢谢" (索引 2)
+             * 按 Ctrl+ArrowDown → 输入框: "你好" (索引 0, 循环)
+             * ```
+             */
+            ShortcutManager.register('ctrl+arrowdown', (e) => {
+                // 获取所有用户消息
+                const userMessages = messages.filter(msg => msg.role === 'user').map(msg => msg.content);
+                
+                if (userMessages.length === 0) {
+                    return false; // 没有历史消息
+                }
+                
+                // 计算下一个索引
+                let nextIndex;
+                if (historyNavIndex === -1) {
+                    // 首次按下，从第一条开始
+                    nextIndex = 0;
+                } else {
+                    // 向下移动，循环到末尾
+                    nextIndex = historyNavIndex < userMessages.length - 1 ? historyNavIndex + 1 : 0;
+                }
+                
+                // 更新索引和输入框内容
+                setHistoryNavIndex(nextIndex);
+                setInputValue(userMessages[nextIndex]);
+                
+                console.log(`[ChatWindow] ⬇️ 导航到第 ${nextIndex + 1}/${userMessages.length} 条用户消息`);
+                return false;
+            }, '导航到下一条用户消息');
+            
+            console.log('[ChatWindow] ✅ 聊天窗口快捷键已注册');
+            
+            // 清理：窗口关闭时注销快捷键
+            return () => {
+                ShortcutManager.unregister('ctrl+enter');
+                ShortcutManager.unregister('escape');
+                ShortcutManager.unregister('ctrl+arrowup');
+                ShortcutManager.unregister('ctrl+arrowdown');
+                console.log('[ChatWindow] 🗑️ 聊天窗口快捷键已注销');
+            };
+        }, [isOpen, inputValue, isProcessing, messages, historyNavIndex]);
         
         // 从 StorageManager 加载窗口位置和大小（如果可用）
         const loadWindowState = () => {
@@ -6870,15 +8088,19 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
             
             const message = inputValue;
             setInputValue('');
+            setHistoryNavIndex(-1); // 重置历史导航索引
             await sendMessage(message);
         }
         
-        // 处理键盘事件
+        // 处理键盘事件（仅处理 Enter 发送）
         function handleKeyDown(e) {
+            // 只在输入框有焦点时处理 Enter
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
+                e.stopPropagation(); // 阻止事件传播到 ShortcutManager
                 handleSend();
             }
+            // 其他按键（包括 Ctrl+ArrowUp/Down, Escape）让 ShortcutManager 处理
         }
         
         // 渲染消息列表
@@ -6968,8 +8190,12 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
                         availableModels.map(model => 
                             React.createElement('option', {
                                 key: model.id,
-                                value: model.id
-                            }, model.name)
+                                value: model.id,
+                                style: {
+                                    color: model.invalid ? '#999' : '#000',
+                                    fontStyle: model.invalid ? 'italic' : 'normal'
+                                }
+                            }, model.name + (model.invalid ? ' ⚠️' : ''))
                         )
                     ]),
                     
@@ -7131,8 +8357,12 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
             isLoading, 
             saveSettings,
             addProvider,
+            updateProvider,  // P2: 更新供应商
             deleteProvider,
-            addModelToProvider
+            toggleProviderEnabled,  // P2: 切换供应商启用状态
+            addModelToProvider,
+            refreshProviderModels,  // P2: 刷新模型
+            toggleModelEnabled  // P2: 切换模型状态
         } = window.useSettings();
         
         const [activeTab, setActiveTab] = React.useState('basic'); // basic, providers
@@ -7147,6 +8377,15 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
             providerId: '',
             modelId: '',
             modelName: ''
+        });
+        
+        // P2: 编辑供应商对话框状态
+        const [editingProvider, setEditingProvider] = React.useState(null);
+        const [editFormData, setEditFormData] = React.useState({
+            name: '',
+            baseUrl: '',
+            apiKey: '',
+            isLocal: false
         });
         
         // 通用样式
@@ -7193,6 +8432,36 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
         React.useEffect(() => {
             setFormData(settings);
         }, [settings]);
+        
+        // 注册 Escape 快捷键（仅在对话框打开时）
+        React.useEffect(() => {
+            if (!isOpen || !window.ShortcutManager) {
+                return;
+            }
+            
+            /**
+             * Escape: 关闭设置对话框
+             * 
+             * 功能说明:
+             * - 按 Escape 键关闭设置对话框
+             * - 不保存未保存的更改
+             */
+            window.ShortcutManager.register('escape', (e) => {
+                if (onClose) {
+                    onClose();
+                    console.log('[SettingsDialog] ⌨️ Escape 关闭设置对话框');
+                }
+                return false;
+            }, '关闭设置对话框');
+            
+            console.log('[SettingsDialog] ✅ 设置对话框快捷键已注册');
+            
+            // 清理：对话框关闭时注销快捷键
+            return () => {
+                window.ShortcutManager.unregister('escape');
+                console.log('[SettingsDialog] 🗑️ 设置对话框快捷键已注销');
+            };
+        }, [isOpen, onClose]);
         
         if (!isOpen) return null;
         
@@ -7277,35 +8546,121 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
             }
         }
         
+        // P2: 打开编辑供应商对话框
+        function handleEditProvider(provider) {
+            setEditingProvider(provider);
+            setEditFormData({
+                name: provider.name,
+                baseUrl: provider.baseUrl,
+                apiKey: '',  // 不显示原有 API Key
+                isLocal: provider.isLocal || false
+            });
+        }
+        
+        // P2: 关闭编辑对话框
+        function handleCloseEdit() {
+            setEditingProvider(null);
+            setEditFormData({
+                name: '',
+                baseUrl: '',
+                apiKey: '',
+                isLocal: false
+            });
+        }
+        
+        // P2: 保存编辑的供应商
+        async function handleSaveEdit() {
+            if (!editingProvider) return;
+            
+            try {
+                const updates = {
+                    name: editFormData.name,
+                    baseUrl: editFormData.baseUrl,
+                    isLocal: editFormData.isLocal
+                };
+                
+                // 如果填写了新的 API Key，则更新
+                if (editFormData.apiKey.trim()) {
+                    updates.apiKey = editFormData.apiKey;
+                }
+                
+                await updateProvider(editingProvider.id, updates);
+                
+                // P2: 触发事件通知模型列表更新
+                if (window.EventManager) {
+                    window.EventManager.emit(window.EventManager.EventTypes.PROVIDER_UPDATED, {
+                        providerId: editingProvider.id
+                    });
+                }
+                
+                alert('✅ 供应商已更新');
+                handleCloseEdit();
+                
+            } catch (error) {
+                alert('❌ 更新失败: ' + error.message);
+            }
+        }
+        
+        // P2: 刷新供应商模型
+        async function handleRefreshModels(providerId) {
+            if (!confirm('确定要刷新模型列表吗？\n系统将对比新旧模型并自动保留已有配置。')) return;
+            
+            try {
+                const result = await refreshProviderModels(providerId);
+                
+                // P2: 触发事件通知模型列表更新
+                if (window.EventManager) {
+                    window.EventManager.emit(window.EventManager.EventTypes.MODELS_UPDATED, {
+                        providerId,
+                        ...result
+                    });
+                }
+                
+                alert(`✅ 模型已刷新\n新增: ${result.added} 个\n移除: ${result.removed} 个\n总计: ${result.newCount} 个`);
+            } catch (error) {
+                alert('❌ 刷新失败: ' + error.message);
+            }
+        }
+        
+        // P2: 切换模型启用状态
+        async function handleToggleModel(providerId, modelId, currentEnabled) {
+            try {
+                await toggleModelEnabled(providerId, modelId, currentEnabled);
+                
+                // P2: 触发事件通知模型列表更新
+                if (window.EventManager) {
+                    window.EventManager.emit(window.EventManager.EventTypes.MODELS_UPDATED, {
+                        providerId,
+                        modelId,
+                        enabled: !currentEnabled
+                    });
+                }
+            } catch (error) {
+                alert('❌ 操作失败: ' + error.message);
+            }
+        }
+        
+        // P2: 切换供应商启用状态
+        async function handleToggleProvider(providerId, currentEnabled) {
+            try {
+                await toggleProviderEnabled(providerId, !currentEnabled);
+                
+                // P2: 触发事件通知模型列表更新
+                if (window.EventManager) {
+                    window.EventManager.emit(window.EventManager.EventTypes.PROVIDER_UPDATED, {
+                        providerId,
+                        enabled: !currentEnabled
+                    });
+                }
+            } catch (error) {
+                alert('❌ 操作失败: ' + error.message);
+            }
+        }
+
         // 渲染基础设置标签页
         function renderBasicTab() {
             return React.createElement('div', { className: 'settings-tab-content' }, [
-                // API Key
-                React.createElement('div', { 
-                    key: 'apikey', 
-                    style: { marginBottom: '15px' }
-                }, [
-                    React.createElement('label', { 
-                        key: 'label',
-                        style: { display: 'block', marginBottom: '5px', fontWeight: 'bold', fontSize: '14px' }
-                    }, 'API Key:'),
-                    React.createElement('input', {
-                        key: 'input',
-                        type: 'password',
-                        value: formData.apiKey,
-                        onChange: (e) => setFormData(prev => ({ ...prev, apiKey: e.target.value })),
-                        placeholder: '输入 API Key',
-                        style: {
-                            width: '100%',
-                            padding: '8px 12px',
-                            fontSize: '14px',
-                            border: '1px solid #ddd',
-                            borderRadius: '4px',
-                            boxSizing: 'border-box'
-                        }
-                    })
-                ]),
-                
+
                 // Model
                 React.createElement('div', { key: 'model', className: 'form-group' }, [
                     React.createElement('label', { key: 'label' }, '默认模型:'),
@@ -7359,17 +8714,174 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
         // 渲染供应商管理标签页
         function renderProvidersTab() {
             const providerElements = settings.providers.map(provider => {
-                return React.createElement('div', { key: provider.id, className: 'provider-item' }, [
-                    React.createElement('div', { key: 'info', className: 'provider-info' }, [
-                        React.createElement('strong', { key: 'name' }, provider.name),
-                        React.createElement('span', { key: 'url' }, provider.baseUrl),
-                        React.createElement('span', { key: 'models' }, `${provider.models?.length || 0} 个模型`)
+                return React.createElement('div', { 
+                    key: provider.id, 
+                    className: 'provider-item',
+                    style: {
+                        padding: '15px',
+                        marginBottom: '15px',
+                        background: '#f8f9fa',
+                        borderRadius: '8px',
+                        border: '1px solid #e9ecef'
+                    }
+                }, [
+                    // 供应商头部信息
+                    React.createElement('div', { 
+                        key: 'header',
+                        style: {
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            marginBottom: '10px'
+                        }
+                    }, [
+                        React.createElement('div', { key: 'info', style: { display: 'flex', alignItems: 'center', gap: '10px' } }, [
+                            // P2: 供应商启用开关
+                            React.createElement('label', {
+                                key: 'toggle',
+                                style: {
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    cursor: 'pointer',
+                                    fontSize: '13px'
+                                }
+                            }, [
+                                React.createElement('input', {
+                                    type: 'checkbox',
+                                    checked: provider.enabled !== false,
+                                    onChange: () => handleToggleProvider(provider.id, provider.enabled),
+                                    style: { marginRight: '5px' }
+                                }),
+                                provider.enabled !== false ? '启用' : '禁用'
+                            ]),
+                            
+                            React.createElement('strong', { 
+                                key: 'name',
+                                style: { 
+                                    fontSize: '16px',
+                                    color: provider.enabled === false ? '#6c757d' : '#212529'
+                                }
+                            }, provider.name),
+                            React.createElement('span', { 
+                                key: 'badge',
+                                style: {
+                                    fontSize: '12px',
+                                    padding: '2px 8px',
+                                    background: provider.isLocal ? '#28a745' : '#007bff',
+                                    color: 'white',
+                                    borderRadius: '12px',
+                                    marginRight: '10px'
+                                }
+                            }, provider.isLocal ? '本地' : '云端'),
+                            React.createElement('span', { 
+                                key: 'models',
+                                style: { fontSize: '13px', color: '#6c757d' }
+                            }, `${provider.models?.length || 0} 个模型`)
+                        ]),
+                        React.createElement('div', { key: 'actions', style: { display: 'flex', gap: '5px' } }, [
+                            React.createElement('button', {
+                                key: 'edit',
+                                onClick: () => handleEditProvider(provider),
+                                style: {
+                                    padding: '5px 10px',
+                                    fontSize: '12px',
+                                    background: '#ffc107',
+                                    color: '#212529',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                }
+                            }, '✏️ 编辑'),
+                            React.createElement('button', {
+                                key: 'refresh',
+                                onClick: () => handleRefreshModels(provider.id),
+                                style: {
+                                    padding: '5px 10px',
+                                    fontSize: '12px',
+                                    background: '#17a2b8',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                }
+                            }, '🔄 刷新'),
+                            React.createElement('button', {
+                                key: 'delete',
+                                onClick: () => handleDeleteProvider(provider.id),
+                                style: {
+                                    padding: '5px 10px',
+                                    fontSize: '12px',
+                                    background: '#dc3545',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer'
+                                }
+                            }, '🗑️')
+                        ])
                     ]),
-                    React.createElement('button', {
-                        key: 'delete',
-                        onClick: () => handleDeleteProvider(provider.id),
-                        className: 'btn btn-danger btn-small'
-                    }, '🗑️ 删除')
+                    
+                    // P2: 模型列表
+                    provider.models && provider.models.length > 0 ? React.createElement('div', {
+                        key: 'models',
+                        style: {
+                            marginTop: '10px',
+                            paddingTop: '10px',
+                            borderTop: '1px solid #dee2e6'
+                        }
+                    }, [
+                        React.createElement('div', { 
+                            key: 'title',
+                            style: { fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', color: '#495057' }
+                        }, '模型列表:'),
+                        React.createElement('div', { 
+                            key: 'list',
+                            style: {
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+                                gap: '8px'
+                            }
+                        }, provider.models.map(model => 
+                            React.createElement('div', {
+                                key: model.id,
+                                style: {
+                                    padding: '8px 10px',
+                                    background: 'white',
+                                    borderRadius: '4px',
+                                    border: '1px solid #dee2e6',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    fontSize: '12px'
+                                }
+                            }, [
+                                React.createElement('span', {
+                                    key: 'name',
+                                    style: {
+                                        color: model.enabled ? '#212529' : '#6c757d',
+                                        textDecoration: model.enabled ? 'none' : 'line-through'
+                                    }
+                                }, model.name || model.id),
+                                React.createElement('label', {
+                                    key: 'toggle',
+                                    style: {
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        cursor: 'pointer',
+                                        fontSize: '11px'
+                                    }
+                                }, [
+                                    React.createElement('input', {
+                                        type: 'checkbox',
+                                        checked: model.enabled,
+                                        onChange: () => handleToggleModel(provider.id, model.id, model.enabled),
+                                        style: { marginRight: '5px' }
+                                    }),
+                                    model.enabled ? '启用' : '禁用'
+                                ])
+                            ])
+                        ))
+                    ]) : null
                 ]);
             });
             
@@ -7570,13 +9082,326 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
                     }
                 },
                     activeTab === 'basic' ? renderBasicTab() : renderProvidersTab()
-                )
+                ),
+                
+                // P2: 编辑供应商对话框
+                editingProvider ? React.createElement('div', {
+                    key: 'edit-overlay',
+                    style: {
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        background: 'rgba(0, 0, 0, 0.5)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 1000001
+                    },
+                    onClick: handleCloseEdit
+                }, [
+                    React.createElement('div', {
+                        key: 'edit-modal',
+                        onClick: (e) => e.stopPropagation(),
+                        style: {
+                            background: 'white',
+                            borderRadius: '8px',
+                            padding: '24px',
+                            width: '500px',
+                            maxWidth: '90%'
+                        }
+                    }, [
+                        React.createElement('h3', {
+                            key: 'title',
+                            style: { margin: '0 0 20px 0', fontSize: '18px' }
+                        }, `✏️ 编辑供应商: ${editingProvider.name}`),
+                        
+                        React.createElement('div', { key: 'form' }, [
+                            React.createElement('div', { key: 'name', style: { marginBottom: '15px' } }, [
+                                React.createElement('label', { 
+                                    key: 'label',
+                                    style: { display: 'block', marginBottom: '5px', fontWeight: 'bold', fontSize: '14px' }
+                                }, '供应商名称:'),
+                                React.createElement('input', {
+                                    key: 'input',
+                                    type: 'text',
+                                    value: editFormData.name,
+                                    onChange: (e) => setEditFormData(prev => ({ ...prev, name: e.target.value })),
+                                    style: {
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        fontSize: '14px',
+                                        border: '1px solid #ddd',
+                                        borderRadius: '4px',
+                                        boxSizing: 'border-box'
+                                    }
+                                })
+                            ]),
+                            
+                            React.createElement('div', { key: 'url', style: { marginBottom: '15px' } }, [
+                                React.createElement('label', { 
+                                    key: 'label',
+                                    style: { display: 'block', marginBottom: '5px', fontWeight: 'bold', fontSize: '14px' }
+                                }, 'Base URL:'),
+                                React.createElement('input', {
+                                    key: 'input',
+                                    type: 'text',
+                                    value: editFormData.baseUrl,
+                                    onChange: (e) => setEditFormData(prev => ({ ...prev, baseUrl: e.target.value })),
+                                    style: {
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        fontSize: '14px',
+                                        border: '1px solid #ddd',
+                                        borderRadius: '4px',
+                                        boxSizing: 'border-box'
+                                    }
+                                })
+                            ]),
+                            
+                            React.createElement('div', { key: 'apikey', style: { marginBottom: '15px' } }, [
+                                React.createElement('label', { 
+                                    key: 'label',
+                                    style: { display: 'block', marginBottom: '5px', fontWeight: 'bold', fontSize: '14px' }
+                                }, 'API Key (留空不修改):'),
+                                React.createElement('input', {
+                                    key: 'input',
+                                    type: 'password',
+                                    value: editFormData.apiKey,
+                                    onChange: (e) => setEditFormData(prev => ({ ...prev, apiKey: e.target.value })),
+                                    placeholder: '输入新的 API Key',
+                                    style: {
+                                        width: '100%',
+                                        padding: '8px 12px',
+                                        fontSize: '14px',
+                                        border: '1px solid #ddd',
+                                        borderRadius: '4px',
+                                        boxSizing: 'border-box'
+                                    }
+                                })
+                            ]),
+                            
+                            React.createElement('div', { key: 'local', style: { marginBottom: '20px' } }, [
+                                React.createElement('label', {
+                                    key: 'label',
+                                    style: {
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        cursor: 'pointer',
+                                        fontSize: '14px'
+                                    }
+                                }, [
+                                    React.createElement('input', {
+                                        key: 'checkbox',
+                                        type: 'checkbox',
+                                        checked: editFormData.isLocal,
+                                        onChange: (e) => setEditFormData(prev => ({ ...prev, isLocal: e.target.checked })),
+                                        style: { marginRight: '8px' }
+                                    }),
+                                    '本地服务 (如 LM Studio, Ollama)'
+                                ])
+                            ]),
+                            
+                            React.createElement('div', {
+                                key: 'actions',
+                                style: {
+                                    display: 'flex',
+                                    gap: '10px',
+                                    justifyContent: 'flex-end'
+                                }
+                            }, [
+                                React.createElement('button', {
+                                    key: 'cancel',
+                                    onClick: handleCloseEdit,
+                                    style: {
+                                        padding: '8px 16px',
+                                        fontSize: '14px',
+                                        background: '#6c757d',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer'
+                                    }
+                                }, '取消'),
+                                React.createElement('button', {
+                                    key: 'save',
+                                    onClick: handleSaveEdit,
+                                    style: {
+                                        padding: '8px 16px',
+                                        fontSize: '14px',
+                                        background: '#007bff',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer'
+                                    }
+                                }, '💾 保存')
+                            ])
+                        ])
+                    ])
+                ]) : null
             ])
         ]);
     }
     
     // 暴露到全局
     window.SettingsDialog = SettingsDialog;
+    
+})();
+
+
+// =====================================================
+// 模块: app/ui/components/CodeConfirmDialog.jsx
+// =====================================================
+
+// ==================== 高危代码确认对话框 ====================
+// P0: 安全确认机制
+
+(function() {
+    'use strict';
+    
+    /**
+     * CodeConfirmDialog 组件
+     * @param {Object} props
+     * @param {boolean} props.isOpen - 是否显示
+     * @param {string} props.code - 待执行的代码
+     * @param {string} props.riskType - 风险类型描述
+     * @param {Function} props.onConfirm - 确认回调
+     * @param {Function} props.onCancel - 取消回调
+     */
+    function CodeConfirmDialog({ isOpen, code, riskType, onConfirm, onCancel }) {
+        if (!isOpen) return null;
+        
+        return React.createElement('div', {
+            style: {
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'rgba(0, 0, 0, 0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 999999
+            }
+        }, [
+            React.createElement('div', {
+                key: 'dialog',
+                style: {
+                    background: 'white',
+                    borderRadius: '8px',
+                    padding: '24px',
+                    maxWidth: '600px',
+                    width: '90%',
+                    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)'
+                }
+            }, [
+                // 标题
+                React.createElement('h3', {
+                    key: 'title',
+                    style: {
+                        margin: '0 0 16px 0',
+                        color: '#dc3545',
+                        fontSize: '18px'
+                    }
+                }, '⚠️ 高危代码警告'),
+                
+                // 风险类型
+                React.createElement('div', {
+                    key: 'risk',
+                    style: {
+                        padding: '12px',
+                        background: '#fff3cd',
+                        borderLeft: '4px solid #ffc107',
+                        marginBottom: '16px',
+                        borderRadius: '4px'
+                    }
+                }, [
+                    React.createElement('strong', { key: 'label' }, '检测到风险：'),
+                    React.createElement('span', { key: 'type' }, riskType)
+                ]),
+                
+                // 代码预览
+                React.createElement('div', {
+                    key: 'code-label',
+                    style: {
+                        marginBottom: '8px',
+                        fontSize: '14px',
+                        color: '#666'
+                    }
+                }, '即将执行的代码：'),
+                
+                React.createElement('pre', {
+                    key: 'code',
+                    style: {
+                        background: '#f5f5f5',
+                        padding: '12px',
+                        borderRadius: '4px',
+                        overflow: 'auto',
+                        maxHeight: '200px',
+                        fontSize: '13px',
+                        lineHeight: '1.5',
+                        border: '1px solid #ddd'
+                    }
+                }, code),
+                
+                // 警告说明
+                React.createElement('p', {
+                    key: 'warning',
+                    style: {
+                        margin: '16px 0',
+                        fontSize: '14px',
+                        color: '#666',
+                        lineHeight: '1.6'
+                    }
+                }, '此代码可能修改页面、删除数据或执行危险操作。请仔细检查后确认是否继续执行。'),
+                
+                // 按钮组
+                React.createElement('div', {
+                    key: 'buttons',
+                    style: {
+                        display: 'flex',
+                        gap: '12px',
+                        justifyContent: 'flex-end',
+                        marginTop: '20px'
+                    }
+                }, [
+                    React.createElement('button', {
+                        key: 'cancel',
+                        onClick: onCancel,
+                        style: {
+                            padding: '10px 20px',
+                            fontSize: '14px',
+                            cursor: 'pointer',
+                            background: '#6c757d',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px'
+                        }
+                    }, '取消'),
+                    
+                    React.createElement('button', {
+                        key: 'confirm',
+                        onClick: onConfirm,
+                        style: {
+                            padding: '10px 20px',
+                            fontSize: '14px',
+                            cursor: 'pointer',
+                            background: '#dc3545',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px'
+                        }
+                    }, '确认执行')
+                ])
+            ])
+        ]);
+    }
+    
+    // 暴露到全局
+    window.CodeConfirmDialog = CodeConfirmDialog;
     
 })();
 
@@ -7608,6 +9433,15 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
     function App() {
         const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
         
+        // P0: 高危代码确认对话框状态
+        const [codeConfirm, setCodeConfirm] = React.useState({
+            isOpen: false,
+            code: '',
+            riskType: '',
+            resolve: null,
+            reject: null
+        });
+        
         // 从 StorageManager 加载窗口可见性状态（默认隐藏）
         const getInitialChatState = () => {
             if (window.StorageManager) {
@@ -7618,6 +9452,67 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
         };
         
         const [isChatOpen, setIsChatOpen] = React.useState(getInitialChatState());
+        
+        // P0: 监听高危代码确认事件
+        React.useEffect(() => {
+            if (!EventManager || !window.CodeConfirmDialog) return;
+            
+            const confirmationId = EventManager.on(
+                EventManager.EventTypes.CODE_CONFIRMATION_REQUIRED,
+                (data) => {
+                    setCodeConfirm({
+                        isOpen: true,
+                        code: data.code,
+                        riskType: data.riskType,
+                        resolve: data.resolve,
+                        reject: data.reject
+                    });
+                }
+            );
+            
+            return () => {
+                EventManager.off(EventManager.EventTypes.CODE_CONFIRMATION_REQUIRED, confirmationId);
+            };
+        }, []);
+        
+        // 监听快捷键切换窗口事件
+        React.useEffect(() => {
+            if (!window.EventManager) return;
+            
+            const handler = () => {
+                setIsChatOpen(prev => {
+                    const newState = !prev;
+                    // 同步到 StorageManager
+                    if (window.StorageManager) {
+                        if (newState) {
+                            window.StorageManager.setState('ui.window.visible', true);
+                        } else {
+                            window.StorageManager.setState('ui.window.visible', null);
+                        }
+                    }
+                    return newState;
+                });
+            };
+            
+            window.EventManager.on('TOGGLE_CHAT_WINDOW', handler);
+            return () => window.EventManager.off('TOGGLE_CHAT_WINDOW', handler);
+        }, []);
+
+        // P0: 处理确认
+        function handleCodeConfirm() {
+            if (codeConfirm.resolve) {
+                codeConfirm.resolve();
+            }
+            setCodeConfirm({ isOpen: false, code: '', riskType: '', resolve: null, reject: null });
+        }
+        
+        // P0: 处理取消
+        function handleCodeCancel() {
+            if (codeConfirm.reject) {
+                codeConfirm.reject(new Error('用户取消了高危代码执行'));
+            }
+            setCodeConfirm({ isOpen: false, code: '', riskType: '', resolve: null, reject: null });
+        }
         
         return React.createElement('div', null, [
             // 机器人图标按钮（切换聊天窗口）
@@ -7672,6 +9567,16 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
                 key: 'settings',
                 isOpen: isSettingsOpen,
                 onClose: () => setIsSettingsOpen(false)
+            }) : null,
+            
+            // P0: 高危代码确认对话框
+            window.CodeConfirmDialog ? React.createElement(window.CodeConfirmDialog, {
+                key: 'code-confirm',
+                isOpen: codeConfirm.isOpen,
+                code: codeConfirm.code,
+                riskType: codeConfirm.riskType,
+                onConfirm: handleCodeConfirm,
+                onCancel: handleCodeCancel
             }) : null
         ]);
     }
@@ -7699,11 +9604,35 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
         console.log('[React UI] ✅ React 应用已挂载');
     }
     
-    // 页面加载完成后挂载
+    // P0: 等待 APP_INITIALIZED 事件后再挂载
+    const waitForInitialization = () => {
+        // 检查是否已经初始化完成（兜底机制）
+        if (window.__AGENT_INITIALIZED__) {
+            console.log('[React UI] 📢 检测到 __AGENT_INITIALIZED__ 标志，直接挂载');
+            mountApp();
+            return;
+        }
+        
+        if (!window.EventManager) {
+            // EventManager 还未就绪，稍后重试
+            setTimeout(waitForInitialization, 50);
+            return;
+        }
+        
+        // 注册初始化完成事件监听器
+        window.EventManager.on('APP_INITIALIZED', () => {
+            console.log('[React UI] 📢 收到 APP_INITIALIZED 事件，开始挂载');
+            mountApp();
+        });
+        
+        console.log('[React UI] ✅ 已注册 APP_INITIALIZED 监听器，等待初始化完成...');
+    };
+    
+    // 页面加载完成后开始等待
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', mountApp);
+        document.addEventListener('DOMContentLoaded', waitForInitialization);
     } else {
-        mountApp();
+        waitForInitialization();
     }
     
 })();
@@ -7767,6 +9696,13 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
             console.log('[Main] ✅ 调试接口已暴露');
             
             console.log('[Main] 🎉 AI Agent v5.0 启动成功!');
+            
+            // P0: 设置全局初始化完成标志（兜底机制）
+            window.__AGENT_INITIALIZED__ = true;
+            
+            // P0: 触发初始化完成事件，通知 UI 可以挂载
+            EventManager.emit('APP_INITIALIZED');
+            console.log('[Main] 📢 已发送 APP_INITIALIZED 事件');
             
         } catch (error) {
             console.error('[Main] ❌ 启动失败:', error);
@@ -7867,26 +9803,74 @@ function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmoun
     function initShortcuts() {
         if (typeof ShortcutManager !== 'undefined') {
             ShortcutManager.init();
+            
+            // 注册全局快捷键
+            registerGlobalShortcuts();
         }
     }
     
-
+    /**
+     * 注册全局快捷键
+     */
+    function registerGlobalShortcuts() {
+        console.log('[Main] ⌨️ 注册全局快捷键...');
+        
+        // Ctrl+Shift+A: 打开/关闭聊天窗口（全局）
+        ShortcutManager.register('ctrl+shift+a', (e) => {
+            toggleChatWindow();
+            return false;
+        }, '打开/关闭聊天窗口');
+        
+        // Alt+A: 打开/关闭聊天窗口（备选）
+        ShortcutManager.register('alt+a', (e) => {
+            toggleChatWindow();
+            return false;
+        }, '打开/关闭聊天窗口（备选）');
+        
+        console.log('[Main] ✅ 全局快捷键已注册');
+    }
     
+    /**
+     * 切换聊天窗口显示状态
+     */
+    function toggleChatWindow() {
+        try {
+            // 通过 EventManager 发送切换事件
+            if (window.EventManager) {
+                window.EventManager.emit('TOGGLE_CHAT_WINDOW');
+                console.log('[Main] ⌨️ 通过 EventManager 切换聊天窗口');
+            } else {
+                console.warn('[Main] ⚠️ EventManager 未就绪');
+            }
+        } catch (error) {
+            console.error('[Main] ❌ 切换聊天窗口失败:', error);
+        }
+    }
+
     /**
      * 暴露全局调试接口
      */
     function exposeDebugInterface() {
+        // P2: 同时暴露到 window 和 unsafeWindow
+        if (typeof window !== 'undefined') {
+            window.WebAgentClient = WebAgentClient;
+            window.AIAgent = AIAgent;
+            window.EventManager = EventManager;
+            console.log('[Main] ✅ 已暴露到 window');
+        }
+        
         if (typeof unsafeWindow !== 'undefined') {
             unsafeWindow.WebAgentClient = WebAgentClient;
             unsafeWindow.AIAgent = AIAgent;
             unsafeWindow.EventManager = EventManager;
-            
-            console.log('[Main] 💡 调试接口已暴露:');
-            console.log('   - window.WebAgentClient - 业务逻辑层');
-            console.log('   - window.AIAgent - 基础设施层');
-            console.log('   - window.EventManager - 事件总线');
-            console.log('   示例: await window.WebAgentClient.handleUserMessage("你好")');
+            console.log('[Main] ✅ 已暴露到 unsafeWindow');
         }
+        
+        console.log('[Main] 💡 调试接口已暴露:');
+        console.log('   - window.WebAgentClient - 业务逻辑层');
+        console.log('   - window.AIAgent - 基础设施层');
+        console.log('   - window.EventManager - 事件总线');
+        console.log('   示例: await window.WebAgentClient.handleUserMessage("你好")');
     }
     
     // 页面加载完成后初始化
