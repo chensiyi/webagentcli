@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Web Agent Runtime",
+  "name": "Web Agent Client",
   "version": "0.1.0",
   "description": "AI Agent Runtime Environment for Web - Provides execution environment and capabilities for AI agents",
   

@@ -4,7 +4,7 @@
 import ToolRegistry from './src/runtime/ToolRegistry.js';
 import ContextManager from './src/runtime/ContextManager.js';
 
-console.log('[WebAgent Runtime] Starting...');
+console.log('[WebAgent Client] Starting...');
 
 // 监听来自 Side Panel 的消息
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -82,4 +82,4 @@ chrome.action.onClicked.addListener(async (tab) => {
   await chrome.sidePanel.open({ windowId: tab.windowId });
 });
 
-console.log('[WebAgent Runtime] Ready');
+console.log('[WebAgent Client] Ready');

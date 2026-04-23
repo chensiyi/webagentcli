@@ -1,4 +1,4 @@
-# Web Agent Runtime - Chrome Extension
+# Web Agent Client - Chrome Extension
 
 AI Agent 运行时环境，为 AI 提供浏览器交互能力。
 

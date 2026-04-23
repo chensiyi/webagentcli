@@ -47,7 +47,7 @@ convert -size 16x16 xc:blue assets/icons/icon16.png
 ### 步骤 4：验证加载成功
 
 如果成功，你会看到：
-- 扩展名称：**Web Agent Runtime**
+- 扩展名称：**Web Agent Client**
 - 版本号：**0.1.0**
 - 扩展图标出现在浏览器工具栏
 
@@ -73,12 +73,12 @@ convert -size 16x16 xc:blue assets/icons/icon16.png
 4. 打开 DevTools Console
 5. **预期看到**：
    ```
-   [WebAgent Runtime] Starting...
+   [WebAgent Client] Starting...
    [ToolRegistry] Registered: read_page
    [ToolRegistry] Registered: click_element
    [ToolRegistry] Registered: fill_form
    [ToolRegistry] Registered: get_page_info
-   [WebAgent Runtime] Ready
+   [WebAgent Client] Ready
    ```
 
 ### 测试 3：查看 Content Script 日志
