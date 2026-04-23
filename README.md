@@ -1,96 +1,106 @@
-# AI Browser Agent
+# Web Agent Runtime - Chrome Extension
 
-🤖 **智能网页交互助手** - 通过 AI 辅助提升你在网页中的交互能力
+AI Agent 运行时环境，为 AI 提供浏览器交互能力。
 
-## ✨ 核心功能
-
-- 💬 **智能对话** - 自然语言与 AI 交互，支持流式响应
-- ⚡ **自动执行** - AI 生成代码并自动执行，无需手动操作
-- 🔄 **消息队列** - 连续发送多条消息，自动排队处理
-- 🛠️ **代码执行** - 直接在浏览器中执行 JavaScript
-- 💾 **状态持久化** - 刷新页面后恢复会话和设置
-- 🎯 **多模型支持** - OpenRouter、LM Studio、Ollama 等
-- ⌨️ **快捷键支持** - 提升操作效率
-
-## 🚀 快速开始
-
-### 安装
-
-1. 安装 [Tampermonkey](https://www.tampermonkey.net/) 浏览器扩展
-2. 获取 API Key (推荐 [OpenRouter](https://openrouter.ai/))
-3. 下载 [`dist/agent.user.js`](dist/agent.user.js)
-4. 拖拽到浏览器窗口完成安装
-
-### 配置
-
-1. 刷新任意网页，点击右下角 🤖 机器人图标
-2. 点击 "⚙️ 设置" 粘贴 API Key
-3. 选择模型，保存配置
-4. 开始对话！
-
-### 使用示例
+## 项目结构
 
 ```
-用户: "帮我点击页面上的登录按钮"
-AI: 生成代码 → 自动执行 → 完成 ✅
-
-用户: "获取页面所有链接的 URL"
-AI: 生成代码 → 自动执行 → 返回结果 ✅
-
-用户: "滚动到底部，加载更多，重复3次"
-AI: 生成代码 → 自动执行 → 完成 ✅
+├── manifest.json           # Chrome 扩展清单
+├── background.js           # Service Worker（核心运行时）
+├── content.js              # Content Script（页面交互）
+├── sidepanel/              # Side Panel UI
+│   ├── sidepanel.html
+│   └── sidepanel.jsx
+├── src/
+│   ├── runtime/            # 运行时模块
+│   │   ├── ToolRegistry.js     # 工具注册表
+│   │   └── ContextManager.js   # 上下文管理
+│   └── connector/          # 连接器（待实现）
+└── vendor/                 # 第三方库
+    ├── preact.min.js
+    └── preact-hooks.umd.js
 ```
 
-## 📦 构建
+## 安装和测试
 
-```bash
-node build.js
-# 输出: dist/agent.user.js (~370 KB)
+### 1. 准备图标文件
+
+在 `assets/icons/` 目录添加以下文件：
+- icon16.png (16x16)
+- icon48.png (48x48)
+- icon128.png (128x128)
+
+可以使用在线工具生成：https://favicon.io/
+
+### 2. 加载扩展
+
+1. 打开 Chrome，访问 `chrome://extensions/`
+2. 启用右上角的"开发者模式"
+3. 点击"加载已解压的扩展程序"
+4. 选择本项目根目录（包含 manifest.json 的目录）
+
+### 3. 测试
+
+1. 打开任意网页
+2. 点击扩展图标，Side Panel 会在右侧打开
+3. 输入消息并发送
+4. 查看控制台日志（F12 → Console）
+
+### 4. 调试
+
+**Background Service Worker**：
+- 在 `chrome://extensions/` 找到扩展
+- 点击 "Service Worker" 链接
+- 查看后台日志
+
+**Content Script**：
+- 在网页中按 F12
+- 查看 Console 标签
+
+**Side Panel**：
+- 在 Side Panel 中右键 → "检查"
+- 查看 UI 日志
+
+## 架构说明
+
+### 通信流程
+
+```
+Side Panel (UI)
+    ↓ chrome.runtime.sendMessage
+Background (Runtime)
+    ↓ chrome.tabs.sendMessage
+Content Script (DOM Access)
 ```
 
-## 🏗️ 架构
+### 核心模块
 
-本项目采用**五层架构**设计，完全解耦：
+**ToolRegistry**：向 AI 暴露可用工具
+- read_page(selector)
+- click_element(selector)
+- fill_form(selector, value)
+- get_page_info()
 
-```
-Main Layer (程序启动)
-  ↓
-Business Layer (业务逻辑) - WebAgentClient
-  ↓
-Infrastructure Layer (基础设施) - AIAgent
-  ↓
-Service Layer (服务层) - API, Storage, Model Manager...
-  ↓
-UI Layer (表现层) - React 组件
-```
+**ContextManager**：管理对话上下文
+- 会话创建/销毁
+- 消息历史
+- 页面状态
 
-详见 [ARCHITECTURE.md](ARCHITECTURE.md)
+### 下一步
 
-## 📚 文档
+- [ ] 集成真实的 AI API（OpenRouter/OpenAI）
+- [ ] 实现流式响应
+- [ ] 添加工具审批机制
+- [ ] 优化 UI 样式
+- [ ] 添加更多工具（截图、导航等）
 
-- **[架构文档](ARCHITECTURE.md)** - 系统架构、核心特性、开发指南
-- **[项目结构](PROJECT_STRUCTURE.md)** - 目录说明、版本管理
+## 开发注意事项
 
-## 🔄 版本历史
+1. **ES Modules**：background.js 使用 `type: "module"`，支持 import/export
+2. **异步消息**：所有消息处理都是异步的，返回 Promise
+3. **持久化**：使用 chrome.storage.local 存储会话数据
+4. **隔离世界**：Content Script 运行在独立上下文，无法直接访问页面 JS
 
-| 版本 | 日期 | 主要变更 |
-|------|------|---------||
-| v5.0.0 | 2026-04-19 | 完整重构，双队列，自动执行，React UI |
-| v4.x | 2026-04 | 渐进式重构，引入 React |
-| v3.x | 2026-03 | 初始版本 |
+## 许可证
 
-v3 旧版本代码已归档到 `v3/` 目录。
-
-## 📄 许可证
-
-MIT License
-
----
-
-<div align="center">
-
-**v5.0.0** | [安装](dist/agent.user.js) | [架构文档](ARCHITECTURE.md) | [Releases](https://github.com/chensiyi/webagentcli/releases)
-
-Made with ❤️ by AI Assistant
-
-</div>
+MIT
