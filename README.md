@@ -21,45 +21,41 @@ AI Agent 运行时环境，为 AI 提供浏览器交互能力。
     └── preact-hooks.umd.js
 ```
 
-## 安装和测试
+## 快速开始
 
-### 1. 准备图标文件
+### 安装
 
-在 `assets/icons/` 目录添加以下文件：
-- icon16.png (16x16)
-- icon48.png (48x48)
-- icon128.png (128x128)
+1. 克隆项目
+```bash
+git clone <repository-url>
+cd webagentcli
+```
 
-可以使用在线工具生成：https://favicon.io/
+2. 加载扩展
+- 打开 Chrome，访问 `chrome://extensions/`
+- 启用右上角的"开发者模式"
+- 点击"加载已解压的扩展程序"
+- 选择项目根目录（包含 manifest.json 的目录）
 
-### 2. 加载扩展
+### 测试
 
-1. 打开 Chrome，访问 `chrome://extensions/`
-2. 启用右上角的"开发者模式"
-3. 点击"加载已解压的扩展程序"
-4. 选择本项目根目录（包含 manifest.json 的目录）
+1. 打开任意网页（如 https://www.baidu.com）
+2. 点击浏览器工具栏中的扩展图标
+3. 右侧会出现 Side Panel 聊天界面
+4. 输入消息并发送，查看响应
 
-### 3. 测试
-
-1. 打开任意网页
-2. 点击扩展图标，Side Panel 会在右侧打开
-3. 输入消息并发送
-4. 查看控制台日志（F12 → Console）
-
-### 4. 调试
+### 调试
 
 **Background Service Worker**：
-- 在 `chrome://extensions/` 找到扩展
-- 点击 "Service Worker" 链接
-- 查看后台日志
+- `chrome://extensions/` → 找到扩展 → 点击 "Service Worker"
 
 **Content Script**：
-- 在网页中按 F12
-- 查看 Console 标签
+- 在网页中按 F12 → Console 标签
 
-**Side Panel**：
-- 在 Side Panel 中右键 → "检查"
-- 查看 UI 日志
+**Side Panel UI**：
+- 在 Side Panel 中右键 → "检查" → Console
+
+详细测试指南见 [TESTING.md](TESTING.md)
 
 ## 架构说明
 
@@ -100,6 +96,14 @@ Content Script (DOM Access)
 2. **异步消息**：所有消息处理都是异步的，返回 Promise
 3. **持久化**：使用 chrome.storage.local 存储会话数据
 4. **隔离世界**：Content Script 运行在独立上下文，无法直接访问页面 JS
+
+## 技术栈
+
+- **Manifest V3** - Chrome Extension 最新架构
+- **Service Worker** - 后台运行时
+- **Content Scripts** - 页面交互
+- **Preact 10.x** - UI 框架（轻量级 React 兼容）
+- **Side Panel API** - 浏览器侧边栏 UI
 
 ## 许可证
 
