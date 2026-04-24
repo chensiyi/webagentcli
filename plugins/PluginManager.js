@@ -39,6 +39,39 @@ class PluginManager {
     this.plugins = new Map();
     this.uiPanels = new Map();
     this.eventBus = new EventEmitter();
+    this.sandboxFrame = null;
+    this.sandboxReady = false;
+    this.sandboxCallbacks = new Map();
+    
+    // 初始化沙盒 iframe
+    this.initSandbox();
+  }
+  
+  // 初始化沙盒 iframe
+  initSandbox() {
+    const iframe = document.createElement('iframe');
+    iframe.src = chrome.runtime.getURL('sandbox/plugin-sandbox.html');
+    iframe.style.display = 'none';
+    document.body.appendChild(iframe);
+    
+    this.sandboxFrame = iframe;
+    
+    // 监听沙盒消息
+    window.addEventListener('message', (event) => {
+      if (event.data && event.data.type === 'SANDBOX_READY') {
+        this.sandboxReady = true;
+        console.log('[PluginManager] Sandbox ready');
+      }
+      
+      if (event.data && event.data.type === 'PLUGIN_EVALUATED') {
+        const { requestId, success, result, error } = event.data;
+        const callback = this.sandboxCallbacks.get(requestId);
+        if (callback) {
+          callback(success, result, error);
+          this.sandboxCallbacks.delete(requestId);
+        }
+      }
+    });
   }
   
   // 注册插件
@@ -282,10 +315,10 @@ class PluginManager {
   }
   
   // 从代码字符串加载插件
-  loadFromCode(code) {
+  async loadFromCode(code) {
     try {
-      // 在安全上下文中执行代码
-      const PluginClass = this.evaluateCode(code);
+      // 在沙盒中执行代码
+      const PluginClass = await this.evaluateCode(code);
       
       if (!PluginClass || typeof PluginClass !== 'function') {
         throw new Error('Invalid plugin code: must export a class');
@@ -300,36 +333,43 @@ class PluginManager {
   
   // 评估插件代码（在沙盒中执行）
   evaluateCode(code) {
-    try {
-      // 从代码中提取类名
-      const classMatch = code.match(/class\s+(\w+)\s+extends\s+/);
-      const className = classMatch ? classMatch[1] : null;
-      
-      if (!className) {
-        throw new Error('Invalid plugin code: cannot find class declaration');
+    return new Promise((resolve, reject) => {
+      if (!this.sandboxReady) {
+        reject(new Error('Sandbox not ready'));
+        return;
       }
       
-      // 使用 eval 在受限上下文中执行
-      // 注意：这里需要确保代码来源可信
-      const wrappedCode = `
-        (function() {
-          ${code}
-          return ${className};
-        })()
-      `;
+      const requestId = 'eval_' + Date.now() + '_' + Math.random();
       
-      // 在全局作用域执行
-      const PluginClass = eval(wrappedCode);
+      // 设置回调
+      this.sandboxCallbacks.set(requestId, (success, result, error) => {
+        if (success) {
+          // 沙盒已执行代码，类已注册到沙盒的 window
+          // 我们需要从沙盒中获取类引用
+          try {
+            const classMatch = code.match(/class\s+(\w+)\s+extends\s+/);
+            const className = classMatch ? classMatch[1] : null;
+            
+            if (className && this.sandboxFrame.contentWindow[className]) {
+              resolve(this.sandboxFrame.contentWindow[className]);
+            } else {
+              reject(new Error('Plugin class not found in sandbox'));
+            }
+          } catch (err) {
+            reject(err);
+          }
+        } else {
+          reject(new Error(error || 'Evaluation failed'));
+        }
+      });
       
-      if (typeof PluginClass !== 'function') {
-        throw new Error('Invalid plugin code: must export a class');
-      }
-      
-      return PluginClass;
-    } catch (error) {
-      console.error('[PluginManager] Code evaluation failed:', error);
-      throw error;
-    }
+      // 发送代码到沙盒执行
+      this.sandboxFrame.contentWindow.postMessage({
+        type: 'EVALUATE_PLUGIN',
+        code,
+        requestId
+      }, '*');
+    });
   }
 }
 

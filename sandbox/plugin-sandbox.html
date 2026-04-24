@@ -9,6 +9,9 @@
     // 沙盒环境 - 用于动态加载和执行插件代码
     console.log('[PluginSandbox] Initialized');
     
+    // 通知主页面沙盒已就绪
+    window.parent.postMessage({ type: 'SANDBOX_READY' }, '*');
+    
     // 监听来自 extension_pages 的消息
     window.addEventListener('message', (event) => {
       if (event.data && event.data.type === 'EVALUATE_PLUGIN') {
@@ -46,10 +49,11 @@
         throw new Error('Invalid plugin code: cannot find class declaration');
       }
       
-      // 在沙盒中执行
+      // 在沙盒中执行，并将类暴露到 window
       const wrappedCode = `
         (function() {
           ${code}
+          window.${className} = ${className};
           return ${className};
         })()
       `;
