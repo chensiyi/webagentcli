@@ -43,35 +43,58 @@ class PluginManager {
     this.sandboxReady = false;
     this.sandboxCallbacks = new Map();
     
-    // 初始化沙盒 iframe
-    this.initSandbox();
+    // 延迟初始化沙盒 iframe
+    this.initSandboxDeferred();
+  }
+  
+  // 延迟初始化沙盒 iframe（等待 DOM 就绪）
+  initSandboxDeferred() {
+    if (document.body) {
+      this.initSandbox();
+    } else {
+      // DOM 还未就绪，等待加载完成
+      const checkBody = setInterval(() => {
+        if (document.body) {
+          clearInterval(checkBody);
+          this.initSandbox();
+        }
+      }, 50);
+      
+      // 超时保护
+      setTimeout(() => clearInterval(checkBody), 5000);
+    }
   }
   
   // 初始化沙盒 iframe
   initSandbox() {
-    const iframe = document.createElement('iframe');
-    iframe.src = chrome.runtime.getURL('sandbox/plugin-sandbox.html');
-    iframe.style.display = 'none';
-    document.body.appendChild(iframe);
-    
-    this.sandboxFrame = iframe;
-    
-    // 监听沙盒消息
-    window.addEventListener('message', (event) => {
-      if (event.data && event.data.type === 'SANDBOX_READY') {
-        this.sandboxReady = true;
-        console.log('[PluginManager] Sandbox ready');
-      }
+    try {
+      const iframe = document.createElement('iframe');
+      iframe.src = chrome.runtime.getURL('sandbox/plugin-sandbox.html');
+      iframe.style.display = 'none';
+      document.body.appendChild(iframe);
       
-      if (event.data && event.data.type === 'PLUGIN_EVALUATED') {
-        const { requestId, success, result, error } = event.data;
-        const callback = this.sandboxCallbacks.get(requestId);
-        if (callback) {
-          callback(success, result, error);
-          this.sandboxCallbacks.delete(requestId);
+      this.sandboxFrame = iframe;
+      console.log('[PluginManager] Sandbox iframe created');
+      
+      // 监听沙盒消息
+      window.addEventListener('message', (event) => {
+        if (event.data && event.data.type === 'SANDBOX_READY') {
+          this.sandboxReady = true;
+          console.log('[PluginManager] Sandbox ready');
         }
-      }
-    });
+        
+        if (event.data && event.data.type === 'PLUGIN_EVALUATED') {
+          const { requestId, success, result, error } = event.data;
+          const callback = this.sandboxCallbacks.get(requestId);
+          if (callback) {
+            callback(success, result, error);
+            this.sandboxCallbacks.delete(requestId);
+          }
+        }
+      });
+    } catch (error) {
+      console.error('[PluginManager] Failed to init sandbox:', error);
+    }
   }
   
   // 注册插件
