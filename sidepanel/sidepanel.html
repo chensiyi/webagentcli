@@ -29,20 +29,7 @@
   <!-- Preact -->
   <script src="../vendor/preact.min.js"></script>
   <script src="../vendor/preact-hooks.umd.js"></script>
-  <script>
-    // 暴露 Preact 到 window
-    if (typeof self !== 'undefined' && self.preact) {
-      window.React = {
-        ...self.preact,
-        useState: self.preactHooks?.useState || function() {},
-        useEffect: self.preactHooks?.useEffect || function() {},
-        createElement: self.preact.h
-      };
-      console.log('[SidePanel] Preact loaded');
-    } else {
-      console.error('[SidePanel] Failed to load Preact');
-    }
-  </script>
+  <script src="preact-setup.js"></script>
   
   <!-- Side Panel App -->
   <script src="sidepanel.jsx"></script>
