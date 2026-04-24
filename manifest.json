@@ -11,6 +11,13 @@
     "sidePanel"
   ],
   
+  "web_accessible_resources": [
+    {
+      "resources": ["plugins/*", "vendor/*", "sandbox/*"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  
   "host_permissions": [
     "<all_urls>"
   ],
