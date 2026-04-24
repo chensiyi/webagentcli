@@ -8,7 +8,8 @@ const PAGES = {
   CHAT: 'chat',
   TOOLS: 'tools',
   SETTINGS: 'settings',
-  HISTORY: 'history'
+  HISTORY: 'history',
+  PLUGINS: 'plugins'
 };
 
 // ==================== 主应用 ====================
@@ -42,6 +43,8 @@ function App() {
           sendMessage,
           onSwitchSession: (id) => setSessionId(id)
         });
+      case PAGES.PLUGINS:
+        return window.React.createElement(PluginsView, { sendMessage });
       default:
         return window.React.createElement(ChatView, { sessionId, sendMessage });
     }
@@ -83,6 +86,7 @@ function Sidebar({ currentPage, onNavigate }) {
   const menuItems = [
     { id: PAGES.CHAT, icon: '💬', label: '聊天' },
     { id: PAGES.TOOLS, icon: '🔧', label: '工具' },
+    { id: PAGES.PLUGINS, icon: '🧩', label: '插件' },
     { id: PAGES.HISTORY, icon: '📋', label: '历史' },
     { id: PAGES.SETTINGS, icon: '⚙️', label: '设置' }
   ];
@@ -583,9 +587,152 @@ function HistoryView({ sessionId, sendMessage, onSwitchSession }) {
   );
 }
 
+// ==================== PluginsView ====================
+function PluginsView({ sendMessage }) {
+  const [plugins, setPlugins] = useState([]);
+  const [loading, setLoading] = useState(true);
+  
+  useEffect(() => {
+    loadPlugins();
+  }, []);
+  
+  async function loadPlugins() {
+    try {
+      setLoading(true);
+      // TODO: 从 PluginManager 获取插件列表
+      // 目前使用模拟数据
+      const mockPlugins = [
+        {
+          name: 'hello-world',
+          version: '1.0.0',
+          description: 'Hello World 示例插件',
+          author: 'Web Agent Client',
+          enabled: true,
+          registeredAt: Date.now()
+        }
+      ];
+      setPlugins(mockPlugins);
+    } catch (error) {
+      console.error('[PluginsView] Failed to load plugins:', error);
+    } finally {
+      setLoading(false);
+    }
+  }
+  
+  async function togglePlugin(pluginName, currentEnabled) {
+    // TODO: 调用 PluginManager 启用/禁用
+    console.log('Toggle plugin:', pluginName, !currentEnabled);
+    await loadPlugins();
+  }
+  
+  async function uninstallPlugin(pluginName) {
+    if (!confirm(`确定要卸载插件 "${pluginName}" 吗？`)) return;
+    // TODO: 调用 PluginManager 卸载
+    console.log('Uninstall plugin:', pluginName);
+    await loadPlugins();
+  }
+  
+  if (loading) {
+    return window.React.createElement('div', {
+      style: { display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#999' }
+    }, '加载中...');
+  }
+  
+  return window.React.createElement('div', {
+    style: { height: '100%', overflowY: 'auto', background: '#f5f5f5', padding: '16px' }
+  },
+    window.React.createElement('div', { style: { marginBottom: '20px' } },
+      window.React.createElement('h2', { style: { fontSize: '18px', fontWeight: '600', color: '#333' } }, '插件管理'),
+      window.React.createElement('p', { style: { fontSize: '12px', color: '#999', marginTop: '4px' } }, '共 ' + plugins.length + ' 个插件')
+    ),
+    
+    // 插件列表
+    ...plugins.map((plugin, idx) =>
+      window.React.createElement('div', {
+        key: idx,
+        style: {
+          background: '#fff',
+          borderRadius: '8px',
+          padding: '14px',
+          marginBottom: '10px',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+        }
+      },
+        window.React.createElement('div', {
+          style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }
+        },
+          window.React.createElement('div', { style: { flex: 1 } },
+            window.React.createElement('div', {
+              style: { fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '4px' }
+            }, plugin.name),
+            window.React.createElement('div', {
+              style: { fontSize: '12px', color: '#666', lineHeight: '1.5' }
+            }, plugin.description || '无描述')
+          ),
+          window.React.createElement('div', {
+            style: { fontSize: '11px', color: '#999', marginLeft: '12px', whiteSpace: 'nowrap' }
+          }, 'v' + plugin.version)
+        ),
+        window.React.createElement('div', {
+          style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: '#999' }
+        },
+          window.React.createElement('span', null, '作者: ' + (plugin.author || '未知')),
+          window.React.createElement('div', { style: { display: 'flex', gap: '8px' } },
+            window.React.createElement('button', {
+              onClick: () => togglePlugin(plugin.name, plugin.enabled),
+              style: {
+                padding: '4px 12px',
+                background: plugin.enabled ? '#4caf50' : '#f5f5f5',
+                color: plugin.enabled ? '#fff' : '#666',
+                border: '1px solid #ddd',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '11px'
+              }
+            }, plugin.enabled ? '已启用' : '已禁用'),
+            window.React.createElement('button', {
+              onClick: () => uninstallPlugin(plugin.name),
+              style: {
+                padding: '4px 12px',
+                background: 'transparent',
+                border: '1px solid #f44336',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '11px',
+                color: '#f44336'
+              }
+            }, '卸载')
+          )
+        )
+      )
+    ),
+    
+    plugins.length === 0 && window.React.createElement('div', {
+      style: { textAlign: 'center', color: '#999', marginTop: '60px' }
+    },
+      window.React.createElement('div', { style: { fontSize: '48px', marginBottom: '16px' } }, '🧩'),
+      window.React.createElement('p', null, '暂无插件'),
+      window.React.createElement('p', { style: { fontSize: '12px', marginTop: '8px' } }, '插件功能开发中')
+    )
+  );
+}
+
 // ==================== 挂载应用 ====================
 const root = document.getElementById('root');
 if (root && window.React) {
+  // 初始化插件管理器
+  if (window.PluginManager && window.HelloWorldPlugin) {
+    const pluginManager = new window.PluginManager();
+    window.pluginManager = pluginManager; // 暴露到全局
+    
+    // 注册示例插件
+    pluginManager.register(window.HelloWorldPlugin).then(success => {
+      if (success) {
+        console.log('[SidePanel] Hello World plugin registered');
+      }
+    });
+  }
+  
   window.React.render(window.React.createElement(App), root);
   console.log('[SidePanel] App mounted successfully');
 } else {
