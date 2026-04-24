@@ -8,6 +8,13 @@
     "pages": ["sandbox/plugin-sandbox.html"]
   },
   
+  "web_accessible_resources": [
+    {
+      "resources": ["sandbox/plugin-sandbox.html", "vendor/*", "plugins/*"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  
   "permissions": [
     "storage",
     "activeTab",
