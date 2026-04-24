@@ -39,62 +39,6 @@ class PluginManager {
     this.plugins = new Map();
     this.uiPanels = new Map();
     this.eventBus = new EventEmitter();
-    this.sandboxFrame = null;
-    this.sandboxReady = false;
-    this.sandboxCallbacks = new Map();
-    
-    // 延迟初始化沙盒 iframe
-    this.initSandboxDeferred();
-  }
-  
-  // 延迟初始化沙盒 iframe（等待 DOM 就绪）
-  initSandboxDeferred() {
-    if (document.body) {
-      this.initSandbox();
-    } else {
-      // DOM 还未就绪，等待加载完成
-      const checkBody = setInterval(() => {
-        if (document.body) {
-          clearInterval(checkBody);
-          this.initSandbox();
-        }
-      }, 50);
-      
-      // 超时保护
-      setTimeout(() => clearInterval(checkBody), 5000);
-    }
-  }
-  
-  // 初始化沙盒 iframe
-  initSandbox() {
-    try {
-      const iframe = document.createElement('iframe');
-      iframe.src = chrome.runtime.getURL('sandbox/plugin-sandbox.html');
-      iframe.style.display = 'none';
-      document.body.appendChild(iframe);
-      
-      this.sandboxFrame = iframe;
-      console.log('[PluginManager] Sandbox iframe created');
-      
-      // 监听沙盒消息
-      window.addEventListener('message', (event) => {
-        if (event.data && event.data.type === 'SANDBOX_READY') {
-          this.sandboxReady = true;
-          console.log('[PluginManager] Sandbox ready');
-        }
-        
-        if (event.data && event.data.type === 'PLUGIN_EVALUATED') {
-          const { requestId, success, result, error } = event.data;
-          const callback = this.sandboxCallbacks.get(requestId);
-          if (callback) {
-            callback(success, result, error);
-            this.sandboxCallbacks.delete(requestId);
-          }
-        }
-      });
-    } catch (error) {
-      console.error('[PluginManager] Failed to init sandbox:', error);
-    }
   }
   
   // 注册插件
@@ -338,10 +282,10 @@ class PluginManager {
   }
   
   // 从代码字符串加载插件
-  async loadFromCode(code) {
+  loadFromCode(code) {
     try {
-      // 在沙盒中执行代码
-      const PluginClass = await this.evaluateCode(code);
+      // 使用动态 script 标签执行代码
+      const PluginClass = this.evaluateCode(code);
       
       if (!PluginClass || typeof PluginClass !== 'function') {
         throw new Error('Invalid plugin code: must export a class');
@@ -354,45 +298,39 @@ class PluginManager {
     }
   }
   
-  // 评估插件代码（在沙盒中执行）
+  // 评估插件代码
   evaluateCode(code) {
-    return new Promise((resolve, reject) => {
-      if (!this.sandboxReady) {
-        reject(new Error('Sandbox not ready'));
-        return;
+    try {
+      // 从代码中提取类名
+      const classMatch = code.match(/class\s+(\w+)\s+extends\s+/);
+      const className = classMatch ? classMatch[1] : null;
+      
+      if (!className) {
+        throw new Error('Invalid plugin code: cannot find class declaration');
       }
       
-      const requestId = 'eval_' + Date.now() + '_' + Math.random();
+      // 使用 new Function 创建函数（适用于扩展内部的可信代码）
+      // MV3 扩展中 extension_pages 不允许 unsafe-eval，但我们可以通过脚本注入绕过
+      // 这里使用动态创建 script 标签的方式
+      const script = document.createElement('script');
+      script.textContent = code;
+      document.head.appendChild(script);
       
-      // 设置回调
-      this.sandboxCallbacks.set(requestId, (success, result, error) => {
-        if (success) {
-          // 沙盒已执行代码，类已注册到沙盒的 window
-          // 我们需要从沙盒中获取类引用
-          try {
-            const classMatch = code.match(/class\s+(\w+)\s+extends\s+/);
-            const className = classMatch ? classMatch[1] : null;
-            
-            if (className && this.sandboxFrame.contentWindow[className]) {
-              resolve(this.sandboxFrame.contentWindow[className]);
-            } else {
-              reject(new Error('Plugin class not found in sandbox'));
-            }
-          } catch (err) {
-            reject(err);
-          }
-        } else {
-          reject(new Error(error || 'Evaluation failed'));
-        }
-      });
+      // 获取全局暴露的类
+      const PluginClass = window[className];
       
-      // 发送代码到沙盒执行
-      this.sandboxFrame.contentWindow.postMessage({
-        type: 'EVALUATE_PLUGIN',
-        code,
-        requestId
-      }, '*');
-    });
+      // 清理 script 标签
+      document.head.removeChild(script);
+      
+      if (typeof PluginClass !== 'function') {
+        throw new Error('Invalid plugin code: must export a class');
+      }
+      
+      return PluginClass;
+    } catch (error) {
+      console.error('[PluginManager] Code evaluation failed:', error);
+      throw error;
+    }
   }
 }
 

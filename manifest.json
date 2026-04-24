@@ -4,17 +4,6 @@
   "version": "0.1.0",
   "description": "AI Agent Runtime Environment for Web - Provides execution environment and capabilities for AI agents",
   
-  "sandbox": {
-    "pages": ["sandbox/plugin-sandbox.html"]
-  },
-  
-  "web_accessible_resources": [
-    {
-      "resources": ["sandbox/plugin-sandbox.html", "vendor/*", "plugins/*"],
-      "matches": ["<all_urls>"]
-    }
-  ],
-  
   "permissions": [
     "storage",
     "activeTab",
