@@ -591,6 +591,10 @@ function HistoryView({ sessionId, sendMessage, onSwitchSession }) {
 function PluginsView({ sendMessage }) {
   const [plugins, setPlugins] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [installMode, setInstallMode] = useState(null); // 'url' | 'code' | null
+  const [installUrl, setInstallUrl] = useState('');
+  const [installCode, setInstallCode] = useState('');
+  const [installing, setInstalling] = useState(false);
   
   useEffect(() => {
     loadPlugins();
@@ -599,19 +603,11 @@ function PluginsView({ sendMessage }) {
   async function loadPlugins() {
     try {
       setLoading(true);
-      // TODO: 从 PluginManager 获取插件列表
-      // 目前使用模拟数据
-      const mockPlugins = [
-        {
-          name: 'hello-world',
-          version: '1.0.0',
-          description: 'Hello World 示例插件',
-          author: 'Web Agent Client',
-          enabled: true,
-          registeredAt: Date.now()
-        }
-      ];
-      setPlugins(mockPlugins);
+      // 从全局 PluginManager 获取插件列表
+      if (window.pluginManager) {
+        const pluginList = window.pluginManager.getPlugins();
+        setPlugins(pluginList);
+      }
     } catch (error) {
       console.error('[PluginsView] Failed to load plugins:', error);
     } finally {
@@ -620,16 +616,61 @@ function PluginsView({ sendMessage }) {
   }
   
   async function togglePlugin(pluginName, currentEnabled) {
-    // TODO: 调用 PluginManager 启用/禁用
-    console.log('Toggle plugin:', pluginName, !currentEnabled);
-    await loadPlugins();
+    try {
+      if (window.pluginManager) {
+        window.pluginManager.setEnabled(pluginName, !currentEnabled);
+        await loadPlugins();
+      }
+    } catch (error) {
+      console.error('[PluginsView] Failed to toggle plugin:', error);
+      alert('操作失败: ' + error.message);
+    }
   }
   
   async function uninstallPlugin(pluginName) {
     if (!confirm(`确定要卸载插件 "${pluginName}" 吗？`)) return;
-    // TODO: 调用 PluginManager 卸载
-    console.log('Uninstall plugin:', pluginName);
-    await loadPlugins();
+    try {
+      if (window.pluginManager) {
+        await window.pluginManager.unregister(pluginName);
+        await loadPlugins();
+      }
+    } catch (error) {
+      console.error('[PluginsView] Failed to uninstall plugin:', error);
+      alert('卸载失败: ' + error.message);
+    }
+  }
+  
+  async function handleInstall() {
+    if (!window.pluginManager) {
+      alert('PluginManager 未初始化');
+      return;
+    }
+    
+    setInstalling(true);
+    try {
+      let success = false;
+      
+      if (installMode === 'url' && installUrl.trim()) {
+        success = await window.pluginManager.loadFromURL(installUrl.trim());
+      } else if (installMode === 'code' && installCode.trim()) {
+        success = await window.pluginManager.loadFromCode(installCode.trim());
+      }
+      
+      if (success) {
+        alert('插件安装成功！');
+        setInstallMode(null);
+        setInstallUrl('');
+        setInstallCode('');
+        await loadPlugins();
+      } else {
+        alert('插件安装失败，请检查代码或 URL');
+      }
+    } catch (error) {
+      console.error('[PluginsView] Install failed:', error);
+      alert('安装失败: ' + error.message);
+    } finally {
+      setInstalling(false);
+    }
   }
   
   if (loading) {
@@ -643,7 +684,117 @@ function PluginsView({ sendMessage }) {
   },
     window.React.createElement('div', { style: { marginBottom: '20px' } },
       window.React.createElement('h2', { style: { fontSize: '18px', fontWeight: '600', color: '#333' } }, '插件管理'),
-      window.React.createElement('p', { style: { fontSize: '12px', color: '#999', marginTop: '4px' } }, '共 ' + plugins.length + ' 个插件')
+      window.React.createElement('p', { style: { fontSize: '12px', color: '#999', marginTop: '4px' } }, '共 ' + plugins.length + ' 个插件'),
+      window.React.createElement('button', {
+        onClick: () => setInstallMode(installMode ? null : 'url'),
+        style: {
+          marginTop: '12px',
+          padding: '8px 16px',
+          background: installMode ? '#f5f5f5' : '#1976d2',
+          color: installMode ? '#666' : '#fff',
+          border: '1px solid #ddd',
+          borderRadius: '6px',
+          cursor: 'pointer',
+          fontSize: '12px',
+          fontWeight: '500'
+        }
+      }, installMode ? '取消安装' : '+ 安装插件')
+    ),
+    
+    // 安装插件表单
+    installMode && window.React.createElement('div', {
+      style: {
+        background: '#fff',
+        borderRadius: '8px',
+        padding: '16px',
+        marginBottom: '16px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+      }
+    },
+      window.React.createElement('h3', { style: { fontSize: '14px', fontWeight: '600', color: '#333', marginBottom: '12px' } }, '安装插件'),
+      
+      // 安装方式切换
+      window.React.createElement('div', { style: { display: 'flex', gap: '8px', marginBottom: '12px' } },
+        window.React.createElement('button', {
+          onClick: () => setInstallMode('url'),
+          style: {
+            flex: 1,
+            padding: '6px 12px',
+            background: installMode === 'url' ? '#1976d2' : '#f5f5f5',
+            color: installMode === 'url' ? '#fff' : '#666',
+            border: '1px solid #ddd',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '12px'
+          }
+        }, '从 URL 加载'),
+        window.React.createElement('button', {
+          onClick: () => setInstallMode('code'),
+          style: {
+            flex: 1,
+            padding: '6px 12px',
+            background: installMode === 'code' ? '#1976d2' : '#f5f5f5',
+            color: installMode === 'code' ? '#fff' : '#666',
+            border: '1px solid #ddd',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '12px'
+          }
+        }, '从代码加载')
+      ),
+      
+      // URL 输入
+      installMode === 'url' && window.React.createElement('div', null,
+        window.React.createElement('input', {
+          type: 'text',
+          value: installUrl,
+          onInput: (e) => setInstallUrl(e.target.value),
+          placeholder: 'https://example.com/plugin.js',
+          style: {
+            width: '100%',
+            padding: '8px 12px',
+            border: '1px solid #ddd',
+            borderRadius: '6px',
+            fontSize: '13px',
+            marginBottom: '12px'
+          }
+        })
+      ),
+      
+      // 代码输入
+      installMode === 'code' && window.React.createElement('textarea', {
+        value: installCode,
+        onInput: (e) => setInstallCode(e.target.value),
+        placeholder: 'class MyPlugin { ... }',
+        rows: 8,
+        style: {
+          width: '100%',
+          padding: '8px 12px',
+          border: '1px solid #ddd',
+          borderRadius: '6px',
+          fontSize: '12px',
+          fontFamily: 'monospace',
+          marginBottom: '12px',
+          resize: 'vertical'
+        }
+      }),
+      
+      // 安装按钮
+      window.React.createElement('button', {
+        onClick: handleInstall,
+        disabled: installing || (installMode === 'url' && !installUrl.trim()) || (installMode === 'code' && !installCode.trim()),
+        style: {
+          width: '100%',
+          padding: '10px',
+          background: installing ? '#ccc' : '#4caf50',
+          color: '#fff',
+          border: 'none',
+          borderRadius: '6px',
+          cursor: installing ? 'not-allowed' : 'pointer',
+          fontSize: '13px',
+          fontWeight: '600'
+        }
+      }, installing ? '安装中...' : '安装')
     ),
     
     // 插件列表
