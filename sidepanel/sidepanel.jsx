@@ -853,14 +853,14 @@ function PluginsView({ sendMessage }) {
 const root = document.getElementById('root');
 if (root && window.React) {
   // 初始化插件管理器
-  if (window.PluginManager && window.HelloWorldPlugin) {
+  if (window.PluginManager && window.LocalModelPlugin) {
     const pluginManager = new window.PluginManager();
     window.pluginManager = pluginManager; // 暴露到全局
     
-    // 注册示例插件
-    pluginManager.register(window.HelloWorldPlugin).then(success => {
+    // 注册本地模型插件
+    pluginManager.register(window.LocalModelPlugin).then(success => {
       if (success) {
-        console.log('[SidePanel] Hello World plugin registered');
+        console.log('[SidePanel] Local Model plugin registered');
       }
     });
   }
