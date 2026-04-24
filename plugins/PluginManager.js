@@ -282,10 +282,9 @@ class PluginManager {
   }
   
   // 从代码字符串加载插件
-  async loadFromCode(code) {
+  loadFromCode(code) {
     try {
-      // 通过 Blob URL 加载执行
-      const PluginClass = await this.evaluateCode(code);
+      const PluginClass = this.evaluateCode(code);
       
       if (!PluginClass || typeof PluginClass !== 'function') {
         throw new Error('Invalid plugin code: must export a class');
@@ -298,51 +297,36 @@ class PluginManager {
     }
   }
   
-  // 评估插件代码（通过动态 script 标签加载）
+  // 评估插件代码
   evaluateCode(code) {
-    return new Promise((resolve, reject) => {
-      try {
-        // 从代码中提取类名
-        const classMatch = code.match(/class\s+(\w+)\s+extends\s+/);
-        const className = classMatch ? classMatch[1] : null;
-        
-        if (!className) {
-          reject(new Error('Invalid plugin code: cannot find class declaration'));
-          return;
-        }
-        
-        // 创建 Blob URL 并加载为 script
-        const blob = new Blob([code], { type: 'application/javascript' });
-        const scriptUrl = URL.createObjectURL(blob);
-        
-        const script = document.createElement('script');
-        script.src = scriptUrl;
-        
-        script.onload = () => {
-          // 获取全局暴露的类
-          const PluginClass = window[className];
-          
-          // 清理
-          URL.revokeObjectURL(scriptUrl);
-          document.head.removeChild(script);
-          
-          if (typeof PluginClass === 'function') {
-            resolve(PluginClass);
-          } else {
-            reject(new Error('Plugin class not found after execution'));
-          }
-        };
-        
-        script.onerror = () => {
-          URL.revokeObjectURL(scriptUrl);
-          reject(new Error('Failed to load plugin script'));
-        };
-        
-        document.head.appendChild(script);
-      } catch (error) {
-        reject(error);
+    try {
+      // 从代码中提取类名
+      const classMatch = code.match(/class\s+(\w+)\s+extends\s+/);
+      const className = classMatch ? classMatch[1] : null;
+      
+      if (!className) {
+        throw new Error('Invalid plugin code: cannot find class declaration');
       }
-    });
+      
+      // 使用 eval 执行（CSP 已允许 unsafe-eval）
+      const wrappedCode = `
+        (function() {
+          ${code}
+          return ${className};
+        })()
+      `;
+      
+      const PluginClass = eval(wrappedCode);
+      
+      if (typeof PluginClass !== 'function') {
+        throw new Error('Invalid plugin code: must export a class');
+      }
+      
+      return PluginClass;
+    } catch (error) {
+      console.error('[PluginManager] Code evaluation failed:', error);
+      throw error;
+    }
   }
 }
 
