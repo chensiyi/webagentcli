@@ -853,16 +853,28 @@ function PluginsView({ sendMessage }) {
 const root = document.getElementById('root');
 if (root && window.React) {
   // 初始化插件管理器
+  console.log('[SidePanel] Checking PluginManager:', !!window.PluginManager);
+  console.log('[SidePanel] Checking LocalModelPlugin:', !!window.LocalModelPlugin);
+  
   if (window.PluginManager && window.LocalModelPlugin) {
+    console.log('[SidePanel] Creating PluginManager...');
     const pluginManager = new window.PluginManager();
     window.pluginManager = pluginManager; // 暴露到全局
     
+    console.log('[SidePanel] Registering LocalModelPlugin...');
     // 注册本地模型插件
     pluginManager.register(window.LocalModelPlugin).then(success => {
+      console.log('[SidePanel] Register result:', success);
       if (success) {
         console.log('[SidePanel] Local Model plugin registered');
+      } else {
+        console.error('[SidePanel] Failed to register Local Model plugin');
       }
+    }).catch(err => {
+      console.error('[SidePanel] Registration error:', err);
     });
+  } else {
+    console.error('[SidePanel] PluginManager or LocalModelPlugin not found');
   }
   
   window.React.render(window.React.createElement(App), root);
