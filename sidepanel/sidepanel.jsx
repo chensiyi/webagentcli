@@ -53,31 +53,12 @@ function App() {
   return window.React.createElement('div', {
     style: { height: '100vh', display: 'flex', flexDirection: 'column', background: '#fff' }
   },
-    window.React.createElement(Header),
     window.React.createElement('div', { style: { flex: 1, display: 'flex', overflow: 'hidden' } },
       window.React.createElement('div', { style: { flex: 1, overflow: 'hidden' } },
         renderPage()
       ),
       window.React.createElement(Sidebar, { currentPage, onNavigate: setCurrentPage })
     )
-  );
-}
-
-// ==================== Header ====================
-function Header() {
-  return window.React.createElement('div', {
-    style: {
-      padding: '12px 16px',
-      background: '#1976d2',
-      color: '#fff',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-    }
-  },
-    window.React.createElement('h1', { style: { fontSize: '16px', fontWeight: '600' } }, 'Web Agent Client'),
-    window.React.createElement('div', { style: { fontSize: '12px', opacity: 0.9 } }, 'v0.1.0')
   );
 }
 
