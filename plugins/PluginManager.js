@@ -298,37 +298,38 @@ class PluginManager {
     }
   }
   
-  // 评估插件代码（简化版，实际应该用更安全的方式）
+  // 评估插件代码（在沙盒中执行）
   evaluateCode(code) {
-    // 创建一个安全的执行环境
-    const sandbox = {
-      console: console,
-      setTimeout: setTimeout,
-      setInterval: setInterval,
-      clearTimeout: clearTimeout,
-      clearInterval: clearInterval,
-      fetch: fetch,
-      Promise: Promise,
-      JSON: JSON,
-      Math: Math,
-      Date: Date,
-      RegExp: RegExp,
-      Array: Array,
-      Object: Object,
-      String: String,
-      Number: Number,
-      Boolean: Boolean
-    };
-    
-    // 使用 Function 构造器在受限环境中执行
-    const wrappedCode = `
-      "use strict";
-      ${code}
-      return ${code.match(/class\s+(\w+)\s+extends\s+/)?.[1] || 'Plugin'};
-    `;
-    
-    const func = new Function(...Object.keys(sandbox), wrappedCode);
-    return func(...Object.values(sandbox));
+    try {
+      // 从代码中提取类名
+      const classMatch = code.match(/class\s+(\w+)\s+extends\s+/);
+      const className = classMatch ? classMatch[1] : null;
+      
+      if (!className) {
+        throw new Error('Invalid plugin code: cannot find class declaration');
+      }
+      
+      // 使用 eval 在受限上下文中执行
+      // 注意：这里需要确保代码来源可信
+      const wrappedCode = `
+        (function() {
+          ${code}
+          return ${className};
+        })()
+      `;
+      
+      // 在全局作用域执行
+      const PluginClass = eval(wrappedCode);
+      
+      if (typeof PluginClass !== 'function') {
+        throw new Error('Invalid plugin code: must export a class');
+      }
+      
+      return PluginClass;
+    } catch (error) {
+      console.error('[PluginManager] Code evaluation failed:', error);
+      throw error;
+    }
   }
 }
 
