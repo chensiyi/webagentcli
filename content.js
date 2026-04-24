@@ -1,5 +1,7 @@
 // ==================== Content Script ====================
-// 页面交互代理 - 在网页中执行 DOM 操作
+// 页面交互代理
+
+console.log('[ContentScript] Initialized');
 
 class ContentAgent {
   constructor() {

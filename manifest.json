@@ -8,7 +8,8 @@
     "storage",
     "activeTab",
     "scripting",
-    "sidePanel"
+    "sidePanel",
+    "userScripts"
   ],
   
   "web_accessible_resources": [
