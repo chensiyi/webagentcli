@@ -68,15 +68,40 @@
     }
     
     /**
-     * 检查视觉支持
+     * 检查视觉支持（基于已知模型白名单）
      */
     checkVisionSupport(modelNameLower) {
-      const visionKeywords = [
-        'gpt-4o', 'gpt-4-vision', 'claude-3', 'gemini', 
-        'vision', 'llava', 'qwen-vl'
+      // 经过验证的支持视觉的模型白名单
+      const visionModels = [
+        // OpenAI
+        'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4-vision',
+        'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano',
+        'gpt-5', 'gpt-5-mini', 'gpt-5-nano',
+        
+        // Anthropic Claude
+        'claude-3-opus', 'claude-3-sonnet', 'claude-3-haiku',
+        'claude-3.5-sonnet', 'claude-3.5-haiku',
+        'claude-3.7-sonnet',
+        
+        // Google Gemini
+        'gemini-1.5-pro', 'gemini-1.5-flash',
+        'gemini-2.0-pro', 'gemini-2.0-flash',
+        'gemini-exp',
+        
+        // Qwen (阿里云)
+        'qwen-vl', 'qwen2-vl', 'qwen3-vl',
+        
+        // LLaVA
+        'llava', 'llava-v1.6',
+        
+        // Yi (零一万物)
+        'yi-vision',
+        
+        // GLM (智谱)
+        'glm-4v', 'glm-4-plus'
       ];
       
-      return visionKeywords.some(keyword => modelNameLower.includes(keyword));
+      return visionModels.some(keyword => modelNameLower.includes(keyword));
     }
     
     /**
