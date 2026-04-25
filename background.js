@@ -21,6 +21,16 @@ chrome.runtime.onConnect.addListener((port) => {
       console.log('[Background] Stream chat via port:', { apiEndpoint, model });
       
       try {
+        // 检查消息中是否包含图片
+        const hasImages = messages.some(msg => 
+          Array.isArray(msg.content) && 
+          msg.content.some(item => item.type === 'image_url')
+        );
+        
+        if (hasImages) {
+          console.log('[Background] Message contains images');
+        }
+        
         const requestBody = {
           model,
           messages,
@@ -47,8 +57,21 @@ chrome.runtime.onConnect.addListener((port) => {
         
         if (!response.ok) {
           const errorText = await response.text();
+          let errorMessage = `HTTP ${response.status}: ${errorText.substring(0, 200)}`;
+          
+          // 尝试解析 JSON 错误信息
+          try {
+            const errorJson = JSON.parse(errorText);
+            if (errorJson.error) {
+              errorMessage = errorJson.error.message || JSON.stringify(errorJson.error);
+            }
+          } catch (e) {
+            // 如果不是 JSON，使用原始文本
+          }
+          
+          console.error('[Background] API request failed:', errorMessage);
           if (!isDisconnected) {
-            port.postMessage({ type: 'error', error: `HTTP ${response.status}: ${errorText.substring(0, 200)}` });
+            port.postMessage({ type: 'error', error: errorMessage });
           }
           return;
         }
@@ -58,38 +81,82 @@ chrome.runtime.onConnect.addListener((port) => {
         const decoder = new TextDecoder();
         let buffer = '';
         
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          
-          // 检查 port 是否已断开
-          if (isDisconnected) {
-            reader.cancel();
-            break;
-          }
-          
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-          
-          for (const line of lines) {
-            if (isDisconnected) break;
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
             
-            const trimmed = line.trim();
-            if (!trimmed || trimmed === 'data: [DONE]') continue;
+            // 检查 port 是否已断开
+            if (isDisconnected) {
+              reader.cancel();
+              break;
+            }
             
-            if (trimmed.startsWith('data: ')) {
-              try {
-                const chunkData = JSON.parse(trimmed.slice(6));
-                const content = chunkData.choices[0]?.delta?.content || '';
-                if (content && !isDisconnected) {
-                  port.postMessage({ type: 'chunk', content });
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            
+            for (const line of lines) {
+              if (isDisconnected) break;
+              
+              const trimmed = line.trim();
+              if (!trimmed || trimmed === 'data: [DONE]') continue;
+              
+              if (trimmed.startsWith('data: ')) {
+                try {
+                  const chunkData = JSON.parse(trimmed.slice(6));
+                  
+                  // 检查是否有错误信息
+                  if (chunkData.error) {
+                    console.error('[Background] API error in stream:', chunkData.error);
+                    if (!isDisconnected) {
+                      port.postMessage({ 
+                        type: 'error', 
+                        error: chunkData.error.message || JSON.stringify(chunkData.error) 
+                      });
+                    }
+                    return;
+                  }
+                  
+                  // 检查 choices 是否存在
+                  if (!chunkData.choices || !Array.isArray(chunkData.choices) || chunkData.choices.length === 0) {
+                    console.warn('[Background] Invalid chunk format:', chunkData);
+                    continue;
+                  }
+                  
+                  const content = chunkData.choices[0]?.delta?.content || '';
+                  if (content && !isDisconnected) {
+                    port.postMessage({ type: 'chunk', content });
+                  }
+                } catch (e) {
+                  console.error('[Background] Failed to parse chunk:', e, 'Raw data:', trimmed);
+                  // 如果是解析错误，可能是 API 返回了错误响应
+                  if (trimmed.includes('error') || trimmed.includes('Error')) {
+                    try {
+                      const errorData = JSON.parse(trimmed.slice(6));
+                      if (!isDisconnected) {
+                        port.postMessage({ 
+                          type: 'error', 
+                          error: errorData.error?.message || 'API 请求失败' 
+                        });
+                      }
+                    } catch (parseError) {
+                      // 忽略解析错误
+                    }
+                  }
                 }
-              } catch (e) {
-                console.warn('[Background] Failed to parse chunk:', e);
               }
             }
           }
+        } catch (streamError) {
+          console.error('[Background] Stream reading error:', streamError);
+          if (!isDisconnected) {
+            port.postMessage({ 
+              type: 'error', 
+              error: '流式读取失败: ' + streamError.message 
+            });
+          }
+          return;
         }
         
         // 流式完成
