@@ -76,6 +76,11 @@
       render(document.getElementById('root'));
     }
     
+    // 暴露 navigateTo 方法
+    window.App = {
+      navigateTo: switchPage
+    };
+    
     render(root);
   }
   

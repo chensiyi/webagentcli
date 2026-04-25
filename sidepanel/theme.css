@@ -98,6 +98,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  min-height: 56px; /* 确保标题栏高度一致 */
 }
 
 .page-title {
@@ -143,6 +144,23 @@ body {
   color: #fff;
 }
 
+/* ==================== 输入框 ==================== */
+
+.input {
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 14px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.input:focus {
+  border-color: var(--color-primary);
+}
+
 .btn-success {
   background: var(--color-success);
   color: #fff;
@@ -163,9 +181,23 @@ body {
   color: var(--color-text-secondary);
 }
 
+.btn-text:hover {
+  color: var(--color-error);
+}
+
 .btn-small {
   padding: 6px 12px;
   font-size: 12px;
+}
+
+/* 浮动按钮 */
+.btn-float {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 10;
+  font-size: 13px;
+  padding: 6px 12px;
 }
 
 /* ==================== 输入框 ==================== */
@@ -180,6 +212,12 @@ body {
   background: var(--color-bg);
   color: var(--color-text);
   transition: border-color 0.2s;
+}
+
+/* 确保输入框不会超出容器 */
+.input {
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .input:focus, .textarea:focus {
@@ -271,6 +309,75 @@ body {
 
 .empty-state-desc {
   font-size: 13px;
+}
+
+/* ==================== 消息气泡 ==================== */
+
+.message-bubble {
+  padding: 12px 16px;
+  border-radius: 12px;
+  max-width: 85%;
+}
+
+.message-user {
+  background: var(--color-primary);
+  color: #fff;
+  margin-left: auto;
+}
+
+.message-assistant {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+/* Markdown 样式 */
+.message-content pre {
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 12px;
+  margin: 8px 0;
+  overflow-x: auto;
+  font-size: 13px;
+}
+
+.message-content code {
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 13px;
+  font-family: 'Consolas', 'Monaco', monospace;
+}
+
+.message-content pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.message-content h1,
+.message-content h2,
+.message-content h3 {
+  margin: 12px 0 8px 0;
+  font-weight: 600;
+}
+
+.message-content h1 { font-size: 20px; }
+.message-content h2 { font-size: 18px; }
+.message-content h3 { font-size: 16px; }
+
+.message-content strong {
+  font-weight: 600;
+}
+
+.message-content em {
+  font-style: italic;
+}
+
+.message-content a {
+  color: var(--color-primary);
+  text-decoration: underline;
 }
 
 /* ==================== 设置项 ==================== */

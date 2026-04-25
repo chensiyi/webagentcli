@@ -18,6 +18,10 @@ window.Pages.scripts = function(container) {
       create('h2', { className: 'page-title', text: '用户脚本' }),
       create('button', {
         className: 'btn btn-primary',
+        style: {
+          padding: '6px 16px',
+          fontSize: '13px'
+        },
         text: showForm ? '取消' : '安装脚本',
         onClick: () => { showForm = !showForm; render(); }
       })

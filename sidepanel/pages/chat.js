@@ -1,17 +1,381 @@
-// 聊天页面（简化版）
+// 聊天页面
 window.Pages = window.Pages || {};
 
 window.Pages.chat = function(container) {
   const { create, clear } = window.DOM;
+  const sessionManager = window.SessionManager;
+  const contextManager = window.ContextManager;
   
-  clear(container);
-  container.appendChild(create('div', { className: 'page' }, [
-    create('div', { className: 'page-header' }, [
-      create('h2', { className: 'page-title', text: '对话' })
-    ]),
-    create('div', { className: 'page-content empty-state' }, [
-      create('div', { className: 'empty-state-icon', text: '💬' }),
-      create('div', { className: 'empty-state-title', text: '聊天功能开发中' })
-    ])
-  ]));
+  let currentConversationId = null;
+  let conversations = [];
+  let messageListElement = null;
+  let lastMessageElement = null;
+  
+  // 从 storage 加载消息
+  async function loadMessages() {
+    const result = await new Promise((resolve) => {
+      chrome.storage.local.get(['chatMessages', 'currentConversationId', 'conversations'], resolve);
+    });
+    
+    conversations = result.conversations || [];
+    currentConversationId = result.currentConversationId;
+    
+    // 检查当前对话是否过期（超过1小时）
+    if (currentConversationId) {
+      const conv = conversations.find(c => c.id === currentConversationId);
+      if (conv) {
+        const oneHourAgo = Date.now() - 60 * 60 * 1000;
+        if (conv.updatedAt < oneHourAgo) {
+          currentConversationId = null;
+          await chrome.storage.local.set({ currentConversationId: null });
+        }
+      } else {
+        currentConversationId = null;
+        await chrome.storage.local.set({ currentConversationId: null });
+      }
+    }
+    
+    // 加载当前会话到 SessionManager
+    if (currentConversationId) {
+      const conv = conversations.find(c => c.id === currentConversationId);
+      if (conv) {
+        sessionManager.createSession(currentConversationId, conv.messages);
+      }
+    }
+    
+    sessionManager.setCurrentSession(currentConversationId);
+  }
+  
+  // 保存到 storage
+  async function saveToStorage() {
+    const session = sessionManager.getCurrentSession();
+    if (!session) return;
+    
+    const messages = session.messages;
+    
+    // 保存当前会话消息
+    await chrome.storage.local.set({ chatMessages: messages });
+    
+    if (messages.length === 0) return;
+    
+    // 如果没有 currentConversationId，创建新会话
+    if (!currentConversationId) {
+      currentConversationId = 'conv_' + Date.now();
+      sessionManager.setCurrentSession(currentConversationId);
+      sessionManager.createSession(currentConversationId, messages);
+    }
+    
+    // 更新 conversations 中的会话
+    const convIndex = conversations.findIndex(c => c.id === currentConversationId);
+    
+    if (convIndex >= 0) {
+      conversations[convIndex].messages = [...messages];
+      conversations[convIndex].updatedAt = Date.now();
+    } else {
+      conversations.push({
+        id: currentConversationId,
+        messages: [...messages],
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      });
+    }
+    
+    await chrome.storage.local.set({ 
+      conversations,
+      currentConversationId
+    });
+  }
+  
+  function render() {
+    clear(container);
+    
+    const session = sessionManager.getCurrentSession();
+    const messages = session ? session.messages : [];
+    const isLoading = session ? session.isLoading : false;
+    
+    const page = create('div', { className: 'page', style: { position: 'relative' } });
+    
+    // 浮动按钮（右上角）
+    if (messages.length > 0) {
+      page.appendChild(create('button', {
+        className: 'btn btn-primary btn-float',
+        text: '开始新聊天',
+        onClick: async () => {
+          // 保存当前对话
+          await saveToStorage();
+          
+          // 清除当前会话指针
+          currentConversationId = null;
+          sessionManager.setCurrentSession(null);
+          
+          await chrome.storage.local.set({ 
+            chatMessages: [],
+            currentConversationId: null 
+          });
+          
+          render();
+        }
+      }));
+    }
+    
+    // 消息列表
+    messageListElement = create('div', { 
+      className: 'page-content',
+      style: { flex: 1, overflowY: 'auto', padding: '16px' }
+    });
+    
+    if (messages.length === 0) {
+      messageListElement.appendChild(create('div', { className: 'empty-state' }, [
+        create('div', { className: 'empty-state-icon', text: '💬' }),
+        create('div', { className: 'empty-state-title', text: '开始对话' }),
+        create('div', { className: 'empty-state-desc', text: '输入消息开始聊天' })
+      ]));
+    } else {
+      lastMessageElement = null;
+      messages.forEach((msg, index) => {
+        const bubble = create('div', {
+          className: `message-bubble message-${msg.role}`,
+          style: { marginBottom: '12px' }
+        });
+        
+        const contentDiv = create('div', { 
+          className: 'message-content',
+          style: { 
+            lineHeight: '1.6',
+            wordWrap: 'break-word'
+          }
+        });
+        
+        if (msg.role === 'assistant') {
+          contentDiv.innerHTML = window.renderMarkdown(msg.content || '');
+        } else {
+          contentDiv.textContent = msg.content;
+        }
+        
+        bubble.appendChild(contentDiv);
+        messageListElement.appendChild(bubble);
+        
+        if (index === messages.length - 1) {
+          lastMessageElement = contentDiv;
+        }
+      });
+      
+      if (isLoading) {
+        messageListElement.appendChild(create('div', { 
+          className: 'message-bubble message-assistant loading-bubble',
+          style: { marginBottom: '12px' }
+        }, [
+          create('div', { text: '思考中...' })
+        ]));
+      }
+    }
+    
+    page.appendChild(messageListElement);
+    
+    // 输入区
+    const inputArea = create('div', { 
+      className: 'page-footer',
+      style: { padding: '12px' }
+    });
+    
+    const inputRow = create('div', { style: { display: 'flex', gap: '8px' } });
+    
+    const input = create('input', {
+      className: 'input',
+      attrs: { type: 'text', placeholder: '输入消息...' },
+      style: { flex: 1 }
+    });
+    
+    input.addEventListener('keydown', async (e) => {
+      if (e.key === 'Enter' && !isLoading) {
+        const text = input.value.trim();
+        if (!text) return;
+        
+        // 如果没有当前会话，创建新会话
+        if (!currentConversationId) {
+          currentConversationId = 'conv_' + Date.now();
+          sessionManager.createSession(currentConversationId, []);
+          sessionManager.setCurrentSession(currentConversationId);
+        }
+        
+        const session = sessionManager.getCurrentSession();
+        if (!session) return;
+        
+        // 添加用户消息
+        sessionManager.addMessage(session.id, { role: 'user', content: text });
+        await saveToStorage();
+        input.value = '';
+        
+        render();
+        
+        // 调用 AI（流式）
+        try {
+          const result = await new Promise((resolve) => {
+            chrome.storage.local.get(['settings'], resolve);
+          });
+          
+          const settings = result.settings;
+          if (!settings || !settings.apiEndpoint) {
+            throw new Error('请先在设置中配置 API 端点');
+          }
+          
+          let apiEndpoint = settings.apiEndpoint;
+          if (!apiEndpoint.includes('/chat/completions')) {
+            apiEndpoint = apiEndpoint.replace(/\/$/, '') + '/chat/completions';
+          }
+          
+          let chatMessages = [...session.messages];
+          if (settings.systemPrompt) {
+            chatMessages = [
+              { role: 'system', content: settings.systemPrompt },
+              ...chatMessages
+            ];
+          }
+          
+          // 智能截断消息以适应上下文窗口（如果启用）
+          if (settings.autoContextTruncation !== false) {
+            const beforeTruncate = chatMessages.length;
+            chatMessages = contextManager.truncateMessages(
+              chatMessages,
+              settings.model,
+              settings.maxTokens || 2000
+            );
+            
+            // 记录上下文使用情况
+            const usage = contextManager.getContextUsage(chatMessages, settings.model);
+            console.log(`[Chat] Context usage: ${usage.used}/${usage.total} (${usage.percentage}%)`);
+            
+            // 如果有消息被截断，给用户提示
+            if (chatMessages.length < beforeTruncate) {
+              console.log(`[Chat] Auto-truncated: ${beforeTruncate} -> ${chatMessages.length} messages`);
+            }
+          } else {
+            console.log('[Chat] Auto context truncation is disabled');
+          }
+          
+          // 添加助手消息占位
+          sessionManager.addMessage(session.id, { role: 'assistant', content: '' });
+          render();
+          
+          if (messageListElement) {
+            setTimeout(() => {
+              messageListElement.scrollTop = messageListElement.scrollHeight;
+            }, 50);
+          }
+          
+          // 发送消息到 background（真正的流式请求）
+          const port = chrome.runtime.connect({ name: 'chat-stream' });
+          
+          // 绑定到会话
+          sessionManager.startStreamRequest(session.id, port);
+          
+          // 监听流式响应
+          port.onMessage.addListener((msg) => {
+            // 检查会话是否还存在
+            const targetSession = sessionManager.getSession(session.id);
+            if (!targetSession) {
+              port.disconnect();
+              return;
+            }
+            
+            if (msg.type === 'chunk') {
+              const currentMsg = targetSession.messages[targetSession.messages.length - 1];
+              if (currentMsg && currentMsg.role === 'assistant') {
+                currentMsg.content += msg.content;
+              }
+              
+              saveToStorage();
+              
+              // 只在当前会话时更新 UI
+              const currentSession = sessionManager.getCurrentSession();
+              if (currentSession && currentSession.id === session.id) {
+                if (lastMessageElement) {
+                  lastMessageElement.innerHTML = window.renderMarkdown(currentMsg.content);
+                }
+                
+                if (messageListElement) {
+                  messageListElement.scrollTop = messageListElement.scrollHeight;
+                }
+              }
+            } else if (msg.type === 'complete') {
+              port.disconnect();
+              sessionManager.completeStreamRequest(session.id);
+              saveToStorage();
+              
+              // 只在当前会话时重新渲染
+              const currentSession = sessionManager.getCurrentSession();
+              if (currentSession && currentSession.id === session.id) {
+                render();
+                
+                if (messageListElement) {
+                  setTimeout(() => {
+                    messageListElement.scrollTop = messageListElement.scrollHeight;
+                  }, 50);
+                }
+              }
+            } else if (msg.type === 'error') {
+              port.disconnect();
+              sessionManager.completeStreamRequest(session.id);
+              sessionManager.addMessage(session.id, { role: 'assistant', content: '错误: ' + msg.error });
+              
+              // 只在当前会话时重新渲染
+              const currentSession = sessionManager.getCurrentSession();
+              if (currentSession && currentSession.id === session.id) {
+                render();
+                
+                if (messageListElement) {
+                  messageListElement.scrollTop = messageListElement.scrollHeight;
+                }
+              }
+            }
+          });
+          
+          port.postMessage({
+            messages: chatMessages,
+            apiKey: settings.apiKey,
+            apiEndpoint,
+            model: settings.model,
+            temperature: settings.temperature || 0.7,
+            maxTokens: settings.maxTokens || 2000
+          });
+        } catch (error) {
+          console.error('[Chat] Connection error:', error);
+          sessionManager.addMessage(session.id, { role: 'assistant', content: '错误: ' + error.message });
+          render();
+          
+          if (messageListElement) {
+            messageListElement.scrollTop = messageListElement.scrollHeight;
+          }
+        }
+      }
+    });
+    
+    const sendBtn = create('button', {
+      className: 'btn btn-primary',
+      text: '发送'
+    });
+    
+    sendBtn.addEventListener('click', () => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    });
+    
+    inputRow.appendChild(input);
+    inputRow.appendChild(sendBtn);
+    inputArea.appendChild(inputRow);
+    
+    page.appendChild(inputArea);
+    container.appendChild(page);
+    
+    // 渲染后滚动到底部（切换到会话时）
+    if (messageListElement && messages.length > 0) {
+      setTimeout(() => {
+        messageListElement.scrollTop = messageListElement.scrollHeight;
+      }, 50);
+    }
+  }
+  
+  // 初始化
+  loadMessages().then(() => {
+    render();
+  });
 };

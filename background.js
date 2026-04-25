@@ -3,6 +3,110 @@
 
 console.log('[WebAgent Client] Starting...');
 
+// ==================== Stream Chat Port Handler ====================
+// 处理流式聊天的长连接
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name === 'chat-stream') {
+    let isDisconnected = false;
+    
+    // 监听 port 断开
+    port.onDisconnect.addListener(() => {
+      isDisconnected = true;
+      console.log('[Background] Port disconnected');
+    });
+    
+    port.onMessage.addListener(async (data) => {
+      const { messages, apiKey, apiEndpoint, model, temperature, maxTokens } = data;
+      
+      console.log('[Background] Stream chat via port:', { apiEndpoint, model });
+      
+      try {
+        const requestBody = {
+          model,
+          messages,
+          stream: true,
+          temperature
+        };
+        
+        if (maxTokens) requestBody.max_tokens = maxTokens;
+        
+        // 构建请求头（API Key 可选）
+        const headers = {
+          'Content-Type': 'application/json'
+        };
+        
+        if (apiKey) {
+          headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+        
+        const response = await fetch(apiEndpoint, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(requestBody)
+        });
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          if (!isDisconnected) {
+            port.postMessage({ type: 'error', error: `HTTP ${response.status}: ${errorText.substring(0, 200)}` });
+          }
+          return;
+        }
+        
+        // 读取流式响应并实时发送
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          // 检查 port 是否已断开
+          if (isDisconnected) {
+            reader.cancel();
+            break;
+          }
+          
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          
+          for (const line of lines) {
+            if (isDisconnected) break;
+            
+            const trimmed = line.trim();
+            if (!trimmed || trimmed === 'data: [DONE]') continue;
+            
+            if (trimmed.startsWith('data: ')) {
+              try {
+                const chunkData = JSON.parse(trimmed.slice(6));
+                const content = chunkData.choices[0]?.delta?.content || '';
+                if (content && !isDisconnected) {
+                  port.postMessage({ type: 'chunk', content });
+                }
+              } catch (e) {
+                console.warn('[Background] Failed to parse chunk:', e);
+              }
+            }
+          }
+        }
+        
+        // 流式完成
+        if (!isDisconnected) {
+          port.postMessage({ type: 'complete' });
+        }
+        
+      } catch (error) {
+        console.error('[Background] Stream chat error:', error);
+        if (!isDisconnected) {
+          port.postMessage({ type: 'error', error: error.message });
+        }
+      }
+    });
+  }
+});
+
 // ==================== User Scripts Manager ====================
 // 监听 storage 变化，自动注册/注销用户脚本
 chrome.storage.onChanged.addListener(async (changes, namespace) => {
@@ -163,8 +267,196 @@ async function handleMessage(message, sender) {
     case 'EXECUTE_TOOL':
       return { success: true, data: null };
     
+    case 'CHAT_REQUEST':
+      return await handleChatRequest(payload);
+    
+    case 'CHAT_STREAM_REQUEST':
+      return await handleChatStreamRequest(payload);
+    
+    case 'GET_MODELS':
+      return await handleGetModels(payload);
+    
     default:
       throw new Error(`Unknown message type: ${type}`);
+  }
+}
+
+// 处理聊天请求
+async function handleChatRequest(data) {
+  const { messages, apiKey, apiEndpoint, model } = data;
+  
+  console.log('[Background] Chat request:', { apiEndpoint, model });
+  
+  try {
+    // 构建请求头（API Key 可选）
+    const headers = {
+      'Content-Type': 'application/json'
+    };
+    
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+    
+    const response = await fetch(apiEndpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model,
+        messages,
+        stream: false
+      })
+    });
+    
+    console.log('[Background] Response status:', response.status);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[Background] API error response:', errorText);
+      
+      // 尝试解析为 JSON
+      try {
+        const error = JSON.parse(errorText);
+        throw new Error(error.error?.message || 'API request failed');
+      } catch (e) {
+        throw new Error(`HTTP ${response.status}: ${errorText.substring(0, 200)}`);
+      }
+    }
+    
+    const result = await response.json();
+    return {
+      success: true,
+      content: result.choices[0].message.content
+    };
+  } catch (error) {
+    console.error('[Background] Chat error:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+// 处理流式聊天请求
+async function handleChatStreamRequest(data) {
+  const { messages, apiKey, apiEndpoint, model, temperature, maxTokens } = data;
+  
+  console.log('[Background] Stream chat request:', { apiEndpoint, model, hasApiKey: !!apiKey });
+  
+  try {
+    const requestBody = {
+      model,
+      messages,
+      stream: true,
+      temperature
+    };
+    
+    if (maxTokens) requestBody.max_tokens = maxTokens;
+    
+    // 构建请求头（API Key 可选）
+    const headers = {
+      'Content-Type': 'application/json'
+    };
+    
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+    
+    const response = await fetch(apiEndpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(requestBody)
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorText.substring(0, 200)}`);
+    }
+    
+    // 读取流式响应
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let fullContent = '';
+    let buffer = '';
+    
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed === 'data: [DONE]') continue;
+        
+        if (trimmed.startsWith('data: ')) {
+          try {
+            const data = JSON.parse(trimmed.slice(6));
+            const content = data.choices[0]?.delta?.content || '';
+            fullContent += content;
+          } catch (e) {
+            console.warn('[Background] Failed to parse chunk:', e);
+          }
+        }
+      }
+    }
+    
+    return {
+      success: true,
+      content: fullContent
+    };
+  } catch (error) {
+    console.error('[Background] Stream chat error:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+// 获取模型列表
+async function handleGetModels(data) {
+  const { apiKey, apiEndpoint } = data;
+  
+  console.log('[Background] Get models request:', { apiEndpoint });
+  
+  try {
+    // 构建 models API URL
+    let modelsEndpoint = apiEndpoint.replace('/chat/completions', '').replace(/\/$/, '') + '/models';
+    
+    // 构建请求头（API Key 可选）
+    const headers = {};
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+    
+    const response = await fetch(modelsEndpoint, {
+      method: 'GET',
+      headers
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorText.substring(0, 200)}`);
+    }
+    
+    const result = await response.json();
+    
+    // 提取模型 ID 列表
+    const models = result.data ? result.data.map(m => m.id) : [];
+    
+    return {
+      success: true,
+      models
+    };
+  } catch (error) {
+    console.error('[Background] Get models error:', error);
+    return {
+      success: false,
+      error: error.message,
+      models: []
+    };
   }
 }
 
