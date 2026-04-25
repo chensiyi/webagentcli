@@ -208,6 +208,26 @@ body {
   padding: 6px 12px;
 }
 
+/* 图片预览容器 */
+.image-preview-container {
+  animation: slideIn 0.2s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.btn-remove-image:hover {
+  transform: scale(1.1) !important;
+}
+
 /* ==================== 输入框 ==================== */
 
 .input, .textarea {

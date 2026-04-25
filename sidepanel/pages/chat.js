@@ -6,21 +6,24 @@ window.Pages.chat = function(container) {
   const sessionManager = window.SessionManager;
   const contextManager = window.ContextManager;
   const mediaUtils = window.MediaUtils;
+  const modelManager = window.ModelManager;
   
   let currentConversationId = null;
   let conversations = [];
   let messageListElement = null;
   let lastMessageElement = null;
   let pendingImages = []; // 待发送的图片
+  let currentSettings = null; // 当前设置
   
   // 从 storage 加载消息
   async function loadMessages() {
     const result = await new Promise((resolve) => {
-      chrome.storage.local.get(['chatMessages', 'currentConversationId', 'conversations'], resolve);
+      chrome.storage.local.get(['chatMessages', 'currentConversationId', 'conversations', 'settings'], resolve);
     });
     
     conversations = result.conversations || [];
     currentConversationId = result.currentConversationId;
+    currentSettings = result.settings || {};
     
     // 检查当前对话是否过期（超过1小时）
     if (currentConversationId) {
@@ -95,7 +98,49 @@ window.Pages.chat = function(container) {
     const messages = session ? session.messages : [];
     const isLoading = session ? session.isLoading : false;
     
-    const page = create('div', { className: 'page', style: { position: 'relative' } });
+    const page = create('div', { 
+      className: 'page', 
+      style: { position: 'relative' }
+    });
+    
+    // 拖拽上传支持
+    page.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      page.style.background = 'var(--color-primary-light)';
+    });
+    
+    page.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      page.style.background = '';
+    });
+    
+    page.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      page.style.background = '';
+      
+      const files = Array.from(e.dataTransfer?.files || []);
+      const imageFiles = files.filter(f => f.type.startsWith('image/'));
+      
+      if (imageFiles.length === 0) return;
+      
+      for (const file of imageFiles) {
+        try {
+          mediaUtils.validateImage(file);
+          const compressedBlob = await mediaUtils.compressImage(file);
+          const dataUrl = await mediaUtils.fileToBase64(compressedBlob);
+          const previewUrl = mediaUtils.createPreview(file);
+          
+          pendingImages.push({ dataUrl, previewUrl, filename: file.name });
+        } catch (error) {
+          alert(`${file.name}: ${error.message}`);
+        }
+      }
+      
+      render();
+    });
     
     // 浮动按钮（右上角）
     if (messages.length > 0) {
@@ -207,46 +252,69 @@ window.Pages.chat = function(container) {
     // 图片预览区
     if (pendingImages.length > 0) {
       const previewContainer = create('div', {
+        className: 'image-preview-container',
         style: { 
           display: 'flex', 
           gap: '8px', 
           marginBottom: '8px',
-          flexWrap: 'wrap'
+          flexWrap: 'wrap',
+          padding: '8px',
+          background: 'var(--color-surface)',
+          borderRadius: '8px'
         }
       });
       
       pendingImages.forEach((img, index) => {
         const previewBox = create('div', {
-          style: { position: 'relative', display: 'inline-block' }
-        });
-        
-        const imgEl = create('img', {
-          attrs: { src: img.previewUrl },
           style: { 
-            width: '60px', 
-            height: '60px', 
-            objectFit: 'cover',
-            borderRadius: '4px',
-            border: '1px solid var(--color-border)'
+            position: 'relative', 
+            display: 'inline-block',
+            group: 'hover'
           }
         });
         
+        const imgEl = create('img', {
+          attrs: { src: img.previewUrl, title: img.filename },
+          style: { 
+            width: '80px', 
+            height: '80px', 
+            objectFit: 'cover',
+            borderRadius: '6px',
+            border: '2px solid var(--color-border)',
+            cursor: 'pointer',
+            transition: 'border-color 0.2s'
+          }
+        });
+        
+        // 点击图片放大查看
+        imgEl.onclick = () => window.open(img.dataUrl, '_blank');
+        
+        // hover 效果
+        imgEl.onmouseenter = () => imgEl.style.borderColor = 'var(--color-primary)';
+        imgEl.onmouseleave = () => imgEl.style.borderColor = 'var(--color-border)';
+        
         const removeBtn = create('button', {
           text: '×',
+          className: 'btn-remove-image',
           style: {
             position: 'absolute',
-            top: '-4px',
-            right: '-4px',
-            width: '18px',
-            height: '18px',
+            top: '-6px',
+            right: '-6px',
+            width: '20px',
+            height: '20px',
             borderRadius: '50%',
             background: 'var(--color-danger)',
             color: 'white',
-            border: 'none',
+            border: '2px solid white',
             cursor: 'pointer',
-            fontSize: '12px',
+            fontSize: '14px',
             lineHeight: '1',
-            padding: '0'
+            padding: '0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+            transition: 'transform 0.2s'
           },
           onClick: () => {
             mediaUtils.revokePreview(img.previewUrl);
@@ -254,6 +322,9 @@ window.Pages.chat = function(container) {
             render();
           }
         });
+        
+        removeBtn.onmouseenter = () => removeBtn.style.transform = 'scale(1.1)';
+        removeBtn.onmouseleave = () => removeBtn.style.transform = 'scale(1)';
         
         previewBox.appendChild(imgEl);
         previewBox.appendChild(removeBtn);
@@ -266,11 +337,18 @@ window.Pages.chat = function(container) {
     const inputRow = create('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } });
     
     // 图片上传按钮
+    const supportsVision = currentSettings && modelManager.getCapability(currentSettings.model)?.vision;
     const uploadBtn = create('button', {
       className: 'btn btn-secondary',
       text: '📷',
-      style: { padding: '8px 12px', fontSize: '16px' },
-      title: '上传图片'
+      style: { 
+        padding: '8px 12px', 
+        fontSize: '16px',
+        opacity: supportsVision ? 1 : 0.5,
+        cursor: supportsVision ? 'pointer' : 'not-allowed'
+      },
+      title: supportsVision ? '上传图片（支持拖拽和粘贴）' : '当前模型不支持图片',
+      disabled: !supportsVision
     });
     
     const fileInput = create('input', {
@@ -300,12 +378,49 @@ window.Pages.chat = function(container) {
       }
     });
     
-    uploadBtn.onclick = () => fileInput.click();
+    uploadBtn.onclick = () => {
+      if (!supportsVision) {
+        alert('当前模型不支持图片，请在设置中切换到支持视觉的模型（如 GPT-4o、Claude-3 等）');
+        return;
+      }
+      fileInput.click();
+    };
     
     const input = create('input', {
       className: 'input',
-      attrs: { type: 'text', placeholder: '输入消息...' },
+      attrs: { 
+        type: 'text', 
+        placeholder: currentSettings && modelManager.getCapability(currentSettings.model)?.vision 
+          ? '输入消息或拖拽/粘贴图片...' 
+          : '输入消息...'
+      },
       style: { flex: 1 }
+    });
+    
+    // 粘贴图片支持
+    input.addEventListener('paste', async (e) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          e.preventDefault();
+          const file = item.getAsFile();
+          
+          try {
+            mediaUtils.validateImage(file);
+            const compressedBlob = await mediaUtils.compressImage(file);
+            const dataUrl = await mediaUtils.fileToBase64(compressedBlob);
+            const previewUrl = mediaUtils.createPreview(file);
+            
+            pendingImages.push({ dataUrl, previewUrl, filename: 'pasted-image.png' });
+            render();
+          } catch (error) {
+            alert(error.message);
+          }
+          break;
+        }
+      }
     });
     
     input.addEventListener('keydown', async (e) => {
