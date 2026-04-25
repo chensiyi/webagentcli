@@ -135,7 +135,7 @@ window.Pages.chat = function(container) {
           
           pendingImages.push({ dataUrl, previewUrl, filename: file.name });
         } catch (error) {
-          alert(`${file.name}: ${error.message}`);
+          window.Toast.error(`${file.name}: ${error.message}`);
         }
       }
       
@@ -212,21 +212,21 @@ window.Pages.chat = function(container) {
             boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
             zIndex: 10
           },
-          onClick: () => {
-            window.ConfirmDialog.show({
+          onClick: async () => {
+            const confirmed = await window.Toast.confirm({
               title: '删除消息',
-              message: '确定要删除这条消息吗？此操作不可恢复。',
-              confirmText: '删除',
-              cancelText: '取消',
-              onConfirm: async () => {
-                const session = sessionManager.getCurrentSession();
-                if (session) {
-                  session.messages.splice(index, 1);
-                  await saveToStorage();
-                  render();
-                }
-              }
+              message: '确定要删除这条消息吗？此操作不可恢复。'
             });
+            
+            if (confirmed) {
+              const session = sessionManager.getCurrentSession();
+              if (session) {
+                session.messages.splice(index, 1);
+                await saveToStorage();
+                render();
+                window.Toast.success('消息已删除');
+              }
+            }
           }
         });
         
@@ -430,7 +430,7 @@ window.Pages.chat = function(container) {
             pendingImages.push({ dataUrl, previewUrl, filename: file.name });
             render();
           } catch (error) {
-            alert(error.message);
+            window.Toast.error(error.message);
           }
         }
         
@@ -441,7 +441,7 @@ window.Pages.chat = function(container) {
     
     uploadBtn.onclick = () => {
       if (!supportsVision) {
-        alert('当前模型不支持图片，请在设置中切换到支持视觉的模型（如 GPT-4o、Claude-3 等）');
+        window.Toast.warning('当前模型不支持图片，请在设置中切换到支持视觉的模型');
         return;
       }
       fileInput.click();
@@ -477,7 +477,7 @@ window.Pages.chat = function(container) {
             pendingImages.push({ dataUrl, previewUrl, filename: 'pasted-image.png' });
             render();
           } catch (error) {
-            alert(error.message);
+            window.Toast.error(error.message);
           }
           break;
         }
