@@ -3,6 +3,7 @@ window.Pages = window.Pages || {};
 
 window.Pages.settings = function(container) {
   const { create, clear, setTheme, getTheme } = window.DOM;
+  const modelManager = window.ModelManager;
   
   let settings = {
     apiKey: '',
@@ -15,41 +16,15 @@ window.Pages.settings = function(container) {
     autoContextTruncation: true
   };
   
-  let availableModels = [];
-  let modelCapabilities = {}; // 模型能力 { modelName: { vision: true, ... } }
   let isLoadingModels = false;
   
   async function loadModels() {
     isLoadingModels = true;
+    render();
     
     try {
-      const response = await chrome.runtime.sendMessage({
-        type: 'GET_MODELS',
-        payload: {
-          apiKey: settings.apiKey || '',
-          apiEndpoint: settings.apiEndpoint
-        }
-      });
-      
-      if (response.success) {
-        availableModels = response.models;
-        
-        // 根据模型名称推断能力
-        modelCapabilities = {};
-        availableModels.forEach(modelName => {
-          const lower = modelName.toLowerCase();
-          modelCapabilities[modelName] = {
-            vision: lower.includes('gpt-4o') || lower.includes('claude-3') || lower.includes('gemini') || lower.includes('vision'),
-            streaming: true // 大部分模型都支持流式
-          };
-        });
-        
-        console.log('[Settings] Loaded', availableModels.length, 'models');
-      } else {
-        alert('加载失败: ' + response.error);
-      }
+      await modelManager.fetchModels(settings.apiKey, settings.apiEndpoint);
     } catch (error) {
-      console.error('[Settings] Load models error:', error);
       alert('加载失败: ' + error.message);
     } finally {
       isLoadingModels = false;
@@ -99,9 +74,9 @@ window.Pages.settings = function(container) {
         }, [
           create('option', { 
             attrs: { value: '' },
-            text: availableModels.length === 0 ? '点击加载模型' : '选择模型'
+            text: !modelManager.isLoaded() ? '点击加载模型' : '选择模型'
           }),
-          ...availableModels.map(m => 
+          ...modelManager.getModels().map(m => 
             create('option', { 
               attrs: { value: m },
               text: m,
@@ -120,19 +95,22 @@ window.Pages.settings = function(container) {
     ]));
     
     // 模型能力提示
-    if (settings.model && modelCapabilities[settings.model]) {
-      const caps = modelCapabilities[settings.model];
-      const badges = [];
-      if (caps.vision) badges.push('🖼️ 支持图片');
-      if (caps.streaming) badges.push('⚡ 支持流式');
-      
-      if (badges.length > 0) {
-        content.appendChild(create('div', { 
-          className: 'setting-group',
-          style: { fontSize: '12px', color: 'var(--color-text-secondary)' }
-        }, [
-          create('span', { text: '模型能力: ' + badges.join(' | ') })
-        ]));
+    if (settings.model && modelManager.isLoaded()) {
+      const caps = modelManager.getCapability(settings.model);
+      if (caps) {
+        const badges = [];
+        if (caps.vision) badges.push('🖼️ 支持图片');
+        if (caps.streaming) badges.push('⚡ 支持流式');
+        if (caps.tools) badges.push('🔧 支持工具');
+        
+        if (badges.length > 0) {
+          content.appendChild(create('div', { 
+            className: 'setting-group',
+            style: { fontSize: '12px', color: 'var(--color-text-secondary)' }
+          }, [
+            create('span', { text: '模型能力: ' + badges.join(' | ') })
+          ]));
+        }
       }
     }
     
