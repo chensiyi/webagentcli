@@ -263,7 +263,17 @@ window.Pages.chat = function(container) {
           // 普通文本消息
           const contentDiv = create('div', { 
             className: 'message-content',
-            style: { lineHeight: '1.6', wordWrap: 'break-word' }
+            style: { 
+              lineHeight: '1.6', 
+              wordWrap: 'break-word',
+              // 错误消息特殊样式
+              ...(msg.isError ? {
+                color: 'var(--color-danger)',
+                background: 'rgba(244, 67, 54, 0.1)',
+                padding: '8px 12px',
+                borderRadius: '6px'
+              } : {})
+            }
           });
           
           if (msg.role === 'assistant') {
@@ -648,7 +658,7 @@ window.Pages.chat = function(container) {
           sessionManager.startStreamRequest(session.id, port);
           
           // 监听流式响应
-          port.onMessage.addListener((msg) => {
+          port.onMessage.addListener(async (msg) => {
             // 检查会话是否还存在
             const targetSession = sessionManager.getSession(session.id);
             if (!targetSession) {
@@ -694,7 +704,17 @@ window.Pages.chat = function(container) {
             } else if (msg.type === 'error') {
               port.disconnect();
               sessionManager.completeStreamRequest(session.id);
-              sessionManager.addMessage(session.id, { role: 'assistant', content: '错误: ' + msg.error });
+              
+              // 添加错误消息到会话
+              const errorMessage = {
+                role: 'assistant',
+                content: '❌ 请求失败: ' + msg.error,
+                isError: true
+              };
+              sessionManager.addMessage(session.id, errorMessage);
+              
+              // 保存到 storage
+              await saveToStorage();
               
               // 只在当前会话时重新渲染
               const currentSession = sessionManager.getCurrentSession();
@@ -718,7 +738,17 @@ window.Pages.chat = function(container) {
           });
         } catch (error) {
           console.error('[Chat] Connection error:', error);
-          sessionManager.addMessage(session.id, { role: 'assistant', content: '错误: ' + error.message });
+          
+          // 添加错误消息
+          sessionManager.addMessage(session.id, {
+            role: 'assistant',
+            content: '❌ 连接失败: ' + error.message,
+            isError: true
+          });
+          
+          // 保存到 storage
+          await saveToStorage();
+          
           render();
           
           if (messageListElement) {
