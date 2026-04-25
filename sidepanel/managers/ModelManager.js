@@ -71,10 +71,10 @@
     }
     
     /**
-     * 检查视觉支持（基于已知模型白名单）
+     * 检查视觉支持（白名单 + 启发式检测）
      */
     checkVisionSupport(modelNameLower) {
-      // 经过验证的支持视觉的模型白名单
+      // 1. 经过验证的支持视觉的模型白名单
       const visionModels = [
         // OpenAI
         'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4-vision',
@@ -104,14 +104,30 @@
         'glm-4v', 'glm-4-plus'
       ];
       
-      return visionModels.some(keyword => modelNameLower.includes(keyword));
+      // 2. 白名单匹配
+      if (visionModels.some(keyword => modelNameLower.includes(keyword))) {
+        return true;
+      }
+      
+      // 3. 启发式检测：名称中包含明确的视觉相关关键词
+      const visionKeywords = [
+        'vision', 'vl', 'visual', 'image', 'img',
+        'multimodal', 'mm', 'multi-modal'
+      ];
+      
+      return visionKeywords.some(keyword => {
+        // 确保是独立的词或后缀，避免误判
+        // 例如："gpt-4-vision-preview" ✓, "conversation" ✗
+        const regex = new RegExp(`(^|[-_/\\s])${keyword}($|[-_/\\s])`, 'i');
+        return regex.test(modelNameLower);
+      });
     }
     
     /**
-     * 检查音频支持（语音输入/输出）
+     * 检查音频支持（白名单 + 启发式检测）
      */
     checkAudioSupport(modelNameLower) {
-      // 支持音频的模型白名单
+      // 1. 白名单
       const audioModels = [
         // OpenAI - GPT-4o 系列支持实时音频
         'gpt-4o-realtime', 'gpt-4o-audio',
@@ -125,7 +141,20 @@
         'whisper', 'speech-to-text'
       ];
       
-      return audioModels.some(keyword => modelNameLower.includes(keyword));
+      if (audioModels.some(keyword => modelNameLower.includes(keyword))) {
+        return true;
+      }
+      
+      // 2. 启发式检测
+      const audioKeywords = [
+        'audio', 'voice', 'speech', 'sound',
+        'realtime', 'real-time', 'stt', 'tts'
+      ];
+      
+      return audioKeywords.some(keyword => {
+        const regex = new RegExp(`(^|[-_/\\s])${keyword}($|[-_/\\s])`, 'i');
+        return regex.test(modelNameLower);
+      });
     }
     
     /**
