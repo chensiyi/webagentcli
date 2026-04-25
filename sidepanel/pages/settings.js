@@ -100,6 +100,7 @@ window.Pages.settings = function(container) {
       if (caps) {
         const badges = [];
         if (caps.vision) badges.push('🖼️ 支持图片');
+        if (caps.audio) badges.push('🎤 支持音频');
         if (caps.streaming) badges.push('⚡ 支持流式');
         if (caps.tools) badges.push('🔧 支持工具');
         

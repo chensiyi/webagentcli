@@ -54,13 +54,16 @@
         this.capabilities[modelName] = {
           // 视觉能力检测
           vision: this.checkVisionSupport(lower),
-          
+                
+          // 音频能力检测
+          audio: this.checkAudioSupport(lower),
+                
           // 流式支持（大部分模型都支持）
           streaming: true,
-          
+                
           // 工具调用能力
           tools: this.checkToolsSupport(lower),
-          
+                
           // 上下文窗口大小估算
           contextWindow: this.estimateContextWindow(lower)
         };
@@ -102,6 +105,27 @@
       ];
       
       return visionModels.some(keyword => modelNameLower.includes(keyword));
+    }
+    
+    /**
+     * 检查音频支持（语音输入/输出）
+     */
+    checkAudioSupport(modelNameLower) {
+      // 支持音频的模型白名单
+      const audioModels = [
+        // OpenAI - GPT-4o 系列支持实时音频
+        'gpt-4o-realtime', 'gpt-4o-audio',
+        'gpt-4o-mini-realtime',
+        
+        // Google Gemini - 支持音频输入
+        'gemini-1.5-pro', 'gemini-1.5-flash',
+        'gemini-2.0-pro', 'gemini-2.0-flash',
+        
+        // 专门的音频模型
+        'whisper', 'speech-to-text'
+      ];
+      
+      return audioModels.some(keyword => modelNameLower.includes(keyword));
     }
     
     /**
