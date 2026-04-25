@@ -14,7 +14,7 @@
   
   "web_accessible_resources": [
     {
-      "resources": ["plugins/*", "vendor/*", "sandbox/*"],
+      "resources": ["plugins/*", "vendor/*", "sandbox/*", "sidepanel/*"],
       "matches": ["<all_urls>"]
     }
   ],

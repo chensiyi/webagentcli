@@ -9,16 +9,13 @@ AI Agent 运行时环境，为 AI 提供浏览器交互能力。
 ├── background.js           # Service Worker（核心运行时）
 ├── content.js              # Content Script（页面交互）
 ├── sidepanel/              # Side Panel UI
-│   ├── sidepanel.html
-│   └── sidepanel.jsx
-├── src/
-│   ├── runtime/            # 运行时模块
-│   │   ├── ToolRegistry.js     # 工具注册表
-│   │   └── ContextManager.js   # 上下文管理
-│   └── connector/          # 连接器（待实现）
-└── vendor/                 # 第三方库
-    ├── preact.min.js
-    └── preact-hooks.umd.js
+│   ├── sidepanel.html      # 主页面
+│   ├── app.js              # 应用入口
+│   ├── dom.js              # DOM 工具库
+│   ├── theme.css           # CSS 主题系统
+│   ├── UserScriptManager.js # 用户脚本管理器
+│   └── pages/              # 页面组件
+└── assets/                 # 静态资源
 ```
 
 ## 快速开始
@@ -102,7 +99,7 @@ Content Script (DOM Access)
 - **Manifest V3** - Chrome Extension 最新架构
 - **Service Worker** - 后台运行时
 - **Content Scripts** - 页面交互
-- **Preact 10.x** - UI 框架（轻量级 React 兼容）
+- **原生 JavaScript** - 无框架，轻量级实现
 - **Side Panel API** - 浏览器侧边栏 UI
 
 ## 许可证

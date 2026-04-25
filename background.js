@@ -18,54 +18,123 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   await updateUserScripts();
 });
 
+// 监听标签页更新，自动注入脚本
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  // 页面加载完成时
+  if (changeInfo.status === 'complete' && tab.url) {
+    await injectScriptsToTab(tabId, tab.url);
+  }
+});
+
 /**
- * 根据 storage 中的脚本列表注册 userScripts
+ * 更新用户脚本（由 Side Panel 的 UserScriptManager 处理）
+ * Background 只负责监听安装/卸载事件
  */
 async function updateUserScripts() {
+  console.log('[Background] Scripts managed by UserScriptManager in Side Panel');
+}
+
+/**
+ * 向标签页注入匹配的脚本
+ */
+async function injectScriptsToTab(tabId, url) {
   try {
+    // 先清理该标签页中已注入的所有用户脚本
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: () => {
+        const scripts = document.querySelectorAll('script[id^="userscript-"]');
+        scripts.forEach(script => script.remove());
+      }
+    });
+    
     const result = await chrome.storage.local.get('installedScripts');
     const scripts = result.installedScripts || [];
     
-    console.log(`[Background] Found ${scripts.length} installed scripts`);
-    
-    // 清除已注册的脚本
-    const existing = await chrome.userScripts.getScripts();
-    if (existing.length > 0) {
-      await chrome.userScripts.unregister({ ids: existing.map(s => s.id) });
-      console.log('[Background] Unregistered', existing.length, 'existing scripts');
-    }
-    
-    // 注册新脚本
     for (const script of scripts) {
-      if (script.enabled !== false) {
-        await registerUserScript(script);
-      }
+      if (!script.enabled) continue;
+      
+      // 检查 URL 是否匹配
+      if (!matchesURL(url, script)) continue;
+      
+      // 获取脚本代码
+      const codeResult = await chrome.storage.local.get(`script_code_${script.id}`);
+      const code = codeResult[`script_code_${script.id}`];
+      
+      if (!code) continue;
+      
+      // 包装代码（简化版，不含 GM API）
+      const wrappedCode = `
+(function() {
+  'use strict';
+  ${code}
+})();
+`;
+      
+      // 注入到页面
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        world: 'MAIN',
+        func: (code, scriptId) => {
+          const script = document.createElement('script');
+          script.type = 'text/javascript';
+          script.textContent = code;
+          script.id = `userscript-${scriptId}`;
+          (document.head || document.documentElement).appendChild(script);
+        },
+        args: [wrappedCode, script.id]
+      });
+      
+      console.log('[Background] Injected script:', script.name);
     }
-    
-    console.log('[Background] ✓ All scripts registered');
   } catch (error) {
-    console.error('[Background] ✗ Failed to update scripts:', error);
+    console.error('[Background] Failed to inject scripts:', error);
   }
 }
 
 /**
- * 注册单个用户脚本
+ * 检查 URL 是否匹配脚本规则
  */
-async function registerUserScript(script) {
-  try {
-    console.log(`[Background] Registering: ${script.name}`);
-    
-    await chrome.userScripts.register([{
-      id: script.name,
-      matches: ['<all_urls>'], // 匹配所有网页
-      world: 'MAIN', // 注入到主世界，绕过 CSP
-      js: [{ code: script.code }]
-    }]);
-    
-    console.log(`[Background] ✓ ${script.name} registered`);
-  } catch (error) {
-    console.error(`[Background] ✗ Failed to register ${script.name}:`, error);
+function matchesURL(url, scriptInfo) {
+  if (!scriptInfo.matches || scriptInfo.matches.length === 0) {
+    return true;
   }
+  
+  // 检查排除规则
+  if (scriptInfo.excludes) {
+    for (const pattern of scriptInfo.excludes) {
+      if (matchPattern(url, pattern)) {
+        return false;
+      }
+    }
+  }
+  
+  // 检查包含规则
+  for (const pattern of scriptInfo.matches) {
+    if (matchPattern(url, pattern)) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * 匹配 URL 模式
+ */
+function matchPattern(url, pattern) {
+  if (pattern === '*://*/*') {
+    return true;
+  }
+  
+  const regex = pattern
+    .replace(/\./g, '\\.')
+    .replace(/\*/g, '.*')
+    .replace(/\?/g, '\\?');
+  
+  const fullRegex = new RegExp('^' + regex + '$');
+  return fullRegex.test(url);
 }
 
 // ==================== Message Handler ====================
