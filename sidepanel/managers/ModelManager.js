@@ -115,6 +115,16 @@
     }
     
     /**
+     * 获取模型的上下文窗口大小（公开 API）
+     */
+    getContextWindowSize(modelName) {
+      if (!modelName) return 8192;
+      
+      const lower = modelName.toLowerCase();
+      return this.estimateContextWindow(lower);
+    }
+    
+    /**
      * 获取模型列表
      */
     getModels() {

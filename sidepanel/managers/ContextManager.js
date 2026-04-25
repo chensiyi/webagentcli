@@ -5,55 +5,21 @@
   
   class ContextManager {
     constructor() {
-      // 常见模型的上下文窗口大小
-      this.modelContextWindows = {
-        // OpenAI
-        'gpt-4': 8192,
-        'gpt-4-32k': 32768,
-        'gpt-4o': 128000,
-        'gpt-4o-mini': 128000,
-        'gpt-3.5-turbo': 16385,
-        
-        // Claude
-        'claude-3-opus': 200000,
-        'claude-3-sonnet': 200000,
-        'claude-3-haiku': 200000,
-        'claude-2': 100000,
-        
-        // Llama
-        'llama-3': 8192,
-        'llama-3-8b': 8192,
-        'llama-3-70b': 8192,
-        
-        // 默认值（保守估计）
-        'default': 8192
-      };
-      
       // Token 估算系数（字符数到 token 数的转换比例）
       // 英文约 4 字符/token，中文约 1.5-2 字符/token
       this.charToTokenRatio = 2.5;
     }
     
     /**
-     * 获取模型的上下文窗口大小
+     * 获取模型的上下文窗口大小（委托给 ModelManager）
      */
     getContextWindowSize(modelName) {
-      if (!modelName) return this.modelContextWindows.default;
-      
-      // 尝试精确匹配
-      if (this.modelContextWindows[modelName]) {
-        return this.modelContextWindows[modelName];
+      if (window.ModelManager) {
+        return window.ModelManager.getContextWindowSize(modelName);
       }
       
-      // 尝试部分匹配
-      for (const [key, value] of Object.entries(this.modelContextWindows)) {
-        if (modelName.toLowerCase().includes(key.toLowerCase())) {
-          return value;
-        }
-      }
-      
-      // 返回默认值
-      return this.modelContextWindows.default;
+      // 降级：如果 ModelManager 未加载，使用默认值
+      return 8192;
     }
     
     /**
