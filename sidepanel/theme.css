@@ -228,6 +228,16 @@ body {
   transform: scale(1.1) !important;
 }
 
+/* 消息删除按钮 */
+.btn-delete-message {
+  transition: all 0.2s ease;
+}
+
+.btn-delete-message:hover {
+  transform: scale(1.15);
+  box-shadow: 0 3px 6px rgba(0,0,0,0.3);
+}
+
 /* ==================== 输入框 ==================== */
 
 .input, .textarea {

@@ -182,8 +182,55 @@ window.Pages.chat = function(container) {
       messages.forEach((msg, index) => {
         const bubble = create('div', {
           className: `message-bubble message-${msg.role}`,
-          style: { marginBottom: '12px' }
+          style: { 
+            marginBottom: '12px',
+            position: 'relative'
+          }
         });
+        
+        // 用户消息添加删除按钮（hover 显示）
+        if (msg.role === 'user') {
+          const deleteBtn = create('button', {
+            className: 'btn-delete-message',
+            text: '×',
+            style: {
+              position: 'absolute',
+              bottom: '4px',
+              right: '4px',
+              width: '24px',
+              height: '24px',
+              borderRadius: '50%',
+              background: 'var(--color-danger)',
+              color: 'white',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: '16px',
+              lineHeight: '1',
+              padding: '0',
+              display: 'none',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+              zIndex: 10
+            },
+            onClick: async () => {
+              if (confirm('确定要删除这条消息吗？')) {
+                const session = sessionManager.getCurrentSession();
+                if (session) {
+                  session.messages.splice(index, 1);
+                  await saveToStorage();
+                  render();
+                }
+              }
+            }
+          });
+          
+          // hover 显示删除按钮
+          bubble.onmouseenter = () => deleteBtn.style.display = 'flex';
+          bubble.onmouseleave = () => deleteBtn.style.display = 'none';
+          
+          bubble.appendChild(deleteBtn);
+        }
         
         // 处理多模态内容
         if (Array.isArray(msg.content)) {
@@ -424,6 +471,64 @@ window.Pages.chat = function(container) {
     });
     
     input.addEventListener('keydown', async (e) => {
+      // Ctrl + ArrowUp/ArrowDown 导航用户消息
+      if (e.ctrlKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        e.preventDefault();
+        
+        const session = sessionManager.getCurrentSession();
+        if (!session || session.messages.length === 0) return;
+        
+        // 找到所有用户消息的索引
+        const userMessageIndices = [];
+        session.messages.forEach((msg, idx) => {
+          if (msg.role === 'user') {
+            userMessageIndices.push(idx);
+          }
+        });
+        
+        if (userMessageIndices.length === 0) return;
+        
+        // 找到当前可见的消息位置（最后一条消息）
+        let currentIndex = -1;
+        if (messageListElement) {
+          const bubbles = messageListElement.querySelectorAll('.message-bubble');
+          const scrollTop = messageListElement.scrollTop;
+          const containerHeight = messageListElement.clientHeight;
+          
+          // 找到最接近视口顶部的消息
+          for (let i = bubbles.length - 1; i >= 0; i--) {
+            const bubble = bubbles[i];
+            const rect = bubble.getBoundingClientRect();
+            const containerRect = messageListElement.getBoundingClientRect();
+            
+            if (rect.top >= containerRect.top && rect.top < containerRect.top + containerHeight / 2) {
+              currentIndex = i;
+              break;
+            }
+          }
+        }
+        
+        // 确定目标索引
+        let targetIndex;
+        if (e.key === 'ArrowUp') {
+          // 向上导航：找到当前索引之前的上一个用户消息
+          targetIndex = userMessageIndices.reverse().find(idx => idx < currentIndex) ?? userMessageIndices[userMessageIndices.length - 1];
+        } else {
+          // 向下导航：找到当前索引之后的下一个用户消息
+          targetIndex = userMessageIndices.find(idx => idx > currentIndex) ?? userMessageIndices[0];
+        }
+        
+        // 滚动到目标消息
+        if (targetIndex !== undefined && messageListElement) {
+          const bubbles = messageListElement.querySelectorAll('.message-bubble');
+          if (bubbles[targetIndex]) {
+            bubbles[targetIndex].scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        }
+        
+        return;
+      }
+      
       if (e.key === 'Enter' && !isLoading) {
         const text = input.value.trim();
         if (!text && pendingImages.length === 0) return;
