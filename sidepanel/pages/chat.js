@@ -212,15 +212,21 @@ window.Pages.chat = function(container) {
             boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
             zIndex: 10
           },
-          onClick: async () => {
-            if (confirm('确定要删除这条消息吗？')) {
-              const session = sessionManager.getCurrentSession();
-              if (session) {
-                session.messages.splice(index, 1);
-                await saveToStorage();
-                render();
+          onClick: () => {
+            window.ConfirmDialog.show({
+              title: '删除消息',
+              message: '确定要删除这条消息吗？此操作不可恢复。',
+              confirmText: '删除',
+              cancelText: '取消',
+              onConfirm: async () => {
+                const session = sessionManager.getCurrentSession();
+                if (session) {
+                  session.messages.splice(index, 1);
+                  await saveToStorage();
+                  render();
+                }
               }
-            }
+            });
           }
         });
         

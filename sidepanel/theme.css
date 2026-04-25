@@ -238,6 +238,41 @@ body {
   box-shadow: 0 3px 6px rgba(0,0,0,0.3);
 }
 
+/* 危险按钮 */
+.btn-danger {
+  background: var(--color-danger);
+  color: white;
+  border: none;
+  transition: all 0.2s ease;
+}
+
+.btn-danger:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+
+/* 确认对话框动画 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 /* ==================== 输入框 ==================== */
 
 .input, .textarea {
