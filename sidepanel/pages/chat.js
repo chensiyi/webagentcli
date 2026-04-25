@@ -188,49 +188,47 @@ window.Pages.chat = function(container) {
           }
         });
         
-        // 用户消息添加删除按钮（hover 显示）
-        if (msg.role === 'user') {
-          const deleteBtn = create('button', {
-            className: 'btn-delete-message',
-            text: '×',
-            style: {
-              position: 'absolute',
-              bottom: '4px',
-              right: '4px',
-              width: '24px',
-              height: '24px',
-              borderRadius: '50%',
-              background: 'var(--color-danger)',
-              color: 'white',
-              border: 'none',
-              cursor: 'pointer',
-              fontSize: '16px',
-              lineHeight: '1',
-              padding: '0',
-              display: 'none',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-              zIndex: 10
-            },
-            onClick: async () => {
-              if (confirm('确定要删除这条消息吗？')) {
-                const session = sessionManager.getCurrentSession();
-                if (session) {
-                  session.messages.splice(index, 1);
-                  await saveToStorage();
-                  render();
-                }
+        // 所有消息添加删除按钮（hover 显示）
+        const deleteBtn = create('button', {
+          className: 'btn-delete-message',
+          text: '×',
+          style: {
+            position: 'absolute',
+            bottom: '4px',
+            right: '4px',
+            width: '24px',
+            height: '24px',
+            borderRadius: '50%',
+            background: 'var(--color-danger)',
+            color: 'white',
+            border: 'none',
+            cursor: 'pointer',
+            fontSize: '16px',
+            lineHeight: '1',
+            padding: '0',
+            display: 'none',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+            zIndex: 10
+          },
+          onClick: async () => {
+            if (confirm('确定要删除这条消息吗？')) {
+              const session = sessionManager.getCurrentSession();
+              if (session) {
+                session.messages.splice(index, 1);
+                await saveToStorage();
+                render();
               }
             }
-          });
-          
-          // hover 显示删除按钮
-          bubble.onmouseenter = () => deleteBtn.style.display = 'flex';
-          bubble.onmouseleave = () => deleteBtn.style.display = 'none';
-          
-          bubble.appendChild(deleteBtn);
-        }
+          }
+        });
+        
+        // hover 显示删除按钮
+        bubble.onmouseenter = () => deleteBtn.style.display = 'flex';
+        bubble.onmouseleave = () => deleteBtn.style.display = 'none';
+        
+        bubble.appendChild(deleteBtn);
         
         // 处理多模态内容
         if (Array.isArray(msg.content)) {
