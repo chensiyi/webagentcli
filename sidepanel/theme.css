@@ -550,3 +550,269 @@ body {
   background: var(--color-surface);
   color: var(--color-text);
 }
+
+/* ==================== RAG 组件样式 ==================== */
+
+.rag-sources-container,
+.rag-context-container,
+.citations-container {
+  margin: 8px 0;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.rag-sources-header,
+.rag-context-header,
+.citations-header {
+  padding: 8px 12px;
+  background: var(--color-surface);
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.rag-sources-list {
+  padding: 8px;
+}
+
+.rag-source-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  text-decoration: none;
+  color: var(--color-text);
+  border-radius: 6px;
+  transition: background 0.2s;
+}
+
+.rag-source-item:hover {
+  background: var(--color-primary-light);
+}
+
+.source-number {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.source-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.source-title {
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+.rag-context-content {
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--color-bg);
+}
+
+.toggle-btn {
+  margin-left: auto;
+  padding: 4px 8px;
+  font-size: 11px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.toggle-btn:hover {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+/* ==================== 代码执行结果样式 ==================== */
+
+.js-code-result-container {
+  margin: 8px 0;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.code-block {
+  margin: 0;
+  padding: 12px;
+  background: #f5f5f5;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+[data-theme="dark"] .code-block {
+  background: #1e1e1e;
+}
+
+.result-section,
+.error-section {
+  border-top: 1px solid var(--color-border);
+}
+
+.result-header,
+.error-header {
+  padding: 8px 12px;
+  background: var(--color-surface);
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.result-content {
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  background: var(--color-bg);
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.error-content {
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  background: #ffebee;
+  color: #c62828;
+}
+
+[data-theme="dark"] .error-content {
+  background: #3e2723;
+  color: #ef9a9a;
+}
+
+/* ==================== 引用标注样式 ==================== */
+
+.citations-list {
+  list-style: none;
+  padding: 8px 12px;
+  margin: 0;
+}
+
+.citation-item {
+  padding: 6px 0;
+  font-size: 13px;
+  line-height: 1.5;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.citation-item:last-child {
+  border-bottom: none;
+}
+
+.citation-number {
+  font-weight: bold;
+  color: var(--color-primary);
+  margin-right: 8px;
+}
+
+.citation-text {
+  color: var(--color-text);
+}
+
+.citation-source {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+/* ==================== 思考和工具调用指示器 ==================== */
+
+.thinking-indicator,
+.tool-call-indicator {
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--color-surface);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* ==================== 思考过程容器 ==================== */
+
+.thinking-container {
+  margin: 8px 0;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.thinking-header {
+  padding: 8px 12px;
+  background: var(--color-surface);
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.thinking-header:hover {
+  background: var(--color-border);
+}
+
+.thinking-content {
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--color-bg);
+  white-space: pre-wrap;
+}
+
+/* ==================== 工具调用容器 ==================== */
+
+.tool-calls-container {
+  margin: 8px 0;
+}
+
+.tool-call-box {
+  padding: 8px 12px;
+  background: var(--color-primary-light);
+  border-radius: 6px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  border-left: 3px solid var(--color-primary);
+}

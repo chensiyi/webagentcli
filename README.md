@@ -39,24 +39,31 @@ AI Agent 运行时环境，为 AI 提供浏览器交互能力。
 
 ### 安装
 
-1. 克隆项目
-```bash
-git clone <repository-url>
-cd webagentcli
-```
+1. **下载源码**
+   - 从 GitHub 下载最新 release 的 Source code (zip)
+   - 或克隆项目：`git clone <repository-url>`
 
-2. 加载扩展
-- 打开 Chrome，访问 `chrome://extensions/`
-- 启用右上角的"开发者模式"
-- 点击"加载已解压的扩展程序"
-- 选择项目根目录（包含 manifest.json 的目录）
+2. **加载扩展**
+   - 打开 Chrome，访问 `chrome://extensions/`
+   - 启用右上角的“开发者模式”
+   - 点击“加载已解压的扩展程序”
+   - 选择项目根目录（包含 manifest.json 的目录）
 
-### 测试
+3. **使用**
+   - 打开任意网页
+   - 点击浏览器工具栏中的扩展图标
+   - 右侧会出现 Side Panel 聊天界面
+   - 在设置页面配置 API Key 后即可使用
 
-1. 打开任意网页（如 https://www.baidu.com）
-2. 点击浏览器工具栏中的扩展图标
-3. 右侧会出现 Side Panel 聊天界面
-4. 输入消息并发送，查看响应
+4. **启用用户脚本支持（可选）**
+   
+   如需运行自定义用户脚本，需要启用 Tampermonkey 兼容模式：
+   
+   - Chrome 地址栏输入 `chrome://extensions/`
+   - 找到 Web Agent Client 扩展
+   - 点击“详细信息”
+   - 开启“允许访问文件 URL”（如需要）
+   - 参考 [Tampermonkey 用户脚本指南](https://tampermonkey.net/faq.php#Q203) 了解更多
 
 ### 调试
 
@@ -232,9 +239,10 @@ port.postMessage({ type: 'error', error: '...' });     // 错误
 - **历史对话**：持久化存储，支持搜索、删除
 - **用户脚本管理**：动态注册和执行用户脚本（MAIN world）
 - **模型配置**：支持自定义 API 端点、模型、温度等参数
+- **多模态支持**：图片上传和视觉理解
+- **扩展能力框架**：预留 RAG、思考模式、代码执行、工具调用等接口
 
 #### 🚧 计划中
-- [ ] 多模态支持（图片、文件上传）
 - [ ] 工具调用（浏览器自动化操作）
 - [ ] 语音输入/输出
 - [ ] 代码高亮和语法检测

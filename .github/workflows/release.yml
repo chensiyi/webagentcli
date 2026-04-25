@@ -1,4 +1,4 @@
-name: Build and Release
+name: Release
 
 on:
   push:
@@ -9,51 +9,38 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v5
-      with:
-        fetch-depth: 0
-    
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '24'
+      uses: actions/checkout@v4
     
     - name: Get version from tag
       id: get_version
       run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
     
-    - name: Build script
-      run: |
-        # 运行发布版本构建（自动关闭 DEBUG_MODE）
-        echo "Running release build..."
-        RELEASE=true node build.js
-        
-        # 验证构建产物
-        if [ -f dist/agent.user.js ]; then
-          echo "✅ Release build successful!"
-          ls -lh dist/agent.user.js
-        else
-          echo "❌ Build failed: dist/agent.user.js not found"
-          exit 1
-        fi
-    
     - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ github.ref_name }}
-        name: Release ${{ steps.get_version.outputs.VERSION }}
+        name: Web Agent Client v${{ steps.get_version.outputs.VERSION }}
         body: |
-          ## Free Web AI Agent v${{ steps.get_version.outputs.VERSION }}
+          ## Web Agent Client v${{ steps.get_version.outputs.VERSION }}
           
           ### 📦 安装
-          直接下载 `agent.user.js` 并安装到 Tampermonkey
-        files: |
-          dist/agent.user.js
+          
+          1. 下载 Source code (zip)
+          2. 解压文件
+          3. Chrome 浏览器打开 `chrome://extensions/`
+          4. 开启“开发者模式”
+          5. 点击“加载已解压的扩展程序”
+          6. 选择解压后的文件夹
+          7. 启用用户脚本支持（可选）
+          
+          ### ✨ 主要更新
+          
+          详见 GitHub Releases 自动生成的更新日志
         draft: false
         prerelease: false
         generate_release_notes: true

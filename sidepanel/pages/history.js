@@ -38,7 +38,12 @@ window.Pages.history = function(container) {
   
   // 删除对话
   async function deleteConversation(id) {
-    if (!confirm('确定删除此对话？')) return;
+    const confirmed = await window.Toast.confirm({
+      title: '删除对话',
+      message: '确定删除此对话？此操作不可恢复。'
+    });
+    
+    if (!confirmed) return;
     
     // 取消该会话的请求
     sessionManager.cancelRequest(id);
@@ -58,6 +63,8 @@ window.Pages.history = function(container) {
     
     await saveConversations();
     render();
+    
+    window.Toast.success('对话已删除');
   }
   
   // 加载当前对话到 chat 页面

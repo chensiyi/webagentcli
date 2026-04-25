@@ -40,8 +40,21 @@
         // 每条消息的基础开销（role + 格式）
         totalTokens += 4;
         
-        // 内容 token
-        totalTokens += this.estimateTokens(msg.content);
+        // 处理多模态消息（数组格式）
+        if (Array.isArray(msg.content)) {
+          for (const item of msg.content) {
+            if (item.type === 'text') {
+              totalTokens += this.estimateTokens(item.text);
+            } else if (item.type === 'image_url') {
+              // 图片 token 估算：根据 OpenAI 的定价，低细节 85 tokens，高细节更贶
+              // 这里使用保守估计 100 tokens/图片
+              totalTokens += 100;
+            }
+          }
+        } else {
+          // 普通文本消息
+          totalTokens += this.estimateTokens(msg.content);
+        }
       }
       
       return totalTokens;
@@ -80,9 +93,15 @@
       const remainingTokens = availableTokens - systemTokens;
       
       if (remainingTokens <= 0) {
-        // 系统消息已经超过限制，只保留系统消息
-        console.warn('[ContextManager] System messages exceed context window');
-        return [...systemMessages];
+        // 系统消息已经超过限制
+        if (systemMessages.length > 0) {
+          console.warn('[ContextManager] System messages exceed context window, keeping only system messages');
+          return [...systemMessages];
+        } else {
+          // 没有系统消息，但至少保留最后一条消息
+          console.warn('[ContextManager] No system messages, keeping last message only');
+          return [messages[messages.length - 1]];
+        }
       }
       
       // 从后往前选择消息，优先保留最近的消息
@@ -101,8 +120,20 @@
         }
       }
       
+      // 确保至少有一条消息
+      if (selectedMessages.length === 0 && otherMessages.length > 0) {
+        console.warn('[ContextManager] No messages fit in remaining tokens, keeping last message');
+        selectedMessages.push(otherMessages[otherMessages.length - 1]);
+      }
+      
       // 组合最终消息列表
       const result = [...systemMessages, ...selectedMessages];
+      
+      // 最终验证：确保不为空
+      if (result.length === 0) {
+        console.error('[ContextManager] CRITICAL: Truncation resulted in empty messages, keeping last message');
+        return [messages[messages.length - 1]];
+      }
       
       console.log(`[ContextManager] Truncated from ${messages.length} to ${result.length} messages`);
       console.log(`[ContextManager] Used tokens: ${systemTokens + usedTokens}/${availableTokens}`);

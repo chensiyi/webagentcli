@@ -7,6 +7,7 @@ window.Pages.chat = function(container) {
   const contextManager = window.ContextManager;
   const mediaUtils = window.MediaUtils;
   const modelManager = window.ModelManager;
+  const messageRegistry = window.MessageTypes?.MessageHandlerRegistry; // TODO: 预留 - 多模态消息处理器注册表
   
   let currentConversationId = null;
   let conversations = [];
@@ -14,6 +15,88 @@ window.Pages.chat = function(container) {
   let lastMessageElement = null;
   let pendingImages = []; // 待发送的图片
   let currentSettings = null; // 当前设置
+  
+  /**
+   * 检查模型是否支持视觉（回退机制）
+   * 如果 ModelManager 已加载模型列表，使用缓存的能力数据
+   * 否则直接使用实例方法检测
+   */
+  function checkModelVisionSupport(modelName) {
+    if (!modelName) return false;
+    
+    // 1. 优先使用 ModelManager 的缓存数据
+    const cachedCapability = modelManager.getCapability(modelName);
+    if (cachedCapability) {
+      return cachedCapability.vision;
+    }
+    
+    // 2. 回退：使用实例方法直接检测
+    return modelManager.isVisionModel(modelName);
+  }
+  
+  /**
+   * 渲染多模态消息内容
+   * @param {Array|String} content - 消息内容
+   * @param {HTMLElement} container - 容器元素
+   * 
+   * TODO: 预留接口 - 支持 RAG、代码执行、引用标注等扩展能力
+   * 当前仅处理 text 和 image_url，其他类型通过 MessageHandlerRegistry 处理
+   */
+  function renderMessageContent(content, container) {
+    // 处理数组格式的多模态内容
+    if (Array.isArray(content)) {
+      content.forEach(item => {
+        // 尝试使用注册的处理器
+        if (messageRegistry && item.type !== 'text' && item.type !== 'image_url') {
+          const handler = messageRegistry.getHandler(item.type);
+          if (handler) {
+            try {
+              const element = handler(item);
+              if (element) {
+                container.appendChild(element);
+                return;
+              }
+            } catch (error) {
+              console.warn('[Chat] Handler error for type:', item.type, error);
+            }
+          }
+        }
+        
+        // 默认处理
+        if (item.type === 'text') {
+          const contentDiv = create('div', { 
+            className: 'message-content',
+            style: { lineHeight: '1.6', wordWrap: 'break-word' }
+          });
+          contentDiv.innerHTML = window.renderMarkdown(item.text);
+          container.appendChild(contentDiv);
+        } else if (item.type === 'image_url') {
+          const imgContainer = create('div', {
+            style: { margin: '8px 0' }
+          });
+          const img = create('img', {
+            attrs: { src: item.image_url.url },
+            style: { maxWidth: '100%', borderRadius: '8px', cursor: 'pointer' }
+          });
+          img.onclick = () => window.open(item.image_url.url, '_blank');
+          imgContainer.appendChild(img);
+          container.appendChild(imgContainer);
+        }
+      });
+    } else {
+      // 普通文本消息
+      const contentDiv = create('div', { 
+        className: 'message-content',
+        style: { 
+          lineHeight: '1.6', 
+          wordWrap: 'break-word'
+        }
+      });
+      
+      contentDiv.innerHTML = window.renderMarkdown(content || '');
+      container.appendChild(contentDiv);
+    }
+  }
   
   // 从 storage 加载消息
   async function loadMessages() {
@@ -236,54 +319,114 @@ window.Pages.chat = function(container) {
         
         bubble.appendChild(deleteBtn);
         
-        // 处理多模态内容
-        if (Array.isArray(msg.content)) {
-          msg.content.forEach(item => {
-            if (item.type === 'text') {
-              const contentDiv = create('div', { 
-                className: 'message-content',
-                style: { lineHeight: '1.6', wordWrap: 'break-word' }
-              });
-              contentDiv.innerHTML = window.renderMarkdown(item.text);
-              bubble.appendChild(contentDiv);
-            } else if (item.type === 'image_url') {
-              const imgContainer = create('div', {
-                style: { margin: '8px 0' }
-              });
-              const img = create('img', {
-                attrs: { src: item.image_url.url },
-                style: { maxWidth: '100%', borderRadius: '8px', cursor: 'pointer' }
-              });
-              img.onclick = () => window.open(item.image_url.url, '_blank');
-              imgContainer.appendChild(img);
-              bubble.appendChild(imgContainer);
-            }
-          });
-        } else {
-          // 普通文本消息
-          const contentDiv = create('div', { 
-            className: 'message-content',
-            style: { 
-              lineHeight: '1.6', 
-              wordWrap: 'break-word',
-              // 错误消息特殊样式
-              ...(msg.isError ? {
-                color: 'var(--color-danger)',
-                background: 'rgba(244, 67, 54, 0.1)',
-                padding: '8px 12px',
-                borderRadius: '6px'
-              } : {})
-            }
+        // 显示思考过程（如果存在）
+        // TODO: 预留接口 - Thinking Mode / Reasoning 支持
+        if (msg.additional_kwargs?.reasoning_content && msg.role === 'assistant') {
+          const thinkingContainer = create('div', {
+            className: 'thinking-container',
+            style: { marginBottom: '8px' }
           });
           
-          if (msg.role === 'assistant') {
-            contentDiv.innerHTML = window.renderMarkdown(msg.content || '');
-          } else {
-            contentDiv.textContent = msg.content;
-          }
+          const header = create('div', {
+            className: 'thinking-header',
+            style: {
+              fontSize: '12px',
+              color: 'var(--color-text-secondary)',
+              cursor: 'pointer',
+              padding: '6px 8px',
+              background: 'var(--color-surface)',
+              borderRadius: '6px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            },
+            text: '💭 思考过程'
+          });
           
-          bubble.appendChild(contentDiv);
+          const toggleBtn = create('span', {
+            style: { marginLeft: 'auto', fontSize: '10px' },
+            text: '展开'
+          });
+          header.appendChild(toggleBtn);
+          
+          const content = create('div', {
+            className: 'thinking-content',
+            style: {
+              display: 'none',
+              padding: '8px',
+              marginTop: '4px',
+              fontSize: '13px',
+              lineHeight: '1.6',
+              color: 'var(--color-text-secondary)',
+              background: 'var(--color-bg)',
+              borderRadius: '6px',
+              whiteSpace: 'pre-wrap'
+            },
+            text: msg.additional_kwargs.reasoning_content
+          });
+          
+          let isExpanded = false;
+          header.onclick = () => {
+            isExpanded = !isExpanded;
+            content.style.display = isExpanded ? 'block' : 'none';
+            toggleBtn.textContent = isExpanded ? '收起' : '展开';
+          };
+          
+          thinkingContainer.appendChild(header);
+          thinkingContainer.appendChild(content);
+          bubble.appendChild(thinkingContainer);
         }
+        
+        // 显示工具调用（如果存在）
+        // TODO: 预留接口 - Tool Calling 支持
+        if (msg.tool_calls && msg.tool_calls.length > 0) {
+          const toolContainer = create('div', {
+            className: 'tool-calls-container',
+            style: { marginBottom: '8px' }
+          });
+          
+          msg.tool_calls.forEach((toolCall, idx) => {
+            const toolBox = create('div', {
+              className: 'tool-call-box',
+              style: {
+                padding: '8px',
+                background: 'var(--color-primary-light)',
+                borderRadius: '6px',
+                marginBottom: '4px',
+                fontSize: '12px'
+              }
+            });
+            
+            const toolName = toolCall.function?.name || '未知工具';
+            toolBox.innerHTML = `<strong>🔧 ${toolName}</strong>`;
+            
+            if (toolCall.function?.arguments) {
+              try {
+                const args = JSON.parse(toolCall.function.arguments);
+                const argsDiv = create('div', {
+                  style: { 
+                    marginTop: '4px',
+                    fontFamily: 'monospace',
+                    fontSize: '11px',
+                    maxHeight: '100px',
+                    overflow: 'auto'
+                  },
+                  text: JSON.stringify(args, null, 2)
+                });
+                toolBox.appendChild(argsDiv);
+              } catch (e) {
+                // 忽略解析错误
+              }
+            }
+            
+            toolContainer.appendChild(toolBox);
+          });
+          
+          bubble.appendChild(toolContainer);
+        }
+        
+        // 使用统一的渲染函数处理多模态内容
+        renderMessageContent(msg.content, bubble);
         
         messageListElement.appendChild(bubble);
         
@@ -398,7 +541,7 @@ window.Pages.chat = function(container) {
     const inputRow = create('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } });
     
     // 图片上传按钮
-    const supportsVision = currentSettings && modelManager.getCapability(currentSettings.model)?.vision;
+    const supportsVision = currentSettings && checkModelVisionSupport(currentSettings.model);
     const uploadBtn = create('button', {
       className: 'btn btn-secondary',
       text: '📷',
@@ -451,7 +594,7 @@ window.Pages.chat = function(container) {
       className: 'input',
       attrs: { 
         type: 'text', 
-        placeholder: currentSettings && modelManager.getCapability(currentSettings.model)?.vision 
+        placeholder: currentSettings && checkModelVisionSupport(currentSettings.model) 
           ? '输入消息或拖拽/粘贴图片...' 
           : '输入消息...'
       },
@@ -545,7 +688,18 @@ window.Pages.chat = function(container) {
       
       if (e.key === 'Enter' && !isLoading) {
         const text = input.value.trim();
-        if (!text && pendingImages.length === 0) return;
+        
+        // 严格验证：文本和图片至少有一个
+        if (!text && pendingImages.length === 0) {
+          console.warn('[Chat] Empty message blocked');
+          return;
+        }
+        
+        // 如果只有文本，再次验证不为空
+        if (text && text.length === 0) {
+          console.warn('[Chat] Empty text blocked');
+          return;
+        }
         
         // 如果没有当前会话，创建新会话
         if (!currentConversationId) {
@@ -620,6 +774,13 @@ window.Pages.chat = function(container) {
             ];
           }
           
+          // 验证消息列表不为空
+          if (chatMessages.length === 0) {
+            throw new Error('消息列表为空，无法发送请求');
+          }
+          
+          console.log('[Chat] Sending messages:', chatMessages.length, 'messages');
+          
           // 智能截断消息以适应上下文窗口（如果启用）
           if (settings.autoContextTruncation !== false) {
             const beforeTruncate = chatMessages.length;
@@ -672,19 +833,82 @@ window.Pages.chat = function(container) {
                 currentMsg.content += msg.content;
               }
               
-              saveToStorage();
-              
               // 只在当前会话时更新 UI
               const currentSession = sessionManager.getCurrentSession();
               if (currentSession && currentSession.id === session.id) {
-                if (lastMessageElement) {
+                // 优先使用 DOM 更新（性能更好）
+                if (lastMessageElement && currentMsg) {
                   lastMessageElement.innerHTML = window.renderMarkdown(currentMsg.content);
+                } else {
+                  // 回退：重新渲染整个列表
+                  console.warn('[Chat] lastMessageElement is null, re-rendering...');
+                  render();
                 }
                 
                 if (messageListElement) {
                   messageListElement.scrollTop = messageListElement.scrollHeight;
                 }
               }
+              
+              // 异步保存（不阻塞 UI）
+              saveToStorage();
+            } else if (msg.type === 'reasoning' || msg.type === 'thinking') {
+              // TODO: 预留接口 - 流式思考过程处理
+              // 处理思考过程
+              const currentMsg = targetSession.messages[targetSession.messages.length - 1];
+              if (currentMsg && currentMsg.role === 'assistant') {
+                // 将思考内容添加到 additional_kwargs
+                if (!currentMsg.additional_kwargs) {
+                  currentMsg.additional_kwargs = {};
+                }
+                currentMsg.additional_kwargs.reasoning_content = 
+                  (currentMsg.additional_kwargs.reasoning_content || '') + (msg.reasoning_content || msg.content || '');
+              }
+              
+              // 显示思考状态
+              const currentSession = sessionManager.getCurrentSession();
+              if (currentSession && currentSession.id === session.id && lastMessageElement) {
+                const thinkingIndicator = create('div', {
+                  className: 'thinking-indicator',
+                  style: { 
+                    fontSize: '12px', 
+                    color: 'var(--color-text-secondary)',
+                    fontStyle: 'italic',
+                    marginBottom: '8px'
+                  },
+                  text: '💭 思考中...'
+                });
+                lastMessageElement.parentNode.insertBefore(thinkingIndicator, lastMessageElement);
+              }
+              
+              saveToStorage();
+            } else if (msg.type === 'tool_call') {
+              // TODO: 预留接口 - 流式工具调用处理
+              // 处理工具调用
+              const currentMsg = targetSession.messages[targetSession.messages.length - 1];
+              if (currentMsg && currentMsg.role === 'assistant') {
+                if (!currentMsg.tool_calls) {
+                  currentMsg.tool_calls = [];
+                }
+                currentMsg.tool_calls.push(...(msg.tool_calls || []));
+              }
+              
+              // 显示工具调用状态
+              const currentSession = sessionManager.getCurrentSession();
+              if (currentSession && currentSession.id === session.id && lastMessageElement) {
+                const toolIndicator = create('div', {
+                  className: 'tool-call-indicator',
+                  style: { 
+                    fontSize: '12px', 
+                    color: 'var(--color-primary)',
+                    marginBottom: '8px'
+                  },
+                  text: '🔧 调用工具...'
+                });
+                lastMessageElement.parentNode.insertBefore(toolIndicator, lastMessageElement);
+              }
+              
+              saveToStorage();
             } else if (msg.type === 'complete') {
               port.disconnect();
               sessionManager.completeStreamRequest(session.id);

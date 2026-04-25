@@ -120,9 +120,15 @@ window.Pages.scripts = function(container) {
   }
   
   async function deleteScript(id) {
-    if (confirm('确定删除？')) {
+    const confirmed = await window.Toast.confirm({
+      title: '删除脚本',
+      message: '确定删除此脚本？此操作不可恢复。'
+    });
+    
+    if (confirmed) {
       await window.userScriptManager.deleteScript(id);
       loadScripts();
+      window.Toast.success('脚本已删除');
     }
   }
   

@@ -9,6 +9,9 @@
       this.capabilities = {}; // { modelName: { vision, streaming, ... } }
       this.lastFetchTime = null;
       this.cacheDuration = 5 * 60 * 1000; // 缓存5分钟
+      
+      // 使用全局的 CapabilityManager（如果存在）
+      this.capabilityManager = window.MessageTypes?.CapabilityManager || null;
     }
     
     /**
@@ -49,24 +52,21 @@
       this.capabilities = {};
       
       this.models.forEach(modelName => {
-        const lower = modelName.toLowerCase();
-        
-        this.capabilities[modelName] = {
-          // 视觉能力检测
-          vision: this.checkVisionSupport(lower),
-                
-          // 音频能力检测
-          audio: this.checkAudioSupport(lower),
-                
-          // 流式支持（大部分模型都支持）
-          streaming: true,
-                
-          // 工具调用能力
-          tools: this.checkToolsSupport(lower),
-                
-          // 上下文窗口大小估算
-          contextWindow: this.estimateContextWindow(lower)
-        };
+        // 优先使用 CapabilityManager
+        if (this.capabilityManager) {
+          this.capabilities[modelName] = this.capabilityManager.getModelCapabilities(modelName);
+        } else {
+          // 回退到原有逻辑
+          const lower = modelName.toLowerCase();
+          
+          this.capabilities[modelName] = {
+            vision: this.checkVisionSupport(lower),
+            audio: this.checkAudioSupport(lower),
+            streaming: true,
+            tools: this.checkToolsSupport(lower),
+            contextWindow: this.estimateContextWindow(lower)
+          };
+        }
       });
     }
     
@@ -90,6 +90,9 @@
         'gemini-1.5-pro', 'gemini-1.5-flash',
         'gemini-2.0-pro', 'gemini-2.0-flash',
         'gemini-exp',
+        
+        // Google Gemma
+        'gemma',
         
         // Qwen (阿里云)
         'qwen-vl', 'qwen2-vl', 'qwen3-vl',
@@ -238,6 +241,23 @@
       this.models = [];
       this.capabilities = {};
       this.lastFetchTime = null;
+    }
+    
+    /**
+     * 检查模型是否支持视觉（无需加载模型列表）
+     * 用于在模型列表未加载时进行快速检测
+     */
+    isVisionModel(modelName) {
+      if (!modelName) return false;
+      
+      // 优先使用 CapabilityManager
+      if (this.capabilityManager) {
+        return this.capabilityManager.checkCapability(modelName.toLowerCase(), window.MessageTypes.ModelCapability.VISION);
+      }
+      
+      // 回退到原有逻辑
+      const lower = modelName.toLowerCase();
+      return this.checkVisionSupport(lower);
     }
   }
   

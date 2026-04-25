@@ -18,7 +18,7 @@ chrome.runtime.onConnect.addListener((port) => {
     port.onMessage.addListener(async (data) => {
       const { messages, apiKey, apiEndpoint, model, temperature, maxTokens } = data;
       
-      console.log('[Background] Stream chat via port:', { apiEndpoint, model });
+      console.log('[Background] Stream chat:', model);
       
       try {
         // 检查消息中是否包含图片
@@ -125,6 +125,31 @@ chrome.runtime.onConnect.addListener((port) => {
                   }
                   
                   const content = chunkData.choices[0]?.delta?.content || '';
+                  // TODO: 预留接口 - 提取 reasoning/thinking 内容
+                  const reasoningContent = chunkData.choices[0]?.delta?.reasoning_content || 
+                                          chunkData.choices[0]?.delta?.thinking || '';
+                  // TODO: 预留接口 - 提取 tool_calls
+                  const toolCalls = chunkData.choices[0]?.delta?.tool_calls;
+                  
+                  // TODO: 预留接口 - 发送思考内容到 sidepanel
+                  // 发送思考内容
+                  if (reasoningContent && !isDisconnected) {
+                    port.postMessage({ 
+                      type: 'reasoning', 
+                      reasoning_content: reasoningContent 
+                    });
+                  }
+                  
+                  // TODO: 预留接口 - 发送工具调用到 sidepanel
+                  // 发送工具调用
+                  if (toolCalls && toolCalls.length > 0 && !isDisconnected) {
+                    port.postMessage({ 
+                      type: 'tool_call', 
+                      tool_calls: toolCalls 
+                    });
+                  }
+                  
+                  // 发送普通文本
                   if (content && !isDisconnected) {
                     port.postMessage({ type: 'chunk', content });
                   }
