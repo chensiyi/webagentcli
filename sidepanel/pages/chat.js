@@ -5,11 +5,13 @@ window.Pages.chat = function(container) {
   const { create, clear } = window.DOM;
   const sessionManager = window.SessionManager;
   const contextManager = window.ContextManager;
+  const mediaUtils = window.MediaUtils;
   
   let currentConversationId = null;
   let conversations = [];
   let messageListElement = null;
   let lastMessageElement = null;
+  let pendingImages = []; // 待发送的图片
   
   // 从 storage 加载消息
   async function loadMessages() {
@@ -138,25 +140,49 @@ window.Pages.chat = function(container) {
           style: { marginBottom: '12px' }
         });
         
-        const contentDiv = create('div', { 
-          className: 'message-content',
-          style: { 
-            lineHeight: '1.6',
-            wordWrap: 'break-word'
-          }
-        });
-        
-        if (msg.role === 'assistant') {
-          contentDiv.innerHTML = window.renderMarkdown(msg.content || '');
+        // 处理多模态内容
+        if (Array.isArray(msg.content)) {
+          msg.content.forEach(item => {
+            if (item.type === 'text') {
+              const contentDiv = create('div', { 
+                className: 'message-content',
+                style: { lineHeight: '1.6', wordWrap: 'break-word' }
+              });
+              contentDiv.innerHTML = window.renderMarkdown(item.text);
+              bubble.appendChild(contentDiv);
+            } else if (item.type === 'image_url') {
+              const imgContainer = create('div', {
+                style: { margin: '8px 0' }
+              });
+              const img = create('img', {
+                attrs: { src: item.image_url.url },
+                style: { maxWidth: '100%', borderRadius: '8px', cursor: 'pointer' }
+              });
+              img.onclick = () => window.open(item.image_url.url, '_blank');
+              imgContainer.appendChild(img);
+              bubble.appendChild(imgContainer);
+            }
+          });
         } else {
-          contentDiv.textContent = msg.content;
+          // 普通文本消息
+          const contentDiv = create('div', { 
+            className: 'message-content',
+            style: { lineHeight: '1.6', wordWrap: 'break-word' }
+          });
+          
+          if (msg.role === 'assistant') {
+            contentDiv.innerHTML = window.renderMarkdown(msg.content || '');
+          } else {
+            contentDiv.textContent = msg.content;
+          }
+          
+          bubble.appendChild(contentDiv);
         }
         
-        bubble.appendChild(contentDiv);
         messageListElement.appendChild(bubble);
         
         if (index === messages.length - 1) {
-          lastMessageElement = contentDiv;
+          lastMessageElement = bubble.querySelector('.message-content') || bubble.lastElementChild;
         }
       });
       
@@ -178,7 +204,103 @@ window.Pages.chat = function(container) {
       style: { padding: '12px' }
     });
     
-    const inputRow = create('div', { style: { display: 'flex', gap: '8px' } });
+    // 图片预览区
+    if (pendingImages.length > 0) {
+      const previewContainer = create('div', {
+        style: { 
+          display: 'flex', 
+          gap: '8px', 
+          marginBottom: '8px',
+          flexWrap: 'wrap'
+        }
+      });
+      
+      pendingImages.forEach((img, index) => {
+        const previewBox = create('div', {
+          style: { position: 'relative', display: 'inline-block' }
+        });
+        
+        const imgEl = create('img', {
+          attrs: { src: img.previewUrl },
+          style: { 
+            width: '60px', 
+            height: '60px', 
+            objectFit: 'cover',
+            borderRadius: '4px',
+            border: '1px solid var(--color-border)'
+          }
+        });
+        
+        const removeBtn = create('button', {
+          text: '×',
+          style: {
+            position: 'absolute',
+            top: '-4px',
+            right: '-4px',
+            width: '18px',
+            height: '18px',
+            borderRadius: '50%',
+            background: 'var(--color-danger)',
+            color: 'white',
+            border: 'none',
+            cursor: 'pointer',
+            fontSize: '12px',
+            lineHeight: '1',
+            padding: '0'
+          },
+          onClick: () => {
+            mediaUtils.revokePreview(img.previewUrl);
+            pendingImages.splice(index, 1);
+            render();
+          }
+        });
+        
+        previewBox.appendChild(imgEl);
+        previewBox.appendChild(removeBtn);
+        previewContainer.appendChild(previewBox);
+      });
+      
+      inputArea.appendChild(previewContainer);
+    }
+    
+    const inputRow = create('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } });
+    
+    // 图片上传按钮
+    const uploadBtn = create('button', {
+      className: 'btn btn-secondary',
+      text: '📷',
+      style: { padding: '8px 12px', fontSize: '16px' },
+      title: '上传图片'
+    });
+    
+    const fileInput = create('input', {
+      attrs: { type: 'file', accept: 'image/*', multiple: true },
+      style: { display: 'none' },
+      onChange: async (e) => {
+        const files = Array.from(e.target.files);
+        
+        for (const file of files) {
+          try {
+            mediaUtils.validateImage(file);
+            
+            // 压缩图片
+            const compressedBlob = await mediaUtils.compressImage(file);
+            const dataUrl = await mediaUtils.fileToBase64(compressedBlob);
+            const previewUrl = mediaUtils.createPreview(file);
+            
+            pendingImages.push({ dataUrl, previewUrl, filename: file.name });
+            render();
+          } catch (error) {
+            alert(error.message);
+          }
+        }
+        
+        // 清空 file input
+        e.target.value = '';
+      }
+    });
+    
+    uploadBtn.onclick = () => fileInput.click();
     
     const input = create('input', {
       className: 'input',
@@ -189,7 +311,7 @@ window.Pages.chat = function(container) {
     input.addEventListener('keydown', async (e) => {
       if (e.key === 'Enter' && !isLoading) {
         const text = input.value.trim();
-        if (!text) return;
+        if (!text && pendingImages.length === 0) return;
         
         // 如果没有当前会话，创建新会话
         if (!currentConversationId) {
@@ -201,10 +323,42 @@ window.Pages.chat = function(container) {
         const session = sessionManager.getCurrentSession();
         if (!session) return;
         
+        // 构建多模态消息
+        let userMessage;
+        if (pendingImages.length > 0 && text) {
+          // 文本 + 图片
+          userMessage = {
+            role: 'user',
+            content: [
+              { type: 'text', text },
+              ...pendingImages.map(img => ({
+                type: 'image_url',
+                image_url: { url: img.dataUrl }
+              }))
+            ]
+          };
+        } else if (pendingImages.length > 0) {
+          // 仅图片
+          userMessage = {
+            role: 'user',
+            content: pendingImages.map(img => ({
+              type: 'image_url',
+              image_url: { url: img.dataUrl }
+            }))
+          };
+        } else {
+          // 仅文本
+          userMessage = { role: 'user', content: text };
+        }
+        
         // 添加用户消息
-        sessionManager.addMessage(session.id, { role: 'user', content: text });
+        sessionManager.addMessage(session.id, userMessage);
         await saveToStorage();
+        
+        // 清空输入和图片
         input.value = '';
+        pendingImages.forEach(img => mediaUtils.revokePreview(img.previewUrl));
+        pendingImages = [];
         
         render();
         
@@ -359,6 +513,8 @@ window.Pages.chat = function(container) {
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
     });
     
+    inputRow.appendChild(uploadBtn);
+    inputRow.appendChild(fileInput);
     inputRow.appendChild(input);
     inputRow.appendChild(sendBtn);
     inputArea.appendChild(inputRow);

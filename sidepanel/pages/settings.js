@@ -16,6 +16,7 @@ window.Pages.settings = function(container) {
   };
   
   let availableModels = [];
+  let modelCapabilities = {}; // 模型能力 { modelName: { vision: true, ... } }
   let isLoadingModels = false;
   
   async function loadModels() {
@@ -32,6 +33,17 @@ window.Pages.settings = function(container) {
       
       if (response.success) {
         availableModels = response.models;
+        
+        // 根据模型名称推断能力
+        modelCapabilities = {};
+        availableModels.forEach(modelName => {
+          const lower = modelName.toLowerCase();
+          modelCapabilities[modelName] = {
+            vision: lower.includes('gpt-4o') || lower.includes('claude-3') || lower.includes('gemini') || lower.includes('vision'),
+            streaming: true // 大部分模型都支持流式
+          };
+        });
+        
         console.log('[Settings] Loaded', availableModels.length, 'models');
       } else {
         alert('加载失败: ' + response.error);
@@ -106,6 +118,23 @@ window.Pages.settings = function(container) {
         })
       ])
     ]));
+    
+    // 模型能力提示
+    if (settings.model && modelCapabilities[settings.model]) {
+      const caps = modelCapabilities[settings.model];
+      const badges = [];
+      if (caps.vision) badges.push('🖼️ 支持图片');
+      if (caps.streaming) badges.push('⚡ 支持流式');
+      
+      if (badges.length > 0) {
+        content.appendChild(create('div', { 
+          className: 'setting-group',
+          style: { fontSize: '12px', color: 'var(--color-text-secondary)' }
+        }, [
+          create('span', { text: '模型能力: ' + badges.join(' | ') })
+        ]));
+      }
+    }
     
     content.appendChild(create('div', { className: 'setting-group' }, [
       create('label', { className: 'setting-label', text: '温度 (0-2)' }),
