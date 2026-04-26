@@ -104,7 +104,7 @@ chrome.runtime.onConnect.addListener((port) => {
                   
                   // 检查是否有错误信息
                   if (chunkData.error) {
-                    console.error('[Background] API error in stream:', chunkData.error);
+                    console.error('[Background] API error in stream:', JSON.stringify(chunkData.error, null, 2));
                     if (!isDisconnected) {
                       port.postMessage({ 
                         type: 'error', 
