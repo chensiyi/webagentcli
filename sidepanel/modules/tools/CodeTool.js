@@ -58,53 +58,79 @@ Full access to page DOM: document, window, fetch, localStorage, etc.
       }
       
       const tabId = tabs[0].id;
-      const requestId = `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       
-      // 注册用户脚本（动态注册，包含用户代码）
-      await chrome.userScripts.register([{
-        id: `webagentcli-temp-${requestId}`,
-        matches: ['<all_urls>'],
-        js: [{ code: this.buildUserScriptCode(code, requestId) }],
-        world: 'MAIN',
-        runAt: 'document_idle'
-      }]);
+      // 使用 chrome.scripting.executeScript 注入脚本到 MAIN world
+      // 通过创建 script 标签来执行代码（绕过 CSP 的 unsafe-eval 限制）
+      const result = await chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        func: (userCode) => {
+          return new Promise((resolve) => {
+            try {
+              // 创建一个临时的 script 标签
+              const script = document.createElement('script');
+              script.textContent = `
+                (function() {
+                  try {
+                    const result = (${userCode});
+                    window._codeExecResult = { success: true, result: result, type: typeof result };
+                  } catch (error) {
+                    window._codeExecResult = { success: false, error: error.message, stack: error.stack };
+                  }
+                })();
+              `;
+              
+              // 添加到文档中执行
+              document.documentElement.appendChild(script);
+              
+              // 等待执行完成
+              setTimeout(() => {
+                const result = window._codeExecResult;
+                delete window._codeExecResult;
+                script.remove(); // 清理
+                resolve(result);
+              }, 100);
+            } catch (error) {
+              resolve({
+                success: false,
+                error: error.message,
+                stack: error.stack
+              });
+            }
+          });
+        },
+        args: [code],
+        world: 'MAIN'
+      });
       
-      console.log('[CodeTool] 用户脚本已注册:', requestId);
-      
-      // 等待执行结果（最多 10 秒）
-      const result = await this.waitForResult(requestId, 10000);
-      
-      // 清理临时用户脚本
-      try {
-        await chrome.userScripts.unregister({ ids: [`webagentcli-temp-${requestId}`] });
-        console.log('[CodeTool] 临时用户脚本已清理');
-      } catch (err) {
-        console.warn('[CodeTool] 清理用户脚本失败:', err.message);
+      if (!result || result.length === 0) {
+        throw new Error('脚本执行没有返回结果');
       }
       
-      if (!result.success) {
+      const executionResult = result[0].result;
+      
+      if (!executionResult || !executionResult.success) {
         return {
           success: false,
-          error: result.error,
-          stack: result.stack
+          error: executionResult?.error || '未知错误',
+          stack: executionResult?.stack
         };
       }
       
       // 格式化结果
       let output = '';
-      if (result.result !== undefined) {
-        if (typeof result.result === 'object') {
-          output = JSON.stringify(result.result, null, 2);
+      if (executionResult.result !== undefined) {
+        if (typeof executionResult.result === 'object') {
+          output = JSON.stringify(executionResult.result, null, 2);
         } else {
-          output = String(result.result);
+          output = String(executionResult.result);
         }
       }
       
       return {
         success: true,
-        result: result.result,
+        result: executionResult.result,
         output: output,
-        type: result.type
+        type: executionResult.type
       };
     } catch (error) {
       return {
@@ -113,60 +139,5 @@ Full access to page DOM: document, window, fetch, localStorage, etc.
         stack: error.stack
       };
     }
-  },
-  
-  /**
-   * 构建用户脚本代码
-   */
-  buildUserScriptCode(code, requestId) {
-    return `
-      (function() {
-        try {
-          // 在 MAIN world 中执行用户代码
-          const result = (${code});
-          
-          // 通过 chrome.runtime.sendMessage 发送结果到扩展
-          chrome.runtime.sendMessage({
-            source: 'webagentcli-code-executor',
-            requestId: '${requestId}',
-            success: true,
-            result: result,
-            type: typeof result
-          });
-        } catch (error) {
-          chrome.runtime.sendMessage({
-            source: 'webagentcli-code-executor',
-            requestId: '${requestId}',
-            success: false,
-            error: error.message,
-            stack: error.stack
-          });
-        }
-      })();
-    `;
-  },
-  
-  /**
-   * 等待执行结果
-   */
-  waitForResult(requestId, timeout) {
-    return new Promise((resolve, reject) => {
-      const timeoutId = setTimeout(() => {
-        chrome.runtime.onMessage.removeListener(listener);
-        reject(new Error('代码执行超时'));
-      }, timeout);
-      
-      const listener = (message, sender, sendResponse) => {
-        if (message.source === 'webagentcli-code-executor' && 
-            message.requestId === requestId) {
-          clearTimeout(timeoutId);
-          chrome.runtime.onMessage.removeListener(listener);
-          resolve(message);
-          return true;
-        }
-      };
-      
-      chrome.runtime.onMessage.addListener(listener);
-    });
   },
 };
