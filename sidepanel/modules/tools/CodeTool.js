@@ -68,16 +68,35 @@ Full access to page DOM: document, window, fetch, localStorage, etc.
             try {
               // 创建一个临时的 script 标签
               const script = document.createElement('script');
-              script.textContent = `
-                (function() {
-                  try {
-                    const result = (${userCode});
-                    window._codeExecResult = { success: true, result: result, type: typeof result };
-                  } catch (error) {
-                    window._codeExecResult = { success: false, error: error.message, stack: error.stack };
-                  }
-                })();
-              `;
+              
+              // 检测代码是否包含 return 语句
+              const hasReturn = /\breturn\b/.test(userCode);
+              
+              if (hasReturn) {
+                // 如果有 return，将代码作为函数体执行
+                script.textContent = `
+                  (function() {
+                    try {
+                      const result = (function() { ${userCode} })();
+                      window._codeExecResult = { success: true, result: result, type: typeof result };
+                    } catch (error) {
+                      window._codeExecResult = { success: false, error: error.message, stack: error.stack };
+                    }
+                  })();
+                `;
+              } else {
+                // 没有 return，直接作为表达式执行
+                script.textContent = `
+                  (function() {
+                    try {
+                      const result = (${userCode});
+                      window._codeExecResult = { success: true, result: result, type: typeof result };
+                    } catch (error) {
+                      window._codeExecResult = { success: false, error: error.message, stack: error.stack };
+                    }
+                  })();
+                `;
+              }
               
               // 添加到文档中执行
               document.documentElement.appendChild(script);
