@@ -1395,28 +1395,9 @@ window.Pages.chat = function(container) {
                     
                     let chatMessages = [...targetSession.messages];
                     
-                    // 将工具结果保存到消息历史
-                    const currentApiMsg = chatMessages[chatMessages.length - 1];
-                    if (currentApiMsg && currentApiMsg.role === 'assistant' && currentApiMsg.tool_results) {
-                      currentApiMsg.tool_results.forEach((res, idx) => {
-                        // 优先使用 output 字段（人类可读格式），兼容旧格式
-                        const toolContent = res.tool_result.output || 
-                          (typeof res.tool_result === 'object' ? JSON.stringify(res.tool_result) : String(res.tool_result));
-                        
-                        console.log(`[Chat] Tool message content (first 200 chars):`, toolContent.substring(0, 200));
-                        
-                        const toolMessage = {
-                          role: 'tool',
-                          content: toolContent,
-                          tool_call_id: res.tool_call.id || `call_${idx}`,
-                          name: res.tool_call.function?.name || res.tool_call.type || 'unknown'
-                        };
-                        // 添加到session.messages（持久化）
-                        sessionManager.addMessage(session.id, toolMessage);
-                      });
-                      // 重新复制chatMessages以包含刚添加的tool消息
-                      chatMessages = [...targetSession.messages];
-                    }
+                    // 不需要保存 tool 消息到历史记录
+                    // 工具结果已经保存在 assistant 消息的 tool_results 字段中
+                    // 避免重复存储
                     
                     // 清理消息，转换为 OpenAI API 标准格式
                     chatMessages = chatMessages.map(msg => {
