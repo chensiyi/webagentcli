@@ -244,7 +244,28 @@ window.Pages.chat = function(container) {
             if (confirmed) {
               const session = sessionManager.getCurrentSession();
               if (session) {
-                session.messages.splice(index, 1);
+                const msgToDelete = session.messages[index];
+                
+                // 如果删除的是 assistant 消息，同时删除后续连续的 tool 消息
+                if (msgToDelete.role === 'assistant') {
+                  let deleteCount = 1; // 至少删除 assistant 本身
+                  
+                  // 向后查找连续的 tool 消息
+                  for (let i = index + 1; i < session.messages.length; i++) {
+                    if (session.messages[i].role === 'tool') {
+                      deleteCount++;
+                    } else {
+                      break; // 遇到非 tool 消息就停止
+                    }
+                  }
+                  
+                  session.messages.splice(index, deleteCount);
+                  console.log(`[Chat] Deleted assistant message + ${deleteCount - 1} tool messages`);
+                } else {
+                  // 删除其他类型的消息（user、system、tool）
+                  session.messages.splice(index, 1);
+                }
+                
                 await sessionManager.saveConversations();
                 render();
                 window.Toast.success('消息已删除');
