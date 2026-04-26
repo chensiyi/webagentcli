@@ -21,7 +21,7 @@ chrome.runtime.onConnect.addListener((port) => {
       console.log('[Background] Stream chat:', model, 'toolsEnabled:', toolsEnabled);
       
       try {
-        // 处理消息：清理 reasoning_content 和 tool 相关字段
+        // 处理消息：清理 reasoning_content 和转换 tool 相关字段
         let processedMessages = messages.map(msg => {
           const cleanMsg = { ...msg };
           
@@ -31,11 +31,6 @@ chrome.runtime.onConnect.addListener((port) => {
           }
           if (cleanMsg.additional_kwargs && Object.keys(cleanMsg.additional_kwargs).length === 0) {
             delete cleanMsg.additional_kwargs;
-          }
-          
-          // 如果工具未启用，清理 tool_calls
-          if (!toolsEnabled && cleanMsg.tool_calls) {
-            delete cleanMsg.tool_calls;
           }
           
           return cleanMsg;
@@ -49,14 +44,45 @@ chrome.runtime.onConnect.addListener((port) => {
             const msg = processedMessages[i];
             
             if (msg.role === 'assistant') {
-              // 添加 assistant 消息
-              convertedMessages.push(msg);
+              let assistantContent = msg.content || '';
+              
+              // 如果有 tool_calls，将其转换为可读文本
+              if (msg.tool_calls && msg.tool_calls.length > 0) {
+                const toolCallsText = msg.tool_calls.map(tc => {
+                  const toolName = tc.function?.name || tc.type || 'unknown';
+                  const args = tc.function?.arguments ? JSON.parse(tc.function.arguments) : {};
+                  
+                  // 根据不同工具生成可读描述
+                  let description = '';
+                  if (toolName === 'js_code' || toolName === 'terminal') {
+                    description = `执行 JavaScript 代码: ${args.code || '...'}`;
+                  } else if (toolName === 'web_search') {
+                    description = `搜索: ${args.query || '...'}`;
+                  } else if (toolName === 'web_fetch') {
+                    description = `访问网页: ${args.url || '...'}`;
+                  } else {
+                    description = `调用工具 ${toolName}`;
+                  }
+                  
+                  return `- ${description}`;
+                }).join('\n');
+                
+                assistantContent += '\n\n[已禁用工具调用]\n' + toolCallsText;
+              }
+              
+              // 添加 assistant 消息（包含转换后的工具调用信息）
+              convertedMessages.push({
+                role: 'assistant',
+                content: assistantContent
+              });
               
               // 检查后续是否有连续的 tool 消息
               const toolResults = [];
               let j = i + 1;
               while (j < processedMessages.length && processedMessages[j].role === 'tool') {
-                toolResults.push(processedMessages[j].content);
+                const toolMsg = processedMessages[j];
+                const toolName = toolMsg.name || 'unknown';
+                toolResults.push(`[${toolName}] ${toolMsg.content}`);
                 j++;
               }
               
