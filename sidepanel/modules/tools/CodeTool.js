@@ -45,11 +45,56 @@ console, Math, JSON, Date, Array, Object, String, Number, Boolean, parseInt, par
    */
   async execute(code) {
     try {
-      // 在沙箱环境中执行
-      const result = await this.safeExecute(code);
+      // 获取当前活动标签页
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tabs || tabs.length === 0) {
+        throw new Error('没有找到活动标签页');
+      }
+      
+      const tabId = tabs[0].id;
+      
+      // 使用 chrome.scripting.executeScript 注入到网页 MAIN world
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        func: (userCode) => {
+          try {
+            // 在网页的 MAIN world 中执行
+            // 使用 new Function 避免 eval 的 CSP 限制
+            const func = new Function(userCode);
+            return {
+              success: true,
+              result: func(),
+              type: typeof func()
+            };
+          } catch (error) {
+            return {
+              success: false,
+              error: error.message,
+              stack: error.stack
+            };
+          }
+        },
+        args: [code],
+        world: 'MAIN' // 关键：在 MAIN world 执行，可访问页面的所有对象
+      });
+      
+      if (!results || results.length === 0) {
+        throw new Error('脚本执行没有返回结果');
+      }
+      
+      const executionResult = results[0].result;
+      
+      if (!executionResult.success) {
+        return {
+          success: false,
+          error: executionResult.error,
+          stack: executionResult.stack
+        };
+      }
       
       // 格式化结果
       let output = '';
+      const result = executionResult.result;
       if (result !== undefined) {
         if (typeof result === 'object') {
           output = JSON.stringify(result, null, 2);
@@ -62,7 +107,7 @@ console, Math, JSON, Date, Array, Object, String, Number, Boolean, parseInt, par
         success: true,
         result: result,
         output: output,
-        type: typeof result
+        type: executionResult.type
       };
     } catch (error) {
       return {
@@ -72,58 +117,4 @@ console, Math, JSON, Date, Array, Object, String, Number, Boolean, parseInt, par
       };
     }
   },
-
-  /**
-   * 安全执行 JavaScript
-   */
-  safeExecute(code) {
-    return new Promise((resolve, reject) => {
-      try {
-        // 创建沙箱环境
-        const sandbox = {
-          console: {
-            log: (...args) => {
-              console.log('[JS Sandbox]', ...args);
-            },
-            error: (...args) => {
-              console.error('[JS Sandbox]', ...args);
-            },
-            warn: (...args) => {
-              console.warn('[JS Sandbox]', ...args);
-            }
-          },
-          Math: Math,
-          JSON: JSON,
-          Date: Date,
-          Array: Array,
-          Object: Object,
-          String: String,
-          Number: Number,
-          Boolean: Boolean,
-          parseInt: parseInt,
-          parseFloat: parseFloat,
-          isNaN: isNaN,
-          isFinite: isFinite
-        };
-        
-        // 构建沙箱代码
-        const sandboxKeys = Object.keys(sandbox);
-        const sandboxValues = Object.values(sandbox);
-        
-        // 使用 new Function 替代 eval，避免 CSP 限制
-        const wrappedCode = `
-          "use strict";
-          return (function(${sandboxKeys.join(', ')}) {
-            ${code}
-          })(${sandboxValues.map(v => typeof v === 'function' ? v : JSON.stringify(v)).join(', ')});
-        `;
-        
-        const func = new Function(wrappedCode);
-        const result = func();
-        resolve(result);
-      } catch (error) {
-        reject(error);
-      }
-    });
-  }
 };
