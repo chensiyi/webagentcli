@@ -1288,7 +1288,42 @@ window.Pages.chat = function(container) {
                   
                   // 更新 UI 显示工具执行完成状态
                   await sessionManager.saveConversations();
-                  render();
+                  
+                  // 不直接 render()，而是更新当前消息元素
+                  if (lastMessageElement) {
+                    // 清空现有内容
+                    lastMessageElement.innerHTML = '';
+                    
+                    // 重新渲染思考过程
+                    if (currentMsg.additional_kwargs?.reasoning_content) {
+                      const renderer = new window.ThinkingMode.ThinkingRenderer();
+                      const thinkingElement = renderer.render(currentMsg.additional_kwargs.reasoning_content);
+                      lastMessageElement.appendChild(thinkingElement);
+                    }
+                    
+                    // 渲染工具卡片
+                    if (currentMsg.tool_results && currentMsg.tool_results.length > 0) {
+                      currentMsg.tool_results.forEach((result, idx) => {
+                        const completeCard = window.ChatRender.renderToolCallCard(result.tool_call, idx, result, false);
+                        lastMessageElement.appendChild(completeCard);
+                      });
+                    }
+                    
+                    // 渲染清理后的内容
+                    if (currentMsg.content && currentMsg.content.trim()) {
+                      const contentElement = create('div', {
+                        className: 'markdown-content',
+                        style: { whiteSpace: 'pre-wrap' }
+                      });
+                      window.ChatRender.markdownRenderer.renderToElement(currentMsg.content, contentElement);
+                      lastMessageElement.appendChild(contentElement);
+                    }
+                  }
+                  
+                  // 自动滚动到底部
+                  if (messageListElement) {
+                    messageListElement.scrollTop = messageListElement.scrollHeight;
+                  }
                   
                   // 执行工具并获取总结（支持递归调用）
                   const executeToolsAndGetSummary = async (msgElement, maxDepth = 10, currentDepth = 0) => {
