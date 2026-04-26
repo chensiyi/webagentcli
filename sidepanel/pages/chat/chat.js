@@ -1032,46 +1032,9 @@ window.Pages.chat = function(container) {
           console.log('[Chat] 最大Token:', settings.maxTokens || 2000);
           console.log('[Chat] ==========================');
           
-          // 过滤消息：移除 tool 消息并清理 tool_calls
-          const filteredMessages = [];
-          let pendingToolResults = [];
-          
-          for (const msg of chatMessages) {
-            if (msg.role === 'tool') {
-              pendingToolResults.push(msg.content);
-            } else {
-              if (pendingToolResults.length > 0 && filteredMessages.length > 0) {
-                const lastMsg = filteredMessages[filteredMessages.length - 1];
-                const toolContext = `\n\n[工具执行结果]:\n${pendingToolResults.join('\n\n')}`;
-                
-                if (lastMsg.role === 'assistant') {
-                  lastMsg.content += toolContext;
-                } else {
-                  filteredMessages.push({
-                    role: 'system',
-                    content: `以下是之前工具执行的结果：${toolContext}`
-                  });
-                }
-                pendingToolResults = [];
-              }
-              
-              // 深拷贝并清理 tool_calls
-              const cleanMsg = JSON.parse(JSON.stringify(msg));
-              if (cleanMsg.role === 'assistant' && cleanMsg.tool_calls) {
-                delete cleanMsg.tool_calls;
-              }
-              
-              filteredMessages.push(cleanMsg);
-            }
-          }
-          
-          if (pendingToolResults.length > 0 && filteredMessages.length > 0) {
-            const lastMsg = filteredMessages[filteredMessages.length - 1];
-            const toolContext = `\n\n[工具执行结果]:\n${pendingToolResults.join('\n\n')}`;
-            lastMsg.content += toolContext;
-          }
-          
-          console.log('[Chat] 过滤后消息数量:', filteredMessages.length);
+          // 检查工具是否启用
+          const toolsEnabled = toolManager && toolManager.getEnabledTools && toolManager.getEnabledTools().length > 0;
+          console.log('[Chat] 工具启用状态:', toolsEnabled);
           
           // 监听流式响应
           port.onMessage.addListener(async (msg) => {
@@ -1718,12 +1681,13 @@ window.Pages.chat = function(container) {
                     });
                     
                     port.postMessage({
-                      messages: filteredMessages,
+                      messages: chatMessages,
                       apiKey: settings.apiKey,
                       apiEndpoint,
                       model: settings.model,
                       temperature: settings.temperature || 0.7,
-                      maxTokens: settings.maxTokens || 2000
+                      maxTokens: settings.maxTokens || 2000,
+                      toolsEnabled: toolsEnabled  // 传递工具启用状态
                     });
                   };
                   
@@ -1777,15 +1741,16 @@ window.Pages.chat = function(container) {
           });
           
           port.postMessage({
-            messages: filteredMessages,
+            messages: chatMessages,
             apiKey: settings.apiKey,
             apiEndpoint,
             model: settings.model,
             temperature: settings.temperature || 0.7,
-            maxTokens: settings.maxTokens || 2000
+            maxTokens: settings.maxTokens || 2000,
+            toolsEnabled: toolsEnabled  // 传递工具启用状态
           });
           
-          console.log(`[Chat] Chat request started: session=${session.id}, model=${settings.model}, messages=${filteredMessages.length}`);
+          console.log(`[Chat] Chat request started: session=${session.id}, model=${settings.model}, messages=${chatMessages.length}, toolsEnabled=${toolsEnabled}`);
         } catch (error) {
           console.error('[Chat] Connection error:', error);
           

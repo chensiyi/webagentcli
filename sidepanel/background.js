@@ -16,13 +16,29 @@ chrome.runtime.onConnect.addListener((port) => {
     });
     
     port.onMessage.addListener(async (data) => {
-      const { messages, apiKey, apiEndpoint, model, temperature, maxTokens } = data;
+      const { messages, apiKey, apiEndpoint, model, temperature, maxTokens, toolsEnabled } = data;
       
-      console.log('[Background] Stream chat:', model);
+      console.log('[Background] Stream chat:', model, 'toolsEnabled:', toolsEnabled);
       
       try {
+        // 如果工具未启用，清理消息中的 tool_calls 和 tool 消息
+        let processedMessages = messages;
+        if (!toolsEnabled) {
+          console.log('[Background] Tools disabled, cleaning tool-related content from messages');
+          processedMessages = messages.map(msg => {
+            const cleanMsg = { ...msg };
+            // 移除 tool_calls
+            if (cleanMsg.tool_calls) {
+              delete cleanMsg.tool_calls;
+            }
+            return cleanMsg;
+          }).filter(msg => msg.role !== 'tool'); // 过滤掉 tool 消息
+          
+          console.log('[Background] Filtered messages:', messages.length, '->', processedMessages.length);
+        }
+        
         // 检查消息中是否包含图片
-        const hasImages = messages.some(msg => 
+        const hasImages = processedMessages.some(msg => 
           Array.isArray(msg.content) && 
           msg.content.some(item => item.type === 'image_url')
         );
@@ -33,7 +49,7 @@ chrome.runtime.onConnect.addListener((port) => {
         
         const requestBody = {
           model,
-          messages,
+          messages: processedMessages,
           stream: true,
           temperature,
           ...(maxTokens && { max_tokens: maxTokens })
