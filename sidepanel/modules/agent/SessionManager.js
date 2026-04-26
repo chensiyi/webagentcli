@@ -24,7 +24,7 @@
     
     // 获取会话
     getSession(sessionId) {
-      return this.sessions[sessionId] || null;
+      return this.sessions[sessionId] ?? null;
     }
     
     // 设置当前会话
@@ -34,8 +34,7 @@
     
     // 获取当前会话
     getCurrentSession() {
-      if (!this.currentSessionId) return null;
-      return this.sessions[this.currentSessionId] || null;
+      return this.currentSessionId ? (this.sessions[this.currentSessionId] ?? null) : null;
     }
     
     // 开始流式请求
@@ -155,6 +154,123 @@
       Object.keys(this.sessions).forEach(sessionId => {
         this.cancelRequest(sessionId);
       });
+    }
+    
+    /**
+     * 加载所有会话历史（从 storage）
+     */
+    async loadConversations() {
+      const result = await new Promise((resolve) => {
+        chrome.storage.local.get(['conversations', 'currentConversationId'], resolve);
+      });
+      
+      console.log('[SessionManager] Storage data:', result);
+      console.log('[SessionManager] Conversations count:', result.conversations?.length || 0);
+      
+      const conversations = result.conversations || [];
+      let currentConversationId = result.currentConversationId;
+      
+      // 验证当前会话是否有效
+      if (currentConversationId) {
+        const conv = conversations.find(c => c.id === currentConversationId);
+        if (!conv) {
+          console.log('[SessionManager] Current conversation not found, resetting');
+          currentConversationId = null;
+        } else {
+          console.log('[SessionManager] Found current conversation:', currentConversationId);
+        }
+      }
+      
+      // 将历史会话加载到内存中
+      conversations.forEach(conv => {
+        if (!this.sessions[conv.id]) {
+          this.sessions[conv.id] = {
+            id: conv.id,
+            messages: [...conv.messages],
+            isLoading: false,
+            port: null,
+            createdAt: conv.createdAt,
+            updatedAt: conv.updatedAt
+          };
+          console.log('[SessionManager] Loaded session:', conv.id, 'messages:', conv.messages.length);
+        }
+      });
+      
+      this.currentSessionId = currentConversationId;
+      
+      console.log('[SessionManager] Total sessions in memory:', Object.keys(this.sessions).length);
+      console.log('[SessionManager] Current session ID:', this.currentSessionId);
+      
+      return {
+        conversations,
+        currentConversationId
+      };
+    }
+    
+    /**
+     * 保存所有会话历史（到 storage）
+     */
+    async saveConversations() {
+      const conversations = Object.values(this.sessions).map(session => ({
+        id: session.id,
+        messages: [...session.messages],
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt
+      }));
+      
+      await chrome.storage.local.set({
+        conversations,
+        currentConversationId: this.currentSessionId
+      });
+      
+      return conversations;
+    }
+    
+    /**
+     * 删除会话（包括从 storage 中删除）
+     */
+    async deleteConversation(sessionId) {
+      // 取消请求并从内存中删除
+      this.deleteSession(sessionId);
+      
+      // 从 storage 中删除
+      await this.saveConversations();
+    }
+    
+    /**
+     * 加载消息和会话（包含设置）
+     */
+    async loadMessages() {
+      const result = await this.loadConversations();
+      
+      // 加载设置
+      const settingsResult = await new Promise((resolve) => {
+        chrome.storage.local.get(['settings'], resolve);
+      });
+      
+      return {
+        conversations: result.conversations,
+        currentConversationId: result.currentConversationId,
+        currentSettings: settingsResult.settings || {}
+      };
+    }
+    
+    /**
+     * 清空当前会话并创建新会话
+     */
+    async clearCurrentSession() {
+      this.currentSessionId = null;
+      this.setCurrentSession(null);
+      
+      // 创建一个新的空会话
+      const newSessionId = 'conv_' + Date.now();
+      this.createSession(newSessionId, []);
+      this.setCurrentSession(newSessionId);
+      
+      // 保存到 storage
+      await this.saveConversations();
+      
+      return newSessionId;
     }
   }
   

@@ -1,5 +1,8 @@
 // ==================== 简单 DOM 组件库 ====================
 
+// 页面注册表
+window.Pages = {};
+
 window.DOM = {
   // 创建元素
   create(tag, options = {}, children = []) {
@@ -47,11 +50,9 @@ window.DOM = {
   
   // 主题切换
   setTheme(theme) {
-    if (theme === 'dark') {
-      document.documentElement.setAttribute('data-theme', 'dark');
-    } else {
-      document.documentElement.removeAttribute('data-theme');
-    }
+    theme === 'dark' 
+      ? document.documentElement.setAttribute('data-theme', 'dark')
+      : document.documentElement.removeAttribute('data-theme');
     
     chrome.storage.local.get(['settings'], (result) => {
       const settings = result.settings || {};

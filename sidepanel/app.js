@@ -6,13 +6,15 @@
     { id: 'chat', icon: '💬', label: '对话' },
     { id: 'scripts', icon: '📜', label: '脚本' },
     { id: 'history', icon: '📋', label: '历史' },
+    { id: 'storage', icon: '💾', label: '存储' },
     { id: 'settings', icon: '⚙️', label: '设置' }
   ];
   
   function init() {
     console.log('[App] Initializing...');
     console.log('[App] window.DOM:', typeof window.DOM);
-    console.log('[App] window.Pages:', typeof window.Pages);
+    console.log('[App] window.Pages:', window.Pages);
+    console.log('[App] Available pages:', Object.keys(window.Pages || {}));
     
     if (!window.DOM || !window.Pages) {
       console.error('[App] DOM or Pages not loaded');
@@ -36,9 +38,11 @@
     });
     
     function render(root) {
+      const contentAreaEl = create('div', { className: 'content-area', id: 'content-area' });
+      
       const app = create('div', { className: 'app-container' }, [
         create('div', { className: 'main-content' }, [
-          create('div', { className: 'content-area', id: 'content-area' }),
+          contentAreaEl,
           createSidebar()
         ])
       ]);
@@ -47,9 +51,11 @@
       root.appendChild(app);
       
       // 渲染当前页面
-      const contentArea = document.getElementById('content-area');
-      if (contentArea && window.Pages && window.Pages[currentPage]) {
-        window.Pages[currentPage](contentArea);
+      if (window.Pages && window.Pages[currentPage]) {
+        console.log('[App] Rendering page:', currentPage, 'to container:', contentAreaEl);
+        window.Pages[currentPage](contentAreaEl);
+      } else {
+        console.warn('[App] Page not found:', currentPage, 'Available:', Object.keys(window.Pages || {}));
       }
     }
     
@@ -72,6 +78,8 @@
     }
     
     function switchPage(pageId) {
+      console.log('[App] Switching to page:', pageId);
+      console.log('[App] Page function:', window.Pages[pageId]);
       currentPage = pageId;
       render(document.getElementById('root'));
     }

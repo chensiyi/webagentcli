@@ -1,36 +1,55 @@
 # Web Agent Client - Chrome Extension
 
 AI Agent 运行时环境，为 AI 提供浏览器交互能力。
+js实现一切软件的时代到了，用天量用户的热情，冲烂软件行业护城河吧！
 
 ## 项目结构
 
 ```
 ├── manifest.json                    # Chrome 扩展清单
-├── background.js                    # Service Worker（核心运行时）
-├── content.js                       # Content Script（页面交互）
-├── sidepanel/                       # Side Panel UI
+├── sidepanel/                       # Side Panel UI + Background Service Worker
+│   ├── background.js                # Service Worker（核心运行时）
 │   ├── sidepanel.html               # 主页面
 │   ├── app.js                       # 应用入口
-│   ├── dom.js                       # DOM 工具库
-│   ├── theme.css                    # CSS 主题系统
 │   │
-│   ├── managers/                    # 业务逻辑层
-│   │   ├── SessionManager.js        # 会话管理（多会话、流式请求绑定）
-│   │   ├── ContextManager.js        # 上下文管理（token 估算、自动截断）
-│   │   └── UserScriptManager.js     # 用户脚本管理（安装、启用、执行）
+│   ├── pages/                       # UI 页面组件
+│   │   ├── dom.js                   # DOM 工具库
+│   │   ├── chat/
+│   │   │   ├── context.js           # 聊天上下文管理
+│   │   │   ├── render.js            # 消息渲染逻辑
+│   │   │   └── chat.js              # 聊天页面主逻辑
+│   │   ├── scripts.js               # 用户脚本页面
+│   │   ├── history.js               # 历史对话页面
+│   │   └── settings.js              # 设置页面
 │   │
-│   ├── services/                    # 外部服务层
-│   │   └── ai/
-│   │       └── AIManager.js         # AI 服务（API 调用、流式交互）
+│   ├── modules/                     # 功能模块
+│   │   ├── agent/                   # Agent 核心
+│   │   │   ├── models/
+│   │   │   │   ├── ModelCapabilityDetector.js  # 模型能力检测
+│   │   │   │   └── ModelManager.js             # 模型管理器（含 API 调用）
+│   │   │   ├── SessionManager.js    # 会话管理
+│   │   │   └── agent.js             # Agent 主逻辑
+│   │   │
+│   │   ├── tools/                   # 工具集
+│   │   │   ├── SearchTool.js        # 网络搜索（DuckDuckGo + 百度）
+│   │   │   ├── FetchTool.js         # 网页抓取（含内容提取）
+│   │   │   ├── CodeTool.js          # 代码执行
+│   │   │   └── BaseToolManager.js   # 工具管理器
+│   │   │
+│   │   └── scripts/                 # 用户脚本系统
+│   │       ├── UserScriptStorage.js     # 脚本存储
+│   │       ├── UserScriptMetadata.js    # 脚本元数据解析
+│   │       ├── UserScriptSandbox.js     # 沙盒执行环境
+│   │       └── UserScriptManager.js     # 脚本管理器
 │   │
-│   ├── utils/                       # 通用工具
-│   │   └── markdown.js              # Markdown 渲染
-│   │
-│   └── pages/                       # UI 页面组件
-│       ├── chat.js                  # 聊天页面
-│       ├── history.js               # 历史对话页面
-│       ├── scripts.js               # 用户脚本页面
-│       └── settings.js              # 设置页面
+│   └── utils/                       # 通用工具
+│       ├── markdown.js              # Markdown 渲染
+│       ├── media.js                 # 媒体处理
+│       ├── time.js                  # 时间工具
+│       ├── toast.js                 # Toast 提示
+│       ├── messageTypes.js          # 消息类型定义
+│       ├── thinkingMode.js          # 思考模式
+│       └── ragCodeExtension.js      # RAG 代码扩展
 │
 └── assets/                          # 静态资源
 ```
@@ -106,59 +125,54 @@ AI Provider (OpenRouter/OpenAI/Claude...)
 - 解耦 UI 和业务逻辑：SessionManager 不关心 UI 如何渲染
 - 自动清理：监听 port.onDisconnect 自动更新状态
 
-#### 2. ContextManager - 上下文窗口管理器
-**职责**：智能估算 token 数量并截断历史消息
+#### 2. ModelManager - 模型管理器
+**职责**：模型列表获取、能力检测、缓存管理
 
 **核心功能**：
-- **模型映射表**：维护常见模型的上下文窗口大小（GPT-4: 8K, GPT-4o: 128K, Claude-3: 200K）
-- **Token 估算**：简化算法（字符数 ÷ 2.5），平衡准确性和性能
-- **智能截断策略**：
-  - 始终保留 system 消息
-  - 从最新消息往前选择，优先保留最近的对话
-  - 预留输出空间（maxTokens）
-- **使用率统计**：实时显示当前上下文使用情况
+- **API 调用**：直接从 OpenAI 兼容 API 获取模型列表
+- **能力检测**：自动识别模型的视觉、流式、工具调用等能力
+- **缓存管理**：5分钟缓存，避免频繁请求
+- **模型映射**：维护常见模型的上下文窗口大小
 
 **工作流程**：
 ```javascript
-// 发送消息前
-chatMessages = contextManager.truncateMessages(
-  chatMessages,
-  settings.model,
-  settings.maxTokens || 2000
-);
-// 控制台输出：[Chat] Context usage: 3500/128000 (3%)
+// 获取模型列表
+const models = await window.ModelManager.fetchModels(apiKey, apiEndpoint);
+// 控制台输出：[ModelManager] Fetched 50 models from https://api.openrouter.ai/v1
 ```
 
-#### 3. AIManager - AI 服务管理器
-**职责**：统一的 AI API 调用接口（LangChain 兼容）
+#### 3. SearchTool - 网络搜索工具
+**职责**：提供网络搜索能力（DuckDuckGo + 百度）
 
 **核心功能**：
-- **多提供商支持**：可注册多个 AI 提供商（OpenRouter、OpenAI、Claude 等）
-- **标准接口**：invoke()、stream() 方法，兼容 LangChain 风格
-- **流式响应处理**：SSE 协议解析，逐块返回内容
-- **多模态支持**：文本、图片、文件等多种内容类型
-- **功能检测**：supportsFeature() 检查流式、视觉、工具等能力
+- **双引擎支持**：优先使用 DuckDuckGo，失败后降级到百度
+- **分页支持**：通过 `|page=N` 参数实现翻页
+- **结果格式化**：自动提取标题、链接、摘要
+- **智能解析**：多种正则表达式策略，适配不同网站结构
 
 **使用示例**：
 ```javascript
-const ai = new AIManager();
-ai.registerProvider('default', {
-  endpoint: 'https://api.openrouter.ai/v1',
-  apiKey: 'sk-...',
-  defaultModel: 'gpt-4'
-});
-ai.setProvider('default');
-
-// 非流式调用
-const result = await ai.invoke(messages, { temperature: 0.7 });
-
-// 流式调用
-await ai.stream(messages, {}, (chunk) => {
-  console.log(chunk.content); // 逐块接收
-});
+// Agent 调用
+const result = await window.SearchTool.execute('latest AI news');
+// 返回：{ success: true, results: [...], output: '第 1 页，找到 10 条结果...' }
 ```
 
-#### 4. UserScriptManager - 用户脚本管理器
+#### 4. FetchTool - 网页抓取工具
+**职责**：抓取网页内容并提取正文
+
+**核心功能**：
+- **类 Readability 算法**：智能识别文章容器，移除导航、页脚等噪音
+- **HTML 转 Markdown**：完整的格式转换（标题、段落、链接、图片等）
+- **媒体提取**：自动提取页面中的链接、图片、视频等资源
+- **超时控制**：10秒超时，避免长时间等待
+
+**工作流程**：
+```javascript
+const result = await window.FetchTool.execute('https://example.com/article');
+// 返回：{ title, content, links, images, media, output }
+```
+
+#### 5. UserScriptManager - 用户脚本管理器
 **职责**：管理 Chrome userScripts API，实现动态脚本注入
 
 **核心功能**：
@@ -178,14 +192,14 @@ await chrome.userScripts.register({
 });
 ```
 
-#### 5. Background Service Worker - 后台运行时
+#### 6. Background Service Worker - 后台运行时
 **职责**：处理流式聊天请求、转发消息
 
 **核心功能**：
 - **长连接处理**：监听 chrome.runtime.onConnect，维持与 sidepanel 的 port 连接
 - **流式转发**：接收 AI 的 SSE 流，逐块转发给 sidepanel
 - **错误处理**：网络错误、API 错误的统一处理
-- **CSP 绕过**：在 background 中发起 fetch 请求，避免扩展 CSP 限制
+- **直接 API 调用**：sidepanel 直接调用 fetch，无需 background 中转
 
 **通信协议**：
 ```javascript
@@ -209,21 +223,18 @@ port.postMessage({ type: 'error', error: '...' });     // 错误
 ```
 ┌─────────────────────────────────────┐
 │         Pages (UI Layer)            │  ← 页面组件
-│  chat.js | history.js | scripts.js  │
+│  chat | history | scripts | settings│
 ├─────────────────────────────────────┤
-│      Managers (Business Logic)      │  ← 业务逻辑层
-│ SessionManager | ContextManager     │
+│      Modules (Business Logic)       │  ← 业务逻辑层
+│ Agent | Tools | UserScripts         │
 ├─────────────────────────────────────┤
-│       Services (External APIs)      │  ← 外部服务层
-│        AIManager (AI APIs)          │
-├─────────────────────────────────────┤
-│         Utils (Utilities)           │  ← 通用工具
-│   dom.js | markdown.js              │
+│       Utils (Utilities)             │  ← 通用工具
+│   dom | markdown | media | toast    │
 └─────────────────────────────────────┘
 ```
 
 **设计原则**：
-- **单向依赖**：Pages → Managers → Services → Utils
+- **单向依赖**：Pages → Modules → Utils
 - **职责分离**：每层只关注自己的职责
 - **可测试性**：各层独立，易于单元测试
 - **可扩展性**：新增功能只需在对应层添加模块
@@ -233,7 +244,9 @@ port.postMessage({ type: 'error', error: '...' });     // 错误
 #### ✅ 已实现
 - **多会话管理**：支持同时存在多个对话，切换不影响正在进行的请求
 - **流式响应**：SSE 协议逐块接收 AI 回复，实时显示
-- **智能上下文管理**：根据模型限制自动截断历史消息
+- **模型管理**：动态获取模型列表，自动检测能力
+- **网络搜索**：DuckDuckGo + 百度双引擎，支持分页
+- **网页抓取**：智能提取正文，HTML 转 Markdown
 - **Markdown 渲染**：AI 回复支持 Markdown 格式
 - **主题切换**：亮色/暗色主题，自动保存偏好
 - **历史对话**：持久化存储，支持搜索、删除
@@ -243,7 +256,6 @@ port.postMessage({ type: 'error', error: '...' });     // 错误
 - **扩展能力框架**：预留 RAG、思考模式、代码执行、工具调用等接口
 
 #### 🚧 计划中
-- [ ] 工具调用（浏览器自动化操作）
 - [ ] 语音输入/输出
 - [ ] 代码高亮和语法检测
 - [ ] 导出对话（Markdown/PDF）
@@ -254,9 +266,10 @@ port.postMessage({ type: 'error', error: '...' });     // 错误
 2. **异步消息**：所有消息处理都是异步的，返回 Promise
 3. **持久化**：使用 chrome.storage.local 存储会话数据
 4. **隔离世界**：Content Script 运行在独立上下文，无法直接访问页面 JS
-5. **CSP 限制**：扩展内不能执行 eval() 或 inline script，需在 background 中发起 fetch
+5. **CSP 限制**：sidepanel 可直接调用 fetch API，不受 CSP 限制
 6. **长连接**：使用 chrome.runtime.connect 维持与 background 的连接，避免超时
 7. **单一数据源**：SessionManager 是会话状态的唯一来源，UI 层不应维护副本
+8. **工具合并**：SearchTool、FetchTool 等包含完整实现，无需外部 API 模块
 
 ## 技术栈
 

@@ -66,10 +66,9 @@ window.Pages.settings = function(container) {
     
     content.appendChild(create('div', { className: 'setting-group' }, [
       create('label', { className: 'setting-label', text: '模型' }),
-      create('div', { style: { display: 'flex', gap: '8px' } }, [
+      create('div', { className: 'setting-row' }, [
         create('select', {
-          className: 'input',
-          style: { flex: 1 },
+          className: 'input setting-row-flex-1',
           onChange: (e) => { settings.model = e.target.value; }
         }, [
           create('option', { 
@@ -85,9 +84,8 @@ window.Pages.settings = function(container) {
           )
         ]),
         create('button', {
-          className: 'btn btn-primary',
+          className: 'btn btn-primary nowrap',
           text: isLoadingModels ? '加载中...' : '加载模型',
-          style: { whiteSpace: 'nowrap' },
           disabled: isLoadingModels,
           onClick: loadModels
         })
@@ -106,8 +104,7 @@ window.Pages.settings = function(container) {
         
         if (badges.length > 0) {
           content.appendChild(create('div', { 
-            className: 'setting-group',
-            style: { fontSize: '12px', color: 'var(--color-text-secondary)' }
+            className: 'setting-group setting-hint'
           }, [
             create('span', { text: '模型能力: ' + badges.join(' | ') })
           ]));
@@ -136,8 +133,7 @@ window.Pages.settings = function(container) {
     content.appendChild(create('div', { className: 'setting-group' }, [
       create('label', { className: 'setting-label', text: '系统提示词' }),
       create('textarea', {
-        className: 'input',
-        style: { minHeight: '80px', resize: 'vertical' },
+        className: 'input setting-textarea',
         attrs: { placeholder: '可选，设置 AI 的行为和角色' },
         onInput: (e) => { settings.systemPrompt = e.target.value; }
       })
@@ -145,10 +141,10 @@ window.Pages.settings = function(container) {
     
     // 上下文管理
     content.appendChild(create('div', { className: 'setting-group' }, [
-      create('label', { style: { display: 'flex', alignItems: 'center', cursor: 'pointer' } }, [
+      create('label', { className: 'setting-label-inline' }, [
         create('input', {
+          className: 'setting-checkbox',
           attrs: { type: 'checkbox' },
-          style: { marginRight: '8px' },
           onChange: (e) => { settings.autoContextTruncation = e.target.checked; }
         }),
         '自动调整上下文窗口（根据模型限制智能截断历史消息）'
@@ -159,18 +155,18 @@ window.Pages.settings = function(container) {
     content.appendChild(create('div', { className: 'setting-group' }, [
       create('label', { className: 'setting-label', text: '主题' }),
       create('div', {}, [
-        create('label', { style: { marginRight: '16px', cursor: 'pointer' } }, [
+        create('label', { className: 'setting-radio-label' }, [
           create('input', {
+            className: 'setting-radio',
             attrs: { type: 'radio', name: 'theme', value: 'light' },
-            style: { marginRight: '4px' },
             onChange: () => { settings.theme = 'light'; setTheme('light'); }
           }),
           '浅色'
         ]),
-        create('label', { style: { cursor: 'pointer' } }, [
+        create('label', { className: 'setting-label-inline' }, [
           create('input', {
+            className: 'setting-radio',
             attrs: { type: 'radio', name: 'theme', value: 'dark' },
-            style: { marginRight: '4px' },
             onChange: () => { settings.theme = 'dark'; setTheme('dark'); }
           }),
           '深色'
@@ -212,16 +208,15 @@ window.Pages.settings = function(container) {
     // 底部
     page.appendChild(create('div', { className: 'page-footer' }, [
       create('button', {
-        className: 'btn btn-primary',
+        className: 'btn btn-primary setting-full-width',
         text: '保存设置',
-        style: { width: '100%' },
         onClick: () => {
           chrome.storage.local.set({ settings }, () => {
             console.log('[Settings] Saved:', settings);
             
-            // 初始化 AI Manager
-            if (window.AIManager) {
-              const ai = new window.AIManager();
+            // 初始化 Agent
+            if (window.Agent) {
+              const ai = new window.Agent();
               ai.registerProvider('default', {
                 endpoint: settings.apiEndpoint,
                 apiKey: settings.apiKey || 'local',

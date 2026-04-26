@@ -21,51 +21,19 @@
     render(reasoningContent) {
       const container = document.createElement('div');
       container.className = 'thinking-container';
-      container.style.cssText = `
-        margin: 8px 0;
-        padding: 12px;
-        background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(168, 85, 247, 0.1));
-        border-left: 3px solid #6366f1;
-        border-radius: 8px;
-        font-size: 13px;
-      `;
-
+      
       // 标题栏
       const header = document.createElement('div');
       header.className = 'thinking-header';
-      header.style.cssText = `
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        cursor: pointer;
-        margin-bottom: ${this.isExpanded ? '8px' : '0'};
-      `;
 
       const title = document.createElement('div');
       title.className = 'thinking-title';
-      title.style.cssText = `
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        color: #6366f1;
-        font-weight: 600;
-      `;
-      title.innerHTML = '🧠 思考过程';
+      title.innerHTML = '<span class="thinking-icon">💭</span><span class="thinking-label">思考</span>';
 
       const toggleBtn = document.createElement('button');
       toggleBtn.className = 'thinking-toggle';
-      toggleBtn.style.cssText = `
-        background: none;
-        border: none;
-        color: #6366f1;
-        cursor: pointer;
-        font-size: 16px;
-        padding: 4px 8px;
-        border-radius: 4px;
-        transition: all 0.2s;
-      `;
-      toggleBtn.textContent = this.isExpanded ? '▲' : '▼';
-      toggleBtn.title = this.isExpanded ? '收起' : '展开';
+      toggleBtn.textContent = '▼';
+      toggleBtn.title = '展开';
 
       header.appendChild(title);
       header.appendChild(toggleBtn);
@@ -73,31 +41,16 @@
       // 内容区域
       const content = document.createElement('div');
       content.className = 'thinking-content';
-      content.style.cssText = `
-        color: #4b5563;
-        line-height: 1.6;
-        white-space: pre-wrap;
-        ${this.isExpanded ? '' : 'display: none;'}
-      `;
-      content.textContent = reasoningContent;
+      content.style.display = 'none'; // 默认收起
+      content.textContent = reasoningContent || '';
 
       // 切换展开/收起
-      header.addEventListener('click', () => {
+      header.addEventListener('click', (e) => {
+        e.stopPropagation();
         this.isExpanded = !this.isExpanded;
         content.style.display = this.isExpanded ? 'block' : 'none';
         toggleBtn.textContent = this.isExpanded ? '▲' : '▼';
         toggleBtn.title = this.isExpanded ? '收起' : '展开';
-      });
-
-      // hover 效果
-      header.addEventListener('mouseenter', () => {
-        header.style.background = 'rgba(99, 102, 241, 0.05)';
-        toggleBtn.style.background = 'rgba(99, 102, 241, 0.1)';
-      });
-
-      header.addEventListener('mouseleave', () => {
-        header.style.background = 'transparent';
-        toggleBtn.style.background = 'transparent';
       });
 
       container.appendChild(header);
@@ -133,24 +86,24 @@
       const container = document.createElement('div');
       container.className = 'tool-call-container';
       container.style.cssText = `
-        margin: 8px 0;
-        padding: 12px;
-        background: rgba(59, 130, 246, 0.1);
-        border-left: 3px solid #3b82f6;
-        border-radius: 8px;
-        font-size: 13px;
+        margin: 4px 0;
+        padding: 6px 10px;
+        background: var(--color-surface);
+        border-left: 2px solid var(--color-primary);
+        border-radius: 4px;
+        font-size: 12px;
       `;
 
       const functionName = toolCall.function?.name || 'unknown';
       const args = toolCall.function?.arguments || '{}';
 
       container.innerHTML = `
-        <div style="display: flex; align-items: center; gap: 8px; color: #3b82f6; font-weight: 600; margin-bottom: 8px;">
-          🔧 调用工具: ${functionName}
+        <div style="display: flex; align-items: center; gap: 4px; color: var(--color-primary); font-weight: 500; margin-bottom: 4px; font-size: 11px;">
+          🔧 ${functionName}
         </div>
-        <details style="color: #6b7280;">
-          <summary style="cursor: pointer; margin-bottom: 4px;">查看参数</summary>
-          <pre style="background: rgba(0, 0, 0, 0.05); padding: 8px; border-radius: 4px; overflow-x: auto; font-size: 12px;">${this.formatJson(args)}</pre>
+        <details style="color: var(--color-text-secondary); font-size: 11px;">
+          <summary style="cursor: pointer; margin-bottom: 2px; font-size: 11px;">参数</summary>
+          <pre style="background: var(--color-bg); padding: 4px 6px; border-radius: 3px; overflow-x: auto; font-size: 10px; margin: 0;">${this.formatJson(args)}</pre>
         </details>
       `;
 

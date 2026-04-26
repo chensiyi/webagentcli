@@ -1,7 +1,7 @@
 // ==================== Background Service Worker ====================
-// Web Agent Runtime 核心 + User Scripts Manager
+// 后台接收聊天数据 + 标签页监听与自动注入脚本
 
-console.log('[WebAgent Client] Starting...');
+console.log('[Background] Starting...');
 
 // ==================== Stream Chat Port Handler ====================
 // 处理流式聊天的长连接
@@ -35,19 +35,15 @@ chrome.runtime.onConnect.addListener((port) => {
           model,
           messages,
           stream: true,
-          temperature
+          temperature,
+          ...(maxTokens && { max_tokens: maxTokens })
         };
-        
-        if (maxTokens) requestBody.max_tokens = maxTokens;
         
         // 构建请求头（API Key 可选）
         const headers = {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          ...(apiKey && { 'Authorization': `Bearer ${apiKey}` })
         };
-        
-        if (apiKey) {
-          headers['Authorization'] = `Bearer ${apiKey}`;
-        }
         
         const response = await fetch(apiEndpoint, {
           method: 'POST',
@@ -199,7 +195,7 @@ chrome.runtime.onConnect.addListener((port) => {
   }
 });
 
-// ==================== User Scripts Manager ====================
+// ====================  resgister user scripts =====================
 // 监听 storage 变化，自动注册/注销用户脚本
 chrome.storage.onChanged.addListener(async (changes, namespace) => {
   if (namespace === 'local' && changes.installedScripts) {
@@ -350,23 +346,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 async function handleMessage(message, sender) {
   const { type, payload } = message;
   
-  console.log(`[Runtime] Received: ${type}`, payload);
+  console.log(`[Background] Received: ${type}`, payload);
   
   switch (type) {
-    case 'GET_TOOLS':
-      return { success: true, data: [] };
-    
-    case 'EXECUTE_TOOL':
-      return { success: true, data: null };
-    
     case 'CHAT_REQUEST':
       return await handleChatRequest(payload);
     
     case 'CHAT_STREAM_REQUEST':
       return await handleChatStreamRequest(payload);
-    
-    case 'GET_MODELS':
-      return await handleGetModels(payload);
     
     default:
       throw new Error(`Unknown message type: ${type}`);
@@ -382,12 +369,9 @@ async function handleChatRequest(data) {
   try {
     // 构建请求头（API Key 可选）
     const headers = {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      ...(apiKey && { 'Authorization': `Bearer ${apiKey}` })
     };
-    
-    if (apiKey) {
-      headers['Authorization'] = `Bearer ${apiKey}`;
-    }
     
     const response = await fetch(apiEndpoint, {
       method: 'POST',
@@ -507,54 +491,9 @@ async function handleChatStreamRequest(data) {
   }
 }
 
-// 获取模型列表
-async function handleGetModels(data) {
-  const { apiKey, apiEndpoint } = data;
-  
-  console.log('[Background] Get models request:', { apiEndpoint });
-  
-  try {
-    // 构建 models API URL
-    let modelsEndpoint = apiEndpoint.replace('/chat/completions', '').replace(/\/$/, '') + '/models';
-    
-    // 构建请求头（API Key 可选）
-    const headers = {};
-    if (apiKey) {
-      headers['Authorization'] = `Bearer ${apiKey}`;
-    }
-    
-    const response = await fetch(modelsEndpoint, {
-      method: 'GET',
-      headers
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`HTTP ${response.status}: ${errorText.substring(0, 200)}`);
-    }
-    
-    const result = await response.json();
-    
-    // 提取模型 ID 列表
-    const models = result.data ? result.data.map(m => m.id) : [];
-    
-    return {
-      success: true,
-      models
-    };
-  } catch (error) {
-    console.error('[Background] Get models error:', error);
-    return {
-      success: false,
-      error: error.message,
-      models: []
-    };
-  }
-}
-
 // 监听扩展图标点击
 chrome.action.onClicked.addListener(async (tab) => {
   await chrome.sidePanel.open({ windowId: tab.windowId });
 });
 
-console.log('[WebAgent Client] Ready');
+console.log('[Background] Ready');

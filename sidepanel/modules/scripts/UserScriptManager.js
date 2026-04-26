@@ -4,7 +4,6 @@
 class UserScriptManager {
   constructor() {
     this.scripts = new Map();
-    this.scriptElements = new Map();
     
     // 加载已安装的脚本
     this.loadInstalledScripts();
@@ -12,69 +11,20 @@ class UserScriptManager {
 
   // 从 storage 加载已安装脚本
   async loadInstalledScripts() {
-    try {
-      const result = await chrome.storage.local.get('installedScripts');
-      const installedScripts = result.installedScripts || [];
-      
-      for (const scriptInfo of installedScripts) {
-        const codeResult = await chrome.storage.local.get(`script_code_${scriptInfo.id}`);
-        const code = codeResult[`script_code_${scriptInfo.id}`];
-        
-        if (code && scriptInfo.enabled) {
-          await this.executeScript(scriptInfo.id);
-        }
-        
-        this.scripts.set(scriptInfo.id, scriptInfo);
-      }
-      
-      console.log('[UserScriptManager] Loaded', installedScripts.length, 'scripts');
-    } catch (error) {
-      console.error('[UserScriptManager] Failed to load scripts:', error);
-    }
-  }
-
-  // 保存脚本列表到 storage
-  async saveInstalledScripts() {
-    const scriptList = Array.from(this.scripts.values());
-    await chrome.storage.local.set({ installedScripts: scriptList });
-  }
-
-  // 解析用户脚本元数据
-  parseMetadata(code) {
-    const metadata = {};
-    const metaMatch = code.match(/\/\/\s*==UserScript==([\s\S]*?)\/\/\s*==\/UserScript==/);
+    const installedScripts = await window.UserScriptStorage.loadInstalledScripts(this.scripts);
     
-    if (!metaMatch) {
-      return null;
-    }
-    
-    const metaBlock = metaMatch[1];
-    const lines = metaBlock.split('\n');
-    
-    for (const line of lines) {
-      const match = line.match(/\/\/\s*@(\S+)\s+(.+)/);
-      if (match) {
-        const key = match[1];
-        const value = match[2].trim();
-        
-        if (key === 'match' || key === 'include' || key === 'exclude') {
-          if (!metadata[key]) {
-            metadata[key] = [];
-          }
-          metadata[key].push(value);
-        } else {
-          metadata[key] = value;
-        }
+    // 执行启用的脚本
+    for (const scriptInfo of installedScripts) {
+      if (scriptInfo.enabled) {
+        await this.executeScript(scriptInfo.id);
       }
     }
-    
-    return metadata;
   }
 
   // 安装脚本（从代码）
   async installFromCode(code) {
     try {
-      const metadata = this.parseMetadata(code);
+      const metadata = window.UserScriptMetadata.parseMetadata(code);
       
       if (!metadata) {
         throw new Error('Invalid user script format: missing UserScript metadata block');
@@ -97,13 +47,11 @@ class UserScriptManager {
       };
       
       // 保存脚本代码
-      await chrome.storage.local.set({
-        [`script_code_${id}`]: code
-      });
+      await window.UserScriptStorage.saveScriptCode(id, code);
       
       // 添加到列表
       this.scripts.set(id, scriptInfo);
-      await this.saveInstalledScripts();
+      await window.UserScriptStorage.saveInstalledScripts(this.scripts);
       
       // 如果启用，立即执行
       if (scriptInfo.enabled) {
@@ -143,49 +91,22 @@ class UserScriptManager {
       
       // 检查 URL 是否匹配
       const scriptInfo = this.scripts.get(scriptId);
-      if (scriptInfo && !this.matchesURL(tab.url, scriptInfo)) {
+      if (scriptInfo && !window.UserScriptMetadata.matchesURL(tab.url, scriptInfo)) {
         console.log('[UserScriptManager] URL does not match script rules');
         return false;
       }
       
       // 获取脚本代码
-      const result = await chrome.storage.local.get(`script_code_${scriptId}`);
-      const code = result[`script_code_${scriptId}`];
+      const code = await window.UserScriptStorage.getScriptCode(scriptId);
       
       if (!code) {
         console.error('[UserScriptManager] Script code not found:', scriptId);
         return false;
       }
       
-      // 创建沙箱上下文
-      const sandboxContext = this.createSandboxContext(scriptId);
-      
-      // 包装代码，注入 GM API
-      const wrappedCode = `
-(function() {
-  'use strict';
-  
-  const GM = {
-    getValue: ${sandboxContext.GM.getValue.toString()},
-    setValue: ${sandboxContext.GM.setValue.toString()},
-    deleteValue: ${sandboxContext.GM.deleteValue.toString()},
-    listValues: ${sandboxContext.GM.listValues.toString()},
-    addStyle: ${sandboxContext.GM.addStyle.toString()},
-    log: ${sandboxContext.GM.log.toString()},
-    info: ${JSON.stringify(sandboxContext.GM.info)}
-  };
-  
-  const GM_getValue = GM.getValue;
-  const GM_setValue = GM.setValue;
-  const GM_deleteValue = GM.deleteValue;
-  const GM_listValues = GM.listValues;
-  const GM_addStyle = GM.addStyle;
-  const GM_log = GM.log;
-  const GM_info = GM.info;
-  
-  ${code}
-})();
-`;
+      // 创建沙箱上下文并包装代码
+      const sandboxContext = window.UserScriptSandbox.createSandboxContext(scriptId, scriptInfo);
+      const wrappedCode = window.UserScriptSandbox.wrapCode(code, sandboxContext);
       
       // 注入到网页 MAIN world
       await chrome.scripting.executeScript({
@@ -214,103 +135,6 @@ class UserScriptManager {
     }
   }
 
-  // 检查 URL 是否匹配脚本规则
-  matchesURL(url, scriptInfo) {
-    if (!scriptInfo.matches || scriptInfo.matches.length === 0) {
-      return true;
-    }
-    
-    // 检查排除规则
-    if (scriptInfo.excludes) {
-      for (const pattern of scriptInfo.excludes) {
-        if (this.matchPattern(url, pattern)) {
-          return false;
-        }
-      }
-    }
-    
-    // 检查包含规则
-    for (const pattern of scriptInfo.matches) {
-      if (this.matchPattern(url, pattern)) {
-        return true;
-      }
-    }
-    
-    return false;
-  }
-
-  // 匹配 URL 模式（简化版）
-  matchPattern(url, pattern) {
-    if (pattern === '*://*/*') {
-      return true;
-    }
-    
-    // 转换为正则表达式
-    const regex = pattern
-      .replace(/\./g, '\\.')
-      .replace(/\*/g, '.*')
-      .replace(/\?/g, '\\?');
-    
-    const fullRegex = new RegExp('^' + regex + '$');
-    return fullRegex.test(url);
-  }
-
-  // 创建沙箱上下文
-  createSandboxContext(scriptId) {
-    const scriptInfo = this.scripts.get(scriptId);
-    
-    return {
-      GM: {
-        // 存储 API
-        getValue: async (key, defaultValue) => {
-          const namespacedKey = `gm:${scriptId}:${key}`;
-          const result = await chrome.storage.local.get(namespacedKey);
-          return result[namespacedKey] !== undefined ? result[namespacedKey] : defaultValue;
-        },
-        
-        setValue: async (key, value) => {
-          const namespacedKey = `gm:${scriptId}:${key}`;
-          await chrome.storage.local.set({ [namespacedKey]: value });
-        },
-        
-        deleteValue: async (key) => {
-          const namespacedKey = `gm:${scriptId}:${key}`;
-          await chrome.storage.local.remove(namespacedKey);
-        },
-        
-        listValues: async () => {
-          const result = await chrome.storage.local.get(null);
-          return Object.keys(result)
-            .filter(key => key.startsWith(`gm:${scriptId}:`))
-            .map(key => key.replace(`gm:${scriptId}:`, ''));
-        },
-        
-        // 样式 API
-        addStyle: (css) => {
-          const style = document.createElement('style');
-          style.textContent = css;
-          document.head.appendChild(style);
-          return style;
-        },
-        
-        // 日志 API
-        log: (...args) => {
-          console.log(`[GM:${scriptInfo?.name || scriptId}]`, ...args);
-        },
-        
-        // 脚本信息
-        info: {
-          script: {
-            name: scriptInfo?.name || '',
-            version: scriptInfo?.version || '',
-            description: scriptInfo?.description || '',
-            namespace: scriptInfo?.namespace || ''
-          }
-        }
-      }
-    };
-  }
-
   // 启用/禁用脚本
   async toggleScript(scriptId, enabled) {
     const scriptInfo = this.scripts.get(scriptId);
@@ -321,7 +145,7 @@ class UserScriptManager {
     scriptInfo.enabled = enabled;
     scriptInfo.updatedAt = Date.now();
     
-    await this.saveInstalledScripts();
+    await window.UserScriptStorage.saveInstalledScripts(this.scripts);
     
     // 如果禁用，移除已注入的脚本
     if (!enabled) {
@@ -346,14 +170,11 @@ class UserScriptManager {
     await this.removeScriptFromPage(scriptId);
     
     // 从 storage 删除
-    await chrome.storage.local.remove([
-      `script_code_${scriptId}`,
-      ...Array.from(this.scripts.keys()).map(id => `gm:${id}:*`)
-    ]);
+    await window.UserScriptStorage.deleteScript(scriptId);
     
     // 从列表移除
     this.scripts.delete(scriptId);
-    await this.saveInstalledScripts();
+    await window.UserScriptStorage.saveInstalledScripts(this.scripts);
     
     console.log('[UserScriptManager] Script deleted:', scriptInfo.name);
     return true;
@@ -392,8 +213,7 @@ class UserScriptManager {
 
   // 获取脚本代码
   async getScriptCode(scriptId) {
-    const result = await chrome.storage.local.get(`script_code_${scriptId}`);
-    return result[`script_code_${scriptId}`];
+    return await window.UserScriptStorage.getScriptCode(scriptId);
   }
 
   // 更新脚本代码
@@ -403,7 +223,7 @@ class UserScriptManager {
       return false;
     }
     
-    const metadata = this.parseMetadata(newCode);
+    const metadata = window.UserScriptMetadata.parseMetadata(newCode);
     if (metadata) {
       scriptInfo.name = metadata.name || scriptInfo.name;
       scriptInfo.version = metadata.version || scriptInfo.version;
@@ -414,11 +234,8 @@ class UserScriptManager {
     
     scriptInfo.updatedAt = Date.now();
     
-    await chrome.storage.local.set({
-      [`script_code_${scriptId}`]: newCode
-    });
-    
-    await this.saveInstalledScripts();
+    await window.UserScriptStorage.saveScriptCode(scriptId, newCode);
+    await window.UserScriptStorage.saveInstalledScripts(this.scripts);
     
     // 如果启用，重新执行
     if (scriptInfo.enabled) {

@@ -1,5 +1,5 @@
-// AI API 管理器 - LangChain 兼容接口
-class AIManager {
+// Agent 核心 - LangChain 兼容接口
+class Agent {
   constructor() {
     this.providers = new Map();
     this.currentProvider = null;
@@ -127,7 +127,7 @@ class AIManager {
               yield chunk;
             }
           } catch (e) {
-            console.warn('[AIManager] Failed to parse stream chunk:', e);
+            console.warn('[Agent] Failed to parse stream chunk:', e);
           }
         }
       }
@@ -234,4 +234,4 @@ class AIManager {
 }
 
 // 导出单例
-window.AIManager = AIManager;
+window.Agent = Agent;

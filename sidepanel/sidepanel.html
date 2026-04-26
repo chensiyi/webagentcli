@@ -10,29 +10,42 @@
   <div id="root"></div>
   
   <!-- DOM Utils -->
-  <script src="dom.js"></script>
+  <script src="pages/dom.js"></script>
   
   <!-- Utils -->
   <script src="utils/markdown.js"></script>
   <script src="utils/media.js"></script>
+  <script src="utils/time.js"></script>
   <script src="utils/toast.js"></script>
   <script src="utils/messageTypes.js"></script>
   <script src="utils/thinkingMode.js"></script>
   <script src="utils/ragCodeExtension.js"></script>
   
-  <!-- Managers -->
-  <script src="managers/SessionManager.js"></script>
-  <script src="managers/ContextManager.js"></script>
-  <script src="managers/ModelManager.js"></script>
-  <script src="managers/UserScriptManager.js"></script>
+  <!-- Modules -->
+  <script src="modules/scripts/UserScriptStorage.js"></script>
+  <script src="modules/scripts/UserScriptMetadata.js"></script>
+  <script src="modules/scripts/UserScriptSandbox.js"></script>
+  <script src="modules/scripts/UserScriptManager.js"></script>
+  <script src="modules/tools/SearchTool.js"></script>
+  <script src="modules/tools/FetchTool.js"></script>
+  <script src="modules/tools/CodeTool.js"></script>
+  <script src="modules/tools/TerminalManager.js"></script>
+  <script src="modules/tools/TerminalTool.js"></script>
+  <script src="modules/tools/BaseToolManager.js"></script>
   
-  <!-- Services -->
-  <script src="services/ai/AIManager.js"></script>
+  <!-- Agent Core -->
+  <script src="modules/agent/models/ModelCapabilityDetector.js"></script>
+  <script src="modules/agent/models/ModelManager.js"></script>
+  <script src="modules/agent/SessionManager.js"></script>
+  <script src="modules/agent/agent.js"></script>
   
   <!-- Pages -->
-  <script src="pages/chat.js"></script>
+  <script src="pages/chat/context.js"></script>
+  <script src="pages/chat/render.js"></script>
+  <script src="pages/chat/chat.js"></script>
   <script src="pages/scripts.js"></script>
   <script src="pages/history.js"></script>
+  <script src="pages/storage.js"></script>
   <script src="pages/settings.js"></script>
   
   <!-- App -->
