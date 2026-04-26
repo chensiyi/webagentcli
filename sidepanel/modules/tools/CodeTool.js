@@ -147,7 +147,6 @@ Full access to page DOM: document, window, fetch, localStorage, etc.
       
       return {
         success: true,
-        result: executionResult.result,
         output: output,
         type: executionResult.type
       };
