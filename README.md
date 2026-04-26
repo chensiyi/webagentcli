@@ -20,7 +20,8 @@ js实现一切软件的时代到了，用天量用户的热情，冲烂软件行
 │   │   │   └── chat.js              # 聊天页面主逻辑
 │   │   ├── scripts.js               # 用户脚本页面
 │   │   ├── history.js               # 历史对话页面
-│   │   └── settings.js              # 设置页面
+│   │   ├── settings.js              # 设置页面
+│   │   └── storage.js               # 存储管理页面
 │   │
 │   ├── modules/                     # 功能模块
 │   │   ├── agent/                   # Agent 核心
@@ -43,10 +44,12 @@ js实现一切软件的时代到了，用天量用户的热情，冲烂软件行
 │   │       └── UserScriptManager.js     # 脚本管理器
 │   │
 │   └── utils/                       # 通用工具
+│       ├── dom.js                   # DOM 操作工具
 │       ├── markdown.js              # Markdown 渲染
 │       ├── media.js                 # 媒体处理
 │       ├── time.js                  # 时间工具
 │       ├── toast.js                 # Toast 提示
+│       ├── confirm.js               # 确认对话框
 │       ├── messageTypes.js          # 消息类型定义
 │       ├── thinkingMode.js          # 思考模式
 │       └── ragCodeExtension.js      # RAG 代码扩展
@@ -248,11 +251,13 @@ port.postMessage({ type: 'error', error: '...' });     // 错误
 - **网络搜索**：DuckDuckGo + 百度双引擎，支持分页
 - **网页抓取**：智能提取正文，HTML 转 Markdown
 - **Markdown 渲染**：AI 回复支持 Markdown 格式
-- **主题切换**：亮色/暗色主题，自动保存偏好
+- **主题系统**：亮色/暗色主题，CSS 变量驱动，完整工具类库
 - **历史对话**：持久化存储，支持搜索、删除
+- **存储管理**：可视化查看和编辑 chrome.storage 数据
 - **用户脚本管理**：动态注册和执行用户脚本（MAIN world）
 - **模型配置**：支持自定义 API 端点、模型、温度等参数
 - **多模态支持**：图片上传和视觉理解
+- **统一交互组件**：Toast 提示、确认对话框，替代系统 alert/confirm
 - **扩展能力框架**：预留 RAG、思考模式、代码执行、工具调用等接口
 
 #### 🚧 计划中
