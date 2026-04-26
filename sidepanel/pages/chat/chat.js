@@ -1032,17 +1032,14 @@ window.Pages.chat = function(container) {
           console.log('[Chat] 最大Token:', settings.maxTokens || 2000);
           console.log('[Chat] ==========================');
           
-          // 过滤掉 tool 消息（某些模型不支持工具调用）
-          // 将 tool 消息的结果合并到上下文中
+          // 过滤消息：移除 tool 消息并清理 tool_calls
           const filteredMessages = [];
           let pendingToolResults = [];
           
           for (const msg of chatMessages) {
             if (msg.role === 'tool') {
-              // 收集工具结果
               pendingToolResults.push(msg.content);
             } else {
-              // 如果有待处理的工具结果，添加到前一个消息
               if (pendingToolResults.length > 0 && filteredMessages.length > 0) {
                 const lastMsg = filteredMessages[filteredMessages.length - 1];
                 const toolContext = `\n\n[工具执行结果]:\n${pendingToolResults.join('\n\n')}`;
@@ -1058,11 +1055,16 @@ window.Pages.chat = function(container) {
                 pendingToolResults = [];
               }
               
-              filteredMessages.push(msg);
+              // 深拷贝并清理 tool_calls
+              const cleanMsg = JSON.parse(JSON.stringify(msg));
+              if (cleanMsg.role === 'assistant' && cleanMsg.tool_calls) {
+                delete cleanMsg.tool_calls;
+              }
+              
+              filteredMessages.push(cleanMsg);
             }
           }
           
-          // 如果还有剩余的工具结果
           if (pendingToolResults.length > 0 && filteredMessages.length > 0) {
             const lastMsg = filteredMessages[filteredMessages.length - 1];
             const toolContext = `\n\n[工具执行结果]:\n${pendingToolResults.join('\n\n')}`;
