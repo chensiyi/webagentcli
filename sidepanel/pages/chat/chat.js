@@ -1032,6 +1032,45 @@ window.Pages.chat = function(container) {
           console.log('[Chat] 最大Token:', settings.maxTokens || 2000);
           console.log('[Chat] ==========================');
           
+          // 过滤掉 tool 消息（某些模型不支持工具调用）
+          // 将 tool 消息的结果合并到上下文中
+          const filteredMessages = [];
+          let pendingToolResults = [];
+          
+          for (const msg of chatMessages) {
+            if (msg.role === 'tool') {
+              // 收集工具结果
+              pendingToolResults.push(msg.content);
+            } else {
+              // 如果有待处理的工具结果，添加到前一个消息
+              if (pendingToolResults.length > 0 && filteredMessages.length > 0) {
+                const lastMsg = filteredMessages[filteredMessages.length - 1];
+                const toolContext = `\n\n[工具执行结果]:\n${pendingToolResults.join('\n\n')}`;
+                
+                if (lastMsg.role === 'assistant') {
+                  lastMsg.content += toolContext;
+                } else {
+                  filteredMessages.push({
+                    role: 'system',
+                    content: `以下是之前工具执行的结果：${toolContext}`
+                  });
+                }
+                pendingToolResults = [];
+              }
+              
+              filteredMessages.push(msg);
+            }
+          }
+          
+          // 如果还有剩余的工具结果
+          if (pendingToolResults.length > 0 && filteredMessages.length > 0) {
+            const lastMsg = filteredMessages[filteredMessages.length - 1];
+            const toolContext = `\n\n[工具执行结果]:\n${pendingToolResults.join('\n\n')}`;
+            lastMsg.content += toolContext;
+          }
+          
+          console.log('[Chat] 过滤后消息数量:', filteredMessages.length);
+          
           // 监听流式响应
           port.onMessage.addListener(async (msg) => {
             // 检查是否请求停止
@@ -1677,7 +1716,7 @@ window.Pages.chat = function(container) {
                     });
                     
                     port.postMessage({
-                      messages: chatMessages,
+                      messages: filteredMessages,
                       apiKey: settings.apiKey,
                       apiEndpoint,
                       model: settings.model,
@@ -1736,7 +1775,7 @@ window.Pages.chat = function(container) {
           });
           
           port.postMessage({
-            messages: chatMessages,
+            messages: filteredMessages,
             apiKey: settings.apiKey,
             apiEndpoint,
             model: settings.model,
@@ -1744,7 +1783,7 @@ window.Pages.chat = function(container) {
             maxTokens: settings.maxTokens || 2000
           });
           
-          console.log(`[Chat] Chat request started: session=${session.id}, model=${settings.model}, messages=${chatMessages.length}`);
+          console.log(`[Chat] Chat request started: session=${session.id}, model=${settings.model}, messages=${filteredMessages.length}`);
         } catch (error) {
           console.error('[Chat] Connection error:', error);
           
