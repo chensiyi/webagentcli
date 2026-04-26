@@ -110,15 +110,12 @@ console, Math, JSON, Date, Array, Object, String, Number, Boolean, parseInt, par
         const sandboxKeys = Object.keys(sandbox);
         const sandboxValues = Object.values(sandbox);
         
+        // 使用 new Function 替代 eval，避免 CSP 限制
         const wrappedCode = `
           "use strict";
-          (function(${sandboxKeys.join(', ')}) {
-            try {
-              return eval(${JSON.stringify(code)});
-            } catch (e) {
-              throw e;
-            }
-          })(${sandboxValues.map(v => typeof v === 'function' ? v : JSON.stringify(v)).join(', ')})
+          return (function(${sandboxKeys.join(', ')}) {
+            ${code}
+          })(${sandboxValues.map(v => typeof v === 'function' ? v : JSON.stringify(v)).join(', ')});
         `;
         
         const func = new Function(wrappedCode);
