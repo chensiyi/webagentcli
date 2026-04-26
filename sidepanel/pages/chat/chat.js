@@ -1721,7 +1721,7 @@ window.Pages.chat = function(container) {
               sessionManager.addMessage(session.id, errorMessage);
               
               // 保存到 storage
-              await window.ChatData.saveToStorage(sessionManager);
+              await sessionManager.saveConversations();
               
               // 只在当前会话时重新渲染
               const currentSession = sessionManager.getCurrentSession();
