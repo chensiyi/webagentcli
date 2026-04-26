@@ -1221,14 +1221,19 @@ window.Pages.chat = function(container) {
               
               console.log(`[Chat] Stream request completed: session=${session.id}`);
               
-              // 处理工具调用
-              const currentMsg = targetSession.messages[targetSession.messages.length - 1];
-              if (currentMsg && currentMsg.role === 'assistant' && currentMsg.content) {
-                // 解析工具调用
-                const toolCalls = toolManager ? toolManager.parseToolCalls(currentMsg.content) : [];
-                
-                if (toolCalls.length > 0) {
-                  console.log(`[Chat] Detected ${toolCalls.length} tool calls, executing...`);
+              // 保存当前消息元素引用
+              const completedMessageElement = lastMessageElement;
+              
+              // 使用 setTimeout 延迟执行工具，确保流式渲染完全结束
+              setTimeout(async () => {
+                // 处理工具调用
+                const currentMsg = targetSession.messages[targetSession.messages.length - 1];
+                if (currentMsg && currentMsg.role === 'assistant' && currentMsg.content) {
+                  // 解析工具调用
+                  const toolCalls = toolManager ? toolManager.parseToolCalls(currentMsg.content) : [];
+                  
+                  if (toolCalls.length > 0) {
+                    console.log(`[Chat] Detected ${toolCalls.length} tool calls, executing after stream complete...`);
                   
                   // 注意：不保存 tool_calls 到消息中，只在内存中处理
                   // 渲染时会根据 content 动态解析
@@ -1750,23 +1755,26 @@ window.Pages.chat = function(container) {
                   // 开始执行工具并获取总结
                   await executeToolsAndGetSummary(null);
                   
+                  await sessionManager.saveConversations();
+                  
+                  // 只在当前会话时重新渲染
+                  const afterToolSession = sessionManager.getCurrentSession();
+                  if (afterToolSession && afterToolSession.id === session.id) {
+                    render();
+                    
+                    if (messageListElement) {
+                      setTimeout(() => {
+                        messageListElement.scrollTop = messageListElement.scrollHeight;
+                      }, 50);
+                    }
+                  }
+                  
                   return;  // 提前返回，不执行后续的 render
                 }
               }
+              }, 100); // 延迟 100ms 确保流式渲染完全结束
               
-              await sessionManager.saveConversations();
-              
-              // 只在当前会话时重新渲染
-              const currentSession = sessionManager.getCurrentSession();
-              if (currentSession && currentSession.id === session.id) {
-                render();
-                
-                if (messageListElement) {
-                  setTimeout(() => {
-                    messageListElement.scrollTop = messageListElement.scrollHeight;
-                  }, 50);
-                }
-              }
+              return; // 等待 setTimeout 中的逻辑执行
             } else if (msg.type === 'error') {
               port.disconnect();
               currentPort = null;
