@@ -180,39 +180,12 @@ window.ChatRender = {
     
     card.appendChild(header);
     
-    // 参数区域（直接展开显示源码）
+    // 参数区域（直接显示源码）
     const params = toolCall.query || toolCall.code || toolCall.function?.arguments;
     if (params) {
-      const paramsSection = create('details', {
-        style: { marginBottom: '6px' }
-      });
-      // 默认展开
-      paramsSection.setAttribute('open', '');
-      
-      const summary = create('summary', {
-        style: {
-          cursor: 'pointer',
-          fontSize: '11px',
-          fontWeight: '500',
-          color: 'var(--color-text-secondary)',
-          padding: '4px 6px',
-          background: 'var(--color-bg)',
-          borderRadius: '4px',
-          transition: 'background 0.2s',
-          outline: 'none',
-          listStyle: 'none'
-        },
-        text: ' 参数'
-      });
-      
-      summary.onmouseenter = () => summary.style.background = 'var(--color-surface)';
-      summary.onmouseleave = () => summary.style.background = 'var(--color-bg)';
-      
-      paramsSection.appendChild(summary);
-      
       const paramsContent = create('div', {
         style: {
-          marginTop: '4px',
+          marginBottom: '6px',
           padding: '6px 8px',
           background: 'var(--color-bg)',
           borderRadius: '4px',
@@ -227,8 +200,7 @@ window.ChatRender = {
         text: params
       });
       
-      paramsSection.appendChild(paramsContent);
-      card.appendChild(paramsSection);
+      card.appendChild(paramsContent);
     }
     
     // 结果区域
