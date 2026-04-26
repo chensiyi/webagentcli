@@ -41,18 +41,43 @@ chrome.runtime.onConnect.addListener((port) => {
           return cleanMsg;
         });
         
-        // 如果工具未启用，将 tool 消息转换为用户消息
+        // 如果工具未启用，将 assistant+tool 消息对转换为普通对话
         if (!toolsEnabled) {
-          processedMessages = processedMessages.map(msg => {
-            if (msg.role === 'tool') {
-              // 将工具结果转换为用户消息
-              return {
-                role: 'user',
-                content: `[工具执行结果]: ${msg.content}`
-              };
+          const convertedMessages = [];
+          
+          for (let i = 0; i < processedMessages.length; i++) {
+            const msg = processedMessages[i];
+            
+            if (msg.role === 'assistant') {
+              // 添加 assistant 消息
+              convertedMessages.push(msg);
+              
+              // 检查后续是否有连续的 tool 消息
+              const toolResults = [];
+              let j = i + 1;
+              while (j < processedMessages.length && processedMessages[j].role === 'tool') {
+                toolResults.push(processedMessages[j].content);
+                j++;
+              }
+              
+              // 如果有工具结果，添加一条用户消息说明执行结果
+              if (toolResults.length > 0) {
+                convertedMessages.push({
+                  role: 'user',
+                  content: `[工具执行结果]\n${toolResults.join('\n\n')}`
+                });
+              }
+              
+              // 跳过已处理的 tool 消息
+              i = j - 1;
+            } else if (msg.role !== 'tool') {
+              // 非 tool 消息直接添加
+              convertedMessages.push(msg);
             }
-            return msg;
-          });
+            // tool 消息已经在上面处理过了，跳过
+          }
+          
+          processedMessages = convertedMessages;
         }
         
         // 检查消息中是否包含图片
