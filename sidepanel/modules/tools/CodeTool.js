@@ -58,76 +58,53 @@ Full access to page DOM: document, window, fetch, localStorage, etc.
       }
       
       const tabId = tabs[0].id;
+      const requestId = `exec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       
-      // 使用 chrome.scripting.executeScript 在 MAIN world 执行
-      // 通过 postMessage + 事件监听器获取结果
-      const result = await chrome.scripting.executeScript({
-        target: { tabId: tabId },
-        func: (userCode) => {
-          return new Promise((resolve) => {
-            try {
-              // 创建一个临时的结果容器
-              window._codeExecResult = undefined;
-              window._codeExecError = undefined;
-              
-              // 在 MAIN world 中执行代码
-              // 使用 eval，但因为是在 chrome.scripting.executeScript 中，
-              // 所以不受网页 CSP 限制
-              const execCode = `
-                (function() {
-                  ${userCode}
-                })()
-              `;
-              
-              const result = eval(execCode);
-              
-              resolve({
-                success: true,
-                result: result,
-                type: typeof result
-              });
-            } catch (error) {
-              resolve({
-                success: false,
-                error: error.message,
-                stack: error.stack
-              });
-            }
-          });
-        },
-        args: [code],
-        world: 'MAIN'
-      });
+      // 注册用户脚本（动态注册，包含用户代码）
+      await chrome.userScripts.register([{
+        id: `webagentcli-temp-${requestId}`,
+        matches: ['<all_urls>'],
+        js: [{ code: this.buildUserScriptCode(code, requestId) }],
+        world: 'MAIN',
+        runAt: 'document_idle'
+      }]);
       
-      if (!result || result.length === 0) {
-        throw new Error('脚本执行没有返回结果');
+      console.log('[CodeTool] 用户脚本已注册:', requestId);
+      
+      // 等待执行结果（最多 10 秒）
+      const result = await this.waitForResult(requestId, 10000);
+      
+      // 清理临时用户脚本
+      try {
+        await chrome.userScripts.unregister({ ids: [`webagentcli-temp-${requestId}`] });
+        console.log('[CodeTool] 临时用户脚本已清理');
+      } catch (err) {
+        console.warn('[CodeTool] 清理用户脚本失败:', err.message);
       }
       
-      const executionResult = result[0].result;
-      
-      if (!executionResult.success) {
+      if (!result.success) {
         return {
           success: false,
-          error: executionResult.error,
-          stack: executionResult.stack
+          error: result.error,
+          stack: result.stack
         };
       }
       
       // 格式化结果
       let output = '';
-      if (executionResult.result !== undefined) {
-        if (typeof executionResult.result === 'object') {
-          output = JSON.stringify(executionResult.result, null, 2);
+      if (result.result !== undefined) {
+        if (typeof result.result === 'object') {
+          output = JSON.stringify(result.result, null, 2);
         } else {
-          output = String(executionResult.result);
+          output = String(result.result);
         }
       }
       
       return {
         success: true,
-        result: executionResult.result,
+        result: result.result,
         output: output,
-        type: executionResult.type
+        type: result.type
       };
     } catch (error) {
       return {
@@ -136,5 +113,60 @@ Full access to page DOM: document, window, fetch, localStorage, etc.
         stack: error.stack
       };
     }
+  },
+  
+  /**
+   * 构建用户脚本代码
+   */
+  buildUserScriptCode(code, requestId) {
+    return `
+      (function() {
+        try {
+          // 在 MAIN world 中执行用户代码
+          const result = (${code});
+          
+          // 通过 chrome.runtime.sendMessage 发送结果到扩展
+          chrome.runtime.sendMessage({
+            source: 'webagentcli-code-executor',
+            requestId: '${requestId}',
+            success: true,
+            result: result,
+            type: typeof result
+          });
+        } catch (error) {
+          chrome.runtime.sendMessage({
+            source: 'webagentcli-code-executor',
+            requestId: '${requestId}',
+            success: false,
+            error: error.message,
+            stack: error.stack
+          });
+        }
+      })();
+    `;
+  },
+  
+  /**
+   * 等待执行结果
+   */
+  waitForResult(requestId, timeout) {
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        chrome.runtime.onMessage.removeListener(listener);
+        reject(new Error('代码执行超时'));
+      }, timeout);
+      
+      const listener = (message, sender, sendResponse) => {
+        if (message.source === 'webagentcli-code-executor' && 
+            message.requestId === requestId) {
+          clearTimeout(timeoutId);
+          chrome.runtime.onMessage.removeListener(listener);
+          resolve(message);
+          return true;
+        }
+      };
+      
+      chrome.runtime.onMessage.addListener(listener);
+    });
   },
 };
