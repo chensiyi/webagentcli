@@ -1490,24 +1490,24 @@ window.Pages.chat = function(container) {
                     });
                     console.log('[Chat] ==========================================');
                     
-                    // 添加工具执行结果的用户消息，触发模型继续交互
-                    const toolResultsSummary = tempToolResults.map((result, idx) => {
+                    // 生成 tool 消息用于 API 请求（不保存到 session）
+                    const toolMessages = tempToolResults.map((result, idx) => {
                       const toolName = result.tool_call.function?.name || result.tool_call.type || 'unknown';
                       const output = result.tool_result.output || 
                         (typeof result.tool_result === 'object' ? JSON.stringify(result.tool_result) : String(result.tool_result));
-                      return `[${toolName}] ${output}`;
-                    }).join('\n\n');
+                      
+                      return {
+                        role: 'tool',
+                        content: output,
+                        tool_call_id: result.tool_call.id || `call_${idx}`,
+                        name: toolName
+                      };
+                    });
                     
-                    const toolResultMessage = {
-                      role: 'user',
-                      content: `[工具执行完成]\n\n${toolResultsSummary}`
-                    };
+                    // 将 tool 消息添加到 chatMessages（仅用于 API 请求，不持久化）
+                    chatMessages = [...chatMessages, ...toolMessages];
                     
-                    // 保存到会话历史
-                    sessionManager.addMessage(session.id, toolResultMessage);
-                    chatMessages = [...targetSession.messages];
-                    
-                    console.log('[Chat] 添加工具结果用户消息，触发模型继续交互');
+                    console.log('[Chat] 生成 tool 消息用于触发模型继续交互（不保存到 session）');
                     
                     // 添加助手消息占位
                     sessionManager.addMessage(session.id, { role: 'assistant', content: '' });

@@ -59,36 +59,51 @@ Full access to page DOM: document, window, fetch, localStorage, etc.
       
       const tabId = tabs[0].id;
       
-      // 使用 chrome.scripting.executeScript 注入到网页 MAIN world
-      const results = await chrome.scripting.executeScript({
+      // 使用 chrome.scripting.executeScript 在 MAIN world 执行
+      // 通过 postMessage + 事件监听器获取结果
+      const result = await chrome.scripting.executeScript({
         target: { tabId: tabId },
         func: (userCode) => {
-          try {
-            // 在网页的 MAIN world 中执行
-            // 使用 new Function 避免 eval 的 CSP 限制
-            const func = new Function(userCode);
-            return {
-              success: true,
-              result: func(),
-              type: typeof func()
-            };
-          } catch (error) {
-            return {
-              success: false,
-              error: error.message,
-              stack: error.stack
-            };
-          }
+          return new Promise((resolve) => {
+            try {
+              // 创建一个临时的结果容器
+              window._codeExecResult = undefined;
+              window._codeExecError = undefined;
+              
+              // 在 MAIN world 中执行代码
+              // 使用 eval，但因为是在 chrome.scripting.executeScript 中，
+              // 所以不受网页 CSP 限制
+              const execCode = `
+                (function() {
+                  ${userCode}
+                })()
+              `;
+              
+              const result = eval(execCode);
+              
+              resolve({
+                success: true,
+                result: result,
+                type: typeof result
+              });
+            } catch (error) {
+              resolve({
+                success: false,
+                error: error.message,
+                stack: error.stack
+              });
+            }
+          });
         },
         args: [code],
-        world: 'MAIN' // 关键：在 MAIN world 执行，可访问页面的所有对象
+        world: 'MAIN'
       });
       
-      if (!results || results.length === 0) {
+      if (!result || result.length === 0) {
         throw new Error('脚本执行没有返回结果');
       }
       
-      const executionResult = results[0].result;
+      const executionResult = result[0].result;
       
       if (!executionResult.success) {
         return {
@@ -100,18 +115,17 @@ Full access to page DOM: document, window, fetch, localStorage, etc.
       
       // 格式化结果
       let output = '';
-      const result = executionResult.result;
-      if (result !== undefined) {
-        if (typeof result === 'object') {
-          output = JSON.stringify(result, null, 2);
+      if (executionResult.result !== undefined) {
+        if (typeof executionResult.result === 'object') {
+          output = JSON.stringify(executionResult.result, null, 2);
         } else {
-          output = String(result);
+          output = String(executionResult.result);
         }
       }
       
       return {
         success: true,
-        result: result,
+        result: executionResult.result,
         output: output,
         type: executionResult.type
       };
