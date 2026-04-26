@@ -21,20 +21,38 @@ chrome.runtime.onConnect.addListener((port) => {
       console.log('[Background] Stream chat:', model, 'toolsEnabled:', toolsEnabled);
       
       try {
-        // 如果工具未启用，清理消息中的 tool_calls 和 tool 消息
-        let processedMessages = messages;
-        if (!toolsEnabled) {
-          console.log('[Background] Tools disabled, cleaning tool-related content from messages');
-          processedMessages = messages.map(msg => {
-            const cleanMsg = { ...msg };
-            // 移除 tool_calls
-            if (cleanMsg.tool_calls) {
-              delete cleanMsg.tool_calls;
-            }
-            return cleanMsg;
-          }).filter(msg => msg.role !== 'tool'); // 过滤掉 tool 消息
+        // 处理消息：清理 reasoning_content 和 tool 相关字段
+        let processedMessages = messages.map(msg => {
+          const cleanMsg = { ...msg };
           
-          console.log('[Background] Filtered messages:', messages.length, '->', processedMessages.length);
+          // 清理 reasoning_content（本地思考过程，不发送给 API）
+          if (cleanMsg.additional_kwargs?.reasoning_content) {
+            delete cleanMsg.additional_kwargs.reasoning_content;
+          }
+          if (cleanMsg.additional_kwargs && Object.keys(cleanMsg.additional_kwargs).length === 0) {
+            delete cleanMsg.additional_kwargs;
+          }
+          
+          // 如果工具未启用，清理 tool_calls
+          if (!toolsEnabled && cleanMsg.tool_calls) {
+            delete cleanMsg.tool_calls;
+          }
+          
+          return cleanMsg;
+        });
+        
+        // 如果工具未启用，将 tool 消息转换为用户消息
+        if (!toolsEnabled) {
+          processedMessages = processedMessages.map(msg => {
+            if (msg.role === 'tool') {
+              // 将工具结果转换为用户消息
+              return {
+                role: 'user',
+                content: `[工具执行结果]: ${msg.content}`
+              };
+            }
+            return msg;
+          });
         }
         
         // 检查消息中是否包含图片
