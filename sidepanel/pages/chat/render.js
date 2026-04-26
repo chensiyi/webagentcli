@@ -180,14 +180,14 @@ window.ChatRender = {
     
     card.appendChild(header);
     
-    // 参数区域（可折叠）
+    // 参数区域（直接展开显示源码）
     const params = toolCall.query || toolCall.code || toolCall.function?.arguments;
     if (params) {
       const paramsSection = create('details', {
         style: { marginBottom: '6px' }
       });
-      // 默认折叠
-      paramsSection.removeAttribute('open');
+      // 默认展开
+      paramsSection.setAttribute('open', '');
       
       const summary = create('summary', {
         style: {
