@@ -148,6 +148,19 @@
     }
 
     /**
+     * 获取所有启用的工具
+     */
+    getEnabledTools() {
+      const enabled = [];
+      this.tools.forEach((tool, id) => {
+        if (tool.enabled) {
+          enabled.push({ id, ...tool });
+        }
+      });
+      return enabled;
+    }
+
+    /**
      * 生成系统提示
      */
     generateSystemPrompt() {

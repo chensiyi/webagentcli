@@ -1054,7 +1054,9 @@ window.Pages.chat = function(container) {
           console.log('[Chat] ==========================');
           
           // 检查工具是否启用
-          const toolsEnabled = toolManager && toolManager.getEnabledTools && toolManager.getEnabledTools().length > 0;
+          const enabledTools = toolManager && toolManager.getEnabledTools ? toolManager.getEnabledTools() : [];
+          const toolsEnabled = enabledTools.length > 0;
+          console.log('[Chat] 启用的工具:', enabledTools.map(t => t.id));
           console.log('[Chat] 工具启用状态:', toolsEnabled);
           
           // 监听流式响应
