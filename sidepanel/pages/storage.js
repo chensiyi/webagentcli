@@ -66,7 +66,12 @@ window.Pages.storage = function(container) {
 
     // 统计信息和操作按钮
     const statsCard = create('div', {
-      className: 'card flex flex-between'
+      className: 'card',
+      style: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center'
+      }
     });
 
     const statsText = create('div', {
