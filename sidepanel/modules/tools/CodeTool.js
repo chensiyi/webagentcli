@@ -59,96 +59,31 @@ Full access to page DOM: document, window, fetch, localStorage, etc.
       
       const tabId = tabs[0].id;
       
-      // 使用 chrome.scripting.executeScript 注入脚本到 MAIN world
-      // 通过创建 script 标签来执行代码（绕过 CSP 的 unsafe-eval 限制）
-      const result = await chrome.scripting.executeScript({
-        target: { tabId: tabId },
-        func: (userCode) => {
-          return new Promise((resolve) => {
-            try {
-              // 创建一个临时的 script 标签
-              const script = document.createElement('script');
-              
-              // 检测代码是否包含 return 语句
-              const hasReturn = /\breturn\b/.test(userCode);
-              
-              if (hasReturn) {
-                // 如果有 return，将代码作为函数体执行
-                script.textContent = `
-                  (function() {
-                    try {
-                      const result = (function() { ${userCode} })();
-                      window._codeExecResult = { success: true, result: result, type: typeof result };
-                    } catch (error) {
-                      window._codeExecResult = { success: false, error: error.message, stack: error.stack };
-                    }
-                  })();
-                `;
-              } else {
-                // 没有 return，直接作为表达式执行
-                script.textContent = `
-                  (function() {
-                    try {
-                      const result = (${userCode});
-                      window._codeExecResult = { success: true, result: result, type: typeof result };
-                    } catch (error) {
-                      window._codeExecResult = { success: false, error: error.message, stack: error.stack };
-                    }
-                  })();
-                `;
-              }
-              
-              // 添加到文档中执行
-              document.documentElement.appendChild(script);
-              
-              // 等待执行完成
-              setTimeout(() => {
-                const result = window._codeExecResult;
-                delete window._codeExecResult;
-                script.remove(); // 清理
-                resolve(result);
-              }, 100);
-            } catch (error) {
-              resolve({
-                success: false,
-                error: error.message,
-                stack: error.stack
-              });
-            }
-          });
-        },
-        args: [code],
-        world: 'MAIN'
-      });
+      // 使用 TerminalManager 执行代码
+      const result = await window.TerminalManager.execute(tabId, code);
       
-      if (!result || result.length === 0) {
-        throw new Error('脚本执行没有返回结果');
-      }
-      
-      const executionResult = result[0].result;
-      
-      if (!executionResult || !executionResult.success) {
+      if (!result.success) {
         return {
           success: false,
-          error: executionResult?.error || '未知错误',
-          stack: executionResult?.stack
+          error: result.error,
+          stack: result.stack
         };
       }
       
-      // 格式化结果
+      // 格式化输出
       let output = '';
-      if (executionResult.result !== undefined) {
-        if (typeof executionResult.result === 'object') {
-          output = JSON.stringify(executionResult.result, null, 2);
+      if (result.data !== undefined) {
+        if (typeof result.data === 'object') {
+          output = JSON.stringify(result.data, null, 2);
         } else {
-          output = String(executionResult.result);
+          output = String(result.data);
         }
       }
       
       return {
         success: true,
         output: output,
-        type: executionResult.type
+        type: result.type
       };
     } catch (error) {
       return {
