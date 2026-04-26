@@ -12,32 +12,38 @@ window.CodeTool = {
     enabled: false,
     systemPrompt: `### js_code
 
-Execute JavaScript code in a sandboxed environment for calculations and data processing.
+Execute JavaScript code in the target web page's MAIN world.
 
 **Format:**
 \`\`\`javascript
 // your code
-expression_to_return
+return value;
 \`\`\`
 
 **Examples:**
 \`\`\`javascript
-2 + 2
+return document.title;
 \`\`\`
-Returns: 4
+Returns: Page title
 
 \`\`\`javascript
-[1,2,3].filter(x => x > 1)
+return document.querySelector('h1').textContent;
 \`\`\`
-Returns: [2, 3]
+Returns: Heading text
+
+\`\`\`javascript
+return JSON.stringify({ links: document.querySelectorAll('a').length });
+\`\`\`
+Returns: JSON string
 
 **Available APIs:**
-console, Math, JSON, Date, Array, Object, String, Number, Boolean, parseInt, parseFloat
+Full access to page DOM: document, window, fetch, localStorage, etc.
 
 **Notes:**
-- Last expression's value is returned
-- Strict mode sandbox, no browser APIs (window, document, fetch)
-- No require() or import`
+- Use 'return' statement to return values
+- Code executes in page context (MAIN world)
+- Can access all page APIs and DOM elements
+- Use JSON.stringify() for complex objects`,
   },
 
   /**
