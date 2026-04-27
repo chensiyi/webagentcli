@@ -12,9 +12,9 @@ class MessageSender {
   /**
    * 发送消息
    */
-  async sendMessage(sessionId, text, images, renderCallback) {
+  async sendMessage(sessionId, text, media, renderCallback) {
     // 验证输入
-    if (!text && images.length === 0) {
+    if (!text && media.length === 0) {
       console.warn('[MessageSender] Empty message blocked');
       return false;
     }
@@ -25,16 +25,24 @@ class MessageSender {
     }
 
     // 构建多模态消息
-    const userMessage = this.buildUserMessage(text, images);
+    const userMessage = this.buildUserMessage(text, media);
 
     // 打印日志
     console.log('[MessageSender] ===== Sending message =====');
-    console.log('[MessageSender] Type:', images.length > 0 ? (text ? '文本+图片' : '仅图片') : '纯文本');
+    
+    // 分类统计媒体
+    const mediaStats = {};
+    media.forEach(m => {
+      mediaStats[m.type] = (mediaStats[m.type] || 0) + 1;
+    });
+    
+    if (Object.keys(mediaStats).length > 0) {
+      const statStr = Object.entries(mediaStats).map(([type, count]) => `${count}个${type}`).join('，');
+      console.log('[MessageSender] Media:', statStr);
+    }
+    
     if (text) {
       console.log('[MessageSender] Text:', text);
-    }
-    if (images.length > 0) {
-      console.log('[MessageSender] Images:', images.length);
     }
     console.log('[MessageSender] ====================');
 
@@ -56,32 +64,52 @@ class MessageSender {
   /**
    * 构建用户消息
    */
-  buildUserMessage(text, images) {
-    if (images.length > 0 && text) {
-      // 文本 + 图片
-      return {
-        role: 'user',
-        content: [
-          { type: 'text', text },
-          ...images.map(img => ({
-            type: 'image_url',
-            image_url: { url: img.dataUrl }
-          }))
-        ]
-      };
-    } else if (images.length > 0) {
-      // 仅图片
-      return {
-        role: 'user',
-        content: images.map(img => ({
+  buildUserMessage(text, media) {
+    const contentParts = [];
+    
+    // 添加文本
+    if (text) {
+      contentParts.push({ type: 'text', text });
+    }
+    
+    // 添加媒体
+    media.forEach(item => {
+      if (item.type === 'image') {
+        contentParts.push({
           type: 'image_url',
-          image_url: { url: img.dataUrl }
-        }))
-      };
-    } else {
-      // 仅文本
+          image_url: { url: item.dataUrl }
+        });
+      } else if (item.type === 'audio') {
+        contentParts.push({
+          type: 'input_audio',
+          input_audio: {
+            data: item.dataUrl,
+            format: 'webm'
+          }
+        });
+      } else if (item.type === 'video') {
+        // 视频暂时作为文件附件处理（部分API支持）
+        contentParts.push({
+          type: 'file',
+          file: {
+            filename: item.filename,
+            data: item.dataUrl,
+            mimeType: 'video/mp4'
+          }
+        });
+      }
+    });
+    
+    // 如果只有文本，返回简单格式
+    if (contentParts.length === 1 && contentParts[0].type === 'text') {
       return { role: 'user', content: text };
     }
+    
+    // 多模态内容
+    return {
+      role: 'user',
+      content: contentParts
+    };
   }
 
   /**
