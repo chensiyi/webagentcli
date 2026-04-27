@@ -253,6 +253,26 @@
     }
     
     /**
+     * 恢复模型详细信息（从存储中加载）
+     */
+    restoreModelDetails(details) {
+      if (!details || !details.id) return;
+      
+      // 添加到modelDetails
+      this.modelDetails[details.id] = details;
+      
+      // 如果models数组中没有这个ID，添加它
+      if (!this.models.includes(details.id)) {
+        this.models.push(details.id);
+      }
+      
+      // 重新检测能力
+      this.detectCapabilities(details.id);
+      
+      console.log('[ModelManager] Restored model details:', details.id);
+    }
+    
+    /**
      * 检查模型是否支持视觉（无需加载模型列表）
      * 用于在模型列表未加载时进行快速检测
      */

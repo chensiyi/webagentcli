@@ -5,6 +5,9 @@ window.Pages.settings = function(container) {
   const { create, clear, setTheme, getTheme } = window.DOM;
   const modelManager = window.ModelManager;
   
+  // 创建设置存储管理器
+  const settingsStorage = new window.SettingsStorage();
+  
   let settings = {
     apiKey: '',
     apiEndpoint: 'https://openrouter.ai/api/v1',
@@ -758,47 +761,45 @@ window.Pages.settings = function(container) {
     ]));
     
     // 加载已保存的设置
-    chrome.storage.local.get(['settings'], (result) => {
-      if (result.settings) {
-        settings = { ...settings, ...result.settings };
-        setTheme(settings.theme);
-        
-        // 填充表单
-        const apiKeyInput = content.querySelector('input[placeholder*="API Key"]');
-        const endpointInput = content.querySelector('input[placeholder*="端点"]');
-        const modelSearch = content.querySelector('#model-search');
-        const tempInput = content.querySelector('input[type="number"][max="2"]');
-        const tokenInput = content.querySelector('input[type="number"][max="8000"]');
-        const promptInput = content.querySelector('textarea');
+    settingsStorage.loadSettings().then((loadedSettings) => {
+      settings = { ...settings, ...loadedSettings };
+      setTheme(settings.theme);
+      
+      // 填充表单
+      const apiKeyInput = content.querySelector('input[placeholder*="API Key"]');
+      const endpointInput = content.querySelector('input[placeholder*="端点"]');
+      const modelSearch = content.querySelector('#model-search');
+      const tempInput = content.querySelector('input[type="number"][max="2"]');
+      const tokenInput = content.querySelector('input[type="number"][max="8000"]');
+      const promptInput = content.querySelector('textarea');
 
-        if (apiKeyInput) apiKeyInput.value = settings.apiKey || '';
-        if (endpointInput) endpointInput.value = settings.apiEndpoint || '';
-        if (modelSearch) {
-          modelSearch.value = settings.model || '';
-          modelSearchValue = settings.model || '';
-        }
-        if (tempInput) tempInput.value = settings.temperature ?? 0.7;
-        if (tokenInput) tokenInput.value = settings.maxTokens ?? 2000;
-        if (promptInput) promptInput.value = settings.systemPrompt || '';
-        
-        // 更新复选框状态
-        const checkbox = content.querySelector('input[type="checkbox"]');
-        if (checkbox) {
-          checkbox.checked = settings.autoContextTruncation !== false;
-        }
-        
-        // 更新单选按钮状态
-        const radios = content.querySelectorAll('input[name="theme"]');
-        radios.forEach(radio => {
-          radio.checked = radio.value === settings.theme;
-        });
-        
-        // 如果base url有内容且模型列表为空，自动加载
-        if (settings.apiEndpoint && !modelManager.isLoaded()) {
-          setTimeout(() => {
-            performLoad();
-          }, 100);
-        }
+      if (apiKeyInput) apiKeyInput.value = settings.apiKey || '';
+      if (endpointInput) endpointInput.value = settings.apiEndpoint || '';
+      if (modelSearch) {
+        modelSearch.value = settings.model || '';
+        modelSearchValue = settings.model || '';
+      }
+      if (tempInput) tempInput.value = settings.temperature ?? 0.7;
+      if (tokenInput) tokenInput.value = settings.maxTokens ?? 2000;
+      if (promptInput) promptInput.value = settings.systemPrompt || '';
+      
+      // 更新复选框状态
+      const checkbox = content.querySelector('input[type="checkbox"]');
+      if (checkbox) {
+        checkbox.checked = settings.autoContextTruncation !== false;
+      }
+      
+      // 更新单选按钮状态
+      const radios = content.querySelectorAll('input[name="theme"]');
+      radios.forEach(radio => {
+        radio.checked = radio.value === settings.theme;
+      });
+      
+      // 如果base url有内容且模型列表为空，自动加载
+      if (settings.apiEndpoint && !modelManager.isLoaded()) {
+        setTimeout(() => {
+          performLoad();
+        }, 100);
       }
     });
     
@@ -809,25 +810,24 @@ window.Pages.settings = function(container) {
       create('button', {
         className: 'btn btn-primary setting-full-width',
         text: '保存设置',
-        onClick: () => {
-          chrome.storage.local.set({ settings }, () => {
-            console.log('[Settings] Saved:', settings);
-            
-            // 初始化 Agent
-            if (window.Agent) {
-              const ai = new window.Agent();
-              ai.registerProvider('default', {
-                endpoint: settings.apiEndpoint,
-                apiKey: settings.apiKey || 'local',
-                defaultModel: settings.model
-              });
-              ai.setProvider('default');
-              window.aiManager = ai;
-              console.log('[Settings] AI Manager initialized');
-            }
-            
-            window.Toast.success('设置已保存');
-          });
+        onClick: async () => {
+          await settingsStorage.saveSettings(settings);
+          console.log('[Settings] Saved:', settings);
+          
+          // 初始化 Agent
+          if (window.Agent) {
+            const ai = new window.Agent();
+            ai.registerProvider('default', {
+              endpoint: settings.apiEndpoint,
+              apiKey: settings.apiKey || 'local',
+              defaultModel: settings.model
+            });
+            ai.setProvider('default');
+            window.aiManager = ai;
+            console.log('[Settings] AI Manager initialized');
+          }
+          
+          window.Toast.success('设置已保存');
         }
       })
     ]));

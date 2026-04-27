@@ -20,8 +20,15 @@ class SettingsStorage {
    */
   async loadSettings() {
     return new Promise((resolve) => {
-      chrome.storage.local.get(['settings'], (result) => {
+      chrome.storage.local.get(['settings', 'modelDetails'], (result) => {
         const settings = result.settings || {};
+        const modelDetails = result.modelDetails || null;
+        
+        // 如果有保存的模型详细信息，恢复到ModelManager
+        if (modelDetails && window.ModelManager) {
+          window.ModelManager.restoreModelDetails(modelDetails);
+        }
+        
         resolve({ ...this.defaultSettings, ...settings });
       });
     });
@@ -32,8 +39,27 @@ class SettingsStorage {
    */
   async saveSettings(settings) {
     return new Promise((resolve) => {
-      chrome.storage.local.set({ settings }, () => {
+      // 同时保存模型详细信息（如果ModelManager已加载）
+      const modelManager = window.ModelManager;
+      let modelDetails = null;
+      
+      if (modelManager && settings.model) {
+        const details = modelManager.getModelDetails(settings.model);
+        if (details) {
+          modelDetails = details;
+        }
+      }
+      
+      const dataToSave = {
+        settings,
+        modelDetails: modelDetails // 保存完整的模型信息
+      };
+      
+      chrome.storage.local.set(dataToSave, () => {
         console.log('[SettingsStorage] Settings saved:', settings);
+        if (modelDetails) {
+          console.log('[SettingsStorage] Model details saved:', modelDetails.id);
+        }
         resolve();
       });
     });

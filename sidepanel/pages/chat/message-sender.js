@@ -236,6 +236,13 @@ class MessageSender {
    * 获取设置
    */
   async getSettings() {
+    // 使用SettingsStorage加载设置
+    if (window.SettingsStorage) {
+      const storage = new window.SettingsStorage();
+      return await storage.loadSettings();
+    }
+    
+    // 回退到旧方式
     return new Promise((resolve) => {
       chrome.storage.local.get(['settings'], resolve);
     });
