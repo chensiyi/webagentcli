@@ -121,36 +121,157 @@ window.Pages.settings = function(container) {
       return;
     }
     
-    filtered.forEach(model => {
+    filtered.forEach(modelId => {
+      const details = modelManager.getModelDetails(modelId);
+      const modelName = details?.name || modelId;
+      const contextLength = details?.context_length;
+      const pricing = details?.pricing;
+      const inputModalities = details?.input_modalities || [];
+      
+      // 创建模型项容器
       const item = create('div', {
-        className: 'model-dropdown-item' + (model === settings.model ? ' selected' : ''),
-        text: model,
-        onClick: () => {
-          settings.model = model;
-          modelSearchValue = model;
-          
-          // 同步更新隐藏的select
-          const hiddenSelect = document.getElementById('model-select-hidden');
-          if (hiddenSelect) {
-            hiddenSelect.value = model;
-          }
-          
-          // 更新输入框
-          const searchInput = document.getElementById('model-search');
-          if (searchInput) {
-            searchInput.value = model;
-          }
-          
-          dropdown.style.display = 'none';
-          
-          // 只更新模型能力提示
-          updateModelCapabilityHint();
+        className: 'model-dropdown-item' + (modelId === settings.model ? ' selected' : ''),
+        style: {
+          padding: '10px 12px',
+          cursor: 'pointer',
+          borderBottom: '1px solid var(--color-border)',
+          transition: 'background 0.2s'
         }
       });
+      
+      // 第一行：模型名称
+      const nameLine = create('div', {
+        style: {
+          fontWeight: '500',
+          fontSize: '13px',
+          marginBottom: '4px',
+          color: 'var(--color-text)'
+        },
+        text: modelName
+      });
+      item.appendChild(nameLine);
+      
+      // 第二行：详细信息
+      const infoLine = create('div', {
+        style: {
+          fontSize: '11px',
+          color: 'var(--color-text-secondary)',
+          display: 'flex',
+          gap: '8px',
+          flexWrap: 'wrap'
+        }
+      });
+      
+      // 上下文长度
+      if (contextLength) {
+        const ctxBadge = create('span', {
+          style: {
+            padding: '2px 6px',
+            background: 'var(--color-primary-light)',
+            borderRadius: '4px',
+            fontSize: '10px'
+          },
+          text: `📝 ${formatContextLength(contextLength)}`
+        });
+        infoLine.appendChild(ctxBadge);
+      }
+      
+      // 价格
+      if (pricing) {
+        const priceText = formatPricing(pricing);
+        if (priceText) {
+          const priceBadge = create('span', {
+            style: {
+              padding: '2px 6px',
+              background: 'var(--color-success-light)',
+              borderRadius: '4px',
+              fontSize: '10px'
+            },
+            text: `💰 ${priceText}`
+          });
+          infoLine.appendChild(priceBadge);
+        }
+      }
+      
+      // 输入模态
+      if (inputModalities.length > 0) {
+        const modalityIcons = {
+          'text': '📝',
+          'image': '🖼️',
+          'video': '🎥',
+          'audio': '🎤'
+        };
+        const icons = inputModalities.map(m => modalityIcons[m] || m).join(' ');
+        const modalBadge = create('span', {
+          style: {
+            padding: '2px 6px',
+            background: 'var(--color-warning-light)',
+            borderRadius: '4px',
+            fontSize: '10px'
+          },
+          text: `📥 ${icons}`
+        });
+        infoLine.appendChild(modalBadge);
+      }
+      
+      item.appendChild(infoLine);
+      
+      // 点击事件
+      item.addEventListener('click', () => {
+        settings.model = modelId;
+        modelSearchValue = modelId;
+        
+        // 同步更新隐藏的select
+        const hiddenSelect = document.getElementById('model-select-hidden');
+        if (hiddenSelect) {
+          hiddenSelect.value = modelId;
+        }
+        
+        // 更新输入框
+        const searchInput = document.getElementById('model-search');
+        if (searchInput) {
+          searchInput.value = modelId;
+        }
+        
+        dropdown.style.display = 'none';
+        
+        // 只更新模型能力提示
+        updateModelCapabilityHint();
+      });
+      
       dropdown.appendChild(item);
     });
     
     dropdown.style.display = 'block';
+  }
+  
+  /**
+   * 格式化上下文长度
+   */
+  function formatContextLength(length) {
+    if (length >= 1000000) {
+      return `${(length / 1000000).toFixed(0)}M`;
+    } else if (length >= 1000) {
+      return `${(length / 1000).toFixed(0)}K`;
+    }
+    return length.toString();
+  }
+  
+  /**
+   * 格式化价格
+   */
+  function formatPricing(pricing) {
+    if (!pricing) return '';
+    
+    const parts = [];
+    if (pricing.prompt) {
+      const price = parseFloat(pricing.prompt);
+      if (price > 0) {
+        parts.push(`$${(price * 1000000).toFixed(2)}/M`);
+      }
+    }
+    
+    return parts.join(' | ') || '免费';
   }
   
   /**

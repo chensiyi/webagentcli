@@ -5,7 +5,8 @@
   
   class ModelManager {
     constructor() {
-      this.models = [];
+      this.models = []; // 只存储模型ID列表（向后兼容）
+      this.modelDetails = {}; // { modelId: { id, name, context_length, pricing, ... } }
       this.capabilities = {}; // { modelName: { vision, streaming, ... } }
       this.lastFetchTime = null;
       this.cacheDuration = 5 * 60 * 1000; // 缓存5分钟
@@ -40,8 +41,29 @@
         
         const result = await response.json();
         
-        // 提取模型 ID 列表
-        this.models = result.data ? result.data.map(m => m.id) : [];
+        // 提取模型列表和详细信息
+        if (result.data) {
+          this.models = result.data.map(m => m.id);
+          
+          // 保存每个模型的详细信息
+          result.data.forEach(model => {
+            this.modelDetails[model.id] = {
+              id: model.id,
+              name: model.name || model.id,
+              canonical_slug: model.canonical_slug,
+              description: model.description,
+              context_length: model.context_length,
+              architecture: model.architecture,
+              pricing: model.pricing,
+              top_provider: model.top_provider,
+              supported_parameters: model.supported_parameters || [],
+              created: model.created,
+              input_modalities: model.architecture?.input_modalities || [],
+              output_modalities: model.architecture?.output_modalities || []
+            };
+          });
+        }
+        
         this.lastFetchTime = Date.now();
         
         // 自动检测模型能力
@@ -98,6 +120,20 @@
     }
     
     /**
+     * 获取模型详细信息
+     */
+    getModelDetails(modelId) {
+      return this.modelDetails[modelId] || null;
+    }
+    
+    /**
+     * 获取所有模型的详细信息
+     */
+    getAllModelDetails() {
+      return { ...this.modelDetails };
+    }
+    
+    /**
      * 获取模型能力
      */
     getCapability(modelName) {
@@ -124,6 +160,7 @@
      */
     clearCache() {
       this.models = [];
+      this.modelDetails = {};
       this.capabilities = {};
       this.lastFetchTime = null;
     }

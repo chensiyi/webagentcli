@@ -1167,9 +1167,9 @@ body {
   font-size: 14px;
   color: var(--color-text);
   transition: background 0.2s;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal; /* 允许多行 */
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .model-dropdown-item:hover {
