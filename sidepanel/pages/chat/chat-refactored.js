@@ -399,7 +399,8 @@ window.Pages.chat = function(container) {
     inputRow.appendChild(createToolsWrapper());
     
     // 图片上传
-    const supportsVision = currentSettings && modelManager.checkModelVisionSupport(currentSettings.model);
+    const modelInfo = currentSettings && modelManager.getModelFullInfo(currentSettings.model);
+    const supportsVision = modelInfo ? modelInfo.capability?.vision : false;
     const { uploadBtn, fileInput } = createUploadButton(supportsVision);
     
     // 文本输入
