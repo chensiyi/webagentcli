@@ -173,7 +173,7 @@ class NextTurnTrigger {
         await this.sessionManager.saveConversations();
         this.renderIfNeeded(sessionId);
 
-        // 检查是否需要继续递归
+        // 检查是否有工具调用
         if (finalMsg && finalMsg.role === 'assistant' && finalMsg.content && this.toolManager) {
           const toolExecutor = new window.ToolExecutor(this.sessionManager, this.toolManager);
           const hasTools = await toolExecutor.executeToolCalls(sessionId, finalMsg, () => {
@@ -181,8 +181,139 @@ class NextTurnTrigger {
           });
 
           if (hasTools && !this.streamState.shouldStop()) {
-            // 递归调用
-            await this.trigger(sessionId, depth + 1);
+            // 不递归调用，而是发送特殊消息触发下一轮对话
+            await this.sendToolResultMessage(sessionId);
+          }
+        }
+      },
+      onError: async (errorMessage, session) => {
+        this.renderIfNeeded(sessionId);
+      }
+    });
+  }
+
+  /**
+   * 发送工具执行结果消息，触发下一轮对话
+   */
+  async sendToolResultMessage(sessionId) {
+    console.log('[NextTurnTrigger] Sending tool result message to trigger next turn');
+    
+    const session = this.sessionManager.getSession(sessionId);
+    if (!session) return;
+
+    // 创建一个特殊的工具结果消息（不可见，仅用于触发AI响应）
+    const toolResultMessage = {
+      role: 'system',
+      content: '[TOOL_EXECUTION_COMPLETE] 工具已执行完毕，请根据工具返回结果继续回答用户的问题。',
+      isInternal: true, // 标记为内部消息，不渲染
+      timestamp: Date.now()
+    };
+
+    // 添加到会话
+    this.sessionManager.addMessage(sessionId, toolResultMessage);
+    await this.sessionManager.saveConversations();
+
+    // 触发下一轮AI对话（通过正常的消息发送流程）
+    await this.triggerNextTurn(sessionId);
+  }
+
+  /**
+   * 触发下一轮对话（非递归方式）
+   */
+  async triggerNextTurn(sessionId) {
+    // 检查是否请求停止
+    if (this.streamState.shouldStop()) {
+      console.log('[NextTurnTrigger] Interrupted by stop request');
+      return;
+    }
+
+    console.log('[NextTurnTrigger] Triggering next turn via message flow');
+
+    const targetSession = this.sessionManager.getSession(sessionId);
+    if (!targetSession) {
+      return;
+    }
+
+    // 获取设置
+    const settings = await this.getSettings();
+    if (!settings || !settings.apiEndpoint) {
+      throw new Error('请先在设置中配置 API 端点');
+    }
+
+    // 准备消息
+    let chatMessages = this.prepareMessages(targetSession, settings);
+
+    // 打印日志
+    console.log('[NextTurnTrigger] ===== Sending messages to model =====');
+    console.log('[NextTurnTrigger] Messages count:', chatMessages.length);
+    console.log('[NextTurnTrigger] ==========================================');
+
+    // 添加助手消息占位
+    this.sessionManager.addMessage(sessionId, { role: 'assistant', content: '' });
+
+    // 发送流式请求
+    await this.sendStreamRequestForNextTurn(sessionId, chatMessages, settings);
+  }
+
+  /**
+   * 发送下一轮对话的流式请求
+   */
+  async sendStreamRequestForNextTurn(sessionId, chatMessages, settings) {
+    if (this.streamState.shouldStop()) {
+      console.log('[NextTurnTrigger] Request interrupted');
+      return;
+    }
+
+    const port = chrome.runtime.connect({ name: 'chat-stream' });
+    this.streamState.startStreaming(port, sessionId, this.sessionManager);
+
+    // 监听响应
+    port.onMessage.addListener(async (responseMsg) => {
+      await this.handleNextTurnResponse(responseMsg, sessionId, port, settings);
+    });
+
+    // 发送请求
+    port.postMessage({
+      messages: chatMessages,
+      apiKey: settings.apiKey,
+      apiEndpoint: this.normalizeEndpoint(settings.apiEndpoint),
+      model: settings.model,
+      temperature: settings.temperature || 0.7,
+      maxTokens: settings.maxTokens || 2000,
+      toolsEnabled: true
+    });
+
+    console.log('[NextTurnTrigger] Next turn request sent');
+  }
+
+  /**
+   * 处理下一轮对话的响应
+   */
+  async handleNextTurnResponse(responseMsg, sessionId, port, settings) {
+    const handler = new window.StreamMessageHandler(this.sessionManager, this.streamState);
+
+    await handler.handleMessage(responseMsg, sessionId, port, {
+      onChunk: (currentMsg, session) => {
+        this.renderIfNeeded(sessionId);
+      },
+      onComplete: async (finalMsg, session, isEmpty) => {
+        if (isEmpty) {
+          this.renderIfNeeded(sessionId);
+          return;
+        }
+
+        await this.sessionManager.saveConversations();
+        this.renderIfNeeded(sessionId);
+
+        // 如果还有工具调用，继续发送工具结果消息
+        if (finalMsg && finalMsg.role === 'assistant' && finalMsg.content && this.toolManager) {
+          const toolExecutor = new window.ToolExecutor(this.sessionManager, this.toolManager);
+          const hasTools = await toolExecutor.executeToolCalls(sessionId, finalMsg, () => {
+            this.renderIfNeeded(sessionId);
+          });
+
+          if (hasTools && !this.streamState.shouldStop()) {
+            await this.sendToolResultMessage(sessionId);
           }
         }
       },

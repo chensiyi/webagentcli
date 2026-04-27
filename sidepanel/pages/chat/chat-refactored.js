@@ -188,8 +188,8 @@ window.Pages.chat = function(container) {
     } else {
       lastMessageElement = null;
       messages.forEach((msg, index) => {
-        // 跳过系统通知和tool消息
-        if (msg.isSystemNotice || msg.role === 'tool') {
+        // 跳过系统通知、tool消息和内部消息
+        if (msg.isSystemNotice || msg.role === 'tool' || msg.isInternal) {
           return;
         }
         
