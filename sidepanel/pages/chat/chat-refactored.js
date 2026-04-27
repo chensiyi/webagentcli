@@ -14,6 +14,9 @@ window.Pages.chat = function(container) {
   // 创建输入控制器
   const inputController = new window.InputController(modelManager);
   
+  // 创建多媒体管理器
+  const mediaManager = new window.MediaManager();
+  
   // 导入新模块
   const streamState = window.ChatStreamState;
   const MessageSenderClass = window.MessageSender;
@@ -21,7 +24,7 @@ window.Pages.chat = function(container) {
   
   let messageListElement = null;
   let lastMessageElement = null;
-  let pendingImages = [];
+  // pendingImages 已废弃，改用 mediaManager.getPendingMedia()
   let currentSettings = null;
   
   // 创建消息发送器实例
@@ -140,24 +143,23 @@ window.Pages.chat = function(container) {
       page.style.background = '';
       
       const files = Array.from(e.dataTransfer?.files || []);
-      const imageFiles = files.filter(f => f.type.startsWith('image/'));
+      if (files.length === 0) return;
       
-      if (imageFiles.length === 0) return;
-      
-      for (const file of imageFiles) {
-        try {
-          mediaUtils.validateImage(file);
-          const compressedBlob = await mediaUtils.compressImage(file);
-          const dataUrl = await mediaUtils.fileToBase64(compressedBlob);
-          const previewUrl = mediaUtils.createPreview(file);
-          
-          pendingImages.push({ dataUrl, previewUrl, filename: file.name });
-        } catch (error) {
-          window.Toast.error(`${file.name}: ${error.message}`);
+      try {
+        const { results, errors } = await mediaManager.processFiles(files);
+        
+        // 显示错误
+        errors.forEach(err => {
+          window.Toast.error(`${err.filename}: ${err.error}`);
+        });
+        
+        // 重新渲染
+        if (results.length > 0) {
+          render();
         }
+      } catch (error) {
+        window.Toast.error('处理文件失败: ' + error.message);
       }
-      
-      render();
     });
   }
   
@@ -390,9 +392,10 @@ window.Pages.chat = function(container) {
       style: { padding: '12px' }
     });
     
-    // 图片预览
-    if (pendingImages.length > 0) {
-      inputArea.appendChild(createImagePreview());
+    // 多媒体预览
+    const mediaPreview = createMediaPreview();
+    if (mediaPreview) {
+      inputArea.appendChild(mediaPreview);
     }
     
     // 获取模型能力
@@ -411,7 +414,21 @@ window.Pages.chat = function(container) {
     
     // 图片上传（如果支持）
     if (capabilities.image) {
-      const { uploadBtn, fileInput } = createUploadButton(true);
+      const { uploadBtn, fileInput } = createMediaUploadButton('image');
+      inputRow.appendChild(uploadBtn);
+      inputRow.appendChild(fileInput);
+    }
+    
+    // 音频上传（如果支持）
+    if (capabilities.audio) {
+      const { uploadBtn, fileInput } = createMediaUploadButton('audio');
+      inputRow.appendChild(uploadBtn);
+      inputRow.appendChild(fileInput);
+    }
+    
+    // 视频上传（如果支持）
+    if (capabilities.video) {
+      const { uploadBtn, fileInput } = createMediaUploadButton('video');
       inputRow.appendChild(uploadBtn);
       inputRow.appendChild(fileInput);
     }
@@ -430,11 +447,14 @@ window.Pages.chat = function(container) {
   }
   
   /**
-   * 创建图片预览
+   * 创建多媒体预览
    */
-  function createImagePreview() {
+  function createMediaPreview() {
+    const pendingMedia = mediaManager.getPendingMedia();
+    if (pendingMedia.length === 0) return null;
+    
     const previewContainer = create('div', {
-      className: 'image-preview-container',
+      className: 'media-preview-container',
       style: { 
         display: 'flex', 
         gap: '8px', 
@@ -446,26 +466,60 @@ window.Pages.chat = function(container) {
       }
     });
     
-    pendingImages.forEach((img, index) => {
-      const previewBox = create('div', { style: { position: 'relative', display: 'inline-block' } });
-      
-      const imgEl = create('img', {
-        attrs: { src: img.previewUrl, title: img.filename },
+    pendingMedia.forEach((media, index) => {
+      const previewBox = create('div', { 
         style: { 
-          width: '80px', 
-          height: '80px', 
-          objectFit: 'cover',
-          borderRadius: '6px',
-          border: '2px solid var(--color-border)',
-          cursor: 'pointer'
-        }
+          position: 'relative', 
+          display: 'inline-block' 
+        } 
       });
       
-      imgEl.onclick = () => window.open(img.dataUrl, '_blank');
+      // 根据类型显示不同的预览
+      if (media.type === 'image') {
+        const imgEl = create('img', {
+          attrs: { src: media.previewUrl, title: media.filename },
+          style: { 
+            width: '80px', 
+            height: '80px', 
+            objectFit: 'cover',
+            borderRadius: '6px',
+            border: '2px solid var(--color-border)',
+            cursor: 'pointer'
+          }
+        });
+        imgEl.onclick = () => window.open(media.dataUrl, '_blank');
+        previewBox.appendChild(imgEl);
+      } else if (media.type === 'audio') {
+        const audioEl = create('audio', {
+          attrs: { 
+            src: media.previewUrl,
+            controls: true
+          },
+          style: { 
+            width: '200px',
+            borderRadius: '6px'
+          }
+        });
+        previewBox.appendChild(audioEl);
+      } else if (media.type === 'video') {
+        const videoEl = create('video', {
+          attrs: { 
+            src: media.previewUrl,
+            controls: true
+          },
+          style: { 
+            width: '200px',
+            maxHeight: '150px',
+            borderRadius: '6px'
+          }
+        });
+        previewBox.appendChild(videoEl);
+      }
       
+      // 删除按钮
       const removeBtn = create('button', {
         text: '×',
-        className: 'btn-remove-image',
+        className: 'btn-remove-media',
         style: {
           position: 'absolute',
           top: '-6px',
@@ -485,13 +539,11 @@ window.Pages.chat = function(container) {
           justifyContent: 'center'
         },
         onClick: () => {
-          mediaUtils.revokePreview(img.previewUrl);
-          pendingImages.splice(index, 1);
+          mediaManager.removeMedia(index);
           render();
         }
       });
       
-      previewBox.appendChild(imgEl);
       previewBox.appendChild(removeBtn);
       previewContainer.appendChild(previewBox);
     });
@@ -633,40 +685,60 @@ window.Pages.chat = function(container) {
   }
   
   /**
-   * 创建上传按钮
+   * 创建多媒体上传按钮
    */
-  function createUploadButton(supportsVision) {
+  function createMediaUploadButton(mediaType) {
+    const icons = {
+      image: '📷',
+      audio: '🎤',
+      video: '🎥'
+    };
+    
+    const titles = {
+      image: '上传图片（支持拖拽和粘贴）',
+      audio: '上传音频文件',
+      video: '上传视频文件'
+    };
+    
+    const accepts = {
+      image: 'image/*',
+      audio: 'audio/*',
+      video: 'video/*'
+    };
+    
     const uploadBtn = create('button', {
       className: 'btn btn-secondary',
-      text: '📷',
+      text: icons[mediaType],
       style: { 
         padding: '8px 12px', 
-        fontSize: '16px',
-        opacity: supportsVision ? 1 : 0.5,
-        cursor: supportsVision ? 'pointer' : 'not-allowed'
+        fontSize: '16px'
       },
-      title: supportsVision ? '上传图片（支持拖拽和粘贴）' : '当前模型不支持图片',
-      disabled: !supportsVision
+      title: titles[mediaType]
     });
     
     const fileInput = create('input', {
-      attrs: { type: 'file', accept: 'image/*', multiple: true },
+      attrs: { 
+        type: 'file', 
+        accept: accepts[mediaType],
+        multiple: mediaType === 'image' // 只允许多选图片
+      },
       style: { display: 'none' },
       onChange: async (e) => {
         const files = Array.from(e.target.files);
+        if (files.length === 0) return;
         
-        for (const file of files) {
-          try {
-            mediaUtils.validateImage(file);
-            const compressedBlob = await mediaUtils.compressImage(file);
-            const dataUrl = await mediaUtils.fileToBase64(compressedBlob);
-            const previewUrl = mediaUtils.createPreview(file);
-            
-            pendingImages.push({ dataUrl, previewUrl, filename: file.name });
+        try {
+          const { results, errors } = await mediaManager.processFiles(files);
+          
+          errors.forEach(err => {
+            window.Toast.error(`${err.filename}: ${err.error}`);
+          });
+          
+          if (results.length > 0) {
             render();
-          } catch (error) {
-            window.Toast.error(error.message);
           }
+        } catch (error) {
+          window.Toast.error('处理文件失败: ' + error.message);
         }
         
         e.target.value = '';
@@ -674,10 +746,6 @@ window.Pages.chat = function(container) {
     });
     
     uploadBtn.onclick = () => {
-      if (!supportsVision) {
-        window.Toast.warning('当前模型不支持图片');
-        return;
-      }
       fileInput.click();
     };
     
@@ -710,29 +778,37 @@ window.Pages.chat = function(container) {
       style: { flex: 1 }
     });
     
-    // 粘贴图片支持
+    // 粘贴多媒体支持
     input.addEventListener('paste', async (e) => {
       const items = e.clipboardData?.items;
       if (!items) return;
       
+      const files = [];
       for (const item of items) {
-        if (item.type.startsWith('image/')) {
-          e.preventDefault();
+        if (item.kind === 'file') {
           const file = item.getAsFile();
-          
-          try {
-            mediaUtils.validateImage(file);
-            const compressedBlob = await mediaUtils.compressImage(file);
-            const dataUrl = await mediaUtils.fileToBase64(compressedBlob);
-            const previewUrl = mediaUtils.createPreview(file);
-            
-            pendingImages.push({ dataUrl, previewUrl, filename: 'pasted-image.png' });
-            render();
-          } catch (error) {
-            window.Toast.error(error.message);
+          if (file) {
+            files.push(file);
           }
-          break;
         }
+      }
+      
+      if (files.length === 0) return;
+      
+      e.preventDefault();
+      
+      try {
+        const { results, errors } = await mediaManager.processFiles(files);
+        
+        errors.forEach(err => {
+          window.Toast.error(`${err.filename}: ${err.error}`);
+        });
+        
+        if (results.length > 0) {
+          render();
+        }
+      } catch (error) {
+        window.Toast.error('处理粘贴文件失败: ' + error.message);
       }
     });
     
@@ -747,8 +823,9 @@ window.Pages.chat = function(container) {
       
       if (e.key === 'Enter' && !session?.isLoading) {
         const text = input.value.trim();
+        const pendingMedia = mediaManager.getPendingMedia();
         
-        if (!text && pendingImages.length === 0) {
+        if (!text && pendingMedia.length === 0) {
           return;
         }
         
@@ -766,15 +843,14 @@ window.Pages.chat = function(container) {
         const success = await messageSender.sendMessage(
           currentSession.id,
           text,
-          pendingImages,
+          pendingMedia,
           render
         );
         
         if (success) {
-          // 清空输入和图片
+          // 清空输入和多媒体
           input.value = '';
-          pendingImages.forEach(img => mediaUtils.revokePreview(img.previewUrl));
-          pendingImages = [];
+          mediaManager.clearAll();
           
           render();
         }
