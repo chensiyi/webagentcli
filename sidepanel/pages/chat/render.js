@@ -4,10 +4,22 @@
 window.ChatRender = {
   /**
    * 渲染多模态消息内容
+   * @param {string|array} content - 消息内容
+   * @param {HTMLElement} container - 容器元素
+   * @param {boolean} appendOnly - 是否只追加（流式更新时使用）
    */
-  renderMessageContent(content, container) {
+  renderMessageContent(content, container, appendOnly = false) {
     const { create } = window.DOM;
     const messageRegistry = window.MessageTypes?.MessageHandlerRegistry;
+    
+    // 如果不是追加模式，先清空容器（除了 loading-content）
+    if (!appendOnly) {
+      const loadingContent = container.querySelector('.loading-content');
+      container.innerHTML = '';
+      if (loadingContent) {
+        container.appendChild(loadingContent);
+      }
+    }
     
     // 处理数组格式的多模态内容
     if (Array.isArray(content)) {
@@ -103,16 +115,21 @@ window.ChatRender = {
       });
     } else {
       // 普通文本消息
-      const contentDiv = create('div', { 
-        className: 'message-content',
-        style: { 
-          lineHeight: '1.6', 
-          wordWrap: 'break-word'
-        }
-      });
+      // 查找已有的 content div
+      let contentDiv = container.querySelector('.message-content:not(.loading-content)');
+      
+      if (!contentDiv) {
+        contentDiv = create('div', { 
+          className: 'message-content',
+          style: { 
+            lineHeight: '1.6', 
+            wordWrap: 'break-word'
+          }
+        });
+        container.appendChild(contentDiv);
+      }
       
       contentDiv.innerHTML = window.renderMarkdown(content || '');
-      container.appendChild(contentDiv);
     }
   },
   

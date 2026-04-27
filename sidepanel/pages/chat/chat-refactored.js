@@ -865,7 +865,7 @@ window.Pages.chat = function(container) {
           currentSession.id,
           text,
           pendingMedia,
-          render
+          () => updateLastMessage(sessionManager.getCurrentSession()) // 使用增量更新
         );
         
         if (success) {
@@ -1004,6 +1004,77 @@ window.Pages.chat = function(container) {
         messageListElement.scrollTop = messageListElement.scrollHeight;
       }, 50);
     }
+  }
+  
+  /**
+   * 增量更新最后一个消息（流式响应时使用）
+   * 避免完整重渲染导致的闪烁
+   */
+  function updateLastMessage(session) {
+    if (!session || !messageListElement) return;
+    
+    const messages = session.messages;
+    const lastMsg = messages[messages.length - 1];
+    
+    // 只更新assistant消息
+    if (!lastMsg || lastMsg.role !== 'assistant') return;
+    
+    // 查找或创建最后一个气泡
+    let lastBubble = messageListElement.querySelector('.message-bubble.message-assistant:last-child');
+    
+    if (!lastBubble) {
+      // 如果不存在，需要完整渲染
+      render();
+      return;
+    }
+    
+    // 更新内容区域（增量更新）
+    let contentDiv = lastBubble.querySelector('.message-content:not(.loading-content)');
+    if (!contentDiv) {
+      contentDiv = document.createElement('div');
+      contentDiv.className = 'message-content';
+      lastBubble.appendChild(contentDiv);
+    }
+    
+    // 检查是否有实际内容
+    const hasContent = lastMsg.content && (
+      typeof lastMsg.content === 'string' ? lastMsg.content.trim() : 
+      Array.isArray(lastMsg.content) ? lastMsg.content.length > 0 : 
+      false
+    );
+    
+    // 如果有内容，移除加载动画并渲染实际内容
+    if (hasContent) {
+      // 移除加载动画
+      const loadingContent = lastBubble.querySelector('.loading-content');
+      if (loadingContent) {
+        loadingContent.remove();
+      }
+      
+      // 增量更新内容（不清空，只更新HTML）
+      contentDiv.innerHTML = window.renderMarkdown(lastMsg.content || '');
+    }
+    
+    // 更新思考过程（增量更新）
+    if (lastMsg.additional_kwargs?.reasoning_content) {
+      let thinkingContainer = lastBubble.querySelector('.thinking-container');
+      if (!thinkingContainer) {
+        thinkingContainer = document.createElement('div');
+        thinkingContainer.className = 'thinking-container-wrapper';
+        // 插入到内容之前
+        if (contentDiv.parentNode) {
+          contentDiv.parentNode.insertBefore(thinkingContainer, contentDiv);
+        }
+      }
+      
+      // 更新思考内容
+      thinkingContainer.innerHTML = '';
+      const renderer = new window.ThinkingMode.ThinkingRenderer();
+      thinkingContainer.appendChild(renderer.render(lastMsg.additional_kwargs.reasoning_content));
+    }
+    
+    // 滚动到底部
+    scrollToBottom();
   }
   
   // 初始化
