@@ -12,77 +12,36 @@ window.TerminalTool = {
     enabled: false,  // 默认关闭
     systemPrompt: `### terminal
 
-Execute JavaScript code in web pages to interact with DOM, forms, and page content.
+在指定网页中执行JavaScript操作DOM、表单等。
 
-**Format:**
+**用法：**
 \`\`\`terminal
-JavaScript code here
+JavaScript代码
 \`\`\`
 
-**Target Tab Selection (include in code as first line):**
-- Default: executes on current active tab
-- To specify target, add as first line: \`// @tab:TARGET\`
-  - \`// @tab:https://example.com\` - exact URL match
-  - \`// @tab:keyword\` - search by URL or title keyword from available tabs
+**目标选择（第一行注释）：**
+- 默认：当前活动标签页
+- \`// @tab:URL\` - 精确匹配URL
+- \`// @tab:关键词\` - 按URL或标题搜索
 
-**IMPORTANT:**
-- ALWAYS use 'return' to return values
-- Example: \`return document.title;\` NOT \`document.title\`
-- Return value will be shown as execution result
-- The \`// @tab:\` line is a comment, NOT executed as code
+**重要：**
+- 必须用 return 返回值
+- \`// @tab:\` 是注释，不执行
 
-**Examples:**
-
-1. **Get page title (current tab):**
+**示例：**
 \`\`\`terminal
 return document.title;
 \`\`\`
 
-2. **Execute on specific URL:**
-\`\`\`terminal
-// @tab:https://www.google.com
-return document.title;
-\`\`\`
-
-3. **Search by keyword:**
 \`\`\`terminal
 // @tab:baidu
-return document.title;
-\`\`\`
-
-4. **Get element text:**
-\`\`\`terminal
 return document.querySelector('h1')?.textContent;
 \`\`\`
 
-5. **Click button:**
-\`\`\`terminal
-document.querySelector('#submit').click();
-return 'clicked';
-\`\`\`
-
-6. **Fill form:**
-\`\`\`terminal
-document.querySelector('#username').value = 'john';
-return 'filled';
-\`\`\`
-
-7. **Extract multiple items:**
-\`\`\`terminal
-return Array.from(document.querySelectorAll('a')).map(a => a.textContent).slice(0, 10);
-\`\`\`
-
-8. **Get page info:**
-\`\`\`terminal
-return { title: document.title, url: location.href };
-\`\`\`
-
-**Notes:**
-- Code executes in MAIN world with full DOM access
-- Use standard browser APIs (document, window, fetch, etc.)
-- For multi-line code, ensure final statement has 'return'
-- If target not found, error will include available tabs list
-- Errors will be returned with stack traces`,
+**提示：**
+- 完全DOM访问权限
+- 使用标准浏览器API
+- 找不到目标时会列出可用标签页`
   },
 
   /**

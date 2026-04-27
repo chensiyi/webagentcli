@@ -12,38 +12,23 @@ window.CodeTool = {
     enabled: false,
     systemPrompt: `### js_code
 
-Execute JavaScript code in the target web page's MAIN world.
+在网页MAIN world中执行JavaScript代码。
 
-**Format:**
+**用法：**
 \`\`\`javascript
-// your code
+// 你的代码
 return value;
 \`\`\`
 
-**Examples:**
+**示例：**
 \`\`\`javascript
 return document.title;
 \`\`\`
-Returns: Page title
 
-\`\`\`javascript
-return document.querySelector('h1').textContent;
-\`\`\`
-Returns: Heading text
-
-\`\`\`javascript
-return JSON.stringify({ links: document.querySelectorAll('a').length });
-\`\`\`
-Returns: JSON string
-
-**Available APIs:**
-Full access to page DOM: document, window, fetch, localStorage, etc.
-
-**Notes:**
-- Use 'return' statement to return values
-- Code executes in page context (MAIN world)
-- Can access all page APIs and DOM elements
-- Use JSON.stringify() for complex objects`,
+**提示：**
+- 必须使用 return 返回值
+- 可访问完整DOM（document、window等）
+- 复杂对象用 JSON.stringify() 转换`
   },
 
   /**

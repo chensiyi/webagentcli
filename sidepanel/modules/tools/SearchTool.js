@@ -12,26 +12,21 @@ window.SearchTool = {
     enabled: false,
     systemPrompt: `### web_search
 
-Search the internet for real-time information, news, or facts.
+搜索互联网获取实时信息。
 
-**Format:**
+**用法：**
 \`\`\`web_search
-search query
+搜索关键词
 \`\`\`
 
-**Parameters:**
-- query: Your search keywords
-- Optional: append \`|page=N\` for pagination (e.g., \`keyword|page=2\`)
-
-**Example:**
+**示例：**
 \`\`\`web_search
-latest technology news|page=2
+最新 AI 技术进展
 \`\`\`
 
-**Notes:**
-- Each page returns up to 10 results
-- Use pagination when you see "第 X 页" and need more results
-- Results include: rank, title, URL, snippet, source`
+**提示：**
+- 每页最多返回10条结果
+- 如需更多结果，使用 \`关键词|page=2\` 翻页`
   },
 
   /**

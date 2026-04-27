@@ -244,31 +244,15 @@ window.Pages.chat = function(container) {
             if (confirmed) {
               const session = sessionManager.getCurrentSession();
               if (session) {
-                const msgToDelete = session.messages[index];
+                // 使用 SessionManager 的级联删除方法
+                const deleted = sessionManager.deleteMessageWithTools(session.id, index);
                 
-                // 如果删除的是 assistant 消息，同时删除后续连续的 tool 消息
-                if (msgToDelete.role === 'assistant') {
-                  let deleteCount = 1; // 至少删除 assistant 本身
-                  
-                  // 向后查找连续的 tool 消息
-                  for (let i = index + 1; i < session.messages.length; i++) {
-                    if (session.messages[i].role === 'tool') {
-                      deleteCount++;
-                    } else {
-                      break; // 遇到非 tool 消息就停止
-                    }
-                  }
-                  
-                  session.messages.splice(index, deleteCount);
-                  console.log(`[Chat] Deleted assistant message + ${deleteCount - 1} tool messages`);
-                } else {
-                  // 删除其他类型的消息（user、system、tool）
-                  session.messages.splice(index, 1);
+                if (deleted) {
+                  console.log(`[Chat] Deleted message at index ${index} with associated tool messages`);
+                  await sessionManager.saveConversations();
+                  render();
+                  window.Toast.success('消息已删除');
                 }
-                
-                await sessionManager.saveConversations();
-                render();
-                window.Toast.success('消息已删除');
               }
             }
           }
@@ -280,99 +264,57 @@ window.Pages.chat = function(container) {
         
         bubble.appendChild(deleteBtn);
         
-        // 显示思考过程（如果存在）
-        if (msg.additional_kwargs?.reasoning_content && msg.role === 'assistant') {
+        // 渲染思考过程（如果存在）
+        if (msg.role === 'assistant' && msg.additional_kwargs?.reasoning_content) {
           const renderer = new window.ThinkingMode.ThinkingRenderer();
-          const thinkingElement = renderer.render(msg.additional_kwargs.reasoning_content);
-          bubble.appendChild(thinkingElement);
+          const thinkingBox = renderer.render(msg.additional_kwargs.reasoning_content);
+          bubble.appendChild(thinkingBox);
         }
         
-        // 显示工具调用和消息内容（在原文中的位置）
-        const parsedToolCalls = toolManager ? toolManager.parseToolCalls(msg.content || '') : [];
-        
-        // 优先使用 tool_results 渲染工具卡片（兼容清理后的 content）
-        if (msg.tool_results && msg.tool_results.length > 0) {
-          // 有工具执行结果，渲染工具卡片 + 清理后的内容
-          msg.tool_results.forEach((result, idx) => {
-            const completeCard = window.ChatRender.renderToolCallCard(result.tool_call, idx, result, session.isLoading);
-            bubble.appendChild(completeCard);
-          });
-          
-          // 渲染清理后的 content（不含工具调用代码块）
-          if (msg.content && msg.content.trim()) {
-            window.ChatRender.renderMessageContent(msg.content, bubble);
-          }
-        } else if (parsedToolCalls.length > 0) {
-          // 兼容旧逻辑：从 content 中解析工具调用代码块
-          // 将消息内容按工具调用代码块分割，在对应位置插入工具卡片
-          let contentParts = msg.content || '';
-          let toolCallIndex = 0;
-          
-          // 按顺序处理搜索和网页访问
-          const toolPatterns = [
-            { regex: /```web_search\n([\s\S]*?)\n```/g, type: 'web_search' },
-            { regex: /```terminal\n([\s\S]*?)\n```/g, type: 'terminal' },  // 添加 terminal
-            { regex: /```web_fetch\n([\s\S]*?)\n```/g, type: 'web_fetch' },
-            { regex: /```javascript\n([\s\S]*?)\n```/g, type: 'js_code' }
-          ];
-          
-          // 查找所有工具调用的位置
-          const toolCallPositions = [];
-          toolPatterns.forEach(pattern => {
-            let match;
-            const regex = new RegExp(pattern.regex.source, pattern.regex.flags);
-            while ((match = regex.exec(contentParts)) !== null) {
-              toolCallPositions.push({
-                start: match.index,
-                end: match.index + match[0].length,
-                type: pattern.type,
-                match: match
-              });
-            }
-          });
-          
-          // 按位置排序
-          toolCallPositions.sort((a, b) => a.start - b.start);
-          
-          // 渲染：文本 + 工具卡片交替
-          let lastIndex = 0;
-          toolCallPositions.forEach((position, idx) => {
-            // 渲染前面的文本
-            if (position.start > lastIndex) {
-              const textBefore = contentParts.substring(lastIndex, position.start);
-              if (textBefore.trim()) {
-                window.ChatRender.renderMessageContent(textBefore, bubble);
+        // 显示工具调用卡片（如果有 tool_calls）
+        if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+          // 查找对应的 tool 消息
+          const toolResults = [];
+          for (let i = index + 1; i < messages.length; i++) {
+            if (messages[i].role === 'tool') {
+              const toolMsg = messages[i];
+              const matchingCall = msg.tool_calls.find(tc => tc.id === toolMsg.tool_call_id);
+              if (matchingCall) {
+                toolResults.push({
+                  tool_call: matchingCall,
+                  tool_result: {
+                    success: true,
+                    output: toolMsg.content
+                  }
+                });
               }
+            } else {
+              break; // 遇到非 tool 消息就停止
             }
-            
-            // 渲染工具调用卡片
-            const toolCall = parsedToolCalls[idx];
-            if (toolCall) {
-              const completeCard = window.ChatRender.renderToolCallCard(toolCall, idx, msg.tool_results?.[idx], session.isLoading);
-              bubble.appendChild(completeCard);
-            }
-            
-            lastIndex = position.end;
-          });
+          }
           
-          // 渲染最后的文本
-          if (lastIndex < contentParts.length) {
-            const textAfter = contentParts.substring(lastIndex);
-            if (textAfter.trim()) {
-              window.ChatRender.renderMessageContent(textAfter, bubble);
-            }
-          }
-        } else {
-          // 没有工具调用，正常渲染消息内容
-          if (msg.content && msg.content.trim()) {
-            window.ChatRender.renderMessageContent(msg.content, bubble);
-          }
+          // 渲染工具卡片
+          msg.tool_calls.forEach((call, idx) => {
+            const result = toolResults[idx];
+            const card = window.ChatRender.renderToolCallCard(call, idx, result, session.isLoading);
+            bubble.appendChild(card);
+          });
+        }
+        
+        // 渲染消息内容
+        if (msg.content && msg.content.trim()) {
+          window.ChatRender.renderMessageContent(msg.content, bubble);
+        } else if (msg.role === 'assistant') {
+          // 空 assistant 消息，创建空的 message-content 容器用于流式更新
+          const emptyContent = create('div', { className: 'message-content' });
+          bubble.appendChild(emptyContent);
         }
         
         messageListElement.appendChild(bubble);
         
         if (index === messages.length - 1) {
-          lastMessageElement = bubble.querySelector('.message-content') || bubble.lastElementChild;
+          lastMessageElement = bubble.querySelector('.message-content') || bubble;
+          console.log('[Chat] Set lastMessageElement:', lastMessageElement?.className, lastMessageElement?.tagName);
         }
       });
       
@@ -1106,12 +1048,27 @@ window.Pages.chat = function(container) {
               // 只在当前会话时更新 UI
               const currentSession = sessionManager.getCurrentSession();
               if (currentSession && currentSession.id === session.id) {
-                // 优先使用 DOM 更新（性能更好）
-                if (lastMessageElement && currentMsg) {
-                  lastMessageElement.innerHTML = window.renderMarkdown(currentMsg.content);
+                // 查找或创建 message-content 容器
+                let contentContainer = null;
+                if (lastMessageElement) {
+                  // 如果 lastMessageElement 已经有 .message-content，直接使用
+                  contentContainer = lastMessageElement.classList.contains('message-content') 
+                    ? lastMessageElement 
+                    : lastMessageElement.querySelector('.message-content');
+                }
+                
+                if (!contentContainer && lastMessageElement) {
+                  // 如果 lastMessageElement 是 bubble 但没有 .message-content，创建一个
+                  contentContainer = document.createElement('div');
+                  contentContainer.className = 'message-content';
+                  lastMessageElement.appendChild(contentContainer);
+                }
+                
+                if (contentContainer && currentMsg) {
+                  contentContainer.innerHTML = window.renderMarkdown(currentMsg.content);
                 } else {
                   // 回退：重新渲染整个列表
-                  console.warn('[Chat] lastMessageElement is null, re-rendering...');
+                  console.warn('[Chat] contentContainer is null, re-rendering...');
                   render();
                 }
                 
@@ -1235,546 +1192,110 @@ window.Pages.chat = function(container) {
                   const toolCalls = toolManager ? toolManager.parseToolCalls(currentMsg.content) : [];
                   
                   if (toolCalls.length > 0) {
-                    console.log(`[Chat] Detected ${toolCalls.length} tool calls, executing after stream complete...`);
-                  
-                  // 注意：不保存 tool_calls 到消息中，只在内存中处理
-                  // 渲染时会根据 content 动态解析
-                  
-                  // 初始化工具执行结果数组（临时使用，不持久化）
-                  const tempToolResults = [];
-                  
-                  // 显示工具调用状态指示器（可折叠）
-                  const currentSession = sessionManager.getCurrentSession();
-                  if (currentSession && currentSession.id === session.id && lastMessageElement) {
-                    const existingIndicator = lastMessageElement.parentNode.querySelector('.tool-call-indicator');
-                    if (!existingIndicator) {
-                      const toolIndicator = create('div', {
-                        className: 'tool-call-indicator',
-                        style: { 
-                          fontSize: '12px', 
-                          color: 'var(--color-primary)',
-                          marginBottom: '8px',
-                          cursor: 'pointer'
-                        },
-                        text: `🔧 正在执行 ${toolCalls.length} 个工具...`
-                      });
-                      lastMessageElement.parentNode.insertBefore(toolIndicator, lastMessageElement);
-                    }
-                  }
-                  
-                  // 执行所有工具调用
-                  for (const call of toolCalls) {
-                    // 检查是否请求停止
-                    if (isStopRequested) {
-                      console.log('[Chat] Tool execution interrupted by stop request');
-                      break;
-                    }
+                    console.log(`[Chat] Detected ${toolCalls.length} tool calls, executing...`);
                     
-                    // 获取真正的工具类型（新格式用 function.name，旧格式用 type）
-                    const toolType = call.function?.name || call.type;
-                    
-                    if (toolManager && toolManager.isToolEnabled(toolType)) {
-                      try {
-                        console.log(`[Chat] Executing tool: ${toolType}`);
-                        const result = await toolManager.executeTool(call);
-                        
-                        // 执行完成后检查是否请求停止
-                        if (isStopRequested) {
-                          console.log('[Chat] Tool execution stopped after completion');
-                          break;
-                        }
-                        
-                        // 保存工具执行结果到临时数组（包括成功和失败）
-                        tempToolResults.push({
-                          tool_call: call,
-                          tool_result: result,
-                          timestamp: Date.now()
-                        });
-                        
-                        console.log(`[Chat] Tool ${toolType} executed successfully`);
-                      } catch (error) {
-                        console.error(`[Chat] Tool execution error:`, error);
-                        // 错误也作为结果保存
-                        tempToolResults.push({
-                          tool_call: call,
-                          tool_result: { 
-                            success: false, 
-                            error: error.message,
-                            type: toolType
-                          },
-                          timestamp: Date.now()
-                        });
+                    // 更新 assistant 消息，添加标准的 tool_calls 字段
+                    currentMsg.tool_calls = toolCalls.map((call, idx) => ({
+                      id: call.id || `call_${Date.now()}_${idx}`,
+                      type: 'function',
+                      function: {
+                        name: call.function?.name || call.type,
+                        arguments: call.function?.arguments || JSON.stringify(call.query || call.code || {})
                       }
-                    }
-                  }
-                  
-                  // 临时附加到消息中用于渲染（不持久化），并清理 content 中的工具调用代码块
-                  currentMsg.tool_results = tempToolResults;
-                  if (toolManager) {
-                    currentMsg.content = toolManager.removeToolCallBlocks(currentMsg.content);
-                  }
-                  
-                  // 更新 UI 显示工具执行完成状态
-                  await sessionManager.saveConversations();
-                  
-                  // 不直接 render()，而是更新当前消息元素
-                  if (lastMessageElement) {
-                    // 清空现有内容
-                    lastMessageElement.innerHTML = '';
+                    }));
                     
-                    // 重新渲染思考过程
-                    if (currentMsg.additional_kwargs?.reasoning_content) {
-                      const renderer = new window.ThinkingMode.ThinkingRenderer();
-                      const thinkingElement = renderer.render(currentMsg.additional_kwargs.reasoning_content);
-                      lastMessageElement.appendChild(thinkingElement);
-                    }
-                    
-                    // 渲染工具卡片
-                    if (currentMsg.tool_results && currentMsg.tool_results.length > 0) {
-                      currentMsg.tool_results.forEach((result, idx) => {
-                        const completeCard = window.ChatRender.renderToolCallCard(result.tool_call, idx, result, false);
-                        lastMessageElement.appendChild(completeCard);
-                      });
-                    }
-                    
-                    // 渲染清理后的内容
-                    if (currentMsg.content && currentMsg.content.trim()) {
-                      const contentElement = create('div', {
-                        className: 'markdown-content',
-                        style: { whiteSpace: 'pre-wrap' }
-                      });
-                      window.ChatRender.markdownRenderer.renderToElement(currentMsg.content, contentElement);
-                      lastMessageElement.appendChild(contentElement);
-                    }
-                  }
-                  
-                  // 自动滚动到底部
-                  if (messageListElement) {
-                    messageListElement.scrollTop = messageListElement.scrollHeight;
-                  }
-                  
-                  // 执行工具并获取总结（支持递归调用）
-                  const executeToolsAndGetSummary = async (msgElement, maxDepth = 10, currentDepth = 0) => {
-                    // 检查是否请求停止
-                    if (isStopRequested) {
-                      console.log('[Chat] executeToolsAndGetSummary interrupted by stop request');
-                      return;
-                    }
-                    
-                    if (currentDepth >= maxDepth) {
-                      console.log('[Chat] Max recursion depth reached, stopping');
-                      return;
-                    }
-                    
-                    const currentMsg = targetSession.messages[targetSession.messages.length - 1];
-                    if (!currentMsg || currentMsg.role !== 'assistant') {
-                      return;
-                    }
-                    
-                    // 检查是否有工具执行结果（而不是从 content 解析）
-                    const hasToolResults = currentMsg.tool_results && currentMsg.tool_results.length > 0;
-                    
-                    if (!hasToolResults) {
-                      console.log('[Chat] No tool results found, stopping recursion');
-                      return;
-                    }
-                    
-                    console.log(`[Chat] Depth ${currentDepth}: Processing ${currentMsg.tool_results.length} tool results...`);
-                    
-                    // 工具已经在之前执行过了，直接使用 tool_results
                     await sessionManager.saveConversations();
                     render();
                     
-                    // 注入工具结果到API请求
-                    const result = await new Promise((resolve) => {
-                      chrome.storage.local.get(['settings'], resolve);
-                    });
-                    
-                    const settings = result.settings;
-                    if (!settings || !settings.apiEndpoint) {
-                      throw new Error('请先在设置中配置 API 端点');
-                    }
-                    
-                    let apiEndpoint = settings.apiEndpoint;
-                    if (!apiEndpoint.includes('/chat/completions')) {
-                      apiEndpoint = apiEndpoint.replace(/\/$/, '') + '/chat/completions';
-                    }
-                    
-                    let chatMessages = [...targetSession.messages];
-                    
-                    // 不需要保存 tool 消息到历史记录
-                    // 工具结果已经保存在 assistant 消息的 tool_results 字段中
-                    // 避免重复存储
-                    
-                    // 清理消息，转换为 OpenAI API 标准格式
-                    chatMessages = chatMessages.map(msg => {
-                      const cleanMsg = { role: msg.role };
-                      
-                      // assistant 消息：使用 OpenAI 标准 tool_calls 格式
-                      if (msg.role === 'assistant') {
-                        cleanMsg.content = msg.content || '';
-                        
-                        // 如果有 tool_results，生成标准的 tool_calls
-                        if (msg.tool_results && msg.tool_results.length > 0) {
-                          cleanMsg.tool_calls = msg.tool_results.map((res, idx) => {
-                            // 优先从 function.name 获取工具名（新格式），兼容旧格式 type
-                            const toolName = res.tool_call.function?.name || res.tool_call.type || 'unknown';
-                            return {
-                              id: res.tool_call.id || `call_${idx}`,
-                              type: 'function',
-                              function: res.tool_call.function || {
-                                name: toolName,
-                                arguments: JSON.stringify({
-                                  query: res.tool_call.parameters?.query || res.tool_call.function?.arguments || ''
-                                })
-                              }
-                            };
-                          });
-                        }
-                      } else {
-                        // 其他消息（user, tool, system）
-                        cleanMsg.content = msg.content;
-                      }
-                      
-                      // tool 消息的标准字段
-                      if (msg.role === 'tool') {
-                        if (msg.tool_call_id) cleanMsg.tool_call_id = msg.tool_call_id;
-                        if (msg.name) cleanMsg.name = msg.name;
-                      }
-                      
-                      // 保留 additional_kwargs
-                      if (msg.additional_kwargs) {
-                        cleanMsg.additional_kwargs = msg.additional_kwargs;
-                      }
-                      
-                      return cleanMsg;
-                    });
-                    
-                    // 添加system prompt
-                    if (toolManager) {
-                      const toolPrompt = toolManager.generateSystemPrompt();
-                      if (toolPrompt) {
-                        const currentTime = window.TimeUtils.getCurrentTimeString();
-                        const timeInfo = `当前时间: ${currentTime}\n\n`;
-                        const fullSystemPrompt = settings.systemPrompt 
-                          ? `${timeInfo}${toolPrompt}\n\n${settings.systemPrompt}`
-                          : `${timeInfo}${toolPrompt}`;
-                        chatMessages = chatMessages.filter(m => m.role !== 'system');
-                        chatMessages = [{ role: 'system', content: fullSystemPrompt }, ...chatMessages];
-                      }
-                    }
-                    
-                    // 截断消息
-                    if (settings.autoContextTruncation !== false) {
-                      chatMessages = chatContext.truncateMessages(
-                        chatMessages,
-                        settings.model,
-                        settings.maxTokens || 2000
-                      );
-                    }
-                    
-                    // 打印工具执行后准备发送的消息
-                    console.log('[Chat] ===== 工具执行完成，准备发送总结请求 =====');
-                    console.log('[Chat] 会话ID:', session.id);
-                    console.log('[Chat] 递归深度:', currentDepth);
-                    console.log('[Chat] 执行的工具数量:', toolCalls.length);
-                    console.log('[Chat] 工具结果:');
-                    tempToolResults.forEach((result, idx) => {
-                      const toolName = result.tool_call.function?.name || result.tool_call.type || 'unknown';
-                      console.log(`  [${idx}] ${toolName}:`, 
-                        JSON.stringify(result.tool_result).substring(0, 200));
-                    });
-                    console.log('[Chat] 发送给模型的消息数量:', chatMessages.length);
-                    console.log('[Chat] 最后3条消息:');
-                    chatMessages.slice(-3).forEach((msg, idx) => {
-                      const actualIdx = chatMessages.length - 3 + idx;
-                      console.log(`  [${actualIdx}] role=${msg.role}, length=${msg.content?.length || 0}`);
-                      if (msg.content && msg.content.length < 200) {
-                        console.log(`      content: ${msg.content}`);
-                      } else if (msg.content) {
-                        console.log(`      content: ${msg.content.substring(0, 200)}...`);
-                      }
-                    });
-                    console.log('[Chat] ==========================================');
-                    
-                    // 生成 tool 消息用于 API 请求（不保存到 session）
-                    const toolMessages = tempToolResults.map((result, idx) => {
-                      const toolName = result.tool_call.function?.name || result.tool_call.type || 'unknown';
-                      const output = result.tool_result.output || 
-                        (typeof result.tool_result === 'object' ? JSON.stringify(result.tool_result) : String(result.tool_result));
-                      
-                      return {
-                        role: 'tool',
-                        content: output,
-                        tool_call_id: result.tool_call.id || `call_${idx}`,
-                        name: toolName
-                      };
-                    });
-                    
-                    // 将 tool 消息添加到 chatMessages（仅用于 API 请求，不持久化）
-                    chatMessages = [...chatMessages, ...toolMessages];
-                    
-                    console.log('[Chat] 生成 tool 消息用于触发模型继续交互（不保存到 session）');
-                    
-                    // 添加助手消息占位
-                    sessionManager.addMessage(session.id, { role: 'assistant', content: '' });
-                    render();
-                    
-                    if (messageListElement) {
-                      setTimeout(() => {
-                        messageListElement.scrollTop = messageListElement.scrollHeight;
-                      }, 50);
-                    }
-                    
-                    // 发送流式请求
-                    // 检查是否请求停止
-                    if (isStopRequested) {
-                      console.log('[Chat] Summary request interrupted by stop request');
-                      return;
-                    }
-                    
-                    const port = chrome.runtime.connect({ name: 'chat-stream' });
-                    currentPort = port;
-                    sessionManager.startStreamRequest(session.id, port);
-                    updateSendButton(true);
-                    
-                    // 打印流式请求完整日志
-                    console.log('[Chat] ===== 流式请求开始（工具调用后） =====');
-                    console.log('[Chat] 会话ID:', session.id);
-                    console.log('[Chat] 递归深度:', currentDepth);
-                    console.log('[Chat] 模型:', settings.model);
-                    console.log('[Chat] 消息数量:', chatMessages.length);
-                    console.log('[Chat] 消息列表:');
-                    chatMessages.forEach((msg, idx) => {
-                      console.log(`  [${idx}] role=${msg.role}, content_length=${msg.content?.length || 0}`);
-                      if (msg.content && msg.content.length < 200) {
-                        console.log(`      content: ${msg.content}`);
-                      } else if (msg.content) {
-                        console.log(`      content: ${msg.content.substring(0, 200)}...`);
-                      }
-                    });
-                    console.log('[Chat] 温度:', settings.temperature || 0.7);
-                    console.log('[Chat] 最大Token:', settings.maxTokens || 2000);
-                    console.log('[Chat] ==========================');
-                    
-                    // 监听响应
-                    port.onMessage.addListener(async (summaryMsg) => {
+                    // 依次执行工具
+                    for (const call of currentMsg.tool_calls) {
                       // 检查是否请求停止
                       if (isStopRequested) {
-                        port.disconnect();
-                        currentPort = null;
-                        sessionManager.completeStreamRequest(session.id);
-                        
-                        // 清理空消息
-                        const targetSession = sessionManager.getSession(session.id);
-                        if (targetSession) {
-                          const lastMsg = targetSession.messages[targetSession.messages.length - 1];
-                          if (lastMsg && lastMsg.role === 'assistant') {
-                            const hasContent = lastMsg.content && lastMsg.content.trim();
-                            const hasReasoning = lastMsg.additional_kwargs?.reasoning_content;
-                            const hasToolCalls = lastMsg.tool_calls && lastMsg.tool_calls.length > 0;
-                            
-                            if (!hasContent && !hasReasoning && !hasToolCalls) {
-                              targetSession.messages.pop();
-                              console.log('[Chat] Removed empty summary message after stop');
-                              sessionManager.saveConversations();
-                            }
-                          }
-                        }
-                        
-                        updateSendButton(false);
-                        render();
-                        console.log('[Chat] Summary stream interrupted by stop request');
-                        return;
+                        console.log('[Chat] Tool execution interrupted by stop request');
+                        break;
                       }
                       
-                      const targetSession = sessionManager.getSession(session.id);
-                      if (!targetSession) {
-                        port.disconnect();
-                        return;
-                      }
+                      const toolType = call.function.name;
                       
-                      if (summaryMsg.type === 'chunk') {
-                        const currentMsg = targetSession.messages[targetSession.messages.length - 1];
-                        if (currentMsg && currentMsg.role === 'assistant') {
-                          currentMsg.content += summaryMsg.content;
-                        }
-                        
-                        const currentSession = sessionManager.getCurrentSession();
-                        if (currentSession && currentSession.id === session.id) {
-                          render();
-                          if (messageListElement) {
-                            messageListElement.scrollTop = messageListElement.scrollHeight;
-                          }
-                        }
-                        
-                        sessionManager.saveConversations();
-                      } else if (summaryMsg.type === 'reasoning' || summaryMsg.type === 'thinking') {
-                        const currentMsg = targetSession.messages[targetSession.messages.length - 1];
-                        if (currentMsg && currentMsg.role === 'assistant') {
-                          if (!currentMsg.additional_kwargs) {
-                            currentMsg.additional_kwargs = {};
-                          }
-                          currentMsg.additional_kwargs.reasoning_content = 
-                            (currentMsg.additional_kwargs.reasoning_content || '') + (summaryMsg.reasoning_content || summaryMsg.content || '');
-                        }
-                        sessionManager.saveConversations();
-                      } else if (summaryMsg.type === 'complete') {
-                        port.disconnect();
-                        currentPort = null;
-                        sessionManager.completeStreamRequest(session.id);
-                        updateSendButton(false);
-                        
-                        // 清理空消息：如果最后一条 assistant 消息为空，删除它
-                        const finalMsg = targetSession.messages[targetSession.messages.length - 1];
-                        if (finalMsg && finalMsg.role === 'assistant') {
-                          const hasContent = finalMsg.content && finalMsg.content.trim();
-                          const hasReasoning = finalMsg.additional_kwargs?.reasoning_content;
-                          const hasToolCalls = finalMsg.tool_calls && finalMsg.tool_calls.length > 0;
+                      if (toolManager && toolManager.isToolEnabled(toolType)) {
+                        try {
+                          console.log(`[Chat] Executing tool: ${toolType}`);
                           
-                          if (!hasContent && !hasReasoning && !hasToolCalls) {
-                            // 空消息，删除
-                            targetSession.messages.pop();
-                            console.log('[Chat] Removed empty summary message after completion');
-                            await sessionManager.saveConversations();
-                            render();
-                            return; // 空消息不需要后续处理
-                          }
-                        }
-                        
-                        await sessionManager.saveConversations();
-                        
-                        // 打印完整消息内容
-                        console.log('[Chat] ===== 流式交互完成 =====');
-                        console.log('[Chat] 消息角色:', finalMsg?.role);
-                        console.log('[Chat] 消息内容:', finalMsg?.content);
-                        console.log('[Chat] 思考过程:', finalMsg?.additional_kwargs?.reasoning_content);
-                        console.log('[Chat] 消息长度:', finalMsg?.content?.length);
-                        console.log('[Chat] ==========================');
-                        
-                        console.log(`[Chat] Summary round ${currentDepth} completed`);
-                        
-                        const currentSession = sessionManager.getCurrentSession();
-                        if (currentSession && currentSession.id === session.id) {
-                          // 解析新消息中的工具调用
-                          if (finalMsg && finalMsg.role === 'assistant' && finalMsg.content && toolManager) {
-                            const newToolCalls = toolManager.parseToolCalls(finalMsg.content);
-                            
-                            if (newToolCalls.length > 0) {
-                              console.log(`[Chat] Detected ${newToolCalls.length} new tool calls in summary response`);
-                              
-                              // 初始化工具执行结果数组
-                              const newToolResults = [];
-                              
-                              // 执行所有工具调用
-                              for (const call of newToolCalls) {
-                                // 检查是否请求停止
-                                if (isStopRequested) {
-                                  console.log('[Chat] Summary tool execution interrupted by stop request');
-                                  break;
-                                }
-                                
-                                const toolType = call.function?.name || call.type;
-                                
-                                if (toolManager && toolManager.isToolEnabled(toolType)) {
-                                  try {
-                                    console.log(`[Chat] Executing tool: ${toolType}`);
-                                    const result = await toolManager.executeTool(call);
-                                    
-                                    newToolResults.push({
-                                      tool_call: call,
-                                      tool_result: result,
-                                      timestamp: Date.now()
-                                    });
-                                    
-                                    console.log(`[Chat] Tool ${toolType} executed successfully`);
-                                  } catch (error) {
-                                    console.error(`[Chat] Tool execution error:`, error);
-                                    newToolResults.push({
-                                      tool_call: call,
-                                      tool_result: { 
-                                        success: false, 
-                                        error: error.message,
-                                        type: toolType
-                                      },
-                                      timestamp: Date.now()
-                                    });
-                                  }
-                                }
-                              }
-                              
-                              // 附加到消息中
-                              finalMsg.tool_results = newToolResults;
-                              if (newToolResults.length > 0) {
-                                finalMsg.content = toolManager.removeToolCallBlocks(finalMsg.content);
-                              }
-                              
-                              await sessionManager.saveConversations();
-                            }
+                          // 显示工具执行中状态
+                          const currentSession = sessionManager.getCurrentSession();
+                          if (currentSession && currentSession.id === session.id) {
+                            render(); // 重新渲染以显示 loading 状态
                           }
                           
-                          render();
-                          if (messageListElement) {
-                            messageListElement.scrollTop = messageListElement.scrollHeight;
-                          }
+                          const result = await toolManager.executeTool({
+                            ...call,
+                            type: toolType // 兼容旧格式
+                          });
                           
-                          // 递归调用：检查新消息是否包含工具调用
-                          // 检查是否请求停止
+                          // 执行完成后检查是否请求停止
                           if (isStopRequested) {
-                            console.log('[Chat] Recursive call interrupted by stop request');
-                            return;
+                            console.log('[Chat] Tool execution stopped after completion');
+                            break;
                           }
                           
-                          // 检查消息是否为空，如果为空则不递归
-                          const checkMsg = targetSession.messages[targetSession.messages.length - 1];
-                          if (checkMsg && checkMsg.role === 'assistant') {
-                            const hasContent = checkMsg.content && checkMsg.content.trim();
-                            const hasReasoning = checkMsg.additional_kwargs?.reasoning_content;
-                            const hasToolCalls = checkMsg.tool_calls && checkMsg.tool_calls.length > 0;
-                            
-                            if (!hasContent && !hasReasoning && !hasToolCalls) {
-                              console.log('[Chat] Skipping recursive call for empty message');
-                              return;
-                            }
-                          }
+                          // 创建标准的 tool 消息
+                          const toolMessage = {
+                            role: 'tool',
+                            tool_call_id: call.id,
+                            name: toolType,
+                            content: result.output || JSON.stringify(result)
+                          };
                           
-                          await executeToolsAndGetSummary(null, maxDepth, currentDepth + 1);
+                          // 添加到会话历史
+                          sessionManager.addMessage(session.id, toolMessage);
+                          await sessionManager.saveConversations();
+                          
+                          console.log(`[Chat] Tool ${toolType} executed successfully`);
+                        } catch (error) {
+                          console.error(`[Chat] Tool execution error:`, error);
+                          
+                          // 错误也作为 tool 消息保存
+                          const errorMessage = {
+                            role: 'tool',
+                            tool_call_id: call.id,
+                            name: toolType,
+                            content: JSON.stringify({ 
+                              success: false, 
+                              error: error.message,
+                              type: toolType
+                            })
+                          };
+                          
+                          sessionManager.addMessage(session.id, errorMessage);
+                          await sessionManager.saveConversations();
                         }
                       }
-                    });
-                    
-                    port.postMessage({
-                      messages: chatMessages,
-                      apiKey: settings.apiKey,
-                      apiEndpoint,
-                      model: settings.model,
-                      temperature: settings.temperature || 0.7,
-                      maxTokens: settings.maxTokens || 2000,
-                      toolsEnabled: toolsEnabled  // 传递工具启用状态
-                    });
-                  };
-                  
-                  // 开始执行工具并获取总结
-                  await executeToolsAndGetSummary(null);
-                  
-                  await sessionManager.saveConversations();
-                  
-                  // 只在当前会话时重新渲染
-                  const afterToolSession = sessionManager.getCurrentSession();
-                  if (afterToolSession && afterToolSession.id === session.id) {
-                    render();
-                    
-                    if (messageListElement) {
-                      setTimeout(() => {
-                        messageListElement.scrollTop = messageListElement.scrollHeight;
-                      }, 50);
                     }
+                    
+                    // 清理 assistant 消息 content 中的工具调用代码块
+                    if (toolManager) {
+                      currentMsg.content = toolManager.removeToolCallBlocks(currentMsg.content);
+                    }
+                    
+                    await sessionManager.saveConversations();
+                    
+                    // 重新渲染
+                    const afterToolSession = sessionManager.getCurrentSession();
+                    if (afterToolSession && afterToolSession.id === session.id) {
+                      render();
+                      
+                      if (messageListElement) {
+                        messageListElement.scrollTop = messageListElement.scrollHeight;
+                      }
+                    }
+                    
+                    // 触发下一轮对话（递归）
+                    await triggerNextTurn(session, targetSession, 0);
+                    
+                    return; // 提前返回，不执行后续的 render
                   }
-                  
-                  return;  // 提前返回，不执行后续的 render
                 }
-              }
-              }, 100); // 延迟 100ms 确保流式渲染完全结束
+              }, 100);
               
               return; // 等待 setTimeout 中的逻辑执行
             } else if (msg.type === 'error') {
@@ -1803,6 +1324,8 @@ window.Pages.chat = function(container) {
                   messageListElement.scrollTop = messageListElement.scrollHeight;
                 }
               }
+              
+              return; // 错误处理后直接返回
             }
           });
           
@@ -1881,6 +1404,352 @@ window.Pages.chat = function(container) {
         messageListElement.scrollTop = messageListElement.scrollHeight;
       }, 50);
     }
+  }
+  
+  /**
+   * 触发下一轮对话（工具执行后）
+   * @param {Object} session - 当前会话
+   * @param {Object} targetSession - 目标会话
+   * @param {number} depth - 递归深度
+   */
+  async function triggerNextTurn(session, targetSession, depth) {
+    const MAX_DEPTH = 10;
+    
+    // 检查是否请求停止
+    if (isStopRequested) {
+      console.log('[Chat] Next turn interrupted by stop request');
+      return;
+    }
+    
+    if (depth >= MAX_DEPTH) {
+      console.log('[Chat] Max recursion depth reached, stopping');
+      return;
+    }
+    
+    console.log(`[Chat] Triggering next turn, depth: ${depth}`);
+    
+    // 获取设置
+    const result = await new Promise((resolve) => {
+      chrome.storage.local.get(['settings'], resolve);
+    });
+    
+    const settings = result.settings;
+    if (!settings || !settings.apiEndpoint) {
+      throw new Error('请先在设置中配置 API 端点');
+    }
+    
+    let apiEndpoint = settings.apiEndpoint;
+    if (!apiEndpoint.includes('/chat/completions')) {
+      apiEndpoint = apiEndpoint.replace(/\/$/, '') + '/chat/completions';
+    }
+    
+    // 准备消息（使用标准的 tool 角色）
+    let chatMessages = [...targetSession.messages];
+    
+    // 清理消息，转换为 OpenAI API 标准格式
+    chatMessages = chatMessages.map(msg => {
+      const cleanMsg = { role: msg.role };
+      
+      if (msg.role === 'assistant') {
+        cleanMsg.content = msg.content || '';
+        // 保留 tool_calls
+        if (msg.tool_calls) {
+          cleanMsg.tool_calls = msg.tool_calls;
+        }
+      } else {
+        cleanMsg.content = msg.content;
+      }
+      
+      // tool 消息的标准字段
+      if (msg.role === 'tool') {
+        if (msg.tool_call_id) cleanMsg.tool_call_id = msg.tool_call_id;
+        if (msg.name) cleanMsg.name = msg.name;
+      }
+      
+      // 保留 additional_kwargs
+      if (msg.additional_kwargs) {
+        cleanMsg.additional_kwargs = msg.additional_kwargs;
+      }
+      
+      return cleanMsg;
+    });
+    
+    // 添加 system prompt
+    if (toolManager) {
+      const toolPrompt = toolManager.generateSystemPrompt();
+      if (toolPrompt) {
+        const currentTime = window.TimeUtils.getCurrentTimeString();
+        const timeInfo = `当前时间: ${currentTime}\n\n`;
+        const fullSystemPrompt = settings.systemPrompt 
+          ? `${timeInfo}${toolPrompt}\n\n${settings.systemPrompt}`
+          : `${timeInfo}${toolPrompt}`;
+        chatMessages = chatMessages.filter(m => m.role !== 'system');
+        chatMessages = [{ role: 'system', content: fullSystemPrompt }, ...chatMessages];
+      }
+    }
+    
+    // 截断消息
+    if (settings.autoContextTruncation !== false) {
+      chatMessages = chatContext.truncateMessages(
+        chatMessages,
+        settings.model,
+        settings.maxTokens || 2000
+      );
+    }
+    
+    console.log('[Chat] ===== Sending messages to model =====');
+    console.log('[Chat] Depth:', depth);
+    console.log('[Chat] Messages count:', chatMessages.length);
+    console.log('[Chat] Last 3 messages:');
+    chatMessages.slice(-3).forEach((msg, idx) => {
+      const actualIdx = chatMessages.length - 3 + idx;
+      console.log(`  [${actualIdx}] role=${msg.role}, length=${msg.content?.length || 0}`);
+    });
+    console.log('[Chat] ==========================================');
+    
+    // 添加助手消息占位
+    sessionManager.addMessage(session.id, { role: 'assistant', content: '' });
+    render();
+    
+    if (messageListElement) {
+      setTimeout(() => {
+        messageListElement.scrollTop = messageListElement.scrollHeight;
+      }, 50);
+    }
+    
+    // 发送流式请求
+    if (isStopRequested) {
+      console.log('[Chat] Request interrupted by stop request');
+      return;
+    }
+    
+    const port = chrome.runtime.connect({ name: 'chat-stream' });
+    currentPort = port;
+    sessionManager.startStreamRequest(session.id, port);
+    updateSendButton(true);
+    
+    // 监听响应
+    port.onMessage.addListener(async (responseMsg) => {
+      // 检查是否请求停止
+      if (isStopRequested) {
+        port.disconnect();
+        currentPort = null;
+        sessionManager.completeStreamRequest(session.id);
+        
+        // 清理空消息
+        const currentSession = sessionManager.getSession(session.id);
+        if (currentSession) {
+          const lastMsg = currentSession.messages[currentSession.messages.length - 1];
+          if (lastMsg && lastMsg.role === 'assistant') {
+            const hasContent = lastMsg.content && lastMsg.content.trim();
+            const hasReasoning = lastMsg.additional_kwargs?.reasoning_content;
+            const hasToolCalls = lastMsg.tool_calls && lastMsg.tool_calls.length > 0;
+            
+            if (!hasContent && !hasReasoning && !hasToolCalls) {
+              currentSession.messages.pop();
+              console.log('[Chat] Removed empty message after stop');
+              sessionManager.saveConversations();
+            }
+          }
+        }
+        
+        updateSendButton(false);
+        render();
+        console.log('[Chat] Stream interrupted by stop request');
+        return;
+      }
+      
+      const currentSession = sessionManager.getSession(session.id);
+      if (!currentSession) {
+        port.disconnect();
+        return;
+      }
+      
+      if (responseMsg.type === 'chunk') {
+        const currentMsg = currentSession.messages[currentSession.messages.length - 1];
+        if (currentMsg && currentMsg.role === 'assistant') {
+          currentMsg.content += responseMsg.content;
+        }
+        
+        const activeSession = sessionManager.getCurrentSession();
+        if (activeSession && activeSession.id === session.id) {
+          render();
+          if (messageListElement) {
+            messageListElement.scrollTop = messageListElement.scrollHeight;
+          }
+        }
+        
+        sessionManager.saveConversations();
+      } else if (responseMsg.type === 'reasoning' || responseMsg.type === 'thinking') {
+        const currentMsg = currentSession.messages[currentSession.messages.length - 1];
+        if (currentMsg && currentMsg.role === 'assistant') {
+          if (!currentMsg.additional_kwargs) {
+            currentMsg.additional_kwargs = {};
+          }
+          currentMsg.additional_kwargs.reasoning_content = 
+            (currentMsg.additional_kwargs.reasoning_content || '') + (responseMsg.reasoning_content || responseMsg.content || '');
+        }
+        sessionManager.saveConversations();
+      } else if (responseMsg.type === 'complete') {
+        port.disconnect();
+        currentPort = null;
+        sessionManager.completeStreamRequest(session.id);
+        updateSendButton(false);
+        
+        // 清理空消息
+        const finalMsg = currentSession.messages[currentSession.messages.length - 1];
+        if (finalMsg && finalMsg.role === 'assistant') {
+          const hasContent = finalMsg.content && finalMsg.content.trim();
+          const hasReasoning = finalMsg.additional_kwargs?.reasoning_content;
+          const hasToolCalls = finalMsg.tool_calls && finalMsg.tool_calls.length > 0;
+          
+          if (!hasContent && !hasReasoning && !hasToolCalls) {
+            currentSession.messages.pop();
+            console.log('[Chat] Removed empty message after completion');
+            await sessionManager.saveConversations();
+            render();
+            return;
+          }
+        }
+        
+        await sessionManager.saveConversations();
+        
+        console.log('[Chat] ===== Turn completed =====');
+        console.log('[Chat] Role:', finalMsg?.role);
+        console.log('[Chat] Content:', finalMsg?.content);
+        console.log('[Chat] Reasoning:', finalMsg?.additional_kwargs?.reasoning_content);
+        console.log('[Chat] Tool calls:', finalMsg?.tool_calls);
+        console.log('[Chat] ==========================');
+        
+        const activeSession = sessionManager.getCurrentSession();
+        if (activeSession && activeSession.id === session.id) {
+          render();
+          if (messageListElement) {
+            messageListElement.scrollTop = messageListElement.scrollHeight;
+          }
+          
+          // 检查新消息是否包含工具调用，如果有则递归
+          if (isStopRequested) {
+            console.log('[Chat] Recursive check interrupted');
+            return;
+          }
+          
+          if (finalMsg && finalMsg.role === 'assistant' && finalMsg.content && toolManager) {
+            const newToolCalls = toolManager.parseToolCalls(finalMsg.content);
+            
+            if (newToolCalls.length > 0) {
+              console.log(`[Chat] Detected ${newToolCalls.length} new tool calls, continuing...`);
+              
+              // 更新 assistant 消息的 tool_calls
+              finalMsg.tool_calls = newToolCalls.map((call, idx) => ({
+                id: call.id || `call_${Date.now()}_${idx}`,
+                type: 'function',
+                function: {
+                  name: call.function?.name || call.type,
+                  arguments: call.function?.arguments || JSON.stringify(call.query || call.code || {})
+                }
+              }));
+              
+              await sessionManager.saveConversations();
+              render();
+              
+              // 执行工具
+              for (const call of finalMsg.tool_calls) {
+                if (isStopRequested) break;
+                
+                const toolType = call.function.name;
+                
+                if (toolManager && toolManager.isToolEnabled(toolType)) {
+                  try {
+                    console.log(`[Chat] Executing tool: ${toolType}`);
+                    render();
+                    
+                    const result = await toolManager.executeTool({
+                      ...call,
+                      type: toolType
+                    });
+                    
+                    if (isStopRequested) break;
+                    
+                    // 创建 tool 消息
+                    const toolMessage = {
+                      role: 'tool',
+                      tool_call_id: call.id,
+                      name: toolType,
+                      content: result.output || JSON.stringify(result)
+                    };
+                    
+                    sessionManager.addMessage(session.id, toolMessage);
+                    await sessionManager.saveConversations();
+                    
+                    console.log(`[Chat] Tool ${toolType} executed`);
+                  } catch (error) {
+                    console.error(`[Chat] Tool error:`, error);
+                    
+                    const errorMessage = {
+                      role: 'tool',
+                      tool_call_id: call.id,
+                      name: toolType,
+                      content: JSON.stringify({ success: false, error: error.message })
+                    };
+                    
+                    sessionManager.addMessage(session.id, errorMessage);
+                    await sessionManager.saveConversations();
+                  }
+                }
+              }
+              
+              // 清理 content
+              if (toolManager) {
+                finalMsg.content = toolManager.removeToolCallBlocks(finalMsg.content);
+              }
+              
+              await sessionManager.saveConversations();
+              render();
+              
+              // 递归调用
+              await triggerNextTurn(session, currentSession, depth + 1);
+              return;
+            }
+          }
+        }
+      } else if (responseMsg.type === 'error') {
+        port.disconnect();
+        currentPort = null;
+        sessionManager.completeStreamRequest(session.id);
+        updateSendButton(false);
+        
+        const errorMsg = {
+          role: 'assistant',
+          content: '❌ 请求失败: ' + responseMsg.error,
+          isError: true
+        };
+        sessionManager.addMessage(session.id, errorMsg);
+        await sessionManager.saveConversations();
+        
+        const activeSession = sessionManager.getCurrentSession();
+        if (activeSession && activeSession.id === session.id) {
+          render();
+          if (messageListElement) {
+            messageListElement.scrollTop = messageListElement.scrollHeight;
+          }
+        }
+        
+        return; // 错误处理后直接返回，阻止继续执行
+      }
+    });
+    
+    port.postMessage({
+      messages: chatMessages,
+      apiKey: settings.apiKey,
+      apiEndpoint,
+      model: settings.model,
+      temperature: settings.temperature || 0.7,
+      maxTokens: settings.maxTokens || 2000,
+      toolsEnabled: true  // 递归调用时始终启用工具支持
+    });
+    
+    console.log('[Chat] Next turn request sent');
   }
   
   // 初始化

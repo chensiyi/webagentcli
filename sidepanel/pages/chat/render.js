@@ -69,12 +69,20 @@ window.ChatRender = {
    */
   renderToolCallCard(toolCall, index, resultData, isLoading) {
     const { create } = window.DOM;
-    // 优先从 function.name 获取（新格式），兼容旧格式 type
-    const toolName = toolCall.function?.name || toolCall.type || '未知工具';
-    const toolIcon = toolName === 'web_search' ? ' 网络搜索' : 
-                     toolName === 'js_code' ? ' JavaScript 执行' : 
-                     toolName === 'web_fetch' ? ' 网页访问' :
-                     toolName === 'terminal' ? ' 终端执行' :  // 添加 terminal 图标
+    // 优先从 function.name 获取工具名称（新格式），兼容旧格式 type
+    // 注意：toolCall.id 是调用ID（如 call_xxx_0），不是工具名称
+    let toolName = toolCall.function?.name || toolCall.type || '未知工具';
+    
+    // 如果获取到的是类似 call_xxx 的ID格式，尝试从 name 字段获取（tool消息中的name字段）
+    if (toolName.startsWith('call_') && resultData?.tool_result?.name) {
+      toolName = resultData.tool_result.name;
+    }
+    
+    // 工具名称映射为友好的中文显示
+    const toolIcon = toolName === 'web_search' ? '🔍 网络搜索' : 
+                     toolName === 'js_code' ? '⚡ JavaScript 执行' : 
+                     toolName === 'web_fetch' ? '🌐 网页访问' :
+                     toolName === 'terminal' ? '💻 终端执行' :
                      toolName;
     
     const isSuccess = resultData?.tool_result?.success;

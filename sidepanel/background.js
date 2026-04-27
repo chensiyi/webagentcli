@@ -124,6 +124,21 @@ chrome.runtime.onConnect.addListener((port) => {
           ...(maxTokens && { max_tokens: maxTokens })
         };
         
+        // 如果启用了工具且有tool_calls，需要添加tools定义
+        // 注意：即使没有实际的tool_calls，只要消息中有role='tool'的消息，也需要tools定义
+        const hasToolCalls = processedMessages.some(msg => msg.tool_calls && msg.tool_calls.length > 0);
+        const hasToolMessages = processedMessages.some(msg => msg.role === 'tool');
+        
+        console.log('[Background] Request body preview:', {
+          model,
+          messagesCount: processedMessages.length,
+          hasToolCalls,
+          hasToolMessages,
+          toolsEnabled,
+          firstMessageRole: processedMessages[0]?.role,
+          lastMessageRole: processedMessages[processedMessages.length - 1]?.role
+        });
+        
         // 构建请求头（API Key 可选）
         const headers = {
           'Content-Type': 'application/json',
@@ -143,6 +158,7 @@ chrome.runtime.onConnect.addListener((port) => {
           // 尝试解析 JSON 错误信息
           try {
             const errorJson = JSON.parse(errorText);
+            console.error('[Background] Full API error response:', JSON.stringify(errorJson, null, 2));
             if (errorJson.error) {
               errorMessage = errorJson.error.message || JSON.stringify(errorJson.error);
             }
@@ -151,6 +167,20 @@ chrome.runtime.onConnect.addListener((port) => {
           }
           
           console.error('[Background] API request failed:', errorMessage);
+          console.error('[Background] Request details:', {
+            model,
+            apiEndpoint,
+            messagesCount: processedMessages.length,
+            toolsEnabled,
+            hasToolCalls: processedMessages.some(msg => msg.tool_calls && msg.tool_calls.length > 0),
+            hasToolMessages: processedMessages.some(msg => msg.role === 'tool')
+          });
+          
+          // 打印最后几条消息的角色
+          console.error('[Background] Last 3 message roles:', 
+            processedMessages.slice(-3).map(m => m.role)
+          );
+          
           if (!isDisconnected) {
             port.postMessage({ type: 'error', error: errorMessage });
           }

@@ -12,28 +12,22 @@ window.FetchTool = {
     enabled: false,
     systemPrompt: `### web_fetch
 
-Fetch and extract readable content from web pages.
+抓取并提取网页内容。
 
-**Format:**
+**用法：**
 \`\`\`web_fetch
 https://example.com
 \`\`\`
 
-**Example:**
-\`\`\`web_fetch
-https://news.ycombinator.com
-\`\`\`
+**返回：**
+- 页面标题
+- 主要内容（前2000字符）
+- 最多20个链接
+- 最多10张图片
 
-**Returns:**
-- Page title
-- Main content (first 2000 chars)
-- Up to 20 links with titles
-- Up to 10 images with alt text
-- Audio/video media if present
-
-**Notes:**
-- Use full URLs with http:// or https://
-- Use after finding URLs from search results`
+**提示：**
+- 使用完整的http://或https:// URL
+- 通常配合搜索工具使用`
   },
 
   /**

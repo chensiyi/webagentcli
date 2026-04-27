@@ -102,6 +102,41 @@
       return true;
     }
     
+    /**
+     * 删除消息及其关联的工具消息
+     * 如果删除的是 assistant 消息且有 tool_calls，则删除对应的所有 tool 消息
+     */
+    deleteMessageWithTools(sessionId, messageIndex) {
+      const session = this.sessions[sessionId];
+      if (!session || !session.messages[messageIndex]) return false;
+      
+      const msgToDelete = session.messages[messageIndex];
+      const messagesToRemove = [messageIndex];
+      
+      // 如果删除的是 assistant 消息且有 tool_calls，找到对应的 tool 消息
+      if (msgToDelete.role === 'assistant' && msgToDelete.tool_calls && msgToDelete.tool_calls.length > 0) {
+        // 获取所有 tool_call_id
+        const toolCallIds = new Set(msgToDelete.tool_calls.map(tc => tc.id));
+        
+        // 查找后续的 tool 消息
+        for (let i = messageIndex + 1; i < session.messages.length; i++) {
+          const msg = session.messages[i];
+          if (msg.role === 'tool' && msg.tool_call_id && toolCallIds.has(msg.tool_call_id)) {
+            messagesToRemove.push(i);
+          }
+        }
+      }
+      
+      // 从后往前删除（避免索引偏移）
+      messagesToRemove.sort((a, b) => b - a);
+      messagesToRemove.forEach(idx => {
+        session.messages.splice(idx, 1);
+      });
+      
+      session.updatedAt = Date.now();
+      return true;
+    }
+    
     // 更新最后一条消息
     updateLastMessage(sessionId, content) {
       const session = this.sessions[sessionId];

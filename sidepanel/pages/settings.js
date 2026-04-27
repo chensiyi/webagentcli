@@ -17,18 +17,167 @@ window.Pages.settings = function(container) {
   };
   
   let isLoadingModels = false;
+  let modelSearchValue = ''; // 模型搜索关键词
+  let isSelectingModel = false; // 标记是否正在选择模型
   
   async function loadModels() {
+    if (isLoadingModels) return;
+    
+    // 如果已经加载过模型，询问用户是否重新拉取
+    if (modelManager.isLoaded()) {
+      const { close } = window.ConfirmDialog.show({
+        title: '刷新模型',
+        message: '确定要重新从 API 拉取模型列表吗？这将覆盖当前已缓存的模型。',
+        confirmText: '确定',
+        cancelText: '取消',
+        onConfirm: () => {
+          modelManager.clearCache();
+          performLoad();
+        }
+      });
+      return;
+    }
+    
+    performLoad();
+  }
+  
+  async function performLoad() {
     isLoadingModels = true;
     render();
     
     try {
       await modelManager.fetchModels(settings.apiKey, settings.apiEndpoint);
     } catch (error) {
-      alert('加载失败: ' + error.message);
+      window.Toast.error('加载失败: ' + error.message);
     } finally {
       isLoadingModels = false;
       render();
+    }
+  }
+  
+  /**
+   * 过滤模型列表
+   */
+  function getFilteredModels() {
+    const allModels = modelManager.getModels();
+    if (!modelSearchValue) {
+      return allModels;
+    }
+    
+    const keyword = modelSearchValue.toLowerCase();
+    return allModels.filter(m => m.toLowerCase().includes(keyword));
+  }
+  
+  /**
+   * 更新模型下拉列表
+   */
+  function updateModelDropdown() {
+    const dropdown = document.getElementById('model-dropdown');
+    if (!dropdown) return;
+    
+    const filtered = getFilteredModels();
+    
+    // 清空并重新填充
+    dropdown.innerHTML = '';
+    
+    if (filtered.length === 0) {
+      dropdown.style.display = 'none';
+      return;
+    }
+    
+    filtered.forEach(model => {
+      const item = create('div', {
+        className: 'model-dropdown-item' + (model === settings.model ? ' selected' : ''),
+        text: model,
+        onClick: () => {
+          isSelectingModel = true; // 标记正在选择
+          settings.model = model;
+          modelSearchValue = model;
+          
+          // 同步更新隐藏的select
+          const hiddenSelect = document.getElementById('model-select-hidden');
+          if (hiddenSelect) {
+            hiddenSelect.value = model;
+          }
+          
+          // 更新输入框
+          const searchInput = document.getElementById('model-search');
+          if (searchInput) {
+            searchInput.value = model;
+          }
+          
+          dropdown.style.display = 'none';
+          
+          // 延迟清除标记，让blur事件先执行
+          setTimeout(() => {
+            isSelectingModel = false;
+          }, 300);
+          
+          // 不重绘整个页面，只更新模型能力提示
+          updateModelCapabilityHint();
+        }
+      });
+      dropdown.appendChild(item);
+    });
+    
+    dropdown.style.display = 'block';
+  }
+  
+  /**
+   * 绑定模型下拉列表事件
+   */
+  function bindModelDropdown() {
+    const searchInput = document.getElementById('model-search');
+    const dropdown = document.getElementById('model-dropdown');
+    
+    if (!searchInput || !dropdown) {
+      console.log('[Settings] Dropdown elements not found');
+      return;
+    }
+    
+    console.log('[Settings] Binding dropdown events');
+    
+    // 点击下拉列表项时不触发blur
+    dropdown.addEventListener('mousedown', (e) => {
+      e.preventDefault(); // 防止输入框失去焦点
+    });
+  }
+  
+  /**
+   * 只更新模型能力提示，不重绘整个页面
+   */
+  function updateModelCapabilityHint() {
+    // 查找现有的能力提示元素
+    const pageContent = document.querySelector('.page-content');
+    if (!pageContent) return;
+    
+    // 移除旧的能力提示
+    const oldHint = pageContent.querySelector('.setting-hint');
+    if (oldHint) {
+      oldHint.remove();
+    }
+    
+    // 添加新的能力提示
+    if (settings.model && modelManager.isLoaded()) {
+      const caps = modelManager.getCapability(settings.model);
+      if (caps) {
+        const badges = [];
+        if (caps.vision) badges.push('🖼️ 支持图片');
+        if (caps.audio) badges.push('🎤 支持音频');
+        if (caps.streaming) badges.push('⚡ 支持流式');
+        if (caps.tools) badges.push('🔧 支持工具');
+        
+        if (badges.length > 0) {
+          // 在模型选择组后面插入
+          const modelGroup = pageContent.querySelector('.setting-group');
+          const hint = create('div', { 
+            className: 'setting-group setting-hint'
+          }, [
+            create('span', { text: '模型能力: ' + badges.join(' | ') })
+          ]);
+          modelGroup.after(hint);
+        }
+      }
     }
   }
   
@@ -50,7 +199,7 @@ window.Pages.settings = function(container) {
       create('label', { className: 'setting-label', text: 'API Key（可选）' }),
       create('input', {
         className: 'input',
-        attrs: { type: 'password', placeholder: '云服务需要，本地服务留空' },
+        attrs: { type: 'password', placeholder: '本地服务留空,无需更改留空' },
         onInput: (e) => { settings.apiKey = e.target.value; }
       })
     ]));
@@ -60,37 +209,123 @@ window.Pages.settings = function(container) {
       create('input', {
         className: 'input',
         attrs: { type: 'text', placeholder: 'https://openrouter.ai/api/v1' },
-        onInput: (e) => { settings.apiEndpoint = e.target.value; }
+        value: settings.apiEndpoint,
+        onInput: (e) => { settings.apiEndpoint = e.target.value; },
+        onBlur: async () => {
+          // 失去焦点时，如果有base url且模型列表为空，自动加载
+          if (settings.apiEndpoint && !modelManager.isLoaded()) {
+            await performLoad();
+          }
+        }
       })
     ]));
     
-    content.appendChild(create('div', { className: 'setting-group' }, [
+    content.appendChild(create('div', { className: 'setting-group', style: { position: 'relative' } }, [
       create('label', { className: 'setting-label', text: '模型' }),
+      // 隐藏的原始select，用于保存真实选择
+      create('select', {
+        className: 'hidden-select',
+        id: 'model-select-hidden',
+        attrs: { style: 'display: none;' },
+        onChange: (e) => {
+          settings.model = e.target.value;
+          modelSearchValue = e.target.value;
+          const searchInput = document.getElementById('model-search');
+          if (searchInput) {
+            searchInput.value = e.target.value;
+          }
+        }
+      }, modelManager.getModels().map(model => 
+        create('option', {
+          attrs: { value: model },
+          text: model,
+          selected: model === settings.model
+        })
+      )),
       create('div', { className: 'setting-row' }, [
-        create('select', {
+        // 模型搜索输入框
+        create('input', {
           className: 'input setting-row-flex-1',
-          onChange: (e) => { settings.model = e.target.value; }
-        }, [
-          create('option', { 
-            attrs: { value: '' },
-            text: !modelManager.isLoaded() ? '点击加载模型' : '选择模型'
-          }),
-          ...modelManager.getModels().map(m => 
-            create('option', { 
-              attrs: { value: m },
-              text: m,
-              selected: m === settings.model
-            })
-          )
-        ]),
+          attrs: { 
+            type: 'text', 
+            id: 'model-search',
+            placeholder: !modelManager.isLoaded() ? '点击加载模型' : '选择或搜索模型...',
+            value: settings.model || ''
+          },
+          onInput: (e) => { 
+            modelSearchValue = e.target.value;
+            // 更新下拉选项
+            updateModelDropdown();
+          },
+          onClick: () => {
+            // 点击时显示所有模型的下拉列表
+            if (modelManager.isLoaded()) {
+              updateModelDropdown();
+            }
+          },
+          onBlur: () => {
+            // 延迟隐藏，让点击事件先执行
+            setTimeout(() => {
+              const dropdown = document.getElementById('model-dropdown');
+              if (dropdown) {
+                dropdown.style.display = 'none';
+              }
+            }, 200);
+            
+            // 如果正在选择模型，跳过blur处理
+            if (isSelectingModel) {
+              return;
+            }
+            
+            // 失去焦点时的处理
+            const hiddenSelect = document.getElementById('model-select-hidden');
+            const searchInput = document.getElementById('model-search');
+            const filtered = getFilteredModels();
+            
+            if (filtered.length === 1) {
+              // 如果只有一条匹配，自动选中
+              settings.model = filtered[0];
+              modelSearchValue = filtered[0];
+              if (hiddenSelect) {
+                hiddenSelect.value = filtered[0];
+              }
+              if (searchInput) {
+                searchInput.value = filtered[0];
+              }
+              // 只更新能力提示，不重绘整个页面
+              updateModelCapabilityHint();
+            } else if (!modelSearchValue && settings.model) {
+              // 如果输入框为空，从存储的settings.model恢复
+              modelSearchValue = settings.model;
+              if (searchInput) {
+                searchInput.value = modelSearchValue;
+              }
+              if (hiddenSelect) {
+                hiddenSelect.value = settings.model;
+              }
+            }
+          }
+        }),
+        // 加载模型按钮
         create('button', {
           className: 'btn btn-primary nowrap',
           text: isLoadingModels ? '加载中...' : '加载模型',
           disabled: isLoadingModels,
           onClick: loadModels
         })
-      ])
+      ]),
+      // 模型下拉列表（始终创建，初始隐藏）
+      create('div', {
+        className: 'model-dropdown',
+        id: 'model-dropdown',
+        style: { display: 'none' }
+      })
     ]));
+    
+    // 渲染后绑定下拉逻辑
+    setTimeout(() => {
+      bindModelDropdown();
+    }, 0);
     
     // 模型能力提示
     if (settings.model && modelManager.isLoaded()) {
@@ -117,6 +352,7 @@ window.Pages.settings = function(container) {
       create('input', {
         className: 'input',
         attrs: { type: 'number', min: '0', max: '2', step: '0.1' },
+        value: settings.temperature,
         onInput: (e) => { settings.temperature = parseFloat(e.target.value); }
       })
     ]));
@@ -126,6 +362,7 @@ window.Pages.settings = function(container) {
       create('input', {
         className: 'input',
         attrs: { type: 'number', min: '100', max: '8000' },
+        value: settings.maxTokens,
         onInput: (e) => { settings.maxTokens = parseInt(e.target.value); }
       })
     ]));
@@ -134,6 +371,7 @@ window.Pages.settings = function(container) {
       create('label', { className: 'setting-label', text: '系统提示词' }),
       create('textarea', {
         className: 'input setting-textarea',
+        value: settings.systemPrompt,
         attrs: { placeholder: '可选，设置 AI 的行为和角色' },
         onInput: (e) => { settings.systemPrompt = e.target.value; }
       })
@@ -181,13 +419,22 @@ window.Pages.settings = function(container) {
         setTheme(settings.theme);
         
         // 填充表单
-        const inputs = content.querySelectorAll('.input');
-        if (inputs[0]) inputs[0].value = settings.apiKey || '';
-        if (inputs[1]) inputs[1].value = settings.apiEndpoint || '';
-        if (inputs[2]) inputs[2].value = settings.model || '';
-        if (inputs[3]) inputs[3].value = settings.temperature || 0.7;
-        if (inputs[4]) inputs[4].value = settings.maxTokens || 2000;
-        if (inputs[5]) inputs[5].value = settings.systemPrompt || '';
+        const apiKeyInput = content.querySelector('input[placeholder*="API Key"]');
+        const endpointInput = content.querySelector('input[placeholder*="端点"]');
+        const modelSearch = content.querySelector('#model-search');
+        const tempInput = content.querySelector('input[type="number"][max="2"]');
+        const tokenInput = content.querySelector('input[type="number"][max="8000"]');
+        const promptInput = content.querySelector('textarea');
+
+        if (apiKeyInput) apiKeyInput.value = settings.apiKey || '';
+        if (endpointInput) endpointInput.value = settings.apiEndpoint || '';
+        if (modelSearch) {
+          modelSearch.value = settings.model || '';
+          modelSearchValue = settings.model || '';
+        }
+        if (tempInput) tempInput.value = settings.temperature ?? 0.7;
+        if (tokenInput) tokenInput.value = settings.maxTokens ?? 2000;
+        if (promptInput) promptInput.value = settings.systemPrompt || '';
         
         // 更新复选框状态
         const checkbox = content.querySelector('input[type="checkbox"]');
@@ -200,6 +447,13 @@ window.Pages.settings = function(container) {
         radios.forEach(radio => {
           radio.checked = radio.value === settings.theme;
         });
+        
+        // 如果base url有内容且模型列表为空，自动加载
+        if (settings.apiEndpoint && !modelManager.isLoaded()) {
+          setTimeout(() => {
+            performLoad();
+          }, 100);
+        }
       }
     });
     
@@ -227,7 +481,7 @@ window.Pages.settings = function(container) {
               console.log('[Settings] AI Manager initialized');
             }
             
-            alert('已保存');
+            window.Toast.success('设置已保存');
           });
         }
       })
