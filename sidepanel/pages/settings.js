@@ -18,7 +18,6 @@ window.Pages.settings = function(container) {
   
   let isLoadingModels = false;
   let modelSearchValue = ''; // 模型搜索关键词
-  let isSelectingModel = false; // 标记是否正在选择模型
   
   async function loadModels() {
     if (isLoadingModels) return;
@@ -90,7 +89,6 @@ window.Pages.settings = function(container) {
         className: 'model-dropdown-item' + (model === settings.model ? ' selected' : ''),
         text: model,
         onClick: () => {
-          isSelectingModel = true; // 标记正在选择
           settings.model = model;
           modelSearchValue = model;
           
@@ -108,12 +106,7 @@ window.Pages.settings = function(container) {
           
           dropdown.style.display = 'none';
           
-          // 延迟清除标记，让blur事件先执行
-          setTimeout(() => {
-            isSelectingModel = false;
-          }, 300);
-          
-          // 不重绘整个页面，只更新模型能力提示
+          // 只更新模型能力提示
           updateModelCapabilityHint();
         }
       });
@@ -272,11 +265,6 @@ window.Pages.settings = function(container) {
               }
             }, 200);
             
-            // 如果正在选择模型，跳过blur处理
-            if (isSelectingModel) {
-              return;
-            }
-            
             // 失去焦点时的处理
             const hiddenSelect = document.getElementById('model-select-hidden');
             const searchInput = document.getElementById('model-search');
@@ -292,17 +280,8 @@ window.Pages.settings = function(container) {
               if (searchInput) {
                 searchInput.value = filtered[0];
               }
-              // 只更新能力提示，不重绘整个页面
+              // 只更新能力提示
               updateModelCapabilityHint();
-            } else if (!modelSearchValue && settings.model) {
-              // 如果输入框为空，从存储的settings.model恢复
-              modelSearchValue = settings.model;
-              if (searchInput) {
-                searchInput.value = modelSearchValue;
-              }
-              if (hiddenSelect) {
-                hiddenSelect.value = settings.model;
-              }
             }
           }
         }),
