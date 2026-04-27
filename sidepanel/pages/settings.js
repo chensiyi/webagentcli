@@ -216,6 +216,23 @@ window.Pages.settings = function(container) {
       
       item.appendChild(infoLine);
       
+      // 鼠标悬停显示详情
+      let tooltipTimer = null;
+      item.addEventListener('mouseenter', (e) => {
+        if (!details) return;
+        
+        tooltipTimer = setTimeout(() => {
+          showModelTooltip(e, details);
+        }, 300); // 延迟300ms显示，避免快速移动时闪烁
+      });
+      
+      item.addEventListener('mouseleave', () => {
+        if (tooltipTimer) {
+          clearTimeout(tooltipTimer);
+        }
+        hideModelTooltip();
+      });
+      
       // 点击事件
       item.addEventListener('click', () => {
         settings.model = modelId;
@@ -272,6 +289,166 @@ window.Pages.settings = function(container) {
     }
     
     return parts.join(' | ') || '免费';
+  }
+  
+  /**
+   * 显示模型详情浮窗
+   */
+  function showModelTooltip(event, details) {
+    // 移除已存在的浮窗
+    hideModelTooltip();
+    
+    const tooltip = create('div', {
+      id: 'model-tooltip',
+      style: {
+        position: 'fixed',
+        left: event.clientX + 10 + 'px',
+        top: event.clientY + 10 + 'px',
+        maxWidth: '400px',
+        padding: '12px 16px',
+        background: 'var(--color-surface)',
+        border: '1px solid var(--color-border)',
+        borderRadius: '8px',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+        zIndex: 10000,
+        fontSize: '12px',
+        lineHeight: '1.6'
+      }
+    });
+    
+    // 模型名称
+    const nameEl = create('div', {
+      style: {
+        fontWeight: '600',
+        fontSize: '14px',
+        marginBottom: '8px',
+        color: 'var(--color-text)'
+      },
+      text: details.name || details.id
+    });
+    tooltip.appendChild(nameEl);
+    
+    // 描述
+    if (details.description) {
+      const descEl = create('div', {
+        style: {
+          marginBottom: '8px',
+          color: 'var(--color-text-secondary)',
+          fontSize: '11px'
+        },
+        text: details.description.length > 200 
+          ? details.description.substring(0, 200) + '...' 
+          : details.description
+      });
+      tooltip.appendChild(descEl);
+    }
+    
+    // 详细信息
+    const infoItems = [];
+    
+    if (details.context_length) {
+      infoItems.push(`📝 上下文: ${formatContextLength(details.context_length)}`);
+    }
+    
+    if (details.pricing) {
+      const priceText = formatPricing(details.pricing);
+      if (priceText) {
+        infoItems.push(`💰 价格: ${priceText}`);
+      }
+    }
+    
+    if (details.input_modalities && details.input_modalities.length > 0) {
+      const modalityMap = {
+        'text': '文本',
+        'image': '图片',
+        'video': '视频',
+        'audio': '音频'
+      };
+      const modalities = details.input_modalities.map(m => modalityMap[m] || m).join(', ');
+      infoItems.push(`📥 输入: ${modalities}`);
+    }
+    
+    if (details.output_modalities && details.output_modalities.length > 0) {
+      const modalityMap = {
+        'text': '文本',
+        'image': '图片',
+        'audio': '音频'
+      };
+      const modalities = details.output_modalities.map(m => modalityMap[m] || m).join(', ');
+      infoItems.push(`📤 输出: ${modalities}`);
+    }
+    
+    if (details.top_provider?.max_completion_tokens) {
+      infoItems.push(`⚡ 最大输出: ${formatContextLength(details.top_provider.max_completion_tokens)}`);
+    }
+    
+    if (infoItems.length > 0) {
+      const infoEl = create('div', {
+        style: {
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '4px',
+          color: 'var(--color-text-secondary)'
+        }
+      });
+      infoItems.forEach(text => {
+        infoEl.appendChild(create('div', { text }));
+      });
+      tooltip.appendChild(infoEl);
+    }
+    
+    // 链接
+    if (details.links?.details) {
+      const linkContainer = create('div', {
+        style: {
+          marginTop: '8px',
+          paddingTop: '8px',
+          borderTop: '1px solid var(--color-border)'
+        }
+      });
+      
+      const linkEl = create('a', {
+        attrs: {
+          href: `https://openrouter.ai${details.links.details}`,
+          target: '_blank'
+        },
+        text: '🔗 查看模型详情',
+        style: {
+          color: 'var(--color-primary)',
+          textDecoration: 'none',
+          fontSize: '11px'
+        }
+      });
+      
+      linkEl.onmouseenter = () => linkEl.style.textDecoration = 'underline';
+      linkEl.onmouseleave = () => linkEl.style.textDecoration = 'none';
+      
+      linkContainer.appendChild(linkEl);
+      tooltip.appendChild(linkContainer);
+    }
+    
+    document.body.appendChild(tooltip);
+    
+    // 调整位置，确保不超出屏幕
+    setTimeout(() => {
+      const rect = tooltip.getBoundingClientRect();
+      if (rect.right > window.innerWidth) {
+        tooltip.style.left = (window.innerWidth - rect.width - 10) + 'px';
+      }
+      if (rect.bottom > window.innerHeight) {
+        tooltip.style.top = (window.innerHeight - rect.height - 10) + 'px';
+      }
+    }, 0);
+  }
+  
+  /**
+   * 隐藏模型详情浮窗
+   */
+  function hideModelTooltip() {
+    const existing = document.getElementById('model-tooltip');
+    if (existing) {
+      existing.remove();
+    }
   }
   
   /**
