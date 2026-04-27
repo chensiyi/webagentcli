@@ -11,6 +11,9 @@ window.Pages.chat = function(container) {
   const modelManager = window.ModelManager;
   const toolManager = window.ToolManager;
   
+  // 创建输入控制器
+  const inputController = new window.InputController(modelManager);
+  
   // 导入新模块
   const streamState = window.ChatStreamState;
   const MessageSenderClass = window.MessageSender;
@@ -32,7 +35,10 @@ window.Pages.chat = function(container) {
   /**
    * 渲染聊天页面
    */
-  function render() {
+  async function render() {
+    // 初始化输入控制器
+    await inputController.initialize();
+    
     clear(container);
     
     const session = sessionManager.getCurrentSession();
@@ -389,28 +395,33 @@ window.Pages.chat = function(container) {
       inputArea.appendChild(createImagePreview());
     }
     
+    // 获取模型能力
+    const capabilities = inputController.getCapabilitySummary();
+    
     // 输入行
     const inputRow = create('div', { 
       className: 'input-row',
       style: { display: 'flex', gap: '8px', alignItems: 'center' } 
     });
     
-    // 工具开关
-    inputRow.appendChild(createToolsWrapper());
+    // 工具开关（如果支持）
+    if (capabilities.tools) {
+      inputRow.appendChild(createToolsWrapper());
+    }
     
-    // 图片上传
-    const modelInfo = currentSettings && modelManager.getModelFullInfo(currentSettings.model);
-    const supportsVision = modelInfo ? modelInfo.capability?.vision : false;
-    const { uploadBtn, fileInput } = createUploadButton(supportsVision);
+    // 图片上传（如果支持）
+    if (capabilities.image) {
+      const { uploadBtn, fileInput } = createUploadButton(true);
+      inputRow.appendChild(uploadBtn);
+      inputRow.appendChild(fileInput);
+    }
     
     // 文本输入
-    const input = createTextInput(supportsVision, session);
+    const input = createTextInput(capabilities, session);
     
     // 发送按钮
     const sendBtn = createSendButton(input, session);
     
-    inputRow.appendChild(uploadBtn);
-    inputRow.appendChild(fileInput);
     inputRow.appendChild(input);
     inputRow.appendChild(sendBtn);
     inputArea.appendChild(inputRow);
@@ -676,14 +687,25 @@ window.Pages.chat = function(container) {
   /**
    * 创建文本输入框
    */
-  function createTextInput(supportsVision, session) {
+  function createTextInput(capabilities, session) {
+    // 根据能力生成placeholder
+    const supportedInputs = [];
+    if (capabilities.image) supportedInputs.push('图片');
+    if (capabilities.audio) supportedInputs.push('音频');
+    if (capabilities.video) supportedInputs.push('视频');
+    
+    let placeholder = '输入消息';
+    if (supportedInputs.length > 0) {
+      placeholder += `（支持拖拽/粘贴${supportedInputs.join('、')}）`;
+    } else {
+      placeholder += '...';
+    }
+    
     const input = create('input', {
       className: 'input',
       attrs: { 
         type: 'text', 
-        placeholder: supportsVision
-          ? '输入消息或拖拽/粘贴图片...' 
-          : '输入消息...'
+        placeholder: placeholder
       },
       style: { flex: 1 }
     });
