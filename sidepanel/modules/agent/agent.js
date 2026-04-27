@@ -14,8 +14,18 @@ class Agent {
       models: config.models || [],
       defaultModel: config.defaultModel,
       supportsStreaming: config.supportsStreaming !== false,
-      supportsVision: config.supportsVision || false,
-      supportsTools: config.supportsTools || false
+      // 不再使用静态配置，改为动态检测
+      get supportsVision() {
+        const modelManager = window.ModelManager;
+        if (!modelManager || !this.defaultModel) return false;
+        return modelManager.isVisionModel(this.defaultModel);
+      },
+      get supportsTools() {
+        const modelManager = window.ModelManager;
+        if (!modelManager || !this.defaultModel) return false;
+        const caps = modelManager.getCapability(this.defaultModel);
+        return caps?.tools || false;
+      }
     });
   }
 
