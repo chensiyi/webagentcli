@@ -256,7 +256,13 @@ window.Pages.chat = function(container) {
     }
     
     // 渲染消息内容
-    if (msg.content && msg.content.trim()) {
+    const hasContent = msg.content && (
+      typeof msg.content === 'string' ? msg.content.trim() : 
+      Array.isArray(msg.content) ? msg.content.length > 0 : 
+      false
+    );
+    
+    if (hasContent) {
       window.ChatRender.renderMessageContent(msg.content, bubble);
     } else if (msg.role === 'assistant') {
       bubble.appendChild(create('div', { className: 'message-content' }));
