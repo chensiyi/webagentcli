@@ -66,6 +66,9 @@ window.Pages.settings = function(container) {
         }
       }
       
+      // 同步modelSearchValue与settings.model
+      modelSearchValue = settings.model || '';
+      
       // 加载成功后，只重绘一次
       render();
     } catch (error) {
