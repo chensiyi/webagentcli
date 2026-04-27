@@ -55,6 +55,17 @@ window.Pages.settings = function(container) {
     try {
       await modelManager.fetchModels(settings.apiKey, settings.apiEndpoint);
       
+      // 加载成功后，验证当前配置的模型是否在列表中
+      if (settings.model && modelManager.isLoaded()) {
+        const allModels = modelManager.getModels();
+        const modelExists = allModels.find(m => m === settings.model);
+        
+        if (!modelExists) {
+          // 模型不存在，标红提示
+          window.Toast.warning(`当前配置的模型 "${settings.model}" 不在模型列表中，请重新选择`);
+        }
+      }
+      
       // 加载成功后，只重绘一次
       render();
     } catch (error) {
@@ -255,7 +266,12 @@ window.Pages.settings = function(container) {
       create('div', { className: 'setting-row' }, [
         // 模型搜索输入框
         create('input', {
-          className: 'input setting-row-flex-1',
+          className: 'input setting-row-flex-1' + (
+            settings.model && modelManager.isLoaded() && 
+            !modelManager.getModels().find(m => m === settings.model)
+              ? ' input-error'
+              : ''
+          ),
           attrs: { 
             type: 'text', 
             id: 'model-search',
@@ -270,6 +286,14 @@ window.Pages.settings = function(container) {
           onClick: () => {
             // 点击时显示下拉列表
             if (modelManager.isLoaded()) {
+              const dropdown = document.getElementById('model-dropdown');
+              
+              // 如果下拉列表已经显示，则隐藏它（切换行为）
+              if (dropdown && dropdown.style.display === 'block') {
+                dropdown.style.display = 'none';
+                return;
+              }
+              
               // 如果输入框有内容且精确匹配某个模型，则显示所有模型（不做筛选）
               if (modelSearchValue) {
                 const allModels = modelManager.getModels();

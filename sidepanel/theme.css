@@ -181,6 +181,17 @@ body {
   border-color: var(--color-primary);
 }
 
+/* 错误状态的输入框 */
+.input-error {
+  border-color: var(--color-danger) !important;
+  background-color: rgba(239, 68, 68, 0.05);
+}
+
+.input-error:focus {
+  border-color: var(--color-danger) !important;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+}
+
 .btn-success {
   background: var(--color-success);
   color: #fff;
