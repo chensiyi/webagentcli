@@ -5,6 +5,7 @@ class InputController {
   constructor(modelManager) {
     this.modelManager = modelManager;
     this.currentModelCapabilities = null;
+    this.currentModelId = null; // 缓存当前模型ID
   }
 
   /**
@@ -13,9 +14,11 @@ class InputController {
   updateModelCapabilities(modelId) {
     if (!modelId) {
       this.currentModelCapabilities = null;
+      this.currentModelId = null;
       return;
     }
 
+    this.currentModelId = modelId;
     const modelInfo = this.modelManager.getModelFullInfo(modelId);
     this.currentModelCapabilities = modelInfo?.capability || null;
   }
@@ -38,9 +41,27 @@ class InputController {
    * 检查是否支持视频输入
    */
   supportsVideo() {
-    // 目前API中video在input_modalities中
-    const details = this.modelManager.getModelDetails(this.getCurrentModel());
-    return details?.input_modalities?.includes('video') || false;
+    // 优先从 capability 中检测
+    if (this.currentModelCapabilities?.video) {
+      console.log('[InputController] Video supported from capabilities');
+      return true;
+    }
+    
+    // 其次从 input_modalities 中检测
+    if (this.currentModelId) {
+      const details = this.modelManager.getModelDetails(this.currentModelId);
+      console.log('[InputController] Checking video from details:', {
+        modelId: this.currentModelId,
+        inputModalities: details?.input_modalities
+      });
+      if (details?.input_modalities?.includes('video')) {
+        console.log('[InputController] Video supported from input_modalities');
+        return true;
+      }
+    }
+    
+    console.log('[InputController] Video NOT supported');
+    return false;
   }
 
   /**
@@ -61,10 +82,17 @@ class InputController {
    * 获取当前模型ID
    */
   getCurrentModel() {
+    // 优先返回缓存的模型ID
+    if (this.currentModelId) {
+      return Promise.resolve(this.currentModelId);
+    }
+    
     // 从设置中获取当前模型
     return new Promise((resolve) => {
       chrome.storage.local.get(['settings'], (result) => {
-        resolve(result.settings?.model || null);
+        const modelId = result.settings?.model || null;
+        this.currentModelId = modelId; // 缓存
+        resolve(modelId);
       });
     });
   }
