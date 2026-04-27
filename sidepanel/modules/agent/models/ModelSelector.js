@@ -89,6 +89,22 @@ class ModelSelector {
   getModelTooltipData(modelId) {
     return this.modelManager.getModelDetails(modelId);
   }
+
+  /**
+   * 获取模型能力徽章列表
+   */
+  getModelCapabilityBadges(modelId) {
+    const caps = this.modelManager.getCapability(modelId);
+    if (!caps) return [];
+    
+    const badges = [];
+    if (caps.vision) badges.push('🖼️ 支持图片');
+    if (caps.audio) badges.push('🎤 支持音频');
+    if (caps.streaming) badges.push('⚡ 支持流式');
+    if (caps.tools) badges.push('🔧 支持工具');
+    
+    return badges;
+  }
 }
 
 // 导出

@@ -109,6 +109,23 @@ class SettingsStorage {
       };
     }
   }
+
+  /**
+   * 初始化AI管理器
+   */
+  initializeAIManager(settings) {
+    if (!window.Agent) return null;
+    
+    const ai = new window.Agent();
+    ai.registerProvider('default', {
+      endpoint: settings.apiEndpoint,
+      apiKey: settings.apiKey || 'local',
+      defaultModel: settings.model
+    });
+    ai.setProvider('default');
+    
+    return ai;
+  }
 }
 
 // 导出
