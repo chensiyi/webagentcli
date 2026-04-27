@@ -268,8 +268,23 @@ window.Pages.settings = function(container) {
             updateModelDropdown();
           },
           onClick: () => {
-            // 点击时显示所有模型的下拉列表
+            // 点击时显示下拉列表
             if (modelManager.isLoaded()) {
+              // 如果输入框有内容且精确匹配某个模型，则显示所有模型
+              if (modelSearchValue) {
+                const allModels = modelManager.getModels();
+                const exactMatch = allModels.find(m => m === modelSearchValue);
+                
+                if (exactMatch) {
+                  // 精确匹配，清空搜索值以显示所有模型
+                  modelSearchValue = '';
+                  const searchInput = document.getElementById('model-search');
+                  if (searchInput) {
+                    searchInput.value = '';
+                  }
+                }
+              }
+              
               updateModelDropdown();
             }
           },
