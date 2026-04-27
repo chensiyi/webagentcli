@@ -141,13 +141,14 @@
         return this.capabilityManager.getModelCapabilities(modelName);
       }
       
-      // 使用 ModelCapabilityDetector 作为最后的回退
+      // 简单的默认能力配置
+      console.warn(`[ModelManager] No details for model "${modelName}", using default capabilities`);
       return {
-        vision: window.ModelCapabilityDetector.checkVisionSupport(lower),
-        audio: window.ModelCapabilityDetector.checkAudioSupport(lower),
+        vision: false,
+        audio: false,
         streaming: true,
-        tools: window.ModelCapabilityDetector.checkToolsSupport(lower),
-        contextWindow: window.ModelCapabilityDetector.estimateContextWindow(lower)
+        tools: false,
+        contextWindow: 8192
       };
     }
     
@@ -157,8 +158,20 @@
     getContextWindowSize(modelName) {
       if (!modelName) return 8192;
       
-      const lower = modelName.toLowerCase();
-      return window.ModelCapabilityDetector.estimateContextWindow(lower);
+      // 优先从详细信息中获取
+      const details = this.modelDetails[modelName];
+      if (details && details.context_length) {
+        return details.context_length;
+      }
+      
+      // 回退：从能力缓存中获取
+      const capability = this.capabilities[modelName];
+      if (capability && capability.contextWindow) {
+        return capability.contextWindow;
+      }
+      
+      // 默认值
+      return 8192;
     }
     
     /**
@@ -246,9 +259,20 @@
     isVisionModel(modelName) {
       if (!modelName) return false;
       
-      return this.capabilityManager
-        ? this.capabilityManager.checkCapability(modelName.toLowerCase(), window.MessageTypes.ModelCapability.VISION)
-        : window.ModelCapabilityDetector.checkVisionSupport(modelName.toLowerCase());
+      // 优先从详细信息中获取
+      const details = this.modelDetails[modelName];
+      if (details) {
+        return details.input_modalities?.includes('image') || false;
+      }
+      
+      // 回退：从能力缓存中获取
+      const capability = this.capabilities[modelName];
+      if (capability) {
+        return capability.vision || false;
+      }
+      
+      // 默认不支持
+      return false;
     }
     
     /**
