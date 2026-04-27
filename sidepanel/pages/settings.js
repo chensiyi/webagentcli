@@ -270,18 +270,21 @@ window.Pages.settings = function(container) {
           onClick: () => {
             // 点击时显示下拉列表
             if (modelManager.isLoaded()) {
-              // 如果输入框有内容且精确匹配某个模型，则显示所有模型
+              // 如果输入框有内容且精确匹配某个模型，则显示所有模型（不做筛选）
               if (modelSearchValue) {
                 const allModels = modelManager.getModels();
                 const exactMatch = allModels.find(m => m === modelSearchValue);
                 
                 if (exactMatch) {
-                  // 精确匹配，清空搜索值以显示所有模型
+                  // 精确匹配，临时保存搜索值并清空以显示所有模型
+                  const savedSearchValue = modelSearchValue;
                   modelSearchValue = '';
-                  const searchInput = document.getElementById('model-search');
-                  if (searchInput) {
-                    searchInput.value = '';
-                  }
+                  
+                  updateModelDropdown();
+                  
+                  // 恢复搜索值，保持输入框显示
+                  modelSearchValue = savedSearchValue;
+                  return; // 提前返回，避免再次调用updateModelDropdown
                 }
               }
               
