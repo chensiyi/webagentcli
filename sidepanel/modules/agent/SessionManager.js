@@ -104,7 +104,8 @@
     
     /**
      * 删除消息及其关联的工具消息
-     * 如果删除的是 assistant 消息且有 tool_calls，则删除对应的所有 tool 消息
+     * 1. 如果删除的是 assistant 消息且有 tool_calls，则删除对应的所有 tool 消息
+     * 2. 如果删除的是 tool 消息，建议用户删除对应的 assistant 消息（可选）
      */
     deleteMessageWithTools(sessionId, messageIndex) {
       const session = this.sessions[sessionId];
@@ -113,7 +114,7 @@
       const msgToDelete = session.messages[messageIndex];
       const messagesToRemove = [messageIndex];
       
-      // 如果删除的是 assistant 消息且有 tool_calls，找到对应的 tool 消息
+      // 情况1：删除的是 assistant 消息且有 tool_calls
       if (msgToDelete.role === 'assistant' && msgToDelete.tool_calls && msgToDelete.tool_calls.length > 0) {
         // 获取所有 tool_call_id
         const toolCallIds = new Set(msgToDelete.tool_calls.map(tc => tc.id));
@@ -125,6 +126,14 @@
             messagesToRemove.push(i);
           }
         }
+      }
+      // 情况2：删除的是 tool 消息
+      else if (msgToDelete.role === 'tool') {
+        console.warn('[SessionManager] Deleting individual tool message. Consider deleting the parent assistant message instead.');
+        // 这里可以选择：
+        // 1. 只删除这个tool消息（当前行为）
+        // 2. 提示用户应该删除整个assistant+tools组合
+        // 目前选择方案1，因为用户可能确实只想删除某个tool结果
       }
       
       // 从后往前删除（避免索引偏移）
