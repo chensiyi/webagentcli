@@ -198,8 +198,8 @@ class MessageSender {
           });
 
           if (hasTools) {
-            // 触发下一轮对话
-            const nextTurnTrigger = new window.NextTurnTrigger(
+            // 触发下一轮对话（使用ToolResultHandler）
+            const toolResultHandler = new window.ToolResultHandler(
               this.sessionManager,
               this.toolManager,
               this.chatContext,
@@ -208,7 +208,7 @@ class MessageSender {
             
             // 延迟执行，确保渲染完成
             setTimeout(async () => {
-              await nextTurnTrigger.trigger(sessionId, 0);
+              await toolResultHandler.handleToolResults(sessionId, renderCallback);
             }, 100);
           }
         },

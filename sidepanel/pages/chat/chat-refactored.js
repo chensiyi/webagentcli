@@ -20,7 +20,6 @@ window.Pages.chat = function(container) {
   // 导入新模块
   const streamState = window.ChatStreamState;
   const MessageSenderClass = window.MessageSender;
-  const NextTurnTriggerClass = window.NextTurnTrigger;
   
   let messageListElement = null;
   let lastMessageElement = null;
