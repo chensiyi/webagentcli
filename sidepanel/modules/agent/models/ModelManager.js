@@ -84,22 +84,71 @@
       this.capabilities = {};
       
       this.models.forEach(modelName => {
-        // 优先使用 CapabilityManager
-        if (this.capabilityManager) {
-          this.capabilities[modelName] = this.capabilityManager.getModelCapabilities(modelName);
+        const details = this.modelDetails[modelName];
+        
+        if (details) {
+          // 从 API 返回的详细信息中提取能力
+          this.capabilities[modelName] = this.extractCapabilitiesFromDetails(details);
         } else {
-          // 使用 ModelCapabilityDetector
-          const lower = modelName.toLowerCase();
-          
-          this.capabilities[modelName] = {
-            vision: window.ModelCapabilityDetector.checkVisionSupport(lower),
-            audio: window.ModelCapabilityDetector.checkAudioSupport(lower),
-            streaming: true,
-            tools: window.ModelCapabilityDetector.checkToolsSupport(lower),
-            contextWindow: window.ModelCapabilityDetector.estimateContextWindow(lower)
-          };
+          // 如果没有详细信息，使用回退机制（基于名称推断）
+          this.capabilities[modelName] = this.fallbackCapabilityDetection(modelName);
         }
       });
+    }
+    
+    /**
+     * 从模型详细信息中提取能力
+     */
+    extractCapabilitiesFromDetails(details) {
+      const inputModalities = details.input_modalities || [];
+      const outputModalities = details.output_modalities || [];
+      const supportedParams = details.supported_parameters || [];
+      
+      return {
+        // 多模态能力 - 直接从 architecture 获取
+        vision: inputModalities.includes('image'),
+        audio: inputModalities.includes('audio'),
+        video: inputModalities.includes('video'),
+        
+        // 流式支持 - 默认所有模型都支持
+        streaming: true,
+        
+        // 工具调用 - 检查 supported_parameters 是否包含 tools
+        tools: supportedParams.includes('tools') || supportedParams.includes('tool_choice'),
+        
+        // 上下文窗口 - 直接使用 API 返回的值
+        contextWindow: details.context_length || 8192,
+        
+        // 思考模式 - 检查是否支持 reasoning 参数
+        thinking: supportedParams.includes('reasoning') || supportedParams.includes('include_reasoning'),
+        
+        // 结构化输出
+        structured_output: supportedParams.includes('structured_outputs') || supportedParams.includes('response_format'),
+        
+        // 原始详细信息
+        _details: details
+      };
+    }
+    
+    /**
+     * 回退机制：基于名称推断能力（当没有详细信息时使用）
+     */
+    fallbackCapabilityDetection(modelName) {
+      const lower = modelName.toLowerCase();
+      
+      // 优先使用 CapabilityManager
+      if (this.capabilityManager) {
+        return this.capabilityManager.getModelCapabilities(modelName);
+      }
+      
+      // 使用 ModelCapabilityDetector 作为最后的回退
+      return {
+        vision: window.ModelCapabilityDetector.checkVisionSupport(lower),
+        audio: window.ModelCapabilityDetector.checkAudioSupport(lower),
+        streaming: true,
+        tools: window.ModelCapabilityDetector.checkToolsSupport(lower),
+        contextWindow: window.ModelCapabilityDetector.estimateContextWindow(lower)
+      };
     }
     
     /**
@@ -138,6 +187,31 @@
      */
     getCapability(modelName) {
       return this.capabilities[modelName] ?? null;
+    }
+    
+    /**
+     * 获取模型的完整配置信息（包括能力和详细信息）
+     */
+    getModelFullInfo(modelId) {
+      const details = this.modelDetails[modelId];
+      const capability = this.capabilities[modelId];
+      
+      if (!details && !capability) {
+        return null;
+      }
+      
+      return {
+        id: modelId,
+        name: details?.name || modelId,
+        capability: capability,
+        details: details,
+        // 便捷访问字段
+        context_length: details?.context_length,
+        pricing: details?.pricing,
+        input_modalities: details?.input_modalities || [],
+        output_modalities: details?.output_modalities || [],
+        supported_parameters: details?.supported_parameters || []
+      };
     }
     
     /**
