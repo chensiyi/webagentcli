@@ -41,16 +41,33 @@ window.Pages.settings = function(container) {
   }
   
   async function performLoad() {
+    if (isLoadingModels) return;
+    
     isLoadingModels = true;
-    render();
+    
+    // 只更新按钮文本，不重绘整个页面
+    const loadBtn = document.querySelector('.setting-group button');
+    if (loadBtn) {
+      loadBtn.textContent = '加载中...';
+      loadBtn.disabled = true;
+    }
     
     try {
       await modelManager.fetchModels(settings.apiKey, settings.apiEndpoint);
+      
+      // 加载成功后，只重绘一次
+      render();
     } catch (error) {
       window.Toast.error('加载失败: ' + error.message);
     } finally {
       isLoadingModels = false;
-      render();
+      
+      // 恢复按钮状态
+      const loadBtn = document.querySelector('.setting-group button');
+      if (loadBtn) {
+        loadBtn.textContent = '加载模型';
+        loadBtn.disabled = false;
+      }
     }
   }
   
