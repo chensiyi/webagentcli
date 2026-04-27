@@ -831,6 +831,20 @@ window.Pages.chat = function(container) {
    * 创建发送按钮
    */
   function createSendButton(input, session) {
+    const capabilities = inputController.getCapabilitySummary();
+    
+    // 如果支持流式，显示切换按钮
+    if (capabilities.streaming) {
+      return createStreamingSendButton(input, session);
+    } else {
+      return createBlockingSendButton(input, session);
+    }
+  }
+  
+  /**
+   * 创建流式发送按钮（支持中断）
+   */
+  function createStreamingSendButton(input, session) {
     const sendBtn = create('button', {
       className: 'btn btn-primary',
       text: '发送',
@@ -853,6 +867,32 @@ window.Pages.chat = function(container) {
       } else {
         input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
       }
+    });
+    
+    return sendBtn;
+  }
+  
+  /**
+   * 创建阻断式发送按钮（不支持流式）
+   */
+  function createBlockingSendButton(input, session) {
+    const sendBtn = create('button', {
+      className: 'btn btn-primary',
+      text: '发送',
+      id: 'send-button',
+      style: {
+        opacity: streamState.isStreaming ? 0.5 : 1,
+        cursor: streamState.isStreaming ? 'not-allowed' : 'pointer'
+      },
+      disabled: streamState.isStreaming
+    });
+    
+    sendBtn.addEventListener('click', () => {
+      if (streamState.isStreaming) {
+        window.Toast.warning('正在处理请求，请稍候...');
+        return;
+      }
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
     });
     
     return sendBtn;

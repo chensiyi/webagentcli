@@ -51,6 +51,13 @@ class InputController {
   }
 
   /**
+   * 检查是否支持流式输出
+   */
+  supportsStreaming() {
+    return this.currentModelCapabilities?.streaming || false;
+  }
+
+  /**
    * 获取当前模型ID
    */
   getCurrentModel() {
@@ -79,7 +86,8 @@ class InputController {
         image: false,
         audio: false,
         video: false,
-        tools: false
+        tools: false,
+        streaming: false
       };
     }
 
@@ -87,7 +95,8 @@ class InputController {
       image: this.supportsImage(),
       audio: this.supportsAudio(),
       video: this.supportsVideo(),
-      tools: this.supportsTools()
+      tools: this.supportsTools(),
+      streaming: this.supportsStreaming()
     };
   }
 }
