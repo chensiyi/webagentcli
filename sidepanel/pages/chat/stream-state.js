@@ -68,7 +68,12 @@ class ChatStreamState {
       if (currentSession) {
         const lastMsg = currentSession.messages[currentSession.messages.length - 1];
         if (lastMsg && lastMsg.role === 'assistant') {
-          const hasContent = lastMsg.content && lastMsg.content.trim();
+          // 检查是否有内容（支持字符串和数组）
+          const hasContent = lastMsg.content && (
+            typeof lastMsg.content === 'string' ? lastMsg.content.trim() : 
+            Array.isArray(lastMsg.content) ? lastMsg.content.length > 0 : 
+            false
+          );
           const hasReasoning = lastMsg.additional_kwargs?.reasoning_content;
           const hasToolCalls = lastMsg.tool_calls && lastMsg.tool_calls.length > 0;
 

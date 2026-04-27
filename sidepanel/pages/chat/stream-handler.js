@@ -125,7 +125,12 @@ class StreamMessageHandler {
     // 清理空消息
     const finalMsg = session.messages[session.messages.length - 1];
     if (finalMsg && finalMsg.role === 'assistant') {
-      const hasContent = finalMsg.content && finalMsg.content.trim();
+      // 检查是否有内容（支持字符串和数组）
+      const hasContent = finalMsg.content && (
+        typeof finalMsg.content === 'string' ? finalMsg.content.trim() : 
+        Array.isArray(finalMsg.content) ? finalMsg.content.length > 0 : 
+        false
+      );
       const hasReasoning = finalMsg.additional_kwargs?.reasoning_content;
       const hasToolCalls = finalMsg.tool_calls && finalMsg.tool_calls.length > 0;
 
@@ -190,7 +195,12 @@ class StreamMessageHandler {
     if (targetSession) {
       const lastMsg = targetSession.messages[targetSession.messages.length - 1];
       if (lastMsg && lastMsg.role === 'assistant') {
-        const hasContent = lastMsg.content && lastMsg.content.trim();
+        // 检查是否有内容（支持字符串和数组）
+        const hasContent = lastMsg.content && (
+          typeof lastMsg.content === 'string' ? lastMsg.content.trim() : 
+          Array.isArray(lastMsg.content) ? lastMsg.content.length > 0 : 
+          false
+        );
         const hasReasoning = lastMsg.additional_kwargs?.reasoning_content;
         const hasToolCalls = lastMsg.tool_calls && lastMsg.tool_calls.length > 0;
 
