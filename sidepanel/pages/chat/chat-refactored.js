@@ -208,14 +208,7 @@ window.Pages.chat = function(container) {
         }
       });
       
-      if (isLoading) {
-        listElement.appendChild(create('div', { 
-          className: 'message-bubble message-assistant loading-bubble',
-          style: { marginBottom: '12px' }
-        }, [
-          create('div', { text: '思考中...' })
-        ]));
-      }
+      // 不需要额外的加载指示器，空的assistant消息会显示加载状态
     }
     
     return listElement;
@@ -265,7 +258,30 @@ window.Pages.chat = function(container) {
     if (hasContent) {
       window.ChatRender.renderMessageContent(msg.content, bubble);
     } else if (msg.role === 'assistant') {
-      bubble.appendChild(create('div', { className: 'message-content' }));
+      // 显示加载动画
+      const loadingDiv = create('div', { 
+        className: 'message-content loading-content',
+        style: {
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '8px 0'
+        }
+      }, [
+        create('div', {
+          className: 'loading-dots',
+          style: {
+            display: 'flex',
+            gap: '4px'
+          }
+        }, [
+          create('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: 'var(--color-primary)', animation: 'loadingPulse 1.4s ease-in-out infinite' } }),
+          create('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: 'var(--color-primary)', animation: 'loadingPulse 1.4s ease-in-out 0.2s infinite' } }),
+          create('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: 'var(--color-primary)', animation: 'loadingPulse 1.4s ease-in-out 0.4s infinite' } })
+        ]),
+        create('span', { text: '思考中...', style: { color: 'var(--color-text-secondary)', fontSize: '13px' } })
+      ]);
+      bubble.appendChild(loadingDiv);
     }
     
     return bubble;

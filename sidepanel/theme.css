@@ -826,6 +826,12 @@ body {
   50% { opacity: 0.6; }
 }
 
+/* 加载中动画 */
+@keyframes loadingPulse {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
 /* ==================== 思考过程容器 ==================== */
 
 .thinking-container {
