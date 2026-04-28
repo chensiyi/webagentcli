@@ -17,6 +17,9 @@ window.Pages.chat = function(container) {
   // 创建多媒体管理器
   const mediaManager = new window.MediaManager();
   
+  // 创建消息渲染器实例
+  const messageRenderer = new window.ChatMessageRenderer();
+  
   // 导入新模块
   const streamState = window.ChatStreamState;
   const MessageSenderClass = window.MessageSender;
@@ -243,7 +246,7 @@ window.Pages.chat = function(container) {
       const toolResults = findToolResults(messages, index);
       msg.tool_calls.forEach((call, idx) => {
         const result = toolResults[idx];
-        const card = window.ChatRender.renderToolCallCard(call, idx, result, session.isLoading);
+        const card = messageRenderer.renderToolCallCard(call, idx, result, session.isLoading);
         bubble.appendChild(card);
       });
     }
@@ -256,7 +259,7 @@ window.Pages.chat = function(container) {
     );
     
     if (hasContent) {
-      window.ChatRender.renderMessageContent(msg.content, bubble);
+      messageRenderer.renderMessageContent(msg.content, bubble);
     } else if (msg.role === 'assistant') {
       // 显示加载动画
       const loadingDiv = create('div', { 
@@ -1051,8 +1054,8 @@ window.Pages.chat = function(container) {
         loadingContent.remove();
       }
       
-      // 增量更新内容（不清空，只更新HTML）
-      contentDiv.innerHTML = window.renderMarkdown(lastMsg.content || '');
+      // 使用渲染器增量更新内容
+      messageRenderer.renderMessageContent(lastMsg.content, lastBubble, true);
     }
     
     // 更新思考过程（增量更新）
