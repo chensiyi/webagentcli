@@ -106,8 +106,22 @@ window.Pages.history = function(container) {
     if (searchKeyword) {
       filteredConversations = sessions.filter(session => {
         const firstUserMsg = session.messages.find(m => m.role === 'user');
-        const title = firstUserMsg ? firstUserMsg.content.toLowerCase() : '';
-        return title.includes(searchKeyword);
+        if (!firstUserMsg) return false;
+        
+        // 安全地获取文本内容（处理多模态消息）
+        let content = '';
+        if (typeof firstUserMsg.content === 'string') {
+          content = firstUserMsg.content.toLowerCase();
+        } else if (Array.isArray(firstUserMsg.content)) {
+          // 多模态消息，提取所有文本部分
+          content = firstUserMsg.content
+            .filter(item => item.type === 'text')
+            .map(item => item.text || '')
+            .join(' ')
+            .toLowerCase();
+        }
+        
+        return content.includes(searchKeyword);
       });
     } else {
       filteredConversations = [...sessions];
@@ -146,7 +160,21 @@ window.Pages.history = function(container) {
         
         // 标题（第一条用户消息）
         const firstUserMsg = conv.messages.find(m => m.role === 'user');
-        const title = firstUserMsg ? firstUserMsg.content.substring(0, 30) + (firstUserMsg.content.length > 30 ? '...' : '') : '新对话';
+        let title = '新对话';
+        if (firstUserMsg) {
+          // 安全地获取文本内容（处理多模态消息）
+          let content = '';
+          if (typeof firstUserMsg.content === 'string') {
+            content = firstUserMsg.content;
+          } else if (Array.isArray(firstUserMsg.content)) {
+            // 多模态消息，提取所有文本部分
+            content = firstUserMsg.content
+              .filter(item => item.type === 'text')
+              .map(item => item.text || '')
+              .join(' ');
+          }
+          title = content.substring(0, 30) + (content.length > 30 ? '...' : '');
+        }
         
         // 时间
         const timeStr = window.TimeUtils.formatTimestamp(conv.updatedAt);
