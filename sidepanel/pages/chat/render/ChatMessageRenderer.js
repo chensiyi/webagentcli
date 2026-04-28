@@ -121,13 +121,7 @@ class ChatMessageRenderer {
     
     // 创建主卡片容器
     const card = create('div', {
-      style: {
-        padding: '8px 10px',
-        background: 'var(--color-surface)',
-        borderRadius: '6px',
-        marginBottom: '6px',
-        border: '1px solid var(--color-border)'
-      }
+      className: 'tool-call-card'
     });
     
     // 头部：编号 + 工具名称 + 状态
@@ -170,41 +164,19 @@ class ChatMessageRenderer {
     const { create } = window.DOM;
     
     const header = create('div', {
-      style: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '6px',
-        marginBottom: '6px'
-      }
+      className: 'tool-call-header'
     });
     
     // 编号徽章
     const badge = create('div', {
-      style: {
-        width: '22px',
-        height: '22px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'var(--color-primary)',
-        color: 'white',
-        borderRadius: '4px',
-        fontSize: '11px',
-        fontWeight: 'bold',
-        flexShrink: 0
-      },
+      className: 'tool-call-badge',
       text: String(index + 1)
     });
     header.appendChild(badge);
     
     // 工具名称
     const nameText = create('div', {
-      style: {
-        flex: 1,
-        fontSize: '12px',
-        fontWeight: '500',
-        color: 'var(--color-text)'
-      },
+      className: 'tool-call-name',
       text: toolIcon
     });
     header.appendChild(nameText);
@@ -212,14 +184,7 @@ class ChatMessageRenderer {
     // 状态标记
     if (hasResult) {
       const statusBadge = create('div', {
-        style: {
-          padding: '2px 6px',
-          borderRadius: '8px',
-          fontSize: '10px',
-          fontWeight: '500',
-          background: isSuccess ? 'var(--color-success-light)' : 'var(--color-danger-light)',
-          color: isSuccess ? 'var(--color-success)' : 'var(--color-danger)'
-        },
+        className: `tool-call-status ${isSuccess ? 'success' : 'error'}`,
         text: isSuccess ? '成功' : '失败'
       });
       header.appendChild(statusBadge);
@@ -238,29 +203,11 @@ class ChatMessageRenderer {
     const { create } = window.DOM;
     
     const loadingBadge = create('div', {
-      style: {
-        padding: '2px 6px',
-        borderRadius: '8px',
-        fontSize: '10px',
-        fontWeight: '500',
-        background: 'var(--color-primary-light)',
-        color: 'var(--color-primary)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '4px'
-      }
+      className: 'tool-call-status loading'
     });
     
     const spinner = create('span', {
-      style: {
-        display: 'inline-block',
-        width: '10px',
-        height: '10px',
-        border: '2px solid #3b82f6',
-        borderTopColor: 'transparent',
-        borderRadius: '50%',
-        animation: 'spin 0.8s linear infinite'
-      }
+      className: 'tool-call-spinner'
     });
     
     loadingBadge.appendChild(spinner);
@@ -276,19 +223,7 @@ class ChatMessageRenderer {
     const { create } = window.DOM;
     
     return create('div', {
-      style: {
-        marginBottom: '6px',
-        padding: '6px 8px',
-        background: 'var(--color-bg)',
-        borderRadius: '4px',
-        fontSize: '10px',
-        fontFamily: 'Consolas, Monaco, monospace',
-        whiteSpace: 'pre-wrap',
-        wordBreak: 'break-all',
-        lineHeight: '1.5',
-        color: 'var(--color-text-secondary)',
-        border: '1px solid var(--color-border)'
-      },
+      className: 'tool-call-params',
       text: params
     });
   }
@@ -300,44 +235,21 @@ class ChatMessageRenderer {
     const { create } = window.DOM;
     
     const resultSection = create('details', {
-      style: { marginBottom: '0' }
+      className: 'tool-call-result'
     });
     resultSection.removeAttribute('open');
     
     const summary = create('summary', {
-      style: {
-        cursor: 'pointer',
-        fontSize: '11px',
-        fontWeight: '500',
-        color: isSuccess ? 'var(--color-success)' : 'var(--color-danger)',
-        padding: '4px 6px',
-        background: isSuccess ? 'var(--color-success-light)' : 'var(--color-danger-light)',
-        borderRadius: '4px',
-        transition: 'background 0.2s',
-        outline: 'none',
-        listStyle: 'none'
-      },
+      className: `tool-call-result summary ${isSuccess ? 'success' : 'error'}`,
       text: isSuccess ? ' 执行结果' : ' 错误信息'
     });
     
-    summary.onmouseenter = () => summary.style.background = isSuccess ? 'rgba(var(--color-success-rgb), 0.15)' : 'rgba(var(--color-danger-rgb), 0.15)';
-    summary.onmouseleave = () => summary.style.background = isSuccess ? 'var(--color-success-light)' : 'var(--color-danger-light)';
+    // 移除内联 hover 事件，改用 CSS
     
     resultSection.appendChild(summary);
     
     const resultContent = create('div', {
-      style: {
-        marginTop: '4px',
-        padding: '6px 8px',
-        background: 'var(--color-bg)',
-        borderRadius: '4px',
-        fontSize: '10px',
-        lineHeight: '1.5',
-        color: 'var(--color-text)',
-        border: '1px solid var(--color-border)',
-        maxHeight: '200px',
-        overflow: 'auto'
-      }
+      className: `tool-call-result-content ${!isSuccess ? 'error' : ''}`
     });
     
     if (isSuccess) {
@@ -404,63 +316,27 @@ class ChatMessageRenderer {
     const { create } = window.DOM;
     
     const resultItem = create('div', {
-      style: {
-        padding: '10px',
-        marginBottom: ridx < end - 1 ? '8px' : '0',
-        background: '#f9fafb',
-        borderRadius: '6px',
-        border: '1px solid #e5e7eb',
-        transition: 'all 0.2s ease',
-        cursor: 'pointer'
-      }
+      className: 'search-result-item'
     });
     
-    resultItem.onmouseenter = () => {
-      resultItem.style.background = '#f3f4f6';
-      resultItem.style.borderColor = '#3b82f6';
-    };
-    resultItem.onmouseleave = () => {
-      resultItem.style.background = '#f9fafb';
-      resultItem.style.borderColor = '#e5e7eb';
-    };
+    // CSS hover 效果已自动应用
     
     if (item.url) {
       resultItem.onclick = () => window.open(item.url, '_blank');
     }
     
     const rankBadge = create('span', {
-      style: {
-        display: 'inline-block',
-        width: '20px',
-        height: '20px',
-        lineHeight: '20px',
-        textAlign: 'center',
-        background: '#3b82f6',
-        color: 'white',
-        borderRadius: '50%',
-        fontSize: '11px',
-        fontWeight: 'bold',
-        marginRight: '8px',
-        flexShrink: 0
-      },
+      className: 'search-result-rank',
       text: String(item.rank || (ridx + 1))
     });
     
     const titleText = create('span', {
-      style: {
-        fontSize: '13px',
-        fontWeight: '600',
-        color: '#1f2937'
-      },
+      className: 'search-result-title',
       text: item.title
     });
     
     const titleRow = create('div', {
-      style: {
-        display: 'flex',
-        alignItems: 'flex-start',
-        marginBottom: '4px'
-      }
+      className: 'search-result-title-row'
     });
     titleRow.appendChild(rankBadge);
     titleRow.appendChild(titleText);
@@ -468,12 +344,7 @@ class ChatMessageRenderer {
     
     if (item.snippet) {
       const snippet = create('div', {
-        style: {
-          fontSize: '11px',
-          color: '#6b7280',
-          lineHeight: '1.5',
-          marginLeft: '28px'
-        },
+        className: 'search-result-snippet',
         text: item.snippet
       });
       resultItem.appendChild(snippet);
@@ -489,58 +360,36 @@ class ChatMessageRenderer {
     const { create } = window.DOM;
     
     const paginationDiv = create('div', {
-      style: {
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        gap: '8px',
-        marginTop: '12px',
-        paddingTop: '12px',
-        borderTop: '1px solid #e5e7eb'
-      }
+      className: 'pagination-controls'
     });
     
     const prevBtn = create('button', {
-      style: {
-        padding: '6px 12px',
-        fontSize: '12px',
-        border: '1px solid #d1d5db',
-        borderRadius: '6px',
-        background: 'white',
-        cursor: currentPage > 0 ? 'pointer' : 'not-allowed',
-        opacity: currentPage > 0 ? '1' : '0.5',
-        color: '#374151'
-      },
+      className: 'pagination-btn',
       text: '上一页'
     });
     
+    // 动态更新按钮状态
+    if (currentPage === 0) {
+      prevBtn.disabled = true;
+    }
+    
     const pageInfo = create('span', {
-      style: {
-        fontSize: '12px',
-        color: '#6b7280'
-      },
+      className: 'pagination-info',
       text: `第 ${currentPage + 1}/${totalPages} 页`
     });
     
     const nextBtn = create('button', {
-      style: {
-        padding: '6px 12px',
-        fontSize: '12px',
-        border: '1px solid #d1d5db',
-        borderRadius: '6px',
-        background: 'white',
-        cursor: currentPage < totalPages - 1 ? 'pointer' : 'not-allowed',
-        opacity: currentPage < totalPages - 1 ? '1' : '0.5',
-        color: '#374151'
-      },
+      className: 'pagination-btn',
       text: '下一页'
     });
     
+    if (currentPage >= totalPages - 1) {
+      nextBtn.disabled = true;
+    }
+    
     const updateButtons = () => {
-      prevBtn.style.cursor = currentPage > 0 ? 'pointer' : 'not-allowed';
-      prevBtn.style.opacity = currentPage > 0 ? '1' : '0.5';
-      nextBtn.style.cursor = currentPage < totalPages - 1 ? 'pointer' : 'not-allowed';
-      nextBtn.style.opacity = currentPage < totalPages - 1 ? '1' : '0.5';
+      prevBtn.disabled = currentPage === 0;
+      nextBtn.disabled = currentPage >= totalPages - 1;
       pageInfo.textContent = `第 ${currentPage + 1}/${totalPages} 页`;
     };
     
