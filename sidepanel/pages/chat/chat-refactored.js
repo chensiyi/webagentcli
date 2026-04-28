@@ -20,6 +20,9 @@ window.Pages.chat = function(container) {
   // 创建消息渲染器实例
   const messageRenderer = new window.ChatMessageRenderer();
   
+  // 创建聊天渲染器实例
+  const chatRenderer = new window.ChatRenderer(create, messageRenderer);
+  
   // 导入新模块
   const streamState = window.ChatStreamState;
   const MessageSenderClass = window.MessageSender;
@@ -74,18 +77,18 @@ window.Pages.chat = function(container) {
     });
     
     // 添加动画样式
-    ensureAnimationStyles();
+    chatRenderer.ensureAnimationStyles();
     
     // 拖拽上传支持
     setupDragAndDrop(page);
     
     // 浮动按钮
     if (messages.length > 0) {
-      page.appendChild(createNewChatButton(session));
+      page.appendChild(chatRenderer.createNewChatButton(sessionManager));
     }
     
     // 消息列表
-    messageListElement = createMessageList(messages, session, isLoading);
+    messageListElement = chatRenderer.createMessageList(messages, session, isLoading, findToolResults);
     page.appendChild(messageListElement);
     
     // 后台生成状态提示条
