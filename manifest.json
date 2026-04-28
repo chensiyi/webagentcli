@@ -24,7 +24,7 @@
   ],
   
   "background": {
-    "service_worker": "sidepanel/background.js",
+    "service_worker": "sidepanel/background/background.js",
     "type": "module"
   },
   
