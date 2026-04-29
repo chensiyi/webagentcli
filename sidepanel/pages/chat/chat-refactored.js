@@ -361,6 +361,26 @@ window.Pages.chat = async function(container) {
    */
   function findToolResults(messages, assistantIndex) {
     const toolResults = [];
+    
+    // 优先从 tempToolResults 获取
+    const currentSession = window.SessionManager?.getCurrentSession();
+    if (currentSession?.tempToolResults) {
+      return currentSession.tempToolResults.map(result => ({
+        tool_call: {
+          id: result.tool_call_id,
+          function: {
+            name: result.name,
+            arguments: ''
+          }
+        },
+        tool_result: {
+          success: result.success !== false,
+          output: result.content
+        }
+      }));
+    }
+    
+    // 回退：从 messages 中查找（兼容旧数据）
     for (let i = assistantIndex + 1; i < messages.length; i++) {
       if (messages[i].role === 'tool') {
         const toolMsg = messages[i];
