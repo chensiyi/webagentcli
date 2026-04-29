@@ -118,6 +118,11 @@
   visibility: visible;
 }
 
+/* 确保tooltip在最上层 */
+.sidebar {
+  z-index: 100;
+}
+
 /* 模型选择浮窗 */
 .model-selector-popup {
   position: absolute;

@@ -62,12 +62,17 @@ window.Pages.history = function(container) {
     ]));
     
     // 内容容器
-    const content = create('div', { className: 'page-content p-0' });
+    const content = create('div', { className: 'page-content' });
+    
+    // 搜索框容器
+    const searchContainer = create('div', {
+      className: 'mb-12'
+    });
     
     // 搜索框
     const searchBox = create('input', {
-      className: 'input m-12',
-      style: { width: 'calc(100% - 24px)' },
+      className: 'input',
+      style: { width: '100%' },
       attrs: { type: 'text', placeholder: '搜索对话...' },
       onInput: (e) => {
         // 清除之前的定时器
@@ -82,7 +87,8 @@ window.Pages.history = function(container) {
         }, 1000);
       }
     });
-    content.appendChild(searchBox);
+    searchContainer.appendChild(searchBox);
+    content.appendChild(searchContainer);
     
     // 对话列表容器
     listContainer = create('div', { 
