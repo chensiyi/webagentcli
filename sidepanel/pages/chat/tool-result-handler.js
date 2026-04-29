@@ -129,6 +129,7 @@ class ToolResultHandler {
       return;
     }
 
+    console.log('[ToolResultHandler] Connecting to chat-stream port...');
     const port = chrome.runtime.connect({ name: 'chat-stream' });
     this.streamState.startStreaming(port, sessionId, this.sessionManager);
 
@@ -136,11 +137,14 @@ class ToolResultHandler {
     const handler = new window.StreamMessageHandler(this.sessionManager, this.streamState);
     
     port.onMessage.addListener(async (responseMsg) => {
+      console.log('[ToolResultHandler] Received message:', responseMsg.type);
       await handler.handleMessage(responseMsg, sessionId, port, {
         onChunk: (currentMsg, session) => {
+          console.log('[ToolResultHandler] onChunk triggered');
           if (renderCallback) renderCallback();
         },
         onComplete: async (finalMsg, session, isEmpty) => {
+          console.log('[ToolResultHandler] onComplete triggered, isEmpty:', isEmpty);
           if (isEmpty) {
             if (renderCallback) renderCallback();
             return;
@@ -154,6 +158,8 @@ class ToolResultHandler {
             const hasToolCalls = finalMsg.tool_calls && finalMsg.tool_calls.length > 0;
             const hasContent = finalMsg.content && finalMsg.content.trim();
             
+            console.log('[ToolResultHandler] Final msg - hasToolCalls:', hasToolCalls, 'hasContent:', hasContent);
+            
             // 有工具调用或内容时才处理
             if (hasToolCalls || hasContent) {
               const toolExecutor = new window.ToolExecutor(this.sessionManager, this.toolManager);
@@ -166,12 +172,14 @@ class ToolResultHandler {
                 }, 100);
               } else {
                 // 没有更多工具调用，渲染最终结果
+                console.log('[ToolResultHandler] No more tools, rendering final result');
                 if (renderCallback) renderCallback();
               }
             }
           }
         },
         onError: async (errorMessage, session) => {
+          console.error('[ToolResultHandler] onError:', errorMessage);
           if (renderCallback) renderCallback();
         }
       });
@@ -183,6 +191,7 @@ class ToolResultHandler {
       toolsDefinition = this.toolManager.getOpenAIToolsDefinition();
     }
 
+    console.log('[ToolResultHandler] Sending request with', chatMessages.length, 'messages');
     port.postMessage({
       messages: chatMessages,
       apiKey: settings.apiKey,
