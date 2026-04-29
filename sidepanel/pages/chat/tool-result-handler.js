@@ -150,15 +150,24 @@ class ToolResultHandler {
           if (renderCallback) renderCallback();
 
           // 如果还有工具调用，继续执行
-          if (finalMsg && finalMsg.role === 'assistant' && finalMsg.content && this.toolManager) {
-            const toolExecutor = new window.ToolExecutor(this.sessionManager, this.toolManager);
-            const hasTools = await toolExecutor.executeToolCalls(sessionId, finalMsg, renderCallback);
+          if (finalMsg && finalMsg.role === 'assistant' && this.toolManager) {
+            const hasToolCalls = finalMsg.tool_calls && finalMsg.tool_calls.length > 0;
+            const hasContent = finalMsg.content && finalMsg.content.trim();
+            
+            // 有工具调用或内容时才处理
+            if (hasToolCalls || hasContent) {
+              const toolExecutor = new window.ToolExecutor(this.sessionManager, this.toolManager);
+              const hasTools = await toolExecutor.executeToolCalls(sessionId, finalMsg, renderCallback);
 
-            if (hasTools && !this.streamState.shouldStop()) {
-              // 递归处理，但这是必要的（工具链可能很长）
-              setTimeout(async () => {
-                await this.handleToolResults(sessionId, renderCallback);
-              }, 100);
+              if (hasTools && !this.streamState.shouldStop()) {
+                // 递归处理，但这是必要的（工具链可能很长）
+                setTimeout(async () => {
+                  await this.handleToolResults(sessionId, renderCallback);
+                }, 100);
+              } else {
+                // 没有更多工具调用，渲染最终结果
+                if (renderCallback) renderCallback();
+              }
             }
           }
         },
