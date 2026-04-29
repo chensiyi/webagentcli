@@ -8,7 +8,7 @@
 .main-content {
   flex: 1;
   display: flex;
-  overflow: visible; /* 允许侧边栏tooltip显示 */
+  overflow: hidden; /* 防止内容溢出 */
 }
 
 .content-area {
@@ -65,7 +65,7 @@
   gap: 4px;
   overflow: visible; /* 允许tooltip显示在外面 */
   position: relative;
-  z-index: 100;
+  z-index: 1000; /* 提高z-index确保在内容之上 */
 }
 
 .sidebar-btn {
