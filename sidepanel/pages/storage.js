@@ -66,17 +66,11 @@ window.Pages.storage = function(container) {
 
     // 统计信息和操作按钮
     const statsCard = create('div', {
-      className: 'card',
-      style: {
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center'
-      }
+      className: 'card flex justify-between items-center'
     });
 
     const statsText = create('div', {
       className: 'text-sm text-secondary',
-      style: { lineHeight: '32px' },
       text: `共 ${filteredItems.length} 项` + (searchKeyword ? ` (搜索: "${searchKeyword}")` : '')
     });
 
@@ -181,18 +175,6 @@ window.Pages.storage = function(container) {
     
     const dialogContent = document.createElement('div');
     dialogContent.className = 'dialog-content';
-    dialogContent.style.cssText = `
-      background: var(--color-bg);
-      border-radius: 8px;
-      padding: 20px;
-      width: 90%;
-      max-width: 600px;
-      max-height: 85vh;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    `;
 
     // 标题
     const title = document.createElement('h3');
@@ -203,12 +185,8 @@ window.Pages.storage = function(container) {
     const valueEditor = document.createElement('textarea');
     valueEditor.className = 'textarea textarea-monospace';
     valueEditor.value = JSON.stringify(value, null, 2);
-    valueEditor.style.cssText = `
-      min-height: 200px;
-      max-height: 400px;
-      width: 100%;
-      resize: vertical;
-    `;
+    valueEditor.style.minHeight = '200px';
+    valueEditor.style.maxHeight = '400px';
 
     // 错误提示
     const errorText = document.createElement('div');
@@ -290,24 +268,13 @@ window.Pages.storage = function(container) {
 
     // 单行布局：Key | Size | 按钮
     const header = create('div', {
-      style: { 
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: '12px',
-        gap: '12px'
-      }
+      className: 'flex items-center justify-between gap-12 mb-12'
     });
 
     // 左侧：Key 和 Size
     const leftSection = create('div', {
-      style: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '12px',
-        flex: 1,
-        minWidth: 0
-      }
+      className: 'flex items-center gap-12 flex-1',
+      style: { minWidth: 0 }
     });
 
     const keyText = create('div', {
@@ -322,10 +289,7 @@ window.Pages.storage = function(container) {
 
     const sizeText = create('div', {
       className: 'text-xs text-secondary',
-      style: { 
-        whiteSpace: 'nowrap',
-        flexShrink: 0
-      },
+      style: { whiteSpace: 'nowrap' },
       text: formatSize(value)
     });
 
@@ -334,8 +298,7 @@ window.Pages.storage = function(container) {
 
     // 右侧：按钮组
     const buttonGroup = create('div', {
-      className: 'flex gap-8',
-      style: { flexShrink: 0 }
+      className: 'flex gap-8'
     });
 
     // 编辑按钮
@@ -367,11 +330,10 @@ window.Pages.storage = function(container) {
 
     // 值预览
     const valuePreview = create('pre', {
-      className: 'text-xs overflow-auto bg-surface rounded-sm',
+      className: 'text-xs overflow-auto bg-surface rounded-sm p-8',
       style: { 
         maxHeight: '100px',
         maxWidth: '100%',
-        padding: '8px',
         margin: 0,
         overflowX: 'auto'
       },
