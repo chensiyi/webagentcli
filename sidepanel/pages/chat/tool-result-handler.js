@@ -130,6 +130,11 @@ class ToolResultHandler {
     }
 
     console.log('[ToolResultHandler] Connecting to chat-stream port...');
+    
+    // 添加助手消息占位符（用于接收流式响应）
+    this.sessionManager.addMessage(sessionId, { role: 'assistant', content: '' });
+    console.log('[ToolResultHandler] Added assistant placeholder message');
+    
     const port = chrome.runtime.connect({ name: 'chat-stream' });
     this.streamState.startStreaming(port, sessionId, this.sessionManager);
 
