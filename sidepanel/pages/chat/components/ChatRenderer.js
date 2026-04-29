@@ -60,8 +60,8 @@ class ChatRenderer {
     } else {
       this.lastMessageElement = null;
       messages.forEach((msg, index) => {
-        // 跳过系统通知、tool消息、内部消息和错误消息
-        if (msg.isSystemNotice || msg.role === 'tool' || msg.isInternal || msg.isError) {
+        // 跳过系统通知、tool消息和内部消息
+        if (msg.isSystemNotice || msg.role === 'tool' || msg.isInternal) {
           return;
         }
         
