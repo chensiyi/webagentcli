@@ -181,7 +181,12 @@ window.Pages.storage = function(container) {
     });
 
     const dialogContent = create('div', {
-      className: 'dialog-content'
+      className: 'dialog-content',
+      style: {
+        maxWidth: '500px', // 减小最大宽度
+        maxHeight: '80vh', // 限制最大高度
+        overflow: 'hidden' // 防止内容溢出
+      }
     });
 
     // 标题
@@ -196,6 +201,7 @@ window.Pages.storage = function(container) {
       style: {
         minHeight: '200px',
         maxHeight: '400px',
+        width: '100%',
         resize: 'vertical'
       },
       text: JSON.stringify(value, null, 2)
