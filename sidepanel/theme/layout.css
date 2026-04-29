@@ -1,0 +1,140 @@
+/* ==================== 布局 ==================== */
+
+.app-container {
+  height: 100%;
+  display: flex;
+}
+
+.main-content {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.content-area {
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ==================== 侧边栏 ==================== */
+
+.sidebar {
+  width: auto;
+  min-width: 37px;
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 4px;
+  gap: 4px;
+}
+
+/* ==================== 侧边栏按钮 ==================== */
+
+.sidebar-btn {
+  width: 29px;
+  height: 29px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  transition: background 0.2s;
+  position: relative;
+}
+
+.sidebar-btn:hover {
+  background: var(--color-border);
+}
+
+.sidebar-btn.active {
+  background: var(--color-primary-light);
+}
+
+.sidebar-btn-icon {
+  font-size: 13px;
+}
+
+.sidebar-btn-label {
+  display: none;
+  font-size: 8px;
+  color: var(--color-text-secondary);
+}
+
+.sidebar-btn.active .sidebar-btn-label {
+  color: var(--color-primary);
+}
+
+/* 侧边栏按钮浮动提示 */
+.sidebar-btn[data-tooltip] {
+  position: relative;
+}
+
+.sidebar-btn[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  transform: translateY(-50%) translateX(-8px);
+  padding: 6px 10px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--color-border);
+  z-index: 10000;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+}
+
+.sidebar-btn[data-tooltip]:hover::after {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* ==================== 页面布局 ==================== */
+
+.page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+}
+
+.page-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 56px;
+}
+
+.page-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.page-content {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+}
+
+.page-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--color-border);
+  overflow: visible;
+  position: relative;
+}

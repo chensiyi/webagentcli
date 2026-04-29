@@ -1,0 +1,125 @@
+/* ==================== 设置项 ==================== */
+
+.setting-group {
+  margin-bottom: 20px;
+}
+
+.setting-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+/* ==================== 设置页面 ==================== */
+
+.setting-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.setting-row-flex-1 {
+  flex: 1;
+}
+
+.setting-textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.setting-label-inline {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.setting-checkbox {
+  margin-right: 8px;
+}
+
+.setting-radio-label {
+  margin-right: 16px;
+  cursor: pointer;
+}
+
+.setting-radio {
+  margin-right: 4px;
+}
+
+.setting-hint {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-top: 4px;
+}
+
+.setting-full-width {
+  width: 100%;
+}
+
+/* 工具菜单 */
+.input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  background: var(--color-bg);
+  padding: 8px 0;
+}
+
+.tools-wrapper {
+  position: relative;
+  display: inline-block;
+  overflow: visible;
+}
+
+.tools-trigger-btn {
+  padding: 8px 12px;
+  font-size: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tools-trigger-btn:hover {
+  border-color: var(--color-primary);
+  background: var(--color-surface);
+}
+
+.tools-menu {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 8px;
+  padding: 8px;
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(10px);
+  transition: all 0.2s;
+  z-index: 9999;
+  min-width: 160px;
+  overflow: visible;
+}
+
+.tool-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.tool-item:hover {
+  background: var(--color-surface);
+}

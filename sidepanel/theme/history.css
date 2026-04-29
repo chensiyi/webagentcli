@@ -1,0 +1,47 @@
+/* ==================== 历史对话项 ==================== */
+
+.history-item {
+  padding: 12px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  position: relative;
+  transition: all 0.2s;
+}
+
+.history-item:hover {
+  border-color: var(--color-primary);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.history-item-active {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary);
+}
+
+.history-item-content {
+  padding-right: 40px;
+}
+
+.history-item-title {
+  font-weight: 500;
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+
+.history-item-meta {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.history-item-delete {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  font-size: 18px;
+  padding: 4px 8px;
+  color: var(--color-error);
+}
