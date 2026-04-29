@@ -341,9 +341,14 @@
      */
     getSessionEnabledTools() {
       const session = this.getCurrentSession();
-      if (!session) return {};
+      if (!session) {
+        console.log('[SessionManager] No current session, returning empty tools');
+        return {};
+      }
       
-      return session.enabledTools || {};
+      const tools = session.enabledTools || {};
+      console.log('[SessionManager] Current session enabled tools:', session.id, tools);
+      return tools;
     }
   }
   

@@ -40,14 +40,17 @@
       let sessionEnabledTools = {};
       if (window.SessionManager && window.SessionManager.getSessionEnabledTools) {
         sessionEnabledTools = window.SessionManager.getSessionEnabledTools();
+        console.log('[ToolManager] Current session enabled tools:', sessionEnabledTools);
       }
       
       const tools = [];
       this.tools.forEach((tool, id) => {
+        const enabled = !!sessionEnabledTools[id];
         tools.push({
           ...tool,
-          enabled: !!sessionEnabledTools[id] // 动态计算启用状态
+          enabled: enabled // 动态计算启用状态
         });
+        console.log(`[ToolManager] Tool ${id}: enabled=${enabled}`);
       });
       return tools;
     }
