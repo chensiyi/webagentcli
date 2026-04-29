@@ -586,6 +586,7 @@ body {
   justify-content: center;
   gap: 1px;
   transition: background 0.2s;
+  position: relative;
 }
 
 .sidebar-btn:hover {
@@ -606,11 +607,11 @@ body {
   color: var(--color-text-secondary);
 }
 
-/* 鼠标悬停时显示浮动提示 */
-.sidebar-btn {
-  position: relative;
+.sidebar-btn.active .sidebar-btn-label {
+  color: var(--color-primary);
 }
 
+/* 鼠标悬停时显示浮动提示 */
 .sidebar-btn:hover::after {
   content: attr(data-tooltip);
   position: absolute;
@@ -627,10 +628,6 @@ body {
   box-shadow: 0 2px 8px rgba(0,0,0,0.15);
   z-index: 1000;
   pointer-events: none;
-}
-
-.sidebar-btn.active .sidebar-btn-label {
-  color: var(--color-primary);
 }
 
 /* ==================== 消息气泡 ==================== */
