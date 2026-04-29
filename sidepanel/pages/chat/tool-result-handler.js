@@ -173,13 +173,17 @@ class ToolResultHandler {
                   // 流式更新时的增量渲染
                   if (renderCallback) renderCallback();
                 },
-                fullRenderCallback || renderCallback  // 优先使用全量渲染回调
+                typeof fullRenderCallback === 'function' ? fullRenderCallback : renderCallback
               );
 
               if (hasTools && !this.streamState.shouldStop()) {
                 // 递归处理，但这是必要的（工具链可能很长）
                 setTimeout(async () => {
-                  await this.handleToolResults(sessionId, renderCallback, fullRenderCallback);
+                  await this.handleToolResults(
+                    sessionId, 
+                    renderCallback, 
+                    typeof fullRenderCallback === 'function' ? fullRenderCallback : undefined
+                  );
                 }, 100);
               } else {
                 // 没有更多工具调用，渲染最终结果

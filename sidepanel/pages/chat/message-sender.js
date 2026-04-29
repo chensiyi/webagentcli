@@ -207,7 +207,7 @@ class MessageSender {
               // 流式更新时的增量渲染
               this.renderIfNeeded(sessionId, renderCallback);
             },
-            fullRenderCallback || renderCallback  // 优先使用全量渲染回调
+            typeof fullRenderCallback === 'function' ? fullRenderCallback : renderCallback
           );
 
           if (hasTools) {
@@ -221,7 +221,11 @@ class MessageSender {
             
             // 延迟执行，确保渲染完成
             setTimeout(async () => {
-              await toolResultHandler.handleToolResults(sessionId, renderCallback, fullRenderCallback);
+              await toolResultHandler.handleToolResults(
+                sessionId, 
+                renderCallback, 
+                typeof fullRenderCallback === 'function' ? fullRenderCallback : undefined
+              );
             }, 100);
           }
         },
