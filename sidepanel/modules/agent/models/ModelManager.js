@@ -9,7 +9,8 @@
       this.modelDetails = {}; // { modelId: { id, name, context_length, pricing, ... } }
       this.capabilities = {}; // { modelName: { vision, streaming, ... } }
       this.lastFetchTime = null;
-      this.cacheDuration = 5 * 60 * 1000; // 缓存5分钟
+      this.cacheDuration = 24 * 60 * 60 * 1000; // 缓存24小时
+      this.storageKey = 'model_cache';
       
       // 使用全局的 CapabilityManager（如果存在）
       this.capabilityManager = window.MessageTypes?.CapabilityManager || null;
@@ -19,6 +20,19 @@
      * 从 API 获取模型列表
      */
     async fetchModels(apiKey, apiEndpoint) {
+      // 优先从本地存储加载缓存
+      const cached = this.loadFromStorage(apiEndpoint);
+      if (cached && !this.isCacheExpired()) {
+        console.log('[ModelManager] Using cached models from storage:', cached.models.length, 'models');
+        this.restoreFromCache(cached);
+        return this.models;
+      }
+      
+      console.log('[ModelManager] Cache expired or not found, fetching from API');
+      
+      // 记录当前 API 端点
+      this.currentApiEndpoint = apiEndpoint;
+      
       try {
         // 构建 models API URL
         let modelsEndpoint = apiEndpoint.replace('/chat/completions', '').replace(/\/$/, '') + '/models';
@@ -68,6 +82,9 @@
         
         // 自动检测模型能力
         this.detectCapabilities();
+        
+        // 保存到本地存储
+        this.saveToStorage();
         
         console.log('[ModelManager] Fetched', this.models.length, 'models from', apiEndpoint);
         return this.models;
@@ -250,6 +267,65 @@
       this.modelDetails = {};
       this.capabilities = {};
       this.lastFetchTime = null;
+      
+      // 清除本地存储
+      chrome.storage.local.remove([this.storageKey]);
+      console.log('[ModelManager] Cache cleared');
+    }
+    
+    /**
+     * 保存到本地存储
+     */
+    saveToStorage() {
+      const cacheData = {
+        apiEndpoint: this.currentApiEndpoint || '',
+        models: this.models,
+        modelDetails: this.modelDetails,
+        capabilities: this.capabilities,
+        lastFetchTime: this.lastFetchTime,
+        timestamp: Date.now()
+      };
+      
+      chrome.storage.local.set({ [this.storageKey]: cacheData }, () => {
+        console.log('[ModelManager] Saved to storage:', this.models.length, 'models');
+      });
+    }
+    
+    /**
+     * 从本地存储加载
+     */
+    loadFromStorage(apiEndpoint) {
+      return new Promise((resolve) => {
+        chrome.storage.local.get([this.storageKey], (result) => {
+          const cache = result[this.storageKey];
+          if (!cache) {
+            resolve(null);
+            return;
+          }
+          
+          // 检查 API 端点是否匹配
+          if (cache.apiEndpoint !== apiEndpoint) {
+            console.log('[ModelManager] API endpoint changed, ignoring cache');
+            resolve(null);
+            return;
+          }
+          
+          resolve(cache);
+        });
+      });
+    }
+    
+    /**
+     * 从缓存恢复数据
+     */
+    restoreFromCache(cached) {
+      this.models = cached.models || [];
+      this.modelDetails = cached.modelDetails || {};
+      this.capabilities = cached.capabilities || {};
+      this.lastFetchTime = cached.lastFetchTime;
+      this.currentApiEndpoint = cached.apiEndpoint;
+      
+      console.log('[ModelManager] Restored from cache:', this.models.length, 'models');
     }
     
     /**
