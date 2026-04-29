@@ -31,9 +31,15 @@ class SettingsStorage {
         }
         
         // 通知 InputController 重新初始化（如果存在）
+        // 注意：这里需要异步处理，因为 updateModelCapabilities 是同步的，但可能需要等待 ModelManager 完全初始化
         if (window.InputControllerInstance && settings.model) {
-          window.InputControllerInstance.updateModelCapabilities(settings.model);
-          console.log('[SettingsStorage] InputController capabilities updated');
+          // 使用 setTimeout 确保在下一个事件循环中执行，给 ModelManager 足够的恢复时间
+          setTimeout(() => {
+            if (window.InputControllerInstance) {
+              window.InputControllerInstance.updateModelCapabilities(settings.model);
+              console.log('[SettingsStorage] InputController capabilities updated:', window.InputControllerInstance.getCapabilitySummary());
+            }
+          }, 0);
         }
         
         resolve({ ...this.defaultSettings, ...settings });

@@ -258,6 +258,8 @@
     restoreModelDetails(details) {
       if (!details || !details.id) return;
       
+      console.log('[ModelManager] Restoring model details:', details.id, details);
+      
       // 添加到modelDetails
       this.modelDetails[details.id] = details;
       
@@ -266,10 +268,10 @@
         this.models.push(details.id);
       }
       
-      // 重新检测能力
-      this.detectCapabilities(details.id);
+      // 只检测当前模型的能力，不要遍历所有模型
+      this.capabilities[details.id] = this.extractCapabilitiesFromDetails(details);
       
-      console.log('[ModelManager] Restored model details:', details.id);
+      console.log('[ModelManager] Restored model details:', details.id, 'capabilities:', this.capabilities[details.id]);
     }
     
     /**

@@ -3,13 +3,28 @@
 
 window.Pages = window.Pages || {};
 
-window.Pages.chat = function(container) {
+window.Pages.chat = async function(container) {
   const { create, clear } = window.DOM;
   const sessionManager = window.SessionManager;
   const chatContext = window.ChatContext;
   const mediaUtils = window.MediaUtils;
   const modelManager = window.ModelManager;
   const toolManager = window.ToolManager;
+  
+  // 在创建 InputController 之前，先恢复保存的模型详细信息
+  // 这样可以确保 ModelManager 有能力信息
+  try {
+    const result = await new Promise((resolve) => {
+      chrome.storage.local.get(['modelDetails'], resolve);
+    });
+    
+    if (result.modelDetails && modelManager) {
+      modelManager.restoreModelDetails(result.modelDetails);
+      console.log('[Chat] Restored model details before InputController initialization');
+    }
+  } catch (error) {
+    console.warn('[Chat] Failed to restore model details:', error);
+  }
   
   // 创建输入控制器
   const inputController = new window.InputController(modelManager);
