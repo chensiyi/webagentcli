@@ -50,6 +50,7 @@ class ToolExecutor {
     }
 
     // 清理 assistant 消息 content 中的工具调用代码块（如果存在）
+    // 兼容处理：某些模型可能仍会在 content 中输出代码块格式
     if (this.toolManager && this.toolManager.removeToolCallBlocks) {
       assistantMessage.content = this.toolManager.removeToolCallBlocks(assistantMessage.content);
     }

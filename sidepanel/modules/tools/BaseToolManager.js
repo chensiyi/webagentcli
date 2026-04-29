@@ -219,6 +219,8 @@ The system will execute the tool and return results in the next message.
 
     /**
      * 解析消息中的工具调用
+     * @deprecated 已废弃 - 现在使用 OpenAI 标准的 tool_calls 字段，不再从 content 中解析代码块
+     * @保留原因 - 兼容性保留，可能在旧数据迁移时使用
      */
     parseToolCalls(content) {
       const calls = [];
@@ -294,6 +296,8 @@ The system will execute the tool and return results in the next message.
 
     /**
      * 从消息内容中移除工具调用代码块
+     * @deprecated 已废弃 - OpenAI 标准中 tool_calls 在独立字段，content 不应包含工具调用
+     * @保留原因 - 兼容性保留，用于清理旧格式消息或模型仍输出代码块的情况
      */
     removeToolCallBlocks(content) {
       if (!content) return '';
