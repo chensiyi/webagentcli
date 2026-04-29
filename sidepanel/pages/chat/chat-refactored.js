@@ -1098,17 +1098,20 @@ window.Pages.chat = async function(container) {
       Array.isArray(lastMsg.content) ? lastMsg.content.length > 0 : 
       false
     );
+    const hasToolCalls = lastMsg.tool_calls && lastMsg.tool_calls.length > 0;
     
-    // 如果有内容，移除加载动画并渲染实际内容
-    if (hasContent) {
+    // 如果有内容或有工具调用，移除加载动画
+    if (hasContent || hasToolCalls) {
       // 移除加载动画
       const loadingContent = lastBubble.querySelector('.loading-content');
       if (loadingContent) {
         loadingContent.remove();
       }
       
-      // 使用渲染器增量更新内容
-      messageRenderer.renderMessageContent(lastMsg.content, lastBubble, true);
+      // 使用渲染器增量更新内容（如果有）
+      if (hasContent) {
+        messageRenderer.renderMessageContent(lastMsg.content, lastBubble, true);
+      }
     }
     
     // 处理工具调用卡片
