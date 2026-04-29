@@ -127,6 +127,9 @@ window.Pages.chat = async function(container) {
     scrollToBottom();
   }
   
+  // 暴露 render 函数到全局，供 tool-executor 调用
+  window.ChatRenderer = { render };
+  
   /**
    * 确保动画样式存在
    */

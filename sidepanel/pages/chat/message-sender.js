@@ -202,10 +202,16 @@ class MessageSender {
 
           // 执行工具调用
           const toolExecutor = new window.ToolExecutor(this.sessionManager, this.toolManager);
-          const hasTools = await toolExecutor.executeToolCalls(sessionId, finalMsg, () => {
-            // 每次工具执行后都重新渲染（更新 tool 结果卡片）
-            this.renderIfNeeded(sessionId, renderCallback);
-          });
+          const hasTools = await toolExecutor.executeToolCalls(sessionId, finalMsg, 
+            () => {
+              // 流式更新时的增量渲染
+              this.renderIfNeeded(sessionId, renderCallback);
+            },
+            () => {
+              // 工具执行后的全量渲染（创建 tool 消息气泡）
+              if (renderCallback) renderCallback();
+            }
+          );
 
           if (hasTools) {
             // 触发下一轮对话（使用ToolResultHandler）

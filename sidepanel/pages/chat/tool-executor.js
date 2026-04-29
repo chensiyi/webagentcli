@@ -10,7 +10,7 @@ class ToolExecutor {
   /**
    * 执行工具调用序列
    */
-  async executeToolCalls(sessionId, assistantMessage, renderCallback) {
+  async executeToolCalls(sessionId, assistantMessage, renderCallback, fullRenderCallback) {
     if (!this.toolManager) {
       return false;
     }
@@ -46,6 +46,21 @@ class ToolExecutor {
 
       if (this.toolManager.isToolEnabled(toolType)) {
         await this.executeSingleTool(sessionId, call, toolType);
+        
+        // 每个工具执行完成后触发全量渲染（因为需要创建新的 tool 消息气泡）
+        // 尝试使用 window.ChatRenderer.render()，如果不存在则使用回调
+        if (window.ChatRenderer && typeof window.ChatRenderer.render === 'function') {
+          try {
+            window.ChatRenderer.render();
+          } catch (e) {
+            console.warn('[ToolExecutor] ChatRenderer.render failed:', e);
+            if (fullRenderCallback) fullRenderCallback();
+          }
+        } else if (fullRenderCallback) {
+          fullRenderCallback();
+        } else if (renderCallback) {
+          renderCallback();
+        }
       }
     }
 

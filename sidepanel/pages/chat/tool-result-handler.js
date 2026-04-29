@@ -168,10 +168,16 @@ class ToolResultHandler {
             // 有工具调用或内容时才处理
             if (hasToolCalls || hasContent) {
               const toolExecutor = new window.ToolExecutor(this.sessionManager, this.toolManager);
-              const hasTools = await toolExecutor.executeToolCalls(sessionId, finalMsg, () => {
-                // 每次工具执行后都重新渲染
-                if (renderCallback) renderCallback();
-              });
+              const hasTools = await toolExecutor.executeToolCalls(sessionId, finalMsg,
+                () => {
+                  // 流式更新时的增量渲染
+                  if (renderCallback) renderCallback();
+                },
+                () => {
+                  // 工具执行后的全量渲染（创建 tool 消息气泡）
+                  if (renderCallback) renderCallback();
+                }
+              );
 
               if (hasTools && !this.streamState.shouldStop()) {
                 // 递归处理，但这是必要的（工具链可能很长）
