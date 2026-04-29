@@ -8,16 +8,36 @@ js实现一切软件的时代到了，用天量用户的热情，冲烂软件行
 ```
 ├── manifest.json                    # Chrome 扩展清单
 ├── sidepanel/                       # Side Panel UI + Background Service Worker
-│   ├── background.js                # Service Worker（核心运行时）
+│   ├── background/                  # 后台服务层（模块化）
+│   │   ├── background.js            # Service Worker 协调器 (191行)
+│   │   ├── stream-core.js           # 核心流式引擎 (248行)
+│   │   ├── message-transformer.js   # 消息转换逻辑 (138行)
+│   │   └── script-injector.js       # 脚本注入管理 (114行)
+│   │
 │   ├── sidepanel.html               # 主页面
 │   ├── app.js                       # 应用入口
+│   ├── theme.css                    # 主题样式（含所有组件样式）
 │   │
 │   ├── pages/                       # UI 页面组件
 │   │   ├── dom.js                   # DOM 工具库
-│   │   ├── chat/
+│   │   ├── chat/                    # 聊天页面（模块化）
+│   │   │   ├── components/          # UI 组件
+│   │   │   │   └── ChatRenderer.js  # 聊天渲染器组件
+│   │   │   ├── render/              # 消息渲染器（6个独立渲染器）
+│   │   │   │   ├── TextRenderer.js
+│   │   │   │   ├── ImageRenderer.js
+│   │   │   │   ├── AudioRenderer.js
+│   │   │   │   ├── VideoRenderer.js
+│   │   │   │   ├── FileRenderer.js
+│   │   │   │   └── ChatMessageRenderer.js
 │   │   │   ├── context.js           # 聊天上下文管理
-│   │   │   ├── render.js            # 消息渲染逻辑
-│   │   │   └── chat.js              # 聊天页面主逻辑
+│   │   │   ├── message-sender.js    # 消息发送器
+│   │   │   ├── stream-state.js      # 流式状态管理
+│   │   │   ├── stream-handler.js    # 流式处理器
+│   │   │   ├── tool-executor.js     # 工具执行器
+│   │   │   ├── tool-result-handler.js  # 工具结果处理器
+│   │   │   ├── render.js            # 渲染器兼容层
+│   │   │   └── chat-refactored.js   # 聊天页面主逻辑（协调器）
 │   │   ├── scripts.js               # 用户脚本页面
 │   │   ├── history.js               # 历史对话页面
 │   │   ├── settings.js              # 设置页面
@@ -26,25 +46,35 @@ js实现一切软件的时代到了，用天量用户的热情，冲烂软件行
 │   ├── modules/                     # 功能模块
 │   │   ├── agent/                   # Agent 核心
 │   │   │   ├── models/
-│   │   │   │   ├── ModelCapabilityDetector.js  # 模型能力检测
-│   │   │   │   └── ModelManager.js             # 模型管理器（含 API 调用）
+│   │   │   │   ├── ModelManager.js  # 模型管理器
+│   │   │   │   └── ModelSelector.js # 模型选择器 UI
+│   │   │   ├── multimodal/
+│   │   │   │   ├── ImageHandler.js  # 图片处理
+│   │   │   │   ├── AudioHandler.js  # 音频处理
+│   │   │   │   ├── VideoHandler.js  # 视频处理
+│   │   │   │   └── MediaManager.js  # 多媒体统一管理器
+│   │   │   ├── InputController.js   # 输入控制器
 │   │   │   ├── SessionManager.js    # 会话管理
 │   │   │   └── agent.js             # Agent 主逻辑
 │   │   │
 │   │   ├── tools/                   # 工具集
+│   │   │   ├── BaseToolManager.js   # 工具管理器基类
 │   │   │   ├── SearchTool.js        # 网络搜索（DuckDuckGo + 百度）
 │   │   │   ├── FetchTool.js         # 网页抓取（含内容提取）
 │   │   │   ├── CodeTool.js          # 代码执行
-│   │   │   └── BaseToolManager.js   # 工具管理器
+│   │   │   ├── TerminalManager.js   # 终端管理器（单例）
+│   │   │   └── TerminalTool.js      # 终端执行工具
 │   │   │
-│   │   └── scripts/                 # 用户脚本系统
-│   │       ├── UserScriptStorage.js     # 脚本存储
-│   │       ├── UserScriptMetadata.js    # 脚本元数据解析
-│   │       ├── UserScriptSandbox.js     # 沙盒执行环境
-│   │       └── UserScriptManager.js     # 脚本管理器
+│   │   ├── scripts/                 # 用户脚本系统
+│   │   │   ├── UserScriptStorage.js     # 脚本存储
+│   │   │   ├── UserScriptMetadata.js    # 脚本元数据解析
+│   │   │   ├── UserScriptSandbox.js     # 沙盒执行环境
+│   │   │   └── UserScriptManager.js     # 脚本管理器
+│   │   │
+│   │   └── storage/                 # 存储管理
+│   │       └── SettingsStorage.js   # 设置存储
 │   │
 │   └── utils/                       # 通用工具
-│       ├── dom.js                   # DOM 操作工具
 │       ├── markdown.js              # Markdown 渲染
 │       ├── media.js                 # 媒体处理
 │       ├── time.js                  # 时间工具
@@ -232,12 +262,17 @@ port.postMessage({ type: 'error', error: '...' });     // 错误
 │ Agent | Tools | UserScripts         │
 ├─────────────────────────────────────┤
 │       Utils (Utilities)             │  ← 通用工具
-│   dom | markdown | media | toast    │
+│   markdown | media | toast | ...    │
+├─────────────────────────────────────┤
+│     Background (Service Worker)     │  ← 后台服务层
+│ stream-core | message-transformer   │
 └─────────────────────────────────────┘
 ```
 
 **设计原则**：
 - **单向依赖**：Pages → Modules → Utils
+- **模块化背景服务**：background/ 拆分为 4 个模块，职责清晰
+- **渲染器模块化**：chat/render/ 包含 6 个独立渲染器
 - **职责分离**：每层只关注自己的职责
 - **可测试性**：各层独立，易于单元测试
 - **可扩展性**：新增功能只需在对应层添加模块
@@ -267,7 +302,7 @@ port.postMessage({ type: 'error', error: '...' });     // 错误
 
 ## 开发注意事项
 
-1. **ES Modules**：background.js 使用 `type: "module"`，支持 import/export
+1. **ES Modules**：background/ 目录使用 ES6 模块，支持 import/export
 2. **异步消息**：所有消息处理都是异步的，返回 Promise
 3. **持久化**：使用 chrome.storage.local 存储会话数据
 4. **隔离世界**：Content Script 运行在独立上下文，无法直接访问页面 JS
@@ -275,6 +310,8 @@ port.postMessage({ type: 'error', error: '...' });     // 错误
 6. **长连接**：使用 chrome.runtime.connect 维持与 background 的连接，避免超时
 7. **单一数据源**：SessionManager 是会话状态的唯一来源，UI 层不应维护副本
 8. **工具合并**：SearchTool、FetchTool 等包含完整实现，无需外部 API 模块
+9. **模块化背景服务**：background.js 已拆分为 4 个模块（协调器、流式引擎、消息转换、脚本注入）
+10. **渲染器模块化**：chat/render/ 包含 6 个独立渲染器，每个负责一种媒体类型
 
 ## 技术栈
 

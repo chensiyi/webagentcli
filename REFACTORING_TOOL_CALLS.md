@@ -1,5 +1,15 @@
 # 工具调用架构重构说明
 
+> **注意**：本文档描述的是早期的工具调用重构方案。当前版本（v0.3.3+）已经通过 background/ 模块化的流式处理实现了更完善的工具调用支持。
+> 
+> 当前的工具调用流程：
+> - `chat-refactored.js` → `MessageSender` → `background/stream-core.js`
+> - 背景页处理流式响应和工具调用
+> - 通过 `tool-executor.js` 执行工具
+> - 通过 `tool-result-handler.js` 处理结果
+>
+> 本文档中的核心思想（标准 tool 角色消息格式、级联删除等）仍然适用，但具体实现已迁移到模块化架构中。
+
 ## 📋 重构概述
 
 按照 OpenAI/Anthropic 业界最佳实践，将工具调用从自定义格式迁移到标准的 `tool` 角色消息格式。
