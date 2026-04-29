@@ -20,9 +20,16 @@ class SettingsStorage {
    */
   async loadSettings() {
     return new Promise((resolve) => {
-      chrome.storage.local.get(['settings', 'modelDetails'], (result) => {
+      chrome.storage.local.get(['settings', 'modelDetails', 'modelList'], (result) => {
         const settings = result.settings || {};
         const modelDetails = result.modelDetails || null;
+        const modelList = result.modelList || null;
+        
+        // 如果有保存的模型列表，恢复到ModelManager
+        if (modelList && window.ModelManager) {
+          window.ModelManager.restoreModelList(modelList);
+          console.log('[SettingsStorage] Model list restored:', modelList.length, 'models');
+        }
         
         // 如果有保存的模型详细信息，恢复到ModelManager
         if (modelDetails && window.ModelManager) {
@@ -52,24 +59,35 @@ class SettingsStorage {
    */
   async saveSettings(settings) {
     return new Promise((resolve) => {
-      // 同时保存模型详细信息（如果ModelManager已加载）
+      // 同时保存模型列表和详细信息（如果ModelManager已加载）
       const modelManager = window.ModelManager;
       let modelDetails = null;
+      let modelList = null;
       
-      if (modelManager && settings.model) {
-        const details = modelManager.getModelDetails(settings.model);
-        if (details) {
-          modelDetails = details;
+      if (modelManager && modelManager.isLoaded()) {
+        // 保存完整的模型列表
+        modelList = modelManager.getModels();
+        
+        // 保存当前模型的详细信息
+        if (settings.model) {
+          const details = modelManager.getModelDetails(settings.model);
+          if (details) {
+            modelDetails = details;
+          }
         }
       }
       
       const dataToSave = {
         settings,
-        modelDetails: modelDetails // 保存完整的模型信息
+        modelDetails: modelDetails, // 保存当前模型的完整信息
+        modelList: modelList // 保存完整的模型列表
       };
       
       chrome.storage.local.set(dataToSave, () => {
         console.log('[SettingsStorage] Settings saved:', settings);
+        if (modelList) {
+          console.log('[SettingsStorage] Model list saved:', modelList.length, 'models');
+        }
         if (modelDetails) {
           console.log('[SettingsStorage] Model details saved:', modelDetails.id);
         }

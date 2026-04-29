@@ -253,6 +253,20 @@
     }
     
     /**
+     * 恢复模型列表（从存储中加载）
+     */
+    restoreModelList(modelIds) {
+      if (!modelIds || !Array.isArray(modelIds)) return;
+      
+      console.log('[ModelManager] Restoring model list:', modelIds.length, 'models');
+      
+      // 恢复模型ID列表
+      this.models = [...modelIds];
+      
+      console.log('[ModelManager] Model list restored:', this.models.length, 'models');
+    }
+    
+    /**
      * 恢复模型详细信息（从存储中加载）
      */
     restoreModelDetails(details) {
