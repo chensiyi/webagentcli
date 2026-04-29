@@ -96,11 +96,24 @@ class ChatRenderer {
         position: 'absolute',
         bottom: '4px',
         right: '4px',
-        zIndex: 100
+        zIndex: 100,
+        opacity: 0,
+        pointerEvents: 'none',
+        transition: 'opacity 0.2s ease'
       }
     });
     wrapper.appendChild(deleteBtn);
     bubble.appendChild(wrapper);
+    
+    // 添加 hover 事件直接控制（备用方案）
+    bubble.addEventListener('mouseenter', () => {
+      wrapper.style.opacity = '1';
+      wrapper.style.pointerEvents = 'auto';
+    });
+    bubble.addEventListener('mouseleave', () => {
+      wrapper.style.opacity = '0';
+      wrapper.style.pointerEvents = 'none';
+    });
     
     // 思考过程（如果有）
     if (msg.additional_kwargs?.reasoning_content) {
