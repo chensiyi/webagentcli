@@ -56,7 +56,12 @@ window.Pages.settings = function(container) {
     }
     
     try {
-      await modelManager.fetchModels(settings.apiKey, settings.apiEndpoint);
+      // 从输入框获取当前的 base url，而不是 settings.apiEndpoint
+      const endpointInput = document.querySelector('input[placeholder*="端点"]');
+      const currentEndpoint = endpointInput ? endpointInput.value : settings.apiEndpoint;
+      
+      console.log('[Settings] Loading models from:', currentEndpoint);
+      await modelManager.fetchModels(settings.apiKey, currentEndpoint);
       
       // 加载成功后，验证当前配置的模型是否在列表中
       if (settings.model && modelManager.isLoaded()) {
@@ -78,8 +83,11 @@ window.Pages.settings = function(container) {
         searchInput.value = settings.model || '';
       }
       
-      // 加载成功后，只重绘一次
-      render();
+      // 只更新模型下拉列表和能力提示，不重绘整个页面
+      updateModelDropdown();
+      updateModelCapabilityHint();
+      
+      window.Toast.success(`成功加载 ${modelManager.getModels().length} 个模型`);
     } catch (error) {
       window.Toast.error('加载失败: ' + error.message);
     } finally {
