@@ -193,9 +193,13 @@ class MessageSender {
             return;
           }
 
+          // 先渲染 assistant 消息（包含 tool_calls 卡片）
+          this.renderIfNeeded(sessionId, renderCallback);
+
           // 执行工具调用
           const toolExecutor = new window.ToolExecutor(this.sessionManager, this.toolManager);
           const hasTools = await toolExecutor.executeToolCalls(sessionId, finalMsg, () => {
+            // 每次工具执行后都重新渲染（更新 tool 结果卡片）
             this.renderIfNeeded(sessionId, renderCallback);
           });
 
@@ -212,9 +216,6 @@ class MessageSender {
             setTimeout(async () => {
               await toolResultHandler.handleToolResults(sessionId, renderCallback);
             }, 100);
-          } else {
-            // 没有工具调用，需要渲染最终结果
-            this.renderIfNeeded(sessionId, renderCallback);
           }
         },
         onError: async (errorMessage, session) => {

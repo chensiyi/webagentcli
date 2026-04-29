@@ -150,8 +150,9 @@ class ToolResultHandler {
             return;
           }
 
-          await this.sessionManager.saveConversations();
+          // 先渲染 assistant 消息
           if (renderCallback) renderCallback();
+          await this.sessionManager.saveConversations();
 
           // 如果还有工具调用，继续执行
           if (finalMsg && finalMsg.role === 'assistant' && this.toolManager) {
@@ -163,7 +164,10 @@ class ToolResultHandler {
             // 有工具调用或内容时才处理
             if (hasToolCalls || hasContent) {
               const toolExecutor = new window.ToolExecutor(this.sessionManager, this.toolManager);
-              const hasTools = await toolExecutor.executeToolCalls(sessionId, finalMsg, renderCallback);
+              const hasTools = await toolExecutor.executeToolCalls(sessionId, finalMsg, () => {
+                // 每次工具执行后都重新渲染
+                if (renderCallback) renderCallback();
+              });
 
               if (hasTools && !this.streamState.shouldStop()) {
                 // 递归处理，但这是必要的（工具链可能很长）
@@ -175,7 +179,13 @@ class ToolResultHandler {
                 console.log('[ToolResultHandler] No more tools, rendering final result');
                 if (renderCallback) renderCallback();
               }
+            } else {
+              // 没有工具调用也没有内容，也要渲染
+              if (renderCallback) renderCallback();
             }
+          } else {
+            // 不是 assistant 消息，也要渲染
+            if (renderCallback) renderCallback();
           }
         },
         onError: async (errorMessage, session) => {
