@@ -218,6 +218,8 @@ async function processChunk(trimmed, port, isDisconnected, accumulatedToolCalls)
     
     // 处理 tool_calls 增量更新
     if (toolCallsDelta && Array.isArray(toolCallsDelta) && toolCallsDelta.length > 0) {
+      console.log('[Background] Received tool_calls delta:', JSON.stringify(toolCallsDelta));
+      
       for (const delta of toolCallsDelta) {
         const index = delta.index;
         
@@ -241,6 +243,7 @@ async function processChunk(trimmed, port, isDisconnected, accumulatedToolCalls)
       
       // 发送完整的 tool_calls 到前端
       if (!isDisconnected) {
+        console.log('[Background] Sending tool_call message:', JSON.stringify(Object.values(accumulatedToolCalls)));
         port.postMessage({ 
           type: 'tool_call', 
           tool_calls: Object.values(accumulatedToolCalls)
