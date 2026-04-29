@@ -571,6 +571,94 @@ body {
   color: var(--color-text);
 }
 
+/* ==================== 浮窗组件（Tooltip） ==================== */
+
+/* 基础浮窗样式 */
+.tooltip {
+  position: fixed;
+  padding: 8px 12px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: nowrap;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--color-border);
+  z-index: 10000;
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.95);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.tooltip.show {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* 浮窗位置变体 */
+.tooltip-top {
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(-8px);
+}
+
+.tooltip-bottom {
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%) translateY(8px);
+}
+
+.tooltip-left {
+  right: 100%;
+  top: 50%;
+  transform: translateY(-50%) translateX(-8px);
+}
+
+.tooltip-right {
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%) translateX(8px);
+}
+
+/* 浮窗箭头 */
+.tooltip::after {
+  content: '';
+  position: absolute;
+  width: 0;
+  height: 0;
+  border: 5px solid transparent;
+}
+
+.tooltip-top::after {
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border-top-color: var(--color-surface);
+}
+
+.tooltip-bottom::after {
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border-bottom-color: var(--color-surface);
+}
+
+.tooltip-left::after {
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  border-left-color: var(--color-surface);
+}
+
+.tooltip-right::after {
+  right: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  border-right-color: var(--color-surface);
+}
+
 /* ==================== 侧边栏按钮 ==================== */
 
 .sidebar-btn {
@@ -611,23 +699,36 @@ body {
   color: var(--color-primary);
 }
 
-/* 鼠标悬停时显示浮动提示 */
-.sidebar-btn:hover::after {
+/* 侧边栏按钮浮动提示（使用伪元素） */
+.sidebar-btn[data-tooltip] {
+  position: relative;
+}
+
+.sidebar-btn[data-tooltip]::after {
   content: attr(data-tooltip);
   position: absolute;
   right: 100%;
   top: 50%;
-  transform: translateY(-50%);
-  margin-right: 8px;
-  padding: 4px 8px;
+  transform: translateY(-50%) translateX(-8px);
+  padding: 6px 10px;
   background: var(--color-surface);
   color: var(--color-text);
   font-size: 12px;
+  font-weight: 500;
   white-space: nowrap;
-  border-radius: 4px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-  z-index: 1000;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--color-border);
+  z-index: 10000;
   pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+}
+
+.sidebar-btn[data-tooltip]:hover::after {
+  opacity: 1;
+  visibility: visible;
 }
 
 /* ==================== 消息气泡 ==================== */
