@@ -32,13 +32,13 @@ class ToolResultHandler {
       throw new Error('请先在设置中配置 API 端点');
     }
 
-    // 准备消息（包含工具执行结果）
+    // 添加助手消息占位（必须先添加，再准备消息）
+    this.sessionManager.addMessage(sessionId, { role: 'assistant', content: '' });
+
+    // 准备消息（包含工具执行结果和新的 assistant 占位）
     let chatMessages = this.prepareMessages(session, settings);
 
     console.log('[ToolResultHandler] Messages count:', chatMessages.length);
-
-    // 添加助手消息占位
-    this.sessionManager.addMessage(sessionId, { role: 'assistant', content: '' });
 
     // 发送流式请求
     await this.sendStreamRequest(sessionId, chatMessages, settings, renderCallback);
