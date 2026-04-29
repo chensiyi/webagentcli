@@ -90,27 +90,6 @@
     // 切换会话（不断开请求）
     switchSession(sessionId) {
       this.currentSessionId = sessionId;
-      
-      // 同步工具状态到 ToolManager
-      if (sessionId && window.ToolManager) {
-        const session = this.sessions[sessionId];
-        if (session && session.enabledTools) {
-          // 重置所有工具为关闭
-          window.ToolManager.tools.forEach((tool) => {
-            tool.enabled = false;
-          });
-          
-          // 启用当前会话的工具
-          Object.keys(session.enabledTools).forEach(toolId => {
-            if (window.ToolManager.tools.has(toolId)) {
-              window.ToolManager.tools.get(toolId).enabled = true;
-            }
-          });
-          
-          console.log('[SessionManager] Synced tool state for session:', sessionId);
-        }
-      }
-      
       // 不取消其他会话的请求，让它们自然完成
     }
     

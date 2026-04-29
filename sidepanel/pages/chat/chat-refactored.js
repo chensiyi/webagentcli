@@ -703,18 +703,16 @@ window.Pages.chat = function(container) {
       const wasEnabled = tool.enabled;
       const newEnabled = !tool.enabled;
           
-      // 更新 ToolManager 内部状态
-      toolManager.toggleTool(tool.id, newEnabled);
+      // 直接通过 ToolManager 更新会话状态
+      await toolManager.toggleTool(tool.id, newEnabled);
           
-      // 更新会话状态
-      if (window.SessionManager && window.SessionManager.toggleSessionTool) {
-        window.SessionManager.toggleSessionTool(tool.id, newEnabled);
-        await window.SessionManager.saveConversations();
-      }
+      // 重新获取工具状态（从会话中读取）
+      const enabledTools = toolManager.getEnabledTools();
+      const isNowEnabled = enabledTools.some(t => t.id === tool.id);
           
-      toggle.className = `toggle-switch ${newEnabled ? 'active' : ''}`;
-      toggle.style.background = newEnabled ? 'var(--color-primary)' : 'var(--color-border)';
-      knob.style.left = newEnabled ? '16px' : '2px';
+      toggle.className = `toggle-switch ${isNowEnabled ? 'active' : ''}`;
+      toggle.style.background = isNowEnabled ? 'var(--color-primary)' : 'var(--color-border)';
+      knob.style.left = isNowEnabled ? '16px' : '2px';
       window.Toast.success(`${tool.name}已${wasEnabled ? '关闭' : '开启'}`);
     };
     

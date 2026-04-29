@@ -36,17 +36,33 @@
      * 获取所有工具
      */
     getAllTools() {
-      return Array.from(this.tools.values());
+      // 从当前会话获取启用的工具列表
+      let sessionEnabledTools = {};
+      if (window.SessionManager && window.SessionManager.getSessionEnabledTools) {
+        sessionEnabledTools = window.SessionManager.getSessionEnabledTools();
+      }
+      
+      const tools = [];
+      this.tools.forEach((tool, id) => {
+        tools.push({
+          ...tool,
+          enabled: !!sessionEnabledTools[id] // 动态计算启用状态
+        });
+      });
+      return tools;
     }
 
     /**
      * 切换工具开关
      */
     toggleTool(id, enabled) {
-      const tool = this.tools.get(id);
-      if (tool) {
-        tool.enabled = enabled;
-        return true;
+      // 只更新会话状态，不维护内部状态
+      if (window.SessionManager && window.SessionManager.toggleSessionTool) {
+        const result = window.SessionManager.toggleSessionTool(id, enabled);
+        if (result) {
+          window.SessionManager.saveConversations();
+        }
+        return result;
       }
       return false;
     }
