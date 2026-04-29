@@ -91,19 +91,6 @@
   transition: all 0.2s ease;
 }
 
-/* 删除按钮 wrapper - 默认隐藏 */
-.delete-btn-wrapper {
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.2s ease;
-}
-
-/* 鼠标悬停消息气泡时显示删除按钮 */
-.message-bubble:hover .delete-btn-wrapper {
-  opacity: 1;
-  pointer-events: auto;
-}
-
 .btn-delete-message:hover {
   transform: scale(1.15);
   box-shadow: 0 3px 6px rgba(0,0,0,0.3);

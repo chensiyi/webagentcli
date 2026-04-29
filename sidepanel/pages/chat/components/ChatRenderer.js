@@ -177,7 +177,7 @@ class ChatRenderer {
         width: '24px',
         height: '24px',
         borderRadius: '50%',
-        background: 'red', // 临时改为红色测试
+        background: 'var(--color-danger)',
         color: 'white',
         border: 'none',
         cursor: 'pointer',
@@ -188,7 +188,7 @@ class ChatRenderer {
         alignItems: 'center',
         justifyContent: 'center',
         boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-        zIndex: 9999 // 提高到最大
+        zIndex: 10
       },
       onClick: async () => {
         const confirmed = await window.Toast.confirm({
