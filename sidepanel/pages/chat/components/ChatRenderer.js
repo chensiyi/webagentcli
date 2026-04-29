@@ -87,6 +87,12 @@ class ChatRenderer {
       style: { position: 'relative' }
     });
     
+    // 删除按钮
+    const deleteBtn = this.createDeleteButton(index, session);
+    bubble.onmouseenter = () => deleteBtn.style.display = 'flex';
+    bubble.onmouseleave = () => deleteBtn.style.display = 'none';
+    bubble.appendChild(deleteBtn);
+    
     // 思考过程（如果有）
     if (msg.additional_kwargs?.reasoning_content) {
       const renderer = new window.ThinkingMode.ThinkingRenderer();
@@ -147,6 +153,61 @@ class ChatRenderer {
    */
   getMessageListElement() {
     return this.messageListElement;
+  }
+  
+  /**
+   * 创建删除按钮
+   */
+  createDeleteButton(index, session) {
+    const { create } = this;
+    const sessionManager = window.SessionManager;
+    
+    return create('button', {
+      className: 'btn-delete-message',
+      text: '×',
+      style: {
+        position: 'absolute',
+        bottom: '4px',
+        right: '4px',
+        width: '24px',
+        height: '24px',
+        borderRadius: '50%',
+        background: 'var(--color-danger)',
+        color: 'white',
+        border: 'none',
+        cursor: 'pointer',
+        fontSize: '16px',
+        lineHeight: '1',
+        padding: '0',
+        display: 'none',
+        alignItems: 'center',
+        justifyContent: 'center',
+        boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+        zIndex: 10
+      },
+      onClick: async () => {
+        const confirmed = await window.Toast.confirm({
+          title: '删除消息',
+          message: '确定要删除这条消息吗？此操作不可恢复。'
+        });
+        
+        if (confirmed) {
+          const deleted = sessionManager.deleteMessageWithTools(session.id, index);
+          if (deleted) {
+            await sessionManager.saveConversations();
+            // 重新渲染
+            if (window.Pages && window.Pages.chat) {
+              // 触发重新渲染
+              const container = document.querySelector('.page');
+              if (container) {
+                window.Pages.chat(container);
+              }
+            }
+            window.Toast.success('消息已删除');
+          }
+        }
+      }
+    });
   }
 }
 
