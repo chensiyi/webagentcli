@@ -125,16 +125,49 @@
           const msg = session.messages[i];
           if (msg.role === 'tool' && msg.tool_call_id && toolCallIds.has(msg.tool_call_id)) {
             messagesToRemove.push(i);
+          } else if (msg.role !== 'tool') {
+            // 遇到非 tool 消息，停止查找
+            break;
           }
         }
       }
       // 情况2：删除的是 tool 消息
       else if (msgToDelete.role === 'tool') {
-        console.warn('[SessionManager] Deleting individual tool message. Consider deleting the parent assistant message instead.');
-        // 这里可以选择：
-        // 1. 只删除这个tool消息（当前行为）
-        // 2. 提示用户应该删除整个assistant+tools组合
-        // 目前选择方案1，因为用户可能确实只想删除某个tool结果
+        // 向上查找对应的 assistant 消息
+        let assistantIndex = -1;
+        for (let i = messageIndex - 1; i >= 0; i--) {
+          const msg = session.messages[i];
+          if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+            // 检查这个 assistant 是否有对应的 tool_call_id
+            const toolCallIds = msg.tool_calls.map(tc => tc.id);
+            if (toolCallIds.includes(msgToDelete.tool_call_id)) {
+              assistantIndex = i;
+              break;
+            }
+          }
+        }
+        
+        if (assistantIndex !== -1) {
+          // 找到对应的 assistant，删除整个工具调用组
+          const assistantMsg = session.messages[assistantIndex];
+          const toolCallIds = new Set(assistantMsg.tool_calls.map(tc => tc.id));
+          
+          // 添加 assistant 消息
+          messagesToRemove.push(assistantIndex);
+          
+          // 添加所有相关的 tool 消息
+          for (let i = assistantIndex + 1; i < session.messages.length; i++) {
+            const msg = session.messages[i];
+            if (msg.role === 'tool' && msg.tool_call_id && toolCallIds.has(msg.tool_call_id)) {
+              messagesToRemove.push(i);
+            } else if (msg.role !== 'tool') {
+              break;
+            }
+          }
+        } else {
+          // 没有找到对应的 assistant，只删除这个 tool 消息
+          console.warn('[SessionManager] Orphan tool message deleted without parent assistant');
+        }
       }
       
       // 从后往前删除（避免索引偏移）
