@@ -701,10 +701,20 @@ window.Pages.chat = function(container) {
     
     item.onclick = async () => {
       const wasEnabled = tool.enabled;
-      await toolManager.toggleTool(tool.id, !tool.enabled);
-      toggle.className = `toggle-switch ${tool.enabled ? 'active' : ''}`;
-      toggle.style.background = tool.enabled ? 'var(--color-primary)' : 'var(--color-border)';
-      knob.style.left = tool.enabled ? '16px' : '2px';
+      const newEnabled = !tool.enabled;
+          
+      // 更新 ToolManager 内部状态
+      toolManager.toggleTool(tool.id, newEnabled);
+          
+      // 更新会话状态
+      if (window.SessionManager && window.SessionManager.toggleSessionTool) {
+        window.SessionManager.toggleSessionTool(tool.id, newEnabled);
+        await window.SessionManager.saveConversations();
+      }
+          
+      toggle.className = `toggle-switch ${newEnabled ? 'active' : ''}`;
+      toggle.style.background = newEnabled ? 'var(--color-primary)' : 'var(--color-border)';
+      knob.style.left = newEnabled ? '16px' : '2px';
       window.Toast.success(`${tool.name}已${wasEnabled ? '关闭' : '开启'}`);
     };
     

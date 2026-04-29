@@ -10,100 +10,12 @@
   class ToolManager {
     constructor() {
       this.tools = new Map();
-      this.loadSettings();
       
       // 注册内置工具
       this.registerTool(window.SearchTool.config);
       this.registerTool(window.CodeTool.config);
       this.registerTool(window.FetchTool.config);
       this.registerTool(window.TerminalTool.config);
-    }
-
-    /**
-     * 从 storage 加载设置
-     */
-    async loadSettings() {
-      try {
-        const result = await chrome.storage.local.get(['builtinTools', 'builtinToolsTimestamp']);
-        
-        // 检查缓存是否过期（1小时）
-        const now = Date.now();
-        const oneHour = 60 * 60 * 1000;
-        const hasValidCache = result.builtinToolsTimestamp && 
-                              (now - result.builtinToolsTimestamp < oneHour);
-        
-        if (result.builtinTools && hasValidCache) {
-          // 缓存有效，应用设置
-          // 先重置所有工具为关闭
-          this.tools.forEach((tool) => {
-            tool.enabled = false;
-          });
-          
-          // 只启用缓存中记录的工具
-          Object.keys(result.builtinTools).forEach(id => {
-            if (this.tools.has(id)) {
-              this.tools.get(id).enabled = true;
-            }
-          });
-          
-          console.log('[ToolManager] Settings loaded from cache, enabled tools:', 
-                     Object.keys(result.builtinTools));
-        } else {
-          // 缓存过期或不存在，重置为默认值（所有关闭）
-          this.tools.forEach((tool) => {
-            tool.enabled = false;
-          });
-          console.log('[ToolManager] Cache expired or not found, reset to defaults (all disabled)');
-          
-          // 保存默认设置（空对象）
-          await this.saveSettings();
-        }
-      } catch (error) {
-        console.warn('[ToolManager] Failed to load settings:', error);
-      }
-    }
-
-    /**
-     * 保存设置到 storage
-     */
-    async saveSettings() {
-      try {
-        // 只保存启用的工具
-        const enabledTools = {};
-        this.tools.forEach((tool, id) => {
-          if (tool.enabled) {
-            enabledTools[id] = true;
-          }
-        });
-        
-        // 保存设置并更新时间戳（刷新缓存有效期）
-        await chrome.storage.local.set({ 
-          builtinTools: enabledTools,
-          builtinToolsTimestamp: Date.now()
-        });
-        
-        console.log('[ToolManager] Settings saved, enabled tools:', Object.keys(enabledTools));
-      } catch (error) {
-        console.warn('[ToolManager] Failed to save settings:', error);
-      }
-    }
-
-    /**
-     * 刷新缓存时间戳（在发送消息时调用）
-     */
-    async refreshCacheTimestamp() {
-      try {
-        const result = await chrome.storage.local.get(['builtinTools']);
-        if (result.builtinTools) {
-          // 只更新时间戳，不改变工具状态
-          await chrome.storage.local.set({ 
-            builtinToolsTimestamp: Date.now()
-          });
-          console.log('[ToolManager] Cache timestamp refreshed');
-        }
-      } catch (error) {
-        console.warn('[ToolManager] Failed to refresh cache timestamp:', error);
-      }
     }
 
     /**
@@ -130,11 +42,10 @@
     /**
      * 切换工具开关
      */
-    async toggleTool(id, enabled) {
+    toggleTool(id, enabled) {
       const tool = this.tools.get(id);
       if (tool) {
         tool.enabled = enabled;
-        await this.saveSettings();
         return true;
       }
       return false;
@@ -144,7 +55,13 @@
      * 检查工具是否启用
      */
     isToolEnabled(id) {
-      return this.tools.get(id)?.enabled ?? false;
+      // 从当前会话获取启用的工具列表
+      let sessionEnabledTools = {};
+      if (window.SessionManager && window.SessionManager.getSessionEnabledTools) {
+        sessionEnabledTools = window.SessionManager.getSessionEnabledTools();
+      }
+      
+      return sessionEnabledTools[id] ?? false;
     }
 
     /**
@@ -152,8 +69,15 @@
      */
     getEnabledTools() {
       const enabled = [];
+      
+      // 从当前会话获取启用的工具列表
+      let sessionEnabledTools = {};
+      if (window.SessionManager && window.SessionManager.getSessionEnabledTools) {
+        sessionEnabledTools = window.SessionManager.getSessionEnabledTools();
+      }
+      
       this.tools.forEach((tool, id) => {
-        if (tool.enabled) {
+        if (sessionEnabledTools[id]) {
           enabled.push({ id, ...tool });
         }
       });

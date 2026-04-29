@@ -46,11 +46,6 @@ class MessageSender {
     }
     console.log('[MessageSender] ====================');
 
-    // 刷新工具缓存时间戳
-    if (this.toolManager) {
-      await this.toolManager.refreshCacheTimestamp();
-    }
-
     // 添加用户消息
     this.sessionManager.addMessage(sessionId, userMessage);
     await this.sessionManager.saveConversations();

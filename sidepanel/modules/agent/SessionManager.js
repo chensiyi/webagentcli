@@ -16,6 +16,7 @@
         messages: [...initialMessages],
         isLoading: false,
         port: null,
+        enabledTools: {}, // 工具启用状态（跟随会话）
         createdAt: Date.now(),
         updatedAt: Date.now()
       };
@@ -89,6 +90,27 @@
     // 切换会话（不断开请求）
     switchSession(sessionId) {
       this.currentSessionId = sessionId;
+      
+      // 同步工具状态到 ToolManager
+      if (sessionId && window.ToolManager) {
+        const session = this.sessions[sessionId];
+        if (session && session.enabledTools) {
+          // 重置所有工具为关闭
+          window.ToolManager.tools.forEach((tool) => {
+            tool.enabled = false;
+          });
+          
+          // 启用当前会话的工具
+          Object.keys(session.enabledTools).forEach(toolId => {
+            if (window.ToolManager.tools.has(toolId)) {
+              window.ToolManager.tools.get(toolId).enabled = true;
+            }
+          });
+          
+          console.log('[SessionManager] Synced tool state for session:', sessionId);
+        }
+      }
+      
       // 不取消其他会话的请求，让它们自然完成
     }
     
@@ -233,6 +255,7 @@
             messages: [...conv.messages],
             isLoading: false,
             port: null,
+            enabledTools: conv.enabledTools || {}, // 加载工具启用状态
             createdAt: conv.createdAt,
             updatedAt: conv.updatedAt
           };
@@ -258,6 +281,7 @@
       const conversations = Object.values(this.sessions).map(session => ({
         id: session.id,
         messages: [...session.messages],
+        enabledTools: session.enabledTools || {}, // 保存工具启用状态
         createdAt: session.createdAt,
         updatedAt: session.updatedAt
       }));
@@ -315,6 +339,32 @@
       await this.saveConversations();
       
       return newSessionId;
+    }
+    
+    /**
+     * 切换当前会话的工具启用状态
+     */
+    toggleSessionTool(toolId, enabled) {
+      const session = this.getCurrentSession();
+      if (!session) return false;
+      
+      if (enabled) {
+        session.enabledTools[toolId] = true;
+      } else {
+        delete session.enabledTools[toolId];
+      }
+      
+      return true;
+    }
+    
+    /**
+     * 获取当前会话的启用工具列表
+     */
+    getSessionEnabledTools() {
+      const session = this.getCurrentSession();
+      if (!session) return {};
+      
+      return session.enabledTools || {};
     }
   }
   
