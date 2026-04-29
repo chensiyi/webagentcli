@@ -66,20 +66,6 @@ class ToolResultHandler {
   prepareMessages(session, settings) {
     let chatMessages = [...session.messages];
 
-    // 如果有临时工具结果，生成 tool 消息
-    if (session.tempToolResults && session.tempToolResults.length > 0) {
-      session.tempToolResults.forEach(toolResult => {
-        chatMessages.push({
-          role: 'tool',
-          tool_call_id: toolResult.tool_call_id,
-          name: toolResult.name,
-          content: toolResult.content
-        });
-      });
-      // 清除临时结果
-      session.tempToolResults = null;
-    }
-
     // 清理消息
     chatMessages = chatMessages.map(msg => {
       const cleanMsg = { role: msg.role };
@@ -166,16 +152,9 @@ class ToolResultHandler {
           // 如果还有工具调用，继续执行
           if (finalMsg && finalMsg.role === 'assistant' && finalMsg.content && this.toolManager) {
             const toolExecutor = new window.ToolExecutor(this.sessionManager, this.toolManager);
-            const result = await toolExecutor.executeToolCalls(sessionId, finalMsg, renderCallback);
+            const hasTools = await toolExecutor.executeToolCalls(sessionId, finalMsg, renderCallback);
 
-            if (result && result.executed && !this.streamState.shouldStop()) {
-              // 保存工具执行结果
-              const session = this.sessionManager.getSession(sessionId);
-              if (session) {
-                session.tempToolResults = result.toolResults;
-                await this.sessionManager.saveConversations();
-              }
-              
+            if (hasTools && !this.streamState.shouldStop()) {
               // 递归处理，但这是必要的（工具链可能很长）
               setTimeout(async () => {
                 await this.handleToolResults(sessionId, renderCallback);

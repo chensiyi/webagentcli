@@ -41,7 +41,6 @@ class ToolExecutor {
     }
 
     // 依次执行工具
-    const toolResults = [];
     for (const call of assistantMessage.tool_calls) {
       // 检查是否请求停止
       if (window.ChatStreamState?.shouldStop()) {
@@ -52,10 +51,7 @@ class ToolExecutor {
       const toolType = call.function.name;
 
       if (this.toolManager.isToolEnabled(toolType)) {
-        const result = await this.executeSingleTool(sessionId, call, toolType);
-        if (result) {
-          toolResults.push(result);
-        }
+        await this.executeSingleTool(sessionId, call, toolType);
       }
     }
 
@@ -68,10 +64,7 @@ class ToolExecutor {
       renderCallback();
     }
 
-    return {
-      executed: true,
-      toolResults: toolResults
-    }; // 有工具被执行
+    return true; // 有工具被执行
   }
 
   /**
@@ -92,23 +85,25 @@ class ToolExecutor {
         return;
       }
 
-      // 不持久化保存 tool 消息到 session
-      // 工具结果用于后续 API 请求时动态生成 tool 消息
-      console.log(`[ToolExecutor] Tool ${toolType} executed successfully`);
-      
-      // 返回结果供调用方使用
-      return {
-        success: true,
+      // 创建标准的 tool 消息并持久化
+      const toolMessage = {
+        role: 'tool',
         tool_call_id: call.id,
         name: toolType,
         content: result.output || JSON.stringify(result)
       };
+
+      // 添加到会话历史（持久化）
+      this.sessionManager.addMessage(sessionId, toolMessage);
+      await this.sessionManager.saveConversations();
+
+      console.log(`[ToolExecutor] Tool ${toolType} executed successfully`);
     } catch (error) {
       console.error(`[ToolExecutor] Tool execution error:`, error);
 
-      // 返回错误结果
-      return {
-        success: false,
+      // 错误也作为 tool 消息持久化保存
+      const errorMessage = {
+        role: 'tool',
         tool_call_id: call.id,
         name: toolType,
         content: JSON.stringify({ 
@@ -117,6 +112,9 @@ class ToolExecutor {
           type: toolType
         })
       };
+
+      this.sessionManager.addMessage(sessionId, errorMessage);
+      await this.sessionManager.saveConversations();
     }
   }
 }

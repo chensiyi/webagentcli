@@ -188,15 +188,11 @@ class MessageSender {
 
           // 执行工具调用
           const toolExecutor = new window.ToolExecutor(this.sessionManager, this.toolManager);
-          const result = await toolExecutor.executeToolCalls(sessionId, finalMsg, () => {
+          const hasTools = await toolExecutor.executeToolCalls(sessionId, finalMsg, () => {
             this.renderIfNeeded(sessionId, renderCallback);
           });
 
-          if (result && result.executed) {
-            // 保存工具执行结果到 session 的临时字段
-            session.tempToolResults = result.toolResults;
-            await this.sessionManager.saveConversations();
-            
+          if (hasTools) {
             // 触发下一轮对话（使用ToolResultHandler）
             const toolResultHandler = new window.ToolResultHandler(
               this.sessionManager,
