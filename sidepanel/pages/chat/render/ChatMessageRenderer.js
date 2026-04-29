@@ -268,10 +268,10 @@ class ChatMessageRenderer {
   renderSuccessResult(resultData, resultContent) {
     const result = resultData.tool_result;
     
-    // 尝试解析 content 为 JSON
+    // result.output 是 JSON 字符串，需要解析
     let parsedContent = null;
     try {
-      parsedContent = JSON.parse(result.output);
+      parsedContent = JSON.parse(result.output || result.content);
     } catch (e) {
       // 不是 JSON，直接显示文本
     }
@@ -284,7 +284,14 @@ class ChatMessageRenderer {
       this.renderPaginatedResults(result.results, resultContent);
     } else {
       // 其他工具，显示 output 或原始内容
-      resultContent.textContent = result.output || JSON.stringify(result, null, 2);
+      const displayContent = result.output || result.content || JSON.stringify(result, null, 2);
+      // 如果是字符串且包含 JSON，尝试美化显示
+      try {
+        const jsonContent = JSON.parse(displayContent);
+        resultContent.textContent = JSON.stringify(jsonContent, null, 2);
+      } catch (e) {
+        resultContent.textContent = displayContent;
+      }
     }
   }
   
