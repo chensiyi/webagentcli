@@ -109,11 +109,12 @@ class ChatRenderer {
       Array.isArray(msg.content) ? msg.content.length > 0 : 
       false
     );
+    const hasToolCalls = msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0;
     
     if (hasContent) {
       this.messageRenderer.renderMessageContent(msg.content, bubble);
-    } else if (msg.role === 'assistant') {
-      // 显示加载动画
+    } else if (msg.role === 'assistant' && !hasToolCalls) {
+      // 只有在没有内容且没有工具调用时才显示加载动画
       const loadingDiv = create('div', { 
         className: 'message-content loading-content',
         style: {
