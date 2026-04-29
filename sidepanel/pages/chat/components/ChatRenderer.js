@@ -60,8 +60,8 @@ class ChatRenderer {
     } else {
       this.lastMessageElement = null;
       messages.forEach((msg, index) => {
-        // 跳过系统通知、tool消息和内部消息
-        if (msg.isSystemNotice || msg.role === 'tool' || msg.isInternal) {
+        // 跳过系统通知、tool消息、内部消息和错误消息
+        if (msg.isSystemNotice || msg.role === 'tool' || msg.isInternal || msg.isError) {
           return;
         }
         
@@ -87,11 +87,11 @@ class ChatRenderer {
       style: { position: 'relative' }
     });
     
-    // 删除按钮
+    // 删除按钮（放在最前面，确保 z-index 生效）
     const deleteBtn = this.createDeleteButton(index, session);
+    bubble.appendChild(deleteBtn);
     bubble.onmouseenter = () => deleteBtn.style.display = 'flex';
     bubble.onmouseleave = () => deleteBtn.style.display = 'none';
-    bubble.appendChild(deleteBtn);
     
     // 思考过程（如果有）
     if (msg.additional_kwargs?.reasoning_content) {
