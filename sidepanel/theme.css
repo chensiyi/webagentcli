@@ -615,10 +615,10 @@ body {
 .sidebar-btn:hover::after {
   content: attr(data-tooltip);
   position: absolute;
-  left: 100%;
+  right: 100%;
   top: 50%;
   transform: translateY(-50%);
-  margin-left: 8px;
+  margin-right: 8px;
   padding: 4px 8px;
   background: var(--color-surface);
   color: var(--color-text);
