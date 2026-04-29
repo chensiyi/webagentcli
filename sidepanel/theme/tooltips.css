@@ -91,12 +91,12 @@
   position: relative;
 }
 
-.sidebar-btn[data-tooltip]::after {
+.sidebar-btn[data-tooltip]:hover::after {
   content: attr(data-tooltip);
   position: absolute;
-  right: 100%; /* 显示在按钮左侧 */
+  right: calc(100% + 8px); /* 显示在按钮左侧，距离8px */
   top: 50%;
-  transform: translateY(-50%) translateX(-8px);
+  transform: translateY(-50%);
   padding: 6px 10px;
   background: var(--color-surface);
   color: var(--color-text);
@@ -106,16 +106,20 @@
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   border: 1px solid var(--color-border);
-  z-index: 10001;
+  z-index: 999999; /* 非常高的z-index确保显示在最上层 */
   pointer-events: none;
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.15s ease, visibility 0.15s ease;
-}
-
-.sidebar-btn[data-tooltip]:hover::after {
   opacity: 1;
   visibility: visible;
+  animation: tooltipFadeIn 0.15s ease;
+}
+
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* 模型选择浮窗 */
