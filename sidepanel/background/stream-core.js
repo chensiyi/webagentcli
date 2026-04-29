@@ -22,7 +22,7 @@ export function handleStreamPort(port) {
   });
   
   port.onMessage.addListener(async (data) => {
-    const { messages, apiKey, apiEndpoint, model, temperature, maxTokens, toolsEnabled } = data;
+    const { messages, apiKey, apiEndpoint, model, temperature, maxTokens, toolsEnabled, tools } = data;
     
     console.log('[Background] Stream chat:', model, 'toolsEnabled:', toolsEnabled);
     
@@ -36,7 +36,7 @@ export function handleStreamPort(port) {
       }
       
       // 构建请求
-      const requestBody = buildRequestBody(processedMessages, model, temperature, maxTokens);
+      const requestBody = buildRequestBody(processedMessages, model, temperature, maxTokens, tools);
       const headers = buildHeaders(apiKey);
       
       console.log('[Background] Request body preview:', {

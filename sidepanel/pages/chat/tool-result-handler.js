@@ -169,6 +169,11 @@ class ToolResultHandler {
     });
 
     // 发送请求
+    let toolsDefinition = null;
+    if (this.toolManager && this.toolManager.getOpenAIToolsDefinition) {
+      toolsDefinition = this.toolManager.getOpenAIToolsDefinition();
+    }
+
     port.postMessage({
       messages: chatMessages,
       apiKey: settings.apiKey,
@@ -176,7 +181,8 @@ class ToolResultHandler {
       model: settings.model,
       temperature: settings.temperature || 0.7,
       maxTokens: settings.maxTokens || 2000,
-      toolsEnabled: true
+      toolsEnabled: true,
+      tools: toolsDefinition
     });
 
     console.log('[ToolResultHandler] Request sent');

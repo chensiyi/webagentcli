@@ -16,6 +16,11 @@ export function cleanReasoningContent(messages) {
       delete cleanMsg.additional_kwargs;
     }
     
+    // 清理 tool_calls（OpenAI 标准中，tool_calls 只在 assistant 响应中返回，不应在请求中发送）
+    if (cleanMsg.tool_calls) {
+      delete cleanMsg.tool_calls;
+    }
+    
     return cleanMsg;
   });
 }
@@ -114,7 +119,7 @@ export function needsToolsDefinition(messages) {
 /**
  * 构建 API 请求体
  */
-export function buildRequestBody(messages, model, temperature, maxTokens) {
+export function buildRequestBody(messages, model, temperature, maxTokens, tools) {
   const requestBody = {
     model,
     messages,
@@ -122,6 +127,11 @@ export function buildRequestBody(messages, model, temperature, maxTokens) {
     temperature,
     ...(maxTokens && { max_tokens: maxTokens })
   };
+  
+  // 添加工具定义（OpenAI 标准）
+  if (tools && tools.length > 0) {
+    requestBody.tools = tools;
+  }
   
   return requestBody;
 }

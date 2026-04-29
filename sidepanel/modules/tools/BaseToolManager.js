@@ -56,6 +56,85 @@
     }
 
     /**
+     * 生成 OpenAI 标准格式的工具定义
+     */
+    getOpenAIToolsDefinition() {
+      const enabledTools = this.getEnabledTools();
+      
+      if (enabledTools.length === 0) {
+        return null;
+      }
+
+      return enabledTools.map(tool => ({
+        type: 'function',
+        function: {
+          name: tool.name || tool.id,
+          description: tool.description || '',
+          parameters: this.buildToolParameters(tool)
+        }
+      }));
+    }
+
+    /**
+     * 构建工具的参数 Schema
+     */
+    buildToolParameters(tool) {
+      // 根据工具类型构建不同的参数 schema
+      switch (tool.id) {
+        case 'web_search':
+          return {
+            type: 'object',
+            properties: {
+              query: {
+                type: 'string',
+                description: '搜索关键词'
+              }
+            },
+            required: ['query']
+          };
+        case 'js_code':
+          return {
+            type: 'object',
+            properties: {
+              code: {
+                type: 'string',
+                description: '要执行的 JavaScript 代码'
+              }
+            },
+            required: ['code']
+          };
+        case 'terminal':
+          return {
+            type: 'object',
+            properties: {
+              command: {
+                type: 'string',
+                description: '要执行的终端命令'
+              }
+            },
+            required: ['command']
+          };
+        case 'web_fetch':
+          return {
+            type: 'object',
+            properties: {
+              url: {
+                type: 'string',
+                description: '要访问的网页 URL'
+              }
+            },
+            required: ['url']
+          };
+        default:
+          return {
+            type: 'object',
+            properties: {},
+            required: []
+          };
+      }
+    }
+
+    /**
      * 切换工具开关
      */
     toggleTool(id, enabled) {

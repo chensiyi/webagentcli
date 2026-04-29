@@ -169,6 +169,13 @@ class MessageSender {
     console.log('[MessageSender] Enabled tools:', enabledTools.map(t => t.id));
     console.log('[MessageSender] Tools enabled:', toolsEnabled);
 
+    // 生成 OpenAI 标准格式的工具定义
+    let toolsDefinition = null;
+    if (toolsEnabled && this.toolManager && this.toolManager.getOpenAIToolsDefinition) {
+      toolsDefinition = this.toolManager.getOpenAIToolsDefinition();
+      console.log('[MessageSender] Tools definition:', JSON.stringify(toolsDefinition, null, 2));
+    }
+
     // 监听响应
     const handler = new window.StreamMessageHandler(this.sessionManager, this.streamState);
     
@@ -221,7 +228,8 @@ class MessageSender {
       model: settings.model,
       temperature: settings.temperature || 0.7,
       maxTokens: settings.maxTokens || 2000,
-      toolsEnabled: toolsEnabled
+      toolsEnabled: toolsEnabled,
+      tools: toolsDefinition
     });
 
     console.log(`[MessageSender] Chat request started: session=${sessionId}, model=${settings.model}, messages=${chatMessages.length}, toolsEnabled=${toolsEnabled}`);
