@@ -212,6 +212,9 @@ class MessageSender {
             setTimeout(async () => {
               await toolResultHandler.handleToolResults(sessionId, renderCallback);
             }, 100);
+          } else {
+            // 没有工具调用，需要渲染最终结果
+            this.renderIfNeeded(sessionId, renderCallback);
           }
         },
         onError: async (errorMessage, session) => {
