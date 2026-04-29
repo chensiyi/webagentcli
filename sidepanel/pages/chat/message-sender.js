@@ -211,22 +211,9 @@ class MessageSender {
           );
 
           if (hasTools) {
-            // 触发下一轮对话（使用ToolResultHandler）
-            const toolResultHandler = new window.ToolResultHandler(
-              this.sessionManager,
-              this.toolManager,
-              this.chatContext,
-              this.streamState
-            );
-            
-            // 延迟执行，确保渲染完成
-            setTimeout(async () => {
-              await toolResultHandler.handleToolResults(
-                sessionId, 
-                renderCallback, 
-                typeof fullRenderCallback === 'function' ? fullRenderCallback : undefined
-              );
-            }, 100);
+            // 工具执行完成后，不自动发送第二轮请求
+            // 用户看到工具执行结果后，手动发送新消息触发第二轮对话
+            console.log('[MessageSender] Tool execution completed, waiting for user input');
           }
         },
         onError: async (errorMessage, session) => {
