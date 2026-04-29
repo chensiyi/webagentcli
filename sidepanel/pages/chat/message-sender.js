@@ -187,6 +187,10 @@ class MessageSender {
         onReasoning: (currentMsg, session) => {
           this.renderIfNeeded(sessionId, renderCallback);
         },
+        onToolCall: (currentMsg, session) => {
+          // 收到 tool_calls 时立即渲染
+          this.renderIfNeeded(sessionId, renderCallback);
+        },
         onComplete: async (finalMsg, session, isEmpty) => {
           if (isEmpty) {
             this.renderIfNeeded(sessionId, renderCallback);

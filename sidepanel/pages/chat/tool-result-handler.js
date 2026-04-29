@@ -143,6 +143,10 @@ class ToolResultHandler {
           console.log('[ToolResultHandler] onChunk triggered');
           if (renderCallback) renderCallback();
         },
+        onToolCall: (currentMsg, session) => {
+          console.log('[ToolResultHandler] onToolCall triggered');
+          if (renderCallback) renderCallback();
+        },
         onComplete: async (finalMsg, session, isEmpty) => {
           console.log('[ToolResultHandler] onComplete triggered, isEmpty:', isEmpty);
           if (isEmpty) {
