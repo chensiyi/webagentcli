@@ -71,6 +71,47 @@
           create('span', { className: 'sidebar-btn-icon', text: page.icon })
         ]);
         
+        // 添加鼠标事件监听器来动态创建tooltip
+        let tooltipElement = null;
+        
+        btn.addEventListener('mouseenter', (e) => {
+          // 移除已存在的tooltip
+          if (tooltipElement) {
+            tooltipElement.remove();
+          }
+          
+          // 创建tooltip元素
+          tooltipElement = document.createElement('div');
+          tooltipElement.textContent = page.label;
+          tooltipElement.style.cssText = `
+            position: fixed;
+            right: 45px;
+            top: ${e.target.getBoundingClientRect().top + e.target.getBoundingClientRect().height / 2}px;
+            transform: translateY(-50%);
+            padding: 6px 10px;
+            background: var(--color-surface);
+            color: var(--color-text);
+            font-size: 12px;
+            font-weight: 500;
+            white-space: nowrap;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            border: 1px solid var(--color-border);
+            z-index: 999999;
+            pointer-events: none;
+            animation: tooltipFadeIn 0.15s ease;
+          `;
+          
+          document.body.appendChild(tooltipElement);
+        });
+        
+        btn.addEventListener('mouseleave', () => {
+          if (tooltipElement) {
+            tooltipElement.remove();
+            tooltipElement = null;
+          }
+        });
+        
         sidebar.appendChild(btn);
       });
       

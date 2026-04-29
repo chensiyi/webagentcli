@@ -194,8 +194,8 @@ window.Pages.storage = function(container) {
     const valueEditor = create('textarea', {
       className: 'textarea textarea-monospace',
       style: {
-        minHeight: '50vh',
-        height: '50vh',
+        minHeight: '200px',
+        maxHeight: '400px',
         resize: 'vertical'
       },
       text: JSON.stringify(value, null, 2)
