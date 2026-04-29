@@ -1098,6 +1098,38 @@ window.Pages.chat = async function(container) {
       messageRenderer.renderMessageContent(lastMsg.content, lastBubble, true);
     }
     
+    // 处理工具调用卡片
+    if (lastMsg.tool_calls && lastMsg.tool_calls.length > 0) {
+      // 移除加载动画
+      const loadingContent = lastBubble.querySelector('.loading-content');
+      if (loadingContent) {
+        loadingContent.remove();
+      }
+      
+      // 查找或创建工具调用容器
+      let toolCallsContainer = lastBubble.querySelector('.tool-calls-container');
+      if (!toolCallsContainer) {
+        toolCallsContainer = document.createElement('div');
+        toolCallsContainer.className = 'tool-calls-container';
+        lastBubble.appendChild(toolCallsContainer);
+      }
+      
+      // 清空旧的工具卡片
+      toolCallsContainer.innerHTML = '';
+      
+      // 查找对应的 tool 结果
+      const messages = session.messages;
+      const assistantIndex = messages.indexOf(lastMsg);
+      const toolResults = findToolResults(messages, assistantIndex);
+      
+      // 渲染每个工具调用卡片
+      lastMsg.tool_calls.forEach((call, idx) => {
+        const result = toolResults[idx];
+        const card = messageRenderer.renderToolCallCard(call, idx, result, session.isLoading);
+        toolCallsContainer.appendChild(card);
+      });
+    }
+    
     // 更新思考过程（增量更新）
     if (lastMsg.additional_kwargs?.reasoning_content) {
       let thinkingContainer = lastBubble.querySelector('.thinking-container');
