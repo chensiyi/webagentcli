@@ -82,6 +82,7 @@
           
           // 创建tooltip元素
           tooltipElement = document.createElement('div');
+          tooltipElement.className = 'sidebar-tooltip';
           tooltipElement.textContent = page.label;
           tooltipElement.style.cssText = `
             position: fixed;
@@ -121,6 +122,11 @@
     function switchPage(pageId) {
       console.log('[App] Switching to page:', pageId);
       console.log('[App] Page function:', window.Pages[pageId]);
+      
+      // 清除所有tooltip
+      const tooltips = document.querySelectorAll('.sidebar-tooltip');
+      tooltips.forEach(tooltip => tooltip.remove());
+      
       currentPage = pageId;
       render(document.getElementById('root'));
     }
