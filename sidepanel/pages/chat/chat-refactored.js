@@ -14,6 +14,9 @@ window.Pages.chat = function(container) {
   // 创建输入控制器
   const inputController = new window.InputController(modelManager);
   
+  // 将实例暴露到全局，以便SettingsStorage可以更新它
+  window.InputControllerInstance = inputController;
+  
   // 创建多媒体管理器
   const mediaManager = new window.MediaManager();
   

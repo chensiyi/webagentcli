@@ -27,6 +27,13 @@ class SettingsStorage {
         // 如果有保存的模型详细信息，恢复到ModelManager
         if (modelDetails && window.ModelManager) {
           window.ModelManager.restoreModelDetails(modelDetails);
+          console.log('[SettingsStorage] Model details restored:', modelDetails.id);
+        }
+        
+        // 通知 InputController 重新初始化（如果存在）
+        if (window.InputControllerInstance && settings.model) {
+          window.InputControllerInstance.updateModelCapabilities(settings.model);
+          console.log('[SettingsStorage] InputController capabilities updated');
         }
         
         resolve({ ...this.defaultSettings, ...settings });
