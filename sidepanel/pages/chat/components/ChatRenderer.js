@@ -90,8 +90,14 @@ class ChatRenderer {
     // 删除按钮
     const deleteBtn = this.createDeleteButton(index, session);
     bubble.appendChild(deleteBtn);
-    bubble.onmouseenter = () => deleteBtn.style.display = 'flex';
-    bubble.onmouseleave = () => deleteBtn.style.display = 'none';
+    
+    // 使用 addEventListener 而不是 onmouseenter
+    bubble.addEventListener('mouseenter', () => {
+      deleteBtn.style.display = 'flex';
+    });
+    bubble.addEventListener('mouseleave', () => {
+      deleteBtn.style.display = 'none';
+    });
     
     // 思考过程（如果有）
     if (msg.additional_kwargs?.reasoning_content) {
