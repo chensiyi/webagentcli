@@ -7,6 +7,9 @@ class ChatRenderer {
     this.messageRenderer = messageRenderer;
     this.messageListElement = null;
     this.lastMessageElement = null;
+    
+    // 初始化工具调用渲染器
+    this.toolCallRenderer = new window.ToolCallRenderer(create, messageRenderer);
   }
   
   /**
