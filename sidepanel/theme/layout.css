@@ -63,6 +63,9 @@
   align-items: center;
   padding: 8px 4px;
   gap: 4px;
+  overflow: visible; /* 允许tooltip显示在外面 */
+  position: relative;
+  z-index: 100;
 }
 
 .sidebar-btn {
