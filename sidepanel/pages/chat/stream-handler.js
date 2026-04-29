@@ -100,10 +100,8 @@ class StreamMessageHandler {
   handleToolCall(msg, session, callback) {
     const currentMsg = session.messages[session.messages.length - 1];
     if (currentMsg && currentMsg.role === 'assistant') {
-      if (!currentMsg.tool_calls) {
-        currentMsg.tool_calls = [];
-      }
-      currentMsg.tool_calls.push(...(msg.tool_calls || []));
+      // 后端发送的是完整的 tool_calls，直接替换
+      currentMsg.tool_calls = msg.tool_calls || [];
     }
 
     if (callback) {

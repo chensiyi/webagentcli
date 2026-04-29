@@ -132,6 +132,9 @@ async function handleStreamResponse(response, port, isDisconnected) {
   const decoder = new TextDecoder();
   let buffer = '';
   
+  // 用于累积 tool_calls 片段
+  let accumulatedToolCalls = {};
+  
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -154,7 +157,7 @@ async function handleStreamResponse(response, port, isDisconnected) {
         if (!trimmed || trimmed === 'data: [DONE]') continue;
         
         if (trimmed.startsWith('data: ')) {
-          await processChunk(trimmed, port, isDisconnected);
+          await processChunk(trimmed, port, isDisconnected, accumulatedToolCalls);
         }
       }
     }
@@ -178,7 +181,7 @@ async function handleStreamResponse(response, port, isDisconnected) {
 /**
  * 处理单个数据块
  */
-async function processChunk(trimmed, port, isDisconnected) {
+async function processChunk(trimmed, port, isDisconnected, accumulatedToolCalls) {
   try {
     const chunkData = JSON.parse(trimmed.slice(6));
     
@@ -201,13 +204,10 @@ async function processChunk(trimmed, port, isDisconnected) {
     }
     
     const content = chunkData.choices[0]?.delta?.content || '';
-    // TODO: 预留接口 - 提取 reasoning/thinking 内容
     const reasoningContent = chunkData.choices[0]?.delta?.reasoning_content || 
                             chunkData.choices[0]?.delta?.thinking || '';
-    // TODO: 预留接口 - 提取 tool_calls
-    const toolCalls = chunkData.choices[0]?.delta?.tool_calls;
+    const toolCallsDelta = chunkData.choices[0]?.delta?.tool_calls;
     
-    // TODO: 预留接口 - 发送思考内容到 sidepanel
     // 发送思考内容
     if (reasoningContent && !isDisconnected) {
       port.postMessage({ 
@@ -216,13 +216,36 @@ async function processChunk(trimmed, port, isDisconnected) {
       });
     }
     
-    // TODO: 预留接口 - 发送工具调用到 sidepanel
-    // 发送工具调用
-    if (toolCalls && toolCalls.length > 0 && !isDisconnected) {
-      port.postMessage({ 
-        type: 'tool_call', 
-        tool_calls: toolCalls 
-      });
+    // 处理 tool_calls 增量更新
+    if (toolCallsDelta && Array.isArray(toolCallsDelta) && toolCallsDelta.length > 0) {
+      for (const delta of toolCallsDelta) {
+        const index = delta.index;
+        
+        // 初始化该索引的 tool_call
+        if (!accumulatedToolCalls[index]) {
+          accumulatedToolCalls[index] = {
+            id: '',
+            type: 'function',
+            function: { name: '', arguments: '' }
+          };
+        }
+        
+        const current = accumulatedToolCalls[index];
+        
+        // 累积字段
+        if (delta.id) current.id = delta.id;
+        if (delta.type) current.type = delta.type;
+        if (delta.function?.name) current.function.name += delta.function.name;
+        if (delta.function?.arguments) current.function.arguments += delta.function.arguments;
+      }
+      
+      // 发送完整的 tool_calls 到前端
+      if (!isDisconnected) {
+        port.postMessage({ 
+          type: 'tool_call', 
+          tool_calls: Object.values(accumulatedToolCalls)
+        });
+      }
     }
     
     // 发送普通文本

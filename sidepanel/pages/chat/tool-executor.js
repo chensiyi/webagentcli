@@ -15,24 +15,14 @@ class ToolExecutor {
       return false;
     }
 
-    // 解析工具调用
-    const toolCalls = this.toolManager.parseToolCalls(assistantMessage.content);
+    // 从标准的 tool_calls 字段获取（OpenAI 格式）
+    const toolCalls = assistantMessage.tool_calls;
     
-    if (toolCalls.length === 0) {
+    if (!toolCalls || toolCalls.length === 0) {
       return false;
     }
 
     console.log(`[ToolExecutor] Detected ${toolCalls.length} tool calls`);
-
-    // 更新 assistant 消息，添加标准的 tool_calls 字段
-    assistantMessage.tool_calls = toolCalls.map((call, idx) => ({
-      id: call.id || `call_${Date.now()}_${idx}`,
-      type: 'function',
-      function: {
-        name: call.function?.name || call.type,
-        arguments: call.function?.arguments || JSON.stringify(call.query || call.code || {})
-      }
-    }));
 
     await this.sessionManager.saveConversations();
     
@@ -41,22 +31,28 @@ class ToolExecutor {
     }
 
     // 依次执行工具
-    for (const call of assistantMessage.tool_calls) {
+    for (const call of toolCalls) {
       // 检查是否请求停止
       if (window.ChatStreamState?.shouldStop()) {
         console.log('[ToolExecutor] Execution interrupted by stop request');
         break;
       }
 
-      const toolType = call.function.name;
+      const toolType = call.function?.name;
+      if (!toolType) {
+        console.warn('[ToolExecutor] Invalid tool call, missing function name');
+        continue;
+      }
 
       if (this.toolManager.isToolEnabled(toolType)) {
         await this.executeSingleTool(sessionId, call, toolType);
       }
     }
 
-    // 清理 assistant 消息 content 中的工具调用代码块
-    assistantMessage.content = this.toolManager.removeToolCallBlocks(assistantMessage.content);
+    // 清理 assistant 消息 content 中的工具调用代码块（如果存在）
+    if (this.toolManager && this.toolManager.removeToolCallBlocks) {
+      assistantMessage.content = this.toolManager.removeToolCallBlocks(assistantMessage.content);
+    }
     
     await this.sessionManager.saveConversations();
 
@@ -74,9 +70,21 @@ class ToolExecutor {
     try {
       console.log(`[ToolExecutor] Executing tool: ${toolType}`);
 
+      // 解析参数（OpenAI 标准格式）
+      let args = {};
+      if (call.function?.arguments) {
+        try {
+          args = JSON.parse(call.function.arguments);
+        } catch (e) {
+          console.error('[ToolExecutor] Failed to parse arguments:', e);
+          args = {};
+        }
+      }
+
       const result = await this.toolManager.executeTool({
         ...call,
-        type: toolType
+        type: toolType,
+        ...args  // 展开参数
       });
 
       // 检查是否请求停止
