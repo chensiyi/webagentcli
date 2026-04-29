@@ -361,13 +361,19 @@ window.Pages.chat = async function(container) {
    */
   function findToolResults(messages, assistantIndex) {
     const toolResults = [];
+    
+    console.log(`[findToolResults] assistantIndex=${assistantIndex}, messages.length=${messages.length}`);
+    console.log(`[findToolResults] assistant message:`, messages[assistantIndex]);
+    
     for (let i = assistantIndex + 1; i < messages.length; i++) {
       if (messages[i].role === 'tool') {
+        console.log(`[findToolResults] Found tool message at index ${i}:`, messages[i]);
         const toolMsg = messages[i];
         const matchingCall = messages[assistantIndex].tool_calls.find(
           tc => tc.id === toolMsg.tool_call_id
         );
         if (matchingCall) {
+          console.log(`[findToolResults] Matched tool call:`, matchingCall);
           toolResults.push({
             tool_call: matchingCall,
             tool_result: {
@@ -376,11 +382,14 @@ window.Pages.chat = async function(container) {
               output: toolMsg.content
             }
           });
+        } else {
+          console.warn(`[findToolResults] No matching tool call for tool_call_id=${toolMsg.tool_call_id}`);
         }
       } else {
         break;
       }
     }
+    console.log(`[findToolResults] Total results found: ${toolResults.length}`);
     return toolResults;
   }
   
