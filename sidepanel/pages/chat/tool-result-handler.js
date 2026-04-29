@@ -51,6 +51,27 @@ class ToolResultHandler {
 
     // 发送流式请求
     await this.sendStreamRequest(sessionId, chatMessages, settings, renderCallback);
+    
+    // 流式请求完成后，检查最后一个 assistant 消息是否为空
+    // 如果为空（模型没有返回内容），则删除它
+    const currentSession = this.sessionManager.getSession(sessionId);
+    if (currentSession && currentSession.messages.length > 0) {
+      const lastMsg = currentSession.messages[currentSession.messages.length - 1];
+      if (lastMsg && lastMsg.role === 'assistant') {
+        const hasContent = lastMsg.content && (
+          typeof lastMsg.content === 'string' ? lastMsg.content.trim() : 
+          Array.isArray(lastMsg.content) ? lastMsg.content.length > 0 : 
+          false
+        );
+        const hasToolCalls = lastMsg.tool_calls && lastMsg.tool_calls.length > 0;
+        
+        if (!hasContent && !hasToolCalls) {
+          console.log('[ToolResultHandler] Removing empty assistant placeholder after stream');
+          currentSession.messages.pop();
+          this.sessionManager.saveConversations();
+        }
+      }
+    }
   }
 
   /**
