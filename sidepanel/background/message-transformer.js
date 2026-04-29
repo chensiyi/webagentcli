@@ -16,10 +16,9 @@ export function cleanReasoningContent(messages) {
       delete cleanMsg.additional_kwargs;
     }
     
-    // 清理 tool_calls（OpenAI 标准中，tool_calls 只在 assistant 响应中返回，不应在请求中发送）
-    if (cleanMsg.tool_calls) {
-      delete cleanMsg.tool_calls;
-    }
+    // 注意：不要清理 tool_calls！
+    // 在工具调用场景中，assistant 消息必须包含 tool_calls，
+    // 这样模型才知道之前调用了什么工具，tool 消息才能正确对应
     
     return cleanMsg;
   });
