@@ -127,9 +127,6 @@ window.Pages.chat = async function(container) {
     scrollToBottom();
   }
   
-  // 暴露 render 函数到全局，供 tool-executor 调用
-  window.ChatRenderer = { render };
-  
   /**
    * 确保动画样式存在
    */
@@ -911,7 +908,8 @@ window.Pages.chat = async function(container) {
           currentSession.id,
           text,
           pendingMedia,
-          () => updateLastMessage(sessionManager.getCurrentSession()) // 使用增量更新
+          () => updateLastMessage(sessionManager.getCurrentSession()), // 增量更新
+          render  // 全量渲染（工具执行后使用）
         );
         
         if (success) {

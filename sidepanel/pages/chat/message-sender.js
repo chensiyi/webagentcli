@@ -12,7 +12,7 @@ class MessageSender {
   /**
    * 发送消息
    */
-  async sendMessage(sessionId, text, media, renderCallback) {
+  async sendMessage(sessionId, text, media, renderCallback, fullRenderCallback) {
     // 验证输入
     if (!text && media.length === 0) {
       console.warn('[MessageSender] Empty message blocked');
@@ -207,10 +207,7 @@ class MessageSender {
               // 流式更新时的增量渲染
               this.renderIfNeeded(sessionId, renderCallback);
             },
-            () => {
-              // 工具执行后的全量渲染（创建 tool 消息气泡）
-              if (renderCallback) renderCallback();
-            }
+            fullRenderCallback || renderCallback  // 优先使用全量渲染回调
           );
 
           if (hasTools) {
@@ -224,7 +221,7 @@ class MessageSender {
             
             // 延迟执行，确保渲染完成
             setTimeout(async () => {
-              await toolResultHandler.handleToolResults(sessionId, renderCallback);
+              await toolResultHandler.handleToolResults(sessionId, renderCallback, fullRenderCallback);
             }, 100);
           }
         },

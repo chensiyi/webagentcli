@@ -12,7 +12,7 @@ class ToolResultHandler {
   /**
    * 处理工具执行结果，触发AI继续响应
    */
-  async handleToolResults(sessionId, renderCallback) {
+  async handleToolResults(sessionId, renderCallback, fullRenderCallback) {
     // 检查是否请求停止
     if (this.streamState.shouldStop()) {
       console.log('[ToolResultHandler] Interrupted by stop request');
@@ -173,16 +173,13 @@ class ToolResultHandler {
                   // 流式更新时的增量渲染
                   if (renderCallback) renderCallback();
                 },
-                () => {
-                  // 工具执行后的全量渲染（创建 tool 消息气泡）
-                  if (renderCallback) renderCallback();
-                }
+                fullRenderCallback || renderCallback  // 优先使用全量渲染回调
               );
 
               if (hasTools && !this.streamState.shouldStop()) {
                 // 递归处理，但这是必要的（工具链可能很长）
                 setTimeout(async () => {
-                  await this.handleToolResults(sessionId, renderCallback);
+                  await this.handleToolResults(sessionId, renderCallback, fullRenderCallback);
                 }, 100);
               } else {
                 // 没有更多工具调用，渲染最终结果
