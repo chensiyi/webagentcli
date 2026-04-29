@@ -26,15 +26,6 @@ class ToolResultHandler {
 
     console.log('[ToolResultHandler] Triggering AI response after tool execution');
 
-    // 先全量渲染一次，显示 tool_calls 卡片和 tool 消息
-    if (typeof fullRenderCallback === 'function') {
-      console.log('[ToolResultHandler] Rendering tool_calls before sending request');
-      fullRenderCallback();
-    } else if (renderCallback) {
-      console.log('[ToolResultHandler] Rendering with renderCallback before sending request');
-      renderCallback();
-    }
-
     // 获取设置
     const settings = await this.getSettings();
     if (!settings || !settings.apiEndpoint) {
@@ -45,6 +36,18 @@ class ToolResultHandler {
     let chatMessages = this.prepareMessages(session, settings);
 
     console.log('[ToolResultHandler] Messages count:', chatMessages.length);
+
+    // 先全量渲染一次，让用户看到 tool_calls 卡片和 tool 消息
+    if (typeof fullRenderCallback === 'function') {
+      console.log('[ToolResultHandler] Full rendering tool_calls and tool results');
+      await fullRenderCallback(); // 等待渲染完成
+    } else if (renderCallback) {
+      console.log('[ToolResultHandler] Rendering with renderCallback');
+      renderCallback();
+    }
+
+    // 延迟发送第二轮请求，让用户有时间看到工具执行结果
+    await new Promise(resolve => setTimeout(resolve, 500));
 
     // 发送流式请求（内部会添加 assistant 占位）
     await this.sendStreamRequest(sessionId, chatMessages, settings, renderCallback);
