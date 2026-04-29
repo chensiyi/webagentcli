@@ -268,9 +268,22 @@ class ChatMessageRenderer {
   renderSuccessResult(resultData, resultContent) {
     const result = resultData.tool_result;
     
-    if (result.results && Array.isArray(result.results) && result.results.length > 0) {
+    // 尝试解析 content 为 JSON
+    let parsedContent = null;
+    try {
+      parsedContent = JSON.parse(result.output);
+    } catch (e) {
+      // 不是 JSON，直接显示文本
+    }
+    
+    // 如果是搜索结果（有 results 数组）
+    if (parsedContent && parsedContent.results && Array.isArray(parsedContent.results)) {
+      this.renderPaginatedResults(parsedContent.results, resultContent);
+    } else if (result.results && Array.isArray(result.results)) {
+      // 兼容旧格式
       this.renderPaginatedResults(result.results, resultContent);
     } else {
+      // 其他工具，显示 output 或原始内容
       resultContent.textContent = result.output || JSON.stringify(result, null, 2);
     }
   }

@@ -372,6 +372,7 @@ window.Pages.chat = async function(container) {
             tool_call: matchingCall,
             tool_result: {
               success: true,
+              name: toolMsg.name,
               output: toolMsg.content
             }
           });

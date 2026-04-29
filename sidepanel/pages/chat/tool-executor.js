@@ -99,7 +99,7 @@ class ToolExecutor {
         role: 'tool',
         tool_call_id: call.id,
         name: toolType,
-        content: result.output || JSON.stringify(result)
+        content: JSON.stringify(result)
       };
 
       // 添加到会话历史（持久化）
