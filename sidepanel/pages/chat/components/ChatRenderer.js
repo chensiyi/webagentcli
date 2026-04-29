@@ -87,11 +87,9 @@ class ChatRenderer {
       style: { position: 'relative' }
     });
     
-    // 删除按钮（放在最前面，确保 z-index 生效）
+    // 删除按钮（使用 CSS hover 显示）
     const deleteBtn = this.createDeleteButton(index, session);
     bubble.appendChild(deleteBtn);
-    bubble.onmouseenter = () => deleteBtn.style.display = 'flex';
-    bubble.onmouseleave = () => deleteBtn.style.display = 'none';
     
     // 思考过程（如果有）
     if (msg.additional_kwargs?.reasoning_content) {
@@ -179,11 +177,11 @@ class ChatRenderer {
         fontSize: '16px',
         lineHeight: '1',
         padding: '0',
-        display: 'none',
+        display: 'none', // 默认隐藏
         alignItems: 'center',
         justifyContent: 'center',
         boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-        zIndex: 10
+        zIndex: 100 // 提高 z-index
       },
       onClick: async () => {
         const confirmed = await window.Toast.confirm({
@@ -197,7 +195,6 @@ class ChatRenderer {
             await sessionManager.saveConversations();
             // 重新渲染
             if (window.Pages && window.Pages.chat) {
-              // 触发重新渲染
               const container = document.querySelector('.page');
               if (container) {
                 window.Pages.chat(container);
