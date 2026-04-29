@@ -176,68 +176,69 @@ window.Pages.storage = function(container) {
   function openEditDialog(key, value) {
     console.log('[Storage] Opening edit dialog for:', key);
     
-    const dialog = create('div', {
-      className: 'dialog-overlay'
-    });
-
-    const dialogContent = create('div', {
-      className: 'dialog-content',
-      style: {
-        maxWidth: '500px', // 减小最大宽度
-        maxHeight: '80vh', // 限制最大高度
-        overflow: 'hidden' // 防止内容溢出
-      }
-    });
+    const overlay = document.createElement('div');
+    overlay.className = 'dialog-overlay';
+    
+    const dialogContent = document.createElement('div');
+    dialogContent.className = 'dialog-content';
+    dialogContent.style.cssText = `
+      background: var(--color-bg);
+      border-radius: 8px;
+      padding: 20px;
+      width: 90%;
+      max-width: 600px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    `;
 
     // 标题
-    const title = create('h3', {
-      className: 'text-lg font-semibold',
-      text: `编辑: ${key}`
-    });
+    const title = document.createElement('h3');
+    title.className = 'text-lg font-semibold';
+    title.textContent = `编辑: ${key}`;
 
     // 编辑器
-    const valueEditor = create('textarea', {
-      className: 'textarea textarea-monospace',
-      style: {
-        minHeight: '200px',
-        maxHeight: '400px',
-        width: '100%',
-        resize: 'vertical'
-      },
-      text: JSON.stringify(value, null, 2)
-    });
+    const valueEditor = document.createElement('textarea');
+    valueEditor.className = 'textarea textarea-monospace';
+    valueEditor.value = JSON.stringify(value, null, 2);
+    valueEditor.style.cssText = `
+      min-height: 200px;
+      max-height: 400px;
+      width: 100%;
+      resize: vertical;
+    `;
 
     // 错误提示
-    const errorText = create('div', {
-      className: 'text-error text-sm',
-      style: { minHeight: '20px' }
-    });
+    const errorText = document.createElement('div');
+    errorText.className = 'text-error text-sm';
+    errorText.style.minHeight = '20px';
 
     // 按钮组
-    const buttonGroup = create('div', {
-      className: 'btn-group'
-    });
+    const buttonGroup = document.createElement('div');
+    buttonGroup.className = 'btn-group';
 
-    const cancelBtn = create('button', {
-      className: 'btn btn-secondary',
-      text: '取消'
-    });
-    cancelBtn.addEventListener('click', () => container.ownerDocument.body.removeChild(dialog));
-
-    const saveBtn = create('button', {
-      className: 'btn btn-primary',
-      text: '保存'
-    });
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-secondary';
+    cancelBtn.textContent = '取消';
+    
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'btn btn-primary';
+    saveBtn.textContent = '保存';
+    
     saveBtn.addEventListener('click', async () => {
       try {
         const newValue = JSON.parse(valueEditor.value);
         await chrome.storage.local.set({ [key]: newValue });
-        container.ownerDocument.body.removeChild(dialog);
+        overlay.remove();
         await loadStorageItems();
       } catch (error) {
         errorText.textContent = 'JSON 格式错误: ' + error.message;
       }
     });
+    
+    cancelBtn.addEventListener('click', () => overlay.remove());
 
     buttonGroup.appendChild(cancelBtn);
     buttonGroup.appendChild(saveBtn);
@@ -246,16 +247,16 @@ window.Pages.storage = function(container) {
     dialogContent.appendChild(valueEditor);
     dialogContent.appendChild(errorText);
     dialogContent.appendChild(buttonGroup);
-    dialog.appendChild(dialogContent);
+    overlay.appendChild(dialogContent);
 
     // 点击背景关闭
-    dialog.addEventListener('click', (e) => {
-      if (e.target === dialog) {
-        container.ownerDocument.body.removeChild(dialog);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
       }
     });
 
-    container.ownerDocument.body.appendChild(dialog);
+    document.body.appendChild(overlay);
     valueEditor.focus();
   }
 
