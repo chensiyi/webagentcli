@@ -250,6 +250,17 @@ window.Pages.chat = async function(container) {
       }
     });
     
+    // 调试日志：打印 assistant 消息的完整信息
+    if (msg.role === 'assistant') {
+      console.log('[Chat] Rendering assistant message:', {
+        index,
+        hasContent: !!msg.content && (typeof msg.content === 'string' ? msg.content.trim() : msg.content.length > 0),
+        hasToolCalls: !!(msg.tool_calls && msg.tool_calls.length > 0),
+        toolCalls: msg.tool_calls,
+        contentPreview: typeof msg.content === 'string' ? msg.content.substring(0, 50) : 'array'
+      });
+    }
+    
     // 删除按钮
     const deleteBtn = createDeleteButton(index, session);
     bubble.onmouseenter = () => deleteBtn.style.display = 'flex';
@@ -264,6 +275,7 @@ window.Pages.chat = async function(container) {
     
     // 显示工具调用卡片
     if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+      console.log('[Chat] Rendering tool_calls for message', index);
       const toolResults = findToolResults(messages, index);
       msg.tool_calls.forEach((call, idx) => {
         const result = toolResults[idx];

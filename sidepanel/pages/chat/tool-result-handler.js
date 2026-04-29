@@ -26,6 +26,15 @@ class ToolResultHandler {
 
     console.log('[ToolResultHandler] Triggering AI response after tool execution');
 
+    // 先全量渲染一次，显示 tool_calls 卡片和 tool 消息
+    if (typeof fullRenderCallback === 'function') {
+      console.log('[ToolResultHandler] Rendering tool_calls before sending request');
+      fullRenderCallback();
+    } else if (renderCallback) {
+      console.log('[ToolResultHandler] Rendering with renderCallback before sending request');
+      renderCallback();
+    }
+
     // 获取设置
     const settings = await this.getSettings();
     if (!settings || !settings.apiEndpoint) {
