@@ -1,4 +1,4 @@
-/* ==================== 布局 ==================== */
+/* ==================== 布局系统 ==================== */
 
 .app-container {
   height: 100%;
@@ -16,8 +16,43 @@
   overflow: hidden;
 }
 
-/* ==================== 侧边栏 ==================== */
+/* 页面布局 */
+.page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+}
 
+.page-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 56px;
+}
+
+.page-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.page-content {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+}
+
+.page-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--color-border);
+  overflow: visible;
+  position: relative;
+}
+
+/* 侧边栏 */
 .sidebar {
   width: auto;
   min-width: 37px;
@@ -29,8 +64,6 @@
   padding: 8px 4px;
   gap: 4px;
 }
-
-/* ==================== 侧边栏按钮 ==================== */
 
 .sidebar-btn {
   width: 29px;
@@ -70,71 +103,21 @@
   color: var(--color-primary);
 }
 
-/* 侧边栏按钮浮动提示 */
-.sidebar-btn[data-tooltip] {
-  position: relative;
-}
-
-.sidebar-btn[data-tooltip]::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  right: 100%;
-  top: 50%;
-  transform: translateY(-50%) translateX(-8px);
-  padding: 6px 10px;
-  background: var(--color-surface);
-  color: var(--color-text);
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  border: 1px solid var(--color-border);
-  z-index: 10000;
-  pointer-events: none;
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.15s ease, visibility 0.15s ease;
-}
-
-.sidebar-btn[data-tooltip]:hover::after {
-  opacity: 1;
-  visibility: visible;
-}
-
-/* ==================== 页面布局 ==================== */
-
-.page {
-  height: 100%;
+/* 输入行布局 */
+.input-row {
   display: flex;
-  flex-direction: column;
-  background: var(--color-bg);
-}
-
-.page-header {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--color-border);
-  display: flex;
-  justify-content: space-between;
+  gap: 8px;
   align-items: center;
-  min-height: 56px;
+  background: var(--color-bg);
+  padding: 8px 0;
 }
 
-.page-title {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--color-text);
+.setting-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
-.page-content {
+.setting-row-flex-1 {
   flex: 1;
-  overflow: auto;
-  padding: 16px;
-}
-
-.page-footer {
-  padding: 16px 20px;
-  border-top: 1px solid var(--color-border);
-  overflow: visible;
-  position: relative;
 }
