@@ -89,7 +89,18 @@ class ChatRenderer {
     
     // 删除按钮（使用 CSS hover 显示）
     const deleteBtn = this.createDeleteButton(index, session);
-    bubble.appendChild(deleteBtn);
+    // 添加 wrapper 用于 hover 检测
+    const wrapper = create('div', {
+      className: 'delete-btn-wrapper',
+      style: {
+        position: 'absolute',
+        bottom: '4px',
+        right: '4px',
+        zIndex: 100
+      }
+    });
+    wrapper.appendChild(deleteBtn);
+    bubble.appendChild(wrapper);
     
     // 思考过程（如果有）
     if (msg.additional_kwargs?.reasoning_content) {
@@ -164,9 +175,6 @@ class ChatRenderer {
       className: 'btn-delete-message',
       text: '×',
       style: {
-        position: 'absolute',
-        bottom: '4px',
-        right: '4px',
         width: '24px',
         height: '24px',
         borderRadius: '50%',
@@ -177,11 +185,10 @@ class ChatRenderer {
         fontSize: '16px',
         lineHeight: '1',
         padding: '0',
-        display: 'none', // 默认隐藏
+        display: 'flex', // 始终显示，由 wrapper 控制可见性
         alignItems: 'center',
         justifyContent: 'center',
-        boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-        zIndex: 100 // 提高 z-index
+        boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
       },
       onClick: async () => {
         const confirmed = await window.Toast.confirm({
