@@ -112,10 +112,12 @@ async function handleError(response, port, isDisconnected, context) {
   console.error('[Background] API request failed:', errorMessage);
   console.error('[Background] Request details:', context);
   
-  // 打印最后几条消息的角色
-  console.error('[Background] Last 3 message roles:', 
-    context.messages.slice(-3).map(m => m.role)
-  );
+  // 打印最后几条消息的角色（安全访问）
+  if (context && context.messages && Array.isArray(context.messages)) {
+    console.error('[Background] Last 3 message roles:', 
+      context.messages.slice(-3).map(m => m.role)
+    );
+  }
   
   if (!isDisconnected) {
     port.postMessage({ type: 'error', error: errorMessage });

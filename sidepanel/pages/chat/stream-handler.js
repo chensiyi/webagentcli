@@ -168,9 +168,27 @@ class StreamMessageHandler {
     this.sessionManager.completeStreamRequest(sessionId);
     this.streamState.updateButton(false);
 
+    // 优化错误信息，将技术性错误转换为用户友好的提示
+    let userFriendlyError = msg.error;
+    
+    if (msg.error.includes('Cannot read properties of undefined')) {
+      userFriendlyError = '服务器响应异常，请稍后重试';
+    } else if (msg.error.includes('rate-limited') || msg.error.includes('rate limit')) {
+      userFriendlyError = '请求过于频繁，请稍后再试';
+    } else if (msg.error.includes('timeout')) {
+      userFriendlyError = '请求超时，请检查网络连接';
+    } else if (msg.error.includes('network') || msg.error.includes('fetch')) {
+      userFriendlyError = '网络连接失败，请检查网络后重试';
+    } else if (msg.error.includes('API key') || msg.error.includes('authentication')) {
+      userFriendlyError = 'API 密钥无效，请检查设置';
+    } else if (msg.error.length > 200) {
+      // 过长的错误信息截断
+      userFriendlyError = msg.error.substring(0, 200) + '...';
+    }
+
     const errorMessage = {
       role: 'assistant',
-      content: '❌ 请求失败: ' + msg.error,
+      content: '❌ ' + userFriendlyError,
       isError: true
     };
 
