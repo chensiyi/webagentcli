@@ -65,10 +65,10 @@
       pages.forEach(page => {
         const btn = create('button', {
           className: `sidebar-btn ${currentPage === page.id ? 'active' : ''}`,
+          'data-tooltip': page.label,
           onClick: () => switchPage(page.id)
         }, [
-          create('span', { className: 'sidebar-btn-icon', text: page.icon }),
-          create('span', { className: 'sidebar-btn-label', text: page.label })
+          create('span', { className: 'sidebar-btn-icon', text: page.icon })
         ]);
         
         sidebar.appendChild(btn);

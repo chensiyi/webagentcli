@@ -600,8 +600,32 @@ body {
 }
 
 .sidebar-btn-label {
+  display: none;
   font-size: 8px;
   color: var(--color-text-secondary);
+}
+
+/* 鼠标悬停时显示浮动提示 */
+.sidebar-btn {
+  position: relative;
+}
+
+.sidebar-btn:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-left: 8px;
+  padding: 4px 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 12px;
+  white-space: nowrap;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  z-index: 1000;
+  pointer-events: none;
 }
 
 .sidebar-btn.active .sidebar-btn-label {
