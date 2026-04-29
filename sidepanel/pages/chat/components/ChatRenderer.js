@@ -87,18 +87,6 @@ class ChatRenderer {
       style: { position: 'relative' }
     });
     
-    // 删除按钮
-    const deleteBtn = this.createDeleteButton(index, session);
-    bubble.appendChild(deleteBtn);
-    
-    // 使用 addEventListener 而不是 onmouseenter
-    bubble.addEventListener('mouseenter', () => {
-      deleteBtn.style.display = 'flex';
-    });
-    bubble.addEventListener('mouseleave', () => {
-      deleteBtn.style.display = 'none';
-    });
-    
     // 思考过程（如果有）
     if (msg.additional_kwargs?.reasoning_content) {
       const renderer = new window.ThinkingMode.ThinkingRenderer();
@@ -151,6 +139,17 @@ class ChatRenderer {
       bubble.appendChild(loadingDiv);
     }
     
+    // 删除按钮（在所有内容渲染完成后添加）
+    const deleteBtn = this.createDeleteButton(index, session);
+    bubble.appendChild(deleteBtn);
+    
+    bubble.addEventListener('mouseenter', () => {
+      deleteBtn.style.display = 'flex';
+    });
+    bubble.addEventListener('mouseleave', () => {
+      deleteBtn.style.display = 'none';
+    });
+    
     return bubble;
   }
   
@@ -178,7 +177,7 @@ class ChatRenderer {
         width: '24px',
         height: '24px',
         borderRadius: '50%',
-        background: 'var(--color-danger)',
+        background: 'red', // 临时改为红色测试
         color: 'white',
         border: 'none',
         cursor: 'pointer',
@@ -189,7 +188,7 @@ class ChatRenderer {
         alignItems: 'center',
         justifyContent: 'center',
         boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-        zIndex: 10
+        zIndex: 9999 // 提高到最大
       },
       onClick: async () => {
         const confirmed = await window.Toast.confirm({
