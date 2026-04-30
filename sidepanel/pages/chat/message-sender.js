@@ -199,21 +199,25 @@ class MessageSender {
 
           // 先渲染 assistant 消息（包含 tool_calls 卡片）
           this.renderIfNeeded(sessionId, renderCallback);
+          await this.sessionManager.saveConversations();
 
-          // 执行工具调用
-          const toolExecutor = new window.ToolExecutor(this.sessionManager, this.toolManager);
-          const hasTools = await toolExecutor.executeToolCalls(sessionId, finalMsg, 
-            () => {
-              // 流式更新时的增量渲染
-              this.renderIfNeeded(sessionId, renderCallback);
-            },
-            typeof fullRenderCallback === 'function' ? fullRenderCallback : renderCallback
-          );
+          // 如果有工具调用，执行工具
+          if (finalMsg?.role === 'assistant' && finalMsg?.tool_calls?.length > 0) {
+            console.log('[MessageSender] Executing', finalMsg.tool_calls.length, 'tool(s)');
+            const toolExecutor = new window.ToolExecutor(this.sessionManager, this.toolManager);
+            await toolExecutor.executeToolCalls(sessionId, finalMsg, 
+              () => {
+                // 流式更新时的增量渲染
+                this.renderIfNeeded(sessionId, renderCallback);
+              }
+            );
 
-          if (hasTools) {
-            // 工具执行完成后，不自动发送第二轮请求
-            // 用户看到工具执行结果后，手动发送新消息触发第二轮对话
+            // 工具执行完成后，再次渲染（显示tool结果）
+            this.renderIfNeeded(sessionId, renderCallback);
+            await this.sessionManager.saveConversations();
+            
             console.log('[MessageSender] Tool execution completed, waiting for user input');
+            // 不再自动发送第二轮请求！用户需要手动发送新消息
           }
         },
         onError: async (errorMessage, session) => {

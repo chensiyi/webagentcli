@@ -191,28 +191,18 @@ class ToolResultHandler {
             // 有工具调用或内容时才处理
             if (hasToolCalls || hasContent) {
               const toolExecutor = new window.ToolExecutor(this.sessionManager, this.toolManager);
-              const hasTools = await toolExecutor.executeToolCalls(sessionId, finalMsg,
+              await toolExecutor.executeToolCalls(sessionId, finalMsg,
                 () => {
                   // 流式更新时的增量渲染
                   if (renderCallback) renderCallback();
-                },
-                typeof fullRenderCallback === 'function' ? fullRenderCallback : renderCallback
+                }
               );
 
-              if (hasTools && !this.streamState.shouldStop()) {
-                // 递归处理，但这是必要的（工具链可能很长）
-                setTimeout(async () => {
-                  await this.handleToolResults(
-                    sessionId, 
-                    renderCallback, 
-                    typeof fullRenderCallback === 'function' ? fullRenderCallback : undefined
-                  );
-                }, 100);
-              } else {
-                // 没有更多工具调用，渲染最终结果
-                console.log('[ToolResultHandler] No more tools, rendering final result');
-                if (renderCallback) renderCallback();
-              }
+              // 工具执行完成后，再次渲染（显示tool结果）
+              if (renderCallback) renderCallback();
+              await this.sessionManager.saveConversations();
+              
+              console.log('[ToolResultHandler] Tool execution completed');
             } else {
               // 没有工具调用也没有内容，也要渲染
               if (renderCallback) renderCallback();

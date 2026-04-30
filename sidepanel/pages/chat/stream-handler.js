@@ -120,41 +120,48 @@ class StreamMessageHandler {
     this.sessionManager.completeStreamRequest(sessionId);
     this.streamState.updateButton(false);
 
-    // 清理空消息
     const finalMsg = session.messages[session.messages.length - 1];
-    if (finalMsg && finalMsg.role === 'assistant') {
-      // 检查是否有内容（支持字符串和数组）
-      const hasContent = finalMsg.content && (
-        typeof finalMsg.content === 'string' ? finalMsg.content.trim() : 
-        Array.isArray(finalMsg.content) ? finalMsg.content.length > 0 : 
-        false
-      );
-      const hasReasoning = finalMsg.additional_kwargs?.reasoning_content;
-      const hasToolCalls = finalMsg.tool_calls && finalMsg.tool_calls.length > 0;
-
-      if (!hasContent && !hasReasoning && !hasToolCalls) {
-        session.messages.pop();
-        console.log('[StreamMessageHandler] Removed empty assistant message');
-        this.sessionManager.saveConversations();
-        
-        if (callback) {
-          callback(null, session, true); // isEmpty = true
-        }
-        return;
+    
+    // 统一的空消息判断
+    if (this.isEmptyMessage(finalMsg)) {
+      session.messages.pop();
+      console.log('[StreamMessageHandler] Removed empty assistant message');
+      this.sessionManager.saveConversations();
+      
+      if (callback) {
+        callback(null, session, true); // isEmpty = true
       }
+      return;
     }
 
     // 打印完整消息内容
     console.log('[StreamMessageHandler] ===== Stream completed =====');
     console.log('[StreamMessageHandler] Role:', finalMsg?.role);
-    console.log('[StreamMessageHandler] Content:', finalMsg?.content);
-    console.log('[StreamMessageHandler] Reasoning:', finalMsg?.additional_kwargs?.reasoning_content);
-    console.log('[StreamMessageHandler] Tool calls:', finalMsg?.tool_calls);
+    console.log('[StreamMessageHandler] Content:', finalMsg?.content?.substring(0, 100));
+    console.log('[StreamMessageHandler] Reasoning:', !!finalMsg?.additional_kwargs?.reasoning_content);
+    console.log('[StreamMessageHandler] Tool calls:', finalMsg?.tool_calls?.length || 0);
     console.log('[StreamMessageHandler] =================================');
 
     if (callback) {
       await callback(finalMsg, session, false); // isEmpty = false
     }
+  }
+
+  /**
+   * 检查消息是否为空
+   */
+  isEmptyMessage(msg) {
+    if (!msg || msg.role !== 'assistant') return true;
+    
+    const hasContent = msg.content && (
+      typeof msg.content === 'string' ? msg.content.trim() : 
+      Array.isArray(msg.content) ? msg.content.length > 0 : 
+      false
+    );
+    const hasReasoning = msg.additional_kwargs?.reasoning_content;
+    const hasToolCalls = msg.tool_calls && msg.tool_calls.length > 0;
+    
+    return !hasContent && !hasReasoning && !hasToolCalls;
   }
 
   /**
@@ -210,21 +217,10 @@ class StreamMessageHandler {
     const targetSession = this.sessionManager.getSession(sessionId);
     if (targetSession) {
       const lastMsg = targetSession.messages[targetSession.messages.length - 1];
-      if (lastMsg && lastMsg.role === 'assistant') {
-        // 检查是否有内容（支持字符串和数组）
-        const hasContent = lastMsg.content && (
-          typeof lastMsg.content === 'string' ? lastMsg.content.trim() : 
-          Array.isArray(lastMsg.content) ? lastMsg.content.length > 0 : 
-          false
-        );
-        const hasReasoning = lastMsg.additional_kwargs?.reasoning_content;
-        const hasToolCalls = lastMsg.tool_calls && lastMsg.tool_calls.length > 0;
-
-        if (!hasContent && !hasReasoning && !hasToolCalls) {
-          targetSession.messages.pop();
-          console.log('[StreamMessageHandler] Removed empty message after stop');
-          this.sessionManager.saveConversations();
-        }
+      if (this.isEmptyMessage(lastMsg)) {
+        targetSession.messages.pop();
+        console.log('[StreamMessageHandler] Removed empty message after stop');
+        this.sessionManager.saveConversations();
       }
     }
 

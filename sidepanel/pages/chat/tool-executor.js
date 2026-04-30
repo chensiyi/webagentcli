@@ -10,7 +10,7 @@ class ToolExecutor {
   /**
    * 执行工具调用序列
    */
-  async executeToolCalls(sessionId, assistantMessage, renderCallback, fullRenderCallback) {
+  async executeToolCalls(sessionId, assistantMessage, renderCallback) {
     if (!this.toolManager) {
       return false;
     }
@@ -22,7 +22,7 @@ class ToolExecutor {
       return false;
     }
 
-    console.log(`[ToolExecutor] Detected ${toolCalls.length} tool calls`);
+    console.log(`[ToolExecutor] Detected ${toolCalls.length} tool call(s)`);
 
     await this.sessionManager.saveConversations();
     
@@ -48,9 +48,7 @@ class ToolExecutor {
         await this.executeSingleTool(sessionId, call, toolType);
         
         // 每个工具执行完成后触发渲染
-        if (fullRenderCallback) {
-          fullRenderCallback();
-        } else if (renderCallback) {
+        if (renderCallback) {
           renderCallback();
         }
       }
