@@ -7,7 +7,7 @@
  * 3. 错误处理和重试
  */
 
-import { BaseProvider } from './APIService.js';
+import { BaseProvider } from '../APIService.js';
 
 class OpenAIProvider extends BaseProvider {
   constructor(config) {

@@ -1066,6 +1066,96 @@ window.Pages.chat = async function(container) {
    * 增量更新最后一个消息（流式响应时使用）
    * 避免完整重渲染导致的闪烁
    */
+  /**
+   * 基于消息 ID 的精确更新（替代 updateLastMessage）
+   * @param {string} messageId - 消息 ID
+   */
+  function updateMessageById(messageId) {
+    if (!messageId || !messageListElement) return;
+    
+    const session = sessionManager.getCurrentSession();
+    if (!session) return;
+    
+    // 查找目标消息
+    const targetMsg = session.messages.find(msg => msg.id === messageId);
+    if (!targetMsg) {
+      console.log(`[updateMessageById] Message ${messageId} not found`);
+      return;
+    }
+    
+    // 通过 data-message-id 精确定位 DOM 气泡
+    const bubble = messageListElement.querySelector(`.message-bubble[data-message-id="${messageId}"]`);
+    if (!bubble) {
+      console.log(`[updateMessageById] Bubble not found for message ${messageId}`);
+      return;
+    }
+    
+    console.log(`[updateMessageById] Updating message ${messageId}`);
+    
+    // 移除加载动画
+    const loadingContent = bubble.querySelector('.loading-content');
+    if (loadingContent) {
+      loadingContent.remove();
+    }
+    
+    // 更新文本内容
+    const hasContent = targetMsg.content && (
+      typeof targetMsg.content === 'string' ? targetMsg.content.trim() : 
+      Array.isArray(targetMsg.content) ? targetMsg.content.length > 0 : false
+    );
+    
+    if (hasContent) {
+      let contentDiv = bubble.querySelector('.message-content');
+      if (!contentDiv) {
+        contentDiv = document.createElement('div');
+        contentDiv.className = 'message-content';
+        bubble.appendChild(contentDiv);
+      }
+      messageRenderer.renderMessageContent(targetMsg.content, bubble, true);
+    }
+    
+    // 更新工具卡片
+    if (targetMsg.tool_calls && targetMsg.tool_calls.length > 0) {
+      let toolCallsContainer = bubble.querySelector('.tool-calls-container');
+      if (!toolCallsContainer) {
+        toolCallsContainer = document.createElement('div');
+        toolCallsContainer.className = 'tool-calls-container';
+        bubble.appendChild(toolCallsContainer);
+      }
+      
+      // 重新渲染所有工具卡片（查找对应的 tool 结果）
+      toolCallsContainer.innerHTML = '';
+      const messages = session.messages;
+      const assistantIndex = messages.indexOf(targetMsg);
+      const toolResults = findToolResults(messages, assistantIndex);
+      
+      targetMsg.tool_calls.forEach((call, idx) => {
+        const result = toolResults[idx];
+        const card = messageRenderer.renderToolCallCard(call, idx, result, session.isLoading);
+        toolCallsContainer.appendChild(card);
+      });
+    }
+    
+    // 更新思考过程
+    if (targetMsg.additional_kwargs?.reasoning_content) {
+      let thinkingContainer = bubble.querySelector('.thinking-container');
+      if (!thinkingContainer) {
+        thinkingContainer = document.createElement('div');
+        thinkingContainer.className = 'thinking-container';
+        bubble.insertBefore(thinkingContainer, bubble.firstChild);
+      }
+      const renderer = new window.ThinkingMode.ThinkingRenderer();
+      thinkingContainer.innerHTML = '';
+      thinkingContainer.appendChild(renderer.render(targetMsg.additional_kwargs.reasoning_content));
+    }
+  }
+  
+  // 暴露到全局供 tool-executor 使用
+  window.updateMessageById = updateMessageById;
+  
+  /**
+   * 增量更新最后一条消息（旧方法，保留兼容）
+   */
   function updateLastMessage(session) {
     if (!session || !messageListElement) return;
     

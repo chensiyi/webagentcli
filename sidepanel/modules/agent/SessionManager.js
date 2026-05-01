@@ -98,6 +98,11 @@
       const session = this.sessions[sessionId];
       if (!session) return false;
       
+      // 为消息生成唯一 ID（如果没有）
+      if (!message.id) {
+        message.id = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      }
+      
       session.messages.push(message);
       session.updatedAt = Date.now();
       return true;

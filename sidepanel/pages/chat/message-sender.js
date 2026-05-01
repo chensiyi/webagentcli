@@ -121,8 +121,37 @@ class MessageSender {
       return;
     }
 
-    let apiEndpoint = this.normalizeEndpoint(settings.apiEndpoint);
+    // 使用适配器构建请求（如果可用）
+    let apiEndpoint = settings.apiEndpoint;
     let chatMessages = this.prepareMessages(session, settings);
+    
+    // 如果设置了 apiStandard，使用适配器处理
+    if (settings.apiStandard && window.ProviderAdapter) {
+      try {
+        const adapter = new window.ProviderAdapter();
+        adapter.selectTemplate(settings.apiStandard);
+        adapter.configure({
+          endpoint: settings.apiEndpoint,
+          apiKey: settings.apiKey,
+          defaultModel: settings.model
+        });
+        
+        // 构建完整的 URL
+        apiEndpoint = adapter.buildUrl(
+          settings.apiEndpoint,
+          adapter.currentAdapter.defaults.chatPath
+        );
+        
+        console.log('[MessageSender] Using adapter:', settings.apiStandard, 'Endpoint:', apiEndpoint);
+      } catch (e) {
+        console.warn('[MessageSender] Adapter failed, using raw endpoint:', e);
+        // 回退到原始逻辑
+        apiEndpoint = this.normalizeEndpoint(settings.apiEndpoint);
+      }
+    } else {
+      // 原有逻辑
+      apiEndpoint = this.normalizeEndpoint(settings.apiEndpoint);
+    }
 
     // 验证消息列表不为空
     if (chatMessages.length === 0) {

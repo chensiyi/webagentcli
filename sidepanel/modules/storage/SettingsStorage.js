@@ -6,6 +6,7 @@ class SettingsStorage {
     this.defaultSettings = {
       apiKey: '',
       apiEndpoint: 'https://openrouter.ai/api/v1',
+      apiStandard: 'openrouter', // 新增：API 标准
       model: 'openai/gpt-4o',
       temperature: 0.7,
       maxTokens: 2000,
@@ -177,7 +178,8 @@ class SettingsStorage {
     ai.registerProvider('default', {
       endpoint: settings.apiEndpoint,
       apiKey: settings.apiKey || 'local',
-      defaultModel: settings.model
+      defaultModel: settings.model,
+      adapterType: settings.apiStandard || 'openrouter' // 使用适配器
     });
     ai.setProvider('default');
     

@@ -48,7 +48,10 @@ class ToolExecutor {
         await this.executeSingleTool(sessionId, call, toolType);
         
         // 每个工具执行完成后触发渲染
-        if (fullRenderCallback) {
+        // 使用 updateMessageById 精确更新 assistant 消息的工具卡片
+        if (window.updateMessageById && assistantMessage.id) {
+          window.updateMessageById(assistantMessage.id);
+        } else if (fullRenderCallback) {
           fullRenderCallback();
         } else if (renderCallback) {
           renderCallback();

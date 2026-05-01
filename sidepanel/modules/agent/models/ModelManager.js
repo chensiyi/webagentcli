@@ -34,8 +34,8 @@
       this.currentApiEndpoint = apiEndpoint;
       
       try {
-        // 构建 models API URL
-        let modelsEndpoint = apiEndpoint.replace('/chat/completions', '').replace(/\/$/, '') + '/models';
+        // 构建 models API URL - 先尝试标准路径
+        let modelsEndpoint = apiEndpoint.replace(/\/$/, '') + '/v1/models';
         
         // 构建请求头（API Key 可选）
         const headers = {};
@@ -43,10 +43,20 @@
           headers['Authorization'] = `Bearer ${apiKey}`;
         }
         
-        const response = await fetch(modelsEndpoint, {
+        let response = await fetch(modelsEndpoint, {
           method: 'GET',
           headers
         });
+        
+        // 如果标准路径失败，尝试 /api/v1/models
+        if (!response.ok && modelsEndpoint.includes('/v1/models')) {
+          modelsEndpoint = apiEndpoint.replace(/\/$/, '') + '/api/v1/models';
+          console.log('[ModelManager] Retrying with alternative endpoint:', modelsEndpoint);
+          response = await fetch(modelsEndpoint, {
+            method: 'GET',
+            headers
+          });
+        }
         
         if (!response.ok) {
           const errorText = await response.text();
@@ -54,9 +64,10 @@
         }
         
         const result = await response.json();
+        console.log('[ModelManager] API response:', result);
         
         // 提取模型列表和详细信息
-        if (result.data) {
+        if (result.data && Array.isArray(result.data)) {
           this.models = result.data.map(m => m.id);
           
           // 保存每个模型的详细信息
@@ -76,6 +87,11 @@
               output_modalities: model.architecture?.output_modalities || []
             };
           });
+        }
+        
+        // 确保 models 数组已初始化
+        if (!this.models) {
+          this.models = [];
         }
         
         this.lastFetchTime = Date.now();
@@ -195,6 +211,10 @@
      * 获取模型列表
      */
     getModels() {
+      if (!this.models) {
+        console.warn('[ModelManager] models is undefined, returning empty array');
+        return [];
+      }
       return [...this.models];
     }
     
