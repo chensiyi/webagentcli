@@ -9,7 +9,7 @@
       this.modelDetails = {}; // { modelId: { id, name, context_length, pricing, ... } }
       this.capabilities = {}; // { modelName: { vision, streaming, ... } }
       this.lastFetchTime = null;
-      this.cacheDuration = 24 * 60 * 60 * 1000; // 缓存24小时
+      this.cacheDuration = 30 * 24 * 60 * 60 * 1000; // 缓存30天
       this.storageKey = 'model_cache';
       
       // 使用全局的 CapabilityManager（如果存在）
