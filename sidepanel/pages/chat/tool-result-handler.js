@@ -160,18 +160,14 @@ class ToolResultHandler {
     const handler = new window.StreamMessageHandler(this.sessionManager, this.streamState);
     
     port.onMessage.addListener(async (responseMsg) => {
-      console.log('[ToolResultHandler] Received message:', responseMsg.type);
       await handler.handleMessage(responseMsg, sessionId, port, {
         onChunk: (currentMsg, session) => {
-          console.log('[ToolResultHandler] onChunk triggered');
           if (renderCallback) renderCallback();
         },
         onToolCall: (currentMsg, session) => {
-          console.log('[ToolResultHandler] onToolCall triggered');
           if (renderCallback) renderCallback();
         },
         onComplete: async (finalMsg, session, isEmpty) => {
-          console.log('[ToolResultHandler] onComplete triggered, isEmpty:', isEmpty);
           if (isEmpty) {
             if (renderCallback) renderCallback();
             return;
@@ -186,8 +182,6 @@ class ToolResultHandler {
             const hasToolCalls = finalMsg.tool_calls && finalMsg.tool_calls.length > 0;
             const hasContent = finalMsg.content && finalMsg.content.trim();
             
-            console.log('[ToolResultHandler] Final msg - hasToolCalls:', hasToolCalls, 'hasContent:', hasContent);
-            
             // 有工具调用或内容时才处理
             if (hasToolCalls || hasContent) {
               const toolExecutor = new window.ToolExecutor(this.sessionManager, this.toolManager);
@@ -201,8 +195,6 @@ class ToolResultHandler {
               // 工具执行完成后，再次渲染（显示tool结果）
               if (renderCallback) renderCallback();
               await this.sessionManager.saveConversations();
-              
-              console.log('[ToolResultHandler] Tool execution completed');
             } else {
               // 没有工具调用也没有内容，也要渲染
               if (renderCallback) renderCallback();
