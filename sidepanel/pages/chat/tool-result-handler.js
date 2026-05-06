@@ -168,6 +168,8 @@ class ToolResultHandler {
           if (renderCallback) renderCallback();
         },
         onComplete: async (finalMsg, session, isEmpty) => {
+          console.log('[ToolResultHandler] onComplete - finalMsg:', finalMsg?.role, 'tool_calls:', finalMsg?.tool_calls?.length, 'isEmpty:', isEmpty);
+          
           if (isEmpty) {
             if (renderCallback) renderCallback();
             return;
@@ -182,8 +184,11 @@ class ToolResultHandler {
             const hasToolCalls = finalMsg.tool_calls && finalMsg.tool_calls.length > 0;
             const hasContent = finalMsg.content && finalMsg.content.trim();
             
+            console.log('[ToolResultHandler] Checking tool execution - hasToolCalls:', hasToolCalls, 'hasContent:', hasContent);
+            
             // 有工具调用或内容时才处理
             if (hasToolCalls || hasContent) {
+              console.log('[ToolResultHandler] Starting tool execution...');
               const toolExecutor = new window.ToolExecutor(this.sessionManager, this.toolManager);
               await toolExecutor.executeToolCalls(sessionId, finalMsg,
                 () => {
@@ -200,6 +205,7 @@ class ToolResultHandler {
               if (renderCallback) renderCallback();
             }
           } else {
+            console.log('[ToolResultHandler] Skipping tool execution - finalMsg:', finalMsg?.role, 'hasToolManager:', !!this.toolManager);
             // 不是 assistant 消息，也要渲染
             if (renderCallback) renderCallback();
           }

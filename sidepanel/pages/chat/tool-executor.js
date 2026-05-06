@@ -12,6 +12,7 @@ class ToolExecutor {
    */
   async executeToolCalls(sessionId, assistantMessage, renderCallback) {
     if (!this.toolManager) {
+      console.log('[ToolExecutor] No toolManager available');
       return false;
     }
 
@@ -19,6 +20,7 @@ class ToolExecutor {
     const toolCalls = assistantMessage.tool_calls;
     
     if (!toolCalls || toolCalls.length === 0) {
+      console.log('[ToolExecutor] No tool calls in assistant message');
       return false;
     }
 
@@ -44,7 +46,10 @@ class ToolExecutor {
         continue;
       }
 
-      if (this.toolManager.isToolEnabled(toolType)) {
+      const isEnabled = this.toolManager.isToolEnabled(toolType);
+      console.log(`[ToolExecutor] Tool ${toolType} enabled: ${isEnabled}`);
+      
+      if (isEnabled) {
         await this.executeSingleTool(sessionId, call, toolType);
         
         // 每个工具执行完成后触发渲染
@@ -54,6 +59,8 @@ class ToolExecutor {
         } else if (renderCallback) {
           renderCallback();
         }
+      } else {
+        console.log(`[ToolExecutor] Tool ${toolType} is disabled, skipping`);
       }
     }
 
@@ -113,8 +120,8 @@ class ToolExecutor {
       // 添加到会话历史（持久化）
       this.sessionManager.addMessage(sessionId, toolMessage);
       await this.sessionManager.saveConversations();
-
-      console.log(`[ToolExecutor] Tool ${toolType} executed successfully`);
+      
+      console.log(`[ToolExecutor] Tool ${toolType} executed successfully, message added`);
     } catch (error) {
       console.error(`[ToolExecutor] Tool execution error:`, error);
 
