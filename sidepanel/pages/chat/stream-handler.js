@@ -99,9 +99,14 @@ class StreamMessageHandler {
    */
   handleToolCall(msg, session, callback) {
     const currentMsg = session.messages[session.messages.length - 1];
+    console.log('[StreamMessageHandler] handleToolCall - currentMsg:', currentMsg?.role, 'tool_calls:', msg.tool_calls?.length);
+    
     if (currentMsg && currentMsg.role === 'assistant') {
       // 后端发送的是完整的 tool_calls，直接替换
       currentMsg.tool_calls = msg.tool_calls || [];
+      console.log('[StreamMessageHandler] Set tool_calls on currentMsg:', currentMsg.tool_calls?.length);
+    } else {
+      console.warn('[StreamMessageHandler] No assistant message found for tool_call');
     }
 
     if (callback) {
@@ -160,6 +165,9 @@ class StreamMessageHandler {
     );
     const hasReasoning = msg.additional_kwargs?.reasoning_content;
     const hasToolCalls = msg.tool_calls && msg.tool_calls.length > 0;
+    
+    console.log('[StreamMessageHandler] isEmptyMessage check - hasContent:', hasContent, 'hasReasoning:', !!hasReasoning, 'hasToolCalls:', hasToolCalls);
+    console.log('[StreamMessageHandler] isEmptyMessage check - tool_calls:', msg.tool_calls);
     
     return !hasContent && !hasReasoning && !hasToolCalls;
   }
