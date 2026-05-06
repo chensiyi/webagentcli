@@ -165,6 +165,16 @@
           };
         });
         
+        // 记录当前 API 端点
+        this.currentApiEndpoint = apiEndpoint;
+        this.lastFetchTime = Date.now();
+        
+        // 自动检测模型能力
+        this.detectCapabilities();
+        
+        // 保存到本地存储（关键：确保持久化）
+        this.saveToStorage();
+        
         return this.models;
       }
       
