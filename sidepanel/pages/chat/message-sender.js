@@ -245,8 +245,22 @@ class MessageSender {
             this.renderIfNeeded(sessionId, renderCallback);
             await this.sessionManager.saveConversations();
             
-            console.log('[MessageSender] Tool execution completed, waiting for user input');
-            // 不再自动发送第二轮请求！用户需要手动发送新消息
+            // 检查是否请求停止
+            if (this.streamState.shouldStop()) {
+              console.log('[MessageSender] Stopped after tool execution');
+              return;
+            }
+            
+            // 工具执行完成后，自动触发下一轮对话
+            console.log('[MessageSender] Tool execution completed, triggering next round');
+            const toolResultHandler = new window.ToolResultHandler(
+              this.sessionManager, 
+              this.toolManager,
+              this.chatContext,
+              this.streamState
+            );
+            
+            await toolResultHandler.handleToolResults(sessionId, renderCallback, fullRenderCallback);
           }
         },
         onError: async (errorMessage, session) => {

@@ -56,16 +56,33 @@ class TerminalManager {
             // 这种方式不会触发 TrustedScript 检查
             const resultId = '__terminal_result_' + Date.now();
             
-            // 创建包装代码，将结果存储到 window 对象
-            // 注意：需要将执行结果赋值给 window[resultId]
+            // 创建包装代码，支持同步和异步执行
+            // 关键：检测是否为 Promise，如果是则等待 resolve
             const wrappedCode = `
               (function() {
                 try {
-                  window.${resultId} = (function() {
+                  var result = (function() {
                     ${scriptCode}
                   })();
+                  
+                  // 检测是否为 Promise
+                  if (result && typeof result.then === 'function') {
+                    // 异步代码：等待 Promise resolve
+                    result.then(function(resolvedValue) {
+                      window.${resultId} = resolvedValue;
+                      window.${resultId}_ready = true;
+                    }).catch(function(error) {
+                      window.${resultId} = { error: error.message, stack: error.stack };
+                      window.${resultId}_ready = true;
+                    });
+                  } else {
+                    // 同步代码：直接赋值
+                    window.${resultId} = result;
+                    window.${resultId}_ready = true;
+                  }
                 } catch (e) {
                   window.${resultId} = { error: e.message, stack: e.stack };
+                  window.${resultId}_ready = true;
                 }
               })();
             `;
@@ -77,9 +94,34 @@ class TerminalManager {
             (document.head || document.documentElement).appendChild(script);
             script.remove();
             
-            // 检查结果
-            const resultData = window[resultId];
-            delete window[resultId];
+            // 等待结果就绪（支持异步代码）
+            const waitForResult = () => {
+              return new Promise((resolve) => {
+                const checkResult = () => {
+                  if (window[${resultId}_ready]) {
+                    const resultData = window[${resultId}];
+                    delete window[${resultId}];
+                    delete window[${resultId}_ready];
+                    resolve(resultData);
+                  } else {
+                    // 轮询检查，最多等待 10 秒
+                    setTimeout(checkResult, 50);
+                  }
+                };
+                checkResult();
+                
+                // 超时保护
+                setTimeout(() => {
+                  if (!window[${resultId}_ready]) {
+                    delete window[${resultId}];
+                    delete window[${resultId}_ready];
+                    resolve({ error: 'Execution timeout (10s)', stack: null });
+                  }
+                }, 10000);
+              });
+            };
+            
+            const resultData = await waitForResult();
             
             // 恢复控制台
             console.log = originalConsoleLog;
