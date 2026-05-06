@@ -665,12 +665,19 @@ window.Pages.chat = async function(container) {
       }
     });
     
-    if (toolManager) {
-      toolManager.getAllTools().forEach(tool => {
-        const toolItem = createToolItem(tool);
-        menu.appendChild(toolItem);
-      });
+    // 渲染工具列表函数
+    function renderTools() {
+      menu.innerHTML = '';
+      if (toolManager) {
+        toolManager.getAllTools().forEach(tool => {
+          const toolItem = createToolItem(tool);
+          menu.appendChild(toolItem);
+        });
+      }
     }
+    
+    // 初始渲染
+    renderTools();
     
     wrapper.onmouseenter = () => {
       menu.style.opacity = '1';
@@ -688,6 +695,9 @@ window.Pages.chat = async function(container) {
     
     wrapper.appendChild(menu);
     wrapper.appendChild(trigger);
+    
+    // 暴露重新渲染方法到全局，供切换会话时调用
+    window.renderToolsMenu = renderTools;
     
     return wrapper;
   }
@@ -910,6 +920,11 @@ window.Pages.chat = async function(container) {
           sessionManager.currentSessionId = 'conv_' + Date.now();
           sessionManager.createSession(sessionManager.currentSessionId, []);
           sessionManager.setCurrentSession(sessionManager.currentSessionId);
+          
+          // 重新渲染工具菜单，确保显示当前会话的工具状态
+          if (window.renderToolsMenu) {
+            window.renderToolsMenu();
+          }
         }
         
         const currentSession = sessionManager.getCurrentSession();
@@ -1262,5 +1277,10 @@ window.Pages.chat = async function(container) {
   sessionManager.loadMessages().then(() => {
     console.log('[Chat] Messages loaded');
     render();
+    
+    // 初始渲染工具菜单
+    if (window.renderToolsMenu) {
+      window.renderToolsMenu();
+    }
   });
 };
