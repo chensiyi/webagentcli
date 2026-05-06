@@ -90,6 +90,11 @@ class ChatRenderer {
       style: { position: 'relative' }
     });
     
+    // 为气泡添加消息 ID（用于精确更新）
+    if (msg.id) {
+      bubble.setAttribute('data-message-id', msg.id);
+    }
+    
     // 思考过程（如果有）
     if (msg.additional_kwargs?.reasoning_content) {
       const renderer = new window.ThinkingMode.ThinkingRenderer();

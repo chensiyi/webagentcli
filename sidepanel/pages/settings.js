@@ -11,6 +11,7 @@ window.Pages.settings = function(container) {
   let settings = {
     apiKey: '',
     apiEndpoint: 'https://openrouter.ai/api/v1',
+    apiStandard: 'openrouter', // 新增：API 标准
     model: 'openai/gpt-4o',
     temperature: 0.7,
     maxTokens: 2000,
@@ -57,7 +58,7 @@ window.Pages.settings = function(container) {
     
     try {
       // 从输入框获取当前的 base url，而不是 settings.apiEndpoint
-      const endpointInput = document.querySelector('input[placeholder*="端点"]');
+      const endpointInput = document.querySelector('#api-endpoint-input');
       const currentEndpoint = endpointInput ? endpointInput.value : settings.apiEndpoint;
       
       console.log('[Settings] Loading models from:', currentEndpoint);
@@ -66,6 +67,7 @@ window.Pages.settings = function(container) {
       // 加载成功后，验证当前配置的模型是否在列表中
       if (settings.model && modelManager.isLoaded()) {
         const allModels = modelManager.getModels();
+        console.log('[Settings] allModels:', allModels);
         const modelExists = allModels.find(m => m === settings.model);
         
         if (!modelExists) {
@@ -535,6 +537,39 @@ window.Pages.settings = function(container) {
     
     // API 配置
     content.appendChild(create('div', { className: 'setting-group' }, [
+      create('label', { className: 'setting-label', text: 'API 标准' }),
+      create('select', {
+        className: 'input',
+        id: 'api-standard-select',
+        onChange: (e) => { 
+          console.log('[Settings] API Standard onChange triggered:', e.target.value);
+          settings.apiStandard = e.target.value;
+          // 根据选择自动填充默认端点（仅在用户手动切换时）
+          const endpointInput = content.querySelector('#api-endpoint-input');
+          console.log('[Settings] onChange - endpointInput.value before:', endpointInput ? endpointInput.value : 'null');
+          if (endpointInput && !endpointInput.value) {
+            const defaultEndpoints = {
+              'openai': 'https://api.openai.com/v1',
+              'openrouter': 'https://openrouter.ai/api/v1',
+              'lm-studio': 'http://localhost:1234/v1',
+              'ollama': 'http://localhost:11434',
+              'anthropic': 'https://api.anthropic.com'
+            };
+            endpointInput.value = defaultEndpoints[e.target.value] || '';
+            console.log('[Settings] onChange - endpointInput.value after:', endpointInput.value);
+            settings.apiEndpoint = endpointInput.value;
+          }
+        }
+      }, [
+        create('option', { attrs: { value: 'openrouter' }, text: 'OpenRouter' }),
+        create('option', { attrs: { value: 'openai' }, text: 'OpenAI' }),
+        create('option', { attrs: { value: 'lm-studio' }, text: 'LM Studio' }),
+        create('option', { attrs: { value: 'ollama' }, text: 'Ollama' }),
+        create('option', { attrs: { value: 'anthropic' }, text: 'Anthropic Claude' })
+      ])
+    ]));
+    
+    content.appendChild(create('div', { className: 'setting-group' }, [
       create('label', { className: 'setting-label', text: 'API Key（可选）' }),
       create('input', {
         className: 'input',
@@ -547,6 +582,7 @@ window.Pages.settings = function(container) {
       create('label', { className: 'setting-label', text: 'API 端点' }),
       create('input', {
         className: 'input',
+        id: 'api-endpoint-input',
         attrs: { type: 'text', placeholder: 'https://openrouter.ai/api/v1' },
         value: settings.apiEndpoint,
         onInput: (e) => { settings.apiEndpoint = e.target.value; },
@@ -770,23 +806,54 @@ window.Pages.settings = function(container) {
     
     // 加载已保存的设置
     settingsStorage.loadSettings().then((loadedSettings) => {
+      console.log('[Settings] Loaded settings from storage:', loadedSettings);
+      console.log('[Settings] loadedSettings.apiEndpoint:', loadedSettings.apiEndpoint);
+      console.log('[Settings] loadedSettings.apiStandard:', loadedSettings.apiStandard);
       settings = { ...settings, ...loadedSettings };
+      console.log('[Settings] Merged settings:', settings);
+      console.log('[Settings] Merged apiEndpoint:', settings.apiEndpoint);
       setTheme(settings.theme);
       
-      // 填充表单
+      // 填充表单 - 使用更精确的选择器
+      const apiStandardSelect = content.querySelector('#api-standard-select');
       const apiKeyInput = content.querySelector('input[placeholder*="API Key"]');
-      const endpointInput = content.querySelector('input[placeholder*="端点"]');
+      const endpointInput = content.querySelector('#api-endpoint-input');
       const modelSearch = content.querySelector('#model-search');
       const tempInput = content.querySelector('input[type="number"][max="2"]');
       const tokenInput = content.querySelector('input[type="number"][max="8000"]');
       const promptInput = content.querySelector('textarea');
 
-      if (apiKeyInput) apiKeyInput.value = settings.apiKey || '';
-      if (endpointInput) endpointInput.value = settings.apiEndpoint || '';
+      console.log('[Settings] Query results - apiStandardSelect:', !!apiStandardSelect);
+      console.log('[Settings] Query results - endpointInput:', !!endpointInput);
+      console.log('[Settings] Query results - apiKeyInput:', !!apiKeyInput);
+
+      if (apiStandardSelect) {
+        console.log('[Settings] Before setting apiStandardSelect.value:', apiStandardSelect.value);
+        apiStandardSelect.value = settings.apiStandard || 'openrouter';
+        console.log('[Settings] After setting apiStandardSelect.value:', apiStandardSelect.value);
+        console.log('[Settings] API Standard loaded:', settings.apiStandard);
+        
+        // 异步加载完成后，更新端点输入框
+        if (endpointInput) {
+          console.log('[Settings] Before update - endpointInput.value:', endpointInput.value);
+          console.log('[Settings] settings.apiEndpoint:', settings.apiEndpoint);
+          endpointInput.value = settings.apiEndpoint || '';
+          console.log('[Settings] After update - endpointInput.value:', endpointInput.value);
+          console.log('[Settings] API Endpoint loaded:', settings.apiEndpoint);
+        }
+      }
+      
+      if (apiKeyInput) {
+        apiKeyInput.value = settings.apiKey || '';
+        console.log('[Settings] API Key loaded:', settings.apiKey ? '***' : '(empty)');
+      }
+      
       if (modelSearch) {
         modelSearch.value = settings.model || '';
         modelSearchValue = settings.model || '';
+        console.log('[Settings] Model loaded:', settings.model);
       }
+      
       if (tempInput) tempInput.value = settings.temperature ?? 0.7;
       if (tokenInput) tokenInput.value = settings.maxTokens ?? 2000;
       if (promptInput) promptInput.value = settings.systemPrompt || '';
@@ -809,6 +876,8 @@ window.Pages.settings = function(container) {
           performLoad();
         }, 100);
       }
+    }).catch(err => {
+      console.error('[Settings] Failed to load settings:', err);
     });
     
     page.appendChild(content);
@@ -828,11 +897,12 @@ window.Pages.settings = function(container) {
             ai.registerProvider('default', {
               endpoint: settings.apiEndpoint,
               apiKey: settings.apiKey || 'local',
-              defaultModel: settings.model
+              defaultModel: settings.model,
+              adapterType: settings.apiStandard || 'openrouter' // 使用适配器
             });
             ai.setProvider('default');
             window.aiManager = ai;
-            console.log('[Settings] AI Manager initialized');
+            console.log('[Settings] AI Manager initialized with adapter:', settings.apiStandard);
           }
           
           window.Toast.success('设置已保存');

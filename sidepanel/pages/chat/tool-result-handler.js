@@ -226,10 +226,37 @@ class ToolResultHandler {
     }
 
     console.log('[ToolResultHandler] Sending request with', chatMessages.length, 'messages');
+    
+    // 使用适配器构建端点（如果可用）
+    let apiEndpoint = settings.apiEndpoint;
+    if (settings.apiStandard && window.ProviderAdapter) {
+      try {
+        const adapter = new window.ProviderAdapter();
+        adapter.selectTemplate(settings.apiStandard);
+        adapter.configure({
+          endpoint: settings.apiEndpoint,
+          apiKey: settings.apiKey,
+          defaultModel: settings.model
+        });
+        
+        apiEndpoint = adapter.buildUrl(
+          settings.apiEndpoint,
+          adapter.currentAdapter.defaults.chatPath
+        );
+        
+        console.log('[ToolResultHandler] Using adapter:', settings.apiStandard, 'Endpoint:', apiEndpoint);
+      } catch (e) {
+        console.warn('[ToolResultHandler] Adapter failed, using normalized endpoint:', e);
+        apiEndpoint = this.normalizeEndpoint(settings.apiEndpoint);
+      }
+    } else {
+      apiEndpoint = this.normalizeEndpoint(settings.apiEndpoint);
+    }
+    
     port.postMessage({
       messages: chatMessages,
       apiKey: settings.apiKey,
-      apiEndpoint: this.normalizeEndpoint(settings.apiEndpoint),
+      apiEndpoint: apiEndpoint,
       model: settings.model,
       temperature: settings.temperature || 0.7,
       maxTokens: settings.maxTokens || 2000,

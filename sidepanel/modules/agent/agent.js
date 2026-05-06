@@ -3,16 +3,30 @@ class Agent {
   constructor() {
     this.providers = new Map();
     this.currentProvider = null;
+    
+    // 初始化 ProviderAdapter
+    this.adapter = new window.ProviderAdapter();
   }
 
   // 注册提供商
   registerProvider(name, config) {
+    // 如果指定了 adapterType，使用适配器
+    if (config.adapterType) {
+      this.adapter.selectTemplate(config.adapterType);
+      this.adapter.configure({
+        endpoint: config.endpoint,
+        apiKey: config.apiKey,
+        defaultModel: config.defaultModel
+      });
+    }
+    
     this.providers.set(name, {
       name,
       endpoint: config.endpoint,
       apiKey: config.apiKey,
       models: config.models || [],
       defaultModel: config.defaultModel,
+      adapterType: config.adapterType, // 保存适配器类型
       supportsStreaming: config.supportsStreaming !== false,
       // 不再使用静态配置，改为动态检测
       get supportsVision() {
@@ -38,6 +52,55 @@ class Agent {
     this.currentProvider = provider;
   }
 
+  // 使用适配器发送请求
+  async invokeWithAdapter(messages, options) {
+    const { model, stream, temperature, maxTokens, tools, toolChoice } = options;
+    
+    // 构建 URL
+    const endpoint = this.adapter.buildUrl(
+      this.currentProvider.endpoint,
+      this.adapter.currentAdapter.defaults.chatPath
+    );
+    
+    // 格式化消息
+    const formattedMessages = this.adapter.formatMessages(messages);
+    
+    // 构建请求体
+    const requestBody = this.adapter.buildRequestBody({
+      model,
+      messages: formattedMessages,
+      temperature,
+      stream,
+      maxTokens,
+      tools,
+      toolChoice
+    });
+    
+    // 发送请求
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: this.adapter.buildHeaders(),
+      body: JSON.stringify(requestBody)
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      try {
+        const error = JSON.parse(errorText);
+        throw new Error(error.error?.message || error.message || 'API request failed');
+      } catch (e) {
+        throw new Error(`HTTP ${response.status}: ${errorText.substring(0, 200)}`);
+      }
+    }
+    
+    if (stream) {
+      return this.handleStream(response);
+    } else {
+      const data = await response.json();
+      return this.adapter.parseResponse(data);
+    }
+  }
+
   // 发送聊天请求（标准接口）
   async invoke(messages, options = {}) {
     const { 
@@ -54,6 +117,20 @@ class Agent {
       throw new Error('No provider selected');
     }
 
+    // 如果使用了适配器，通过适配器构建请求
+    if (this.currentProvider.adapterType && this.adapter.config) {
+      return await this.invokeWithAdapter(messages, {
+        model,
+        stream,
+        temperature,
+        maxTokens,
+        tools,
+        toolChoice,
+        responseFormat
+      });
+    }
+
+    // 原有的 OpenAI 兼容方式（向后兼容）
     // 构建完整的 API URL
     let endpoint = this.currentProvider.endpoint;
     if (!endpoint.includes('/chat/completions')) {
@@ -207,6 +284,11 @@ class Agent {
 
   // 解析流式片段
   parseStreamChunk(data) {
+    // 如果使用了适配器，通过适配器解析
+    if (this.currentProvider?.adapterType && this.adapter.config) {
+      return this.adapter.parseStreamChunk(data);
+    }
+    
     const choice = data.choices[0];
     if (!choice || !choice.delta) return null;
     
