@@ -98,7 +98,15 @@ class StreamMessageHandler {
    * 处理工具调用
    */
   handleToolCall(msg, session, callback) {
-    const currentMsg = session.messages[session.messages.length - 1];
+    // 从后往前查找最后一个 assistant 消息
+    let currentMsg = null;
+    for (let i = session.messages.length - 1; i >= 0; i--) {
+      if (session.messages[i].role === 'assistant') {
+        currentMsg = session.messages[i];
+        break;
+      }
+    }
+    
     console.log('[StreamMessageHandler] handleToolCall - currentMsg:', currentMsg?.role, 'tool_calls:', msg.tool_calls?.length);
     
     if (currentMsg && currentMsg.role === 'assistant') {
