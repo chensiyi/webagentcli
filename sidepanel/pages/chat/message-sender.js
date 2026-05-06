@@ -260,7 +260,8 @@ class MessageSender {
               this.streamState
             );
             
-            await toolResultHandler.handleToolResults(sessionId, renderCallback, fullRenderCallback);
+            // 使用 renderCallback 作为 fullRenderCallback
+            await toolResultHandler.handleToolResults(sessionId, renderCallback, renderCallback);
           }
         },
         onError: async (errorMessage, session) => {
