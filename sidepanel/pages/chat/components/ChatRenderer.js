@@ -56,15 +56,20 @@ class ChatRenderer {
     
     if (messages.length === 0) {
       listElement.appendChild(this.create('div', { className: 'empty-state' }, [
-        this.create('div', { className: 'empty-state-icon', text: '💬' }),
+        this.create('div', { className: 'empty-state-icon', text: '' }),
         this.create('div', { className: 'empty-state-title', text: '开始对话' }),
         this.create('div', { className: 'empty-state-desc', text: '输入消息开始聊天' })
       ]));
     } else {
       this.lastMessageElement = null;
       messages.forEach((msg, index) => {
-        // 跳过系统通知、tool消息和内部消息
-        if (msg.isSystemNotice || msg.role === 'tool' || msg.isInternal) {
+        // 跳过系统通知和内部消息（保留tool消息，因为它们会被findToolResults查找）
+        if (msg.isSystemNotice || msg.isInternal) {
+          return;
+        }
+        
+        // tool 消息不单独渲染，它们会作为 assistant 消息的 tool_calls 结果展示
+        if (msg.role === 'tool') {
           return;
         }
         
