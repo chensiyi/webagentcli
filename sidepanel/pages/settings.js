@@ -62,7 +62,7 @@ window.Pages.settings = function(container) {
       const currentEndpoint = endpointInput ? endpointInput.value : settings.apiEndpoint;
       
       console.log('[Settings] Loading models from:', currentEndpoint);
-      await modelManager.fetchModels(settings.apiKey, currentEndpoint);
+      await modelManager.fetchModels(settings.apiKey, currentEndpoint, settings.apiStandard || 'openrouter');
       
       // 加载成功后，验证当前配置的模型是否在列表中
       if (settings.model && modelManager.isLoaded()) {
@@ -596,7 +596,30 @@ window.Pages.settings = function(container) {
     ]));
     
     content.appendChild(create('div', { className: 'setting-group', style: { position: 'relative' } }, [
-      create('label', { className: 'setting-label', text: '模型' }),
+      create('label', { className: 'setting-label', style: { display: 'inline-flex', alignItems: 'center', gap: '6px' } }, [
+        '模型',
+        create('span', {
+          className: 'help-icon',
+          style: {
+            cursor: 'help',
+            fontSize: '14px',
+            color: 'var(--color-text-secondary)',
+            position: 'relative',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: '16px',
+            height: '16px',
+            borderRadius: '50%',
+            border: '1px solid var(--color-border)',
+            fontWeight: 'bold'
+          },
+          text: '?',
+          attrs: {
+            title: '选择 API 标准后点击“加载模型”按钮从 API 获取可用模型列表\n\n支持的 API 标准：\n• OpenAI: https://api.openai.com/v1\n• LM Studio: http://localhost:1234/v1\n• Ollama: http://localhost:11434\n• OpenRouter: https://openrouter.ai/api/v1\n• Anthropic: https://api.anthropic.com/v1\n\n加载后可搜索和选择模型'
+          }
+        })
+      ]),
       // 隐藏的原始select，用于保存真实选择
       create('select', {
         className: 'hidden-select',

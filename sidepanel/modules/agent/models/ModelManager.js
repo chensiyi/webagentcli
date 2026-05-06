@@ -19,7 +19,7 @@
     /**
      * 从 API 获取模型列表
      */
-    async fetchModels(apiKey, apiEndpoint) {
+    async fetchModels(apiKey, apiEndpoint, apiStandard = 'openrouter') {
       // 优先从本地存储加载缓存
       const cached = this.loadFromStorage(apiEndpoint);
       if (cached && !this.isCacheExpired()) {
@@ -32,60 +32,57 @@
       
       // 记录当前 API 端点
       this.currentApiEndpoint = apiEndpoint;
+      this.currentApiStandard = apiStandard;
       
       try {
-        // 构建 models API URL - 先尝试标准路径
-        let modelsEndpoint = apiEndpoint.replace(/\/$/, '') + '/v1/models';
+        // 使用 AdapterManager 拉取模型列表
+        let modelData = [];
         
-        // 构建请求头（API Key 可选）
-        const headers = {};
-        if (apiKey) {
-          headers['Authorization'] = `Bearer ${apiKey}`;
+        if (window.AdapterManager) {
+          // 选择对应的适配器
+          window.AdapterManager.select(apiStandard);
+          modelData = await window.AdapterManager.fetchModels(apiEndpoint, apiKey);
+        } else {
+          // 回退到原有的实现（向后兼容）
+          modelData = await this.fetchModelsWithFallback(apiEndpoint, apiKey);
         }
         
-        let response = await fetch(modelsEndpoint, {
-          method: 'GET',
-          headers
-        });
-        
-        // 如果标准路径失败，尝试 /api/v1/models
-        if (!response.ok && modelsEndpoint.includes('/v1/models')) {
-          modelsEndpoint = apiEndpoint.replace(/\/$/, '') + '/api/v1/models';
-          console.log('[ModelManager] Retrying with alternative endpoint:', modelsEndpoint);
-          response = await fetch(modelsEndpoint, {
-            method: 'GET',
-            headers
-          });
-        }
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`HTTP ${response.status}: ${errorText.substring(0, 200)}`);
-        }
-        
-        const result = await response.json();
-        console.log('[ModelManager] API response:', result);
-        
-        // 提取模型列表和详细信息
-        if (result.data && Array.isArray(result.data)) {
-          this.models = result.data.map(m => m.id);
+        // 处理适配器返回的完整模型数据
+        if (modelData && Array.isArray(modelData)) {
+          // 提取模型 ID 列表
+          this.models = modelData.map(m => m.id || m);
           
           // 保存每个模型的详细信息
-          result.data.forEach(model => {
-            this.modelDetails[model.id] = {
-              id: model.id,
-              name: model.name || model.id,
-              canonical_slug: model.canonical_slug,
-              description: model.description,
-              context_length: model.context_length,
-              architecture: model.architecture,
-              pricing: model.pricing,
-              top_provider: model.top_provider,
-              supported_parameters: model.supported_parameters || [],
-              created: model.created,
-              input_modalities: model.architecture?.input_modalities || [],
-              output_modalities: model.architecture?.output_modalities || []
-            };
+          modelData.forEach(model => {
+            const modelId = model.id || model;
+            
+            // 如果 model 是字符串（只有 ID），创建基本结构
+            if (typeof model === 'string') {
+              this.modelDetails[modelId] = {
+                id: modelId,
+                name: modelId,
+                context_length: null,
+                pricing: null
+              };
+            } else {
+              // 保存完整的模型信息
+              this.modelDetails[modelId] = {
+                id: model.id,
+                name: model.name || model.id,
+                canonical_slug: model.canonical_slug,
+                description: model.description,
+                context_length: model.context_length,
+                architecture: model.architecture,
+                pricing: model.pricing,
+                top_provider: model.top_provider,
+                supported_parameters: model.supported_parameters || [],
+                created: model.created,
+                input_modalities: model.architecture?.input_modalities || [],
+                output_modalities: model.architecture?.output_modalities || [],
+                // 保存原始数据
+                _raw: model
+              };
+            }
           });
         }
         
@@ -108,6 +105,70 @@
         console.error('[ModelManager] Fetch error:', error);
         throw error;
       }
+    }
+    
+    /**
+     * 回退实现：直接调用 API（向后兼容）
+     */
+    async fetchModelsWithFallback(apiEndpoint, apiKey) {
+      // 构建 models API URL - 先尝试标准路径
+      let modelsEndpoint = apiEndpoint.replace(/\/$/, '') + '/v1/models';
+      
+      // 构建请求头（API Key 可选）
+      const headers = {};
+      if (apiKey) {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+      }
+      
+      let response = await fetch(modelsEndpoint, {
+        method: 'GET',
+        headers
+      });
+      
+      // 如果标准路径失败，尝试 /api/v1/models
+      if (!response.ok && modelsEndpoint.includes('/v1/models')) {
+        modelsEndpoint = apiEndpoint.replace(/\/$/, '') + '/api/v1/models';
+        console.log('[ModelManager] Retrying with alternative endpoint:', modelsEndpoint);
+        response = await fetch(modelsEndpoint, {
+          method: 'GET',
+          headers
+        });
+      }
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText.substring(0, 200)}`);
+      }
+      
+      const result = await response.json();
+      console.log('[ModelManager] API response:', result);
+      
+      // 提取模型列表和详细信息
+      if (result.data && Array.isArray(result.data)) {
+        this.models = result.data.map(m => m.id);
+        
+        // 保存每个模型的详细信息
+        result.data.forEach(model => {
+          this.modelDetails[model.id] = {
+            id: model.id,
+            name: model.name || model.id,
+            canonical_slug: model.canonical_slug,
+            description: model.description,
+            context_length: model.context_length,
+            architecture: model.architecture,
+            pricing: model.pricing,
+            top_provider: model.top_provider,
+            supported_parameters: model.supported_parameters || [],
+            created: model.created,
+            input_modalities: model.architecture?.input_modalities || [],
+            output_modalities: model.architecture?.output_modalities || []
+          };
+        });
+        
+        return this.models;
+      }
+      
+      return [];
     }
     
     /**

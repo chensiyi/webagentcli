@@ -59,7 +59,15 @@
   <script src="modules/agent/multimodal/AudioHandler.js"></script>
   <script src="modules/agent/multimodal/VideoHandler.js"></script>
   <script src="modules/agent/multimodal/MediaManager.js"></script>
-  <script src="modules/agent/adapters/ProviderAdapter.js"></script>
+  
+  <!-- API Adapters (每个适配器独立文件夹) -->
+  <script src="modules/agent/adapters/openai/OpenAIAdapter.js"></script>
+  <script src="modules/agent/adapters/lm-studio/LMStudioAdapter.js"></script>
+  <script src="modules/agent/adapters/ollama/OllamaAdapter.js"></script>
+  <script src="modules/agent/adapters/openrouter/OpenRouterAdapter.js"></script>
+  <script src="modules/agent/adapters/anthropic/AnthropicAdapter.js"></script>
+  <script src="modules/agent/adapters/AdapterManager.js"></script>
+  
   <script src="modules/agent/InputController.js"></script>
   <script src="modules/agent/SessionManager.js"></script>
   <script src="modules/agent/agent.js"></script>

@@ -4,16 +4,16 @@ class Agent {
     this.providers = new Map();
     this.currentProvider = null;
     
-    // 初始化 ProviderAdapter
-    this.adapter = new window.ProviderAdapter();
+    // 使用全局的 AdapterManager（如果存在）
+    this.adapterManager = window.AdapterManager || null;
   }
 
   // 注册提供商
   registerProvider(name, config) {
-    // 如果指定了 adapterType，使用适配器
-    if (config.adapterType) {
-      this.adapter.selectTemplate(config.adapterType);
-      this.adapter.configure({
+    // 如果指定了 adapterType，使用 AdapterManager
+    if (config.adapterType && this.adapterManager) {
+      this.adapterManager.select(config.adapterType);
+      this.adapterManager.configure({
         endpoint: config.endpoint,
         apiKey: config.apiKey,
         defaultModel: config.defaultModel
@@ -56,17 +56,21 @@ class Agent {
   async invokeWithAdapter(messages, options) {
     const { model, stream, temperature, maxTokens, tools, toolChoice } = options;
     
+    if (!this.adapterManager) {
+      throw new Error('AdapterManager not available');
+    }
+    
+    // 获取当前适配器
+    const adapter = this.adapterManager.getCurrentAdapter();
+    
     // 构建 URL
-    const endpoint = this.adapter.buildUrl(
-      this.currentProvider.endpoint,
-      this.adapter.currentAdapter.defaults.chatPath
-    );
+    const endpoint = adapter.buildUrl('/chat/completions');
     
     // 格式化消息
-    const formattedMessages = this.adapter.formatMessages(messages);
+    const formattedMessages = adapter.formatMessages(messages);
     
     // 构建请求体
-    const requestBody = this.adapter.buildRequestBody({
+    const requestBody = adapter.buildRequestBody({
       model,
       messages: formattedMessages,
       temperature,
@@ -79,7 +83,7 @@ class Agent {
     // 发送请求
     const response = await fetch(endpoint, {
       method: 'POST',
-      headers: this.adapter.buildHeaders(),
+      headers: adapter.buildHeaders(),
       body: JSON.stringify(requestBody)
     });
     
@@ -94,10 +98,10 @@ class Agent {
     }
     
     if (stream) {
-      return this.handleStream(response);
+      return this.handleStream(response, adapter);
     } else {
       const data = await response.json();
-      return this.adapter.parseResponse(data);
+      return adapter.parseResponse(data);
     }
   }
 
@@ -118,7 +122,7 @@ class Agent {
     }
 
     // 如果使用了适配器，通过适配器构建请求
-    if (this.currentProvider.adapterType && this.adapter.config) {
+    if (this.currentProvider.adapterType && this.adapterManager) {
       return await this.invokeWithAdapter(messages, {
         model,
         stream,
@@ -189,7 +193,7 @@ class Agent {
   }
 
   // 处理流式响应
-  async *handleStream(response) {
+  async *handleStream(response, adapter = null) {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -209,7 +213,15 @@ class Agent {
         if (trimmed.startsWith('data: ')) {
           try {
             const data = JSON.parse(trimmed.slice(6));
-            const chunk = this.parseStreamChunk(data);
+            
+            // 如果提供了适配器，使用适配器解析
+            let chunk;
+            if (adapter) {
+              chunk = adapter.parseStreamChunk(data);
+            } else {
+              chunk = this.parseStreamChunk(data);
+            }
+            
             if (chunk) {
               yield chunk;
             }
@@ -285,8 +297,9 @@ class Agent {
   // 解析流式片段
   parseStreamChunk(data) {
     // 如果使用了适配器，通过适配器解析
-    if (this.currentProvider?.adapterType && this.adapter.config) {
-      return this.adapter.parseStreamChunk(data);
+    if (this.currentProvider?.adapterType && this.adapterManager) {
+      const adapter = this.adapterManager.getCurrentAdapter();
+      return adapter.parseStreamChunk(data);
     }
     
     const choice = data.choices[0];
