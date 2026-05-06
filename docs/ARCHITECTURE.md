@@ -359,13 +359,20 @@ formatMessages(messages) {
 
 **缓存策略**:
 ```javascript
-// localStorage 缓存
-const cacheKey = `models_${apiEndpoint}`;
-const cached = localStorage.getItem(cacheKey);
-const cacheTime = localStorage.getItem(`${cacheKey}_time`);
+// chrome.storage.local 缓存（非 localStorage）
+const cacheData = {
+  apiEndpoint: this.currentApiEndpoint,
+  models: this.models,
+  modelDetails: this.modelDetails,
+  capabilities: this.capabilities,
+  timestamp: Date.now()
+};
 
-if (cached && Date.now() - cacheTime < 5 * 60 * 1000) {
-  return JSON.parse(cached); // 5分钟内使用缓存
+chrome.storage.local.set({ [this.storageKey]: cacheData });
+
+// 加载时检查缓存（24小时有效期）
+if (cached && Date.now() - cached.timestamp < 24 * 60 * 60 * 1000) {
+  return cached; // 24小时内使用缓存
 }
 ```
 
@@ -569,22 +576,26 @@ ProviderAdapter (统一接口)
 
 ### 7.2 单例模式 (Singleton Pattern)
 
-**应用**: TerminalManager
+**应用**: SessionManager、ModelManager、AdapterManager 等全局管理器
 
 ```javascript
-class TerminalManager {
-  static getInstance() {
-    if (!TerminalManager.instance) {
-      TerminalManager.instance = new TerminalManager();
-    }
-    return TerminalManager.instance;
+// 在文件末尾创建全局单例
+(function() {
+  'use strict';
+  
+  class SessionManager {
+    // ... 实现
   }
-}
+  
+  // 全局单例
+  window.SessionManager = new SessionManager();
+})();
 ```
 
 **优势**:
-- 全局唯一的终端实例
-- 避免重复创建终端进程
+- 全局唯一实例，避免重复创建
+- 通过 IIFE 封装，避免污染全局命名空间
+- 所有模块共享同一状态
 
 ---
 
@@ -607,21 +618,42 @@ port.onDisconnect.addListener(() => {
 
 ### 7.4 策略模式 (Strategy Pattern)
 
-**应用**: 不同渲染器
+**应用**: 消息渲染器系统
 
-```
-BaseRenderer
-  ├─ TextRenderer
-  ├─ ImageRenderer
-  ├─ AudioRenderer
-  ├─ VideoRenderer
-  ├─ FileRenderer
-  └─ ChatMessageRenderer
+虽然各个渲染器没有统一的基类，但通过约定俗成的接口实现了策略模式：
+
+```javascript
+// TextRenderer.js
+class TextRenderer {
+  render(text) { /* 渲染逻辑 */ }
+  update(text, container) { /* 增量更新 */ }
+}
+
+// ImageRenderer.js
+class ImageRenderer {
+  render(message) { /* 渲染逻辑 */ }
+}
+
+// 在 ChatMessageRenderer 中注册和使用
+this.renderers = [
+  new TextRenderer(),
+  new ImageRenderer(),
+  new AudioRenderer(),
+  // ...
+];
+
+// 选择合适的渲染器
+for (const renderer of this.renderers) {
+  if (renderer.canRender?.(message) || matchesMessageType(message)) {
+    return renderer.render(message);
+  }
+}
 ```
 
 **优势**:
 - 新增媒体类型只需添加新渲染器
-- 每个渲染器职责单一
+- 每个渲染器职责单一，易于维护
+- 运行时动态选择渲染策略
 
 ---
 
