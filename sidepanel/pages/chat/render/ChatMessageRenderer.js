@@ -237,7 +237,11 @@ class ChatMessageRenderer {
     const resultSection = create('details', {
       className: 'tool-call-result'
     });
-    resultSection.removeAttribute('open');
+    
+    // 如果有结果，默认展开显示
+    if (resultData && resultData.tool_result) {
+      resultSection.setAttribute('open', '');
+    }
     
     const summary = create('summary', {
       className: `tool-call-result summary ${isSuccess ? 'success' : 'error'}`,
