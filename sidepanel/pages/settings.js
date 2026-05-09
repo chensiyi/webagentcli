@@ -71,7 +71,7 @@ window.Pages.settings = function(container) {
         const modelExists = allModels.find(m => m === settings.model);
         
         if (!modelExists) {
-          // 模型不存在，标红提示
+          // 模型不存在，通过Toast提示用户
           window.Toast.warning(`当前配置的模型 "${settings.model}" 不在模型列表中，请重新选择`);
         }
       }

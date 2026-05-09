@@ -146,8 +146,8 @@ class LMStudioAdapter {
       const result = await response.json();
       
       if (result.data && Array.isArray(result.data)) {
-        // 返回完整的模型数据
-        return result.data;
+        // 为 LM Studio 模型添加默认的详细信息
+        return result.data.map(model => this.enrichModelData(model));
       }
       
       return [];
@@ -155,6 +155,61 @@ class LMStudioAdapter {
       console.error('[LMStudioAdapter] Failed to fetch models:', error);
       throw error;
     }
+  }
+
+  /**
+   * 为 LM Studio 模型添加默认的详细信息
+   * LM Studio API 返回的信息有限，我们需要补充一些合理的默认值
+   */
+  enrichModelData(model) {
+    const modelId = model.id || model;
+    const lowerName = modelId.toLowerCase();
+    
+    // 根据模型名称推断上下文长度
+    let contextLength = 8192; // 默认值
+    if (lowerName.includes('gemma')) {
+      contextLength = 8192;
+    } else if (lowerName.includes('llama') || lowerName.includes('llava')) {
+      contextLength = 4096;
+    } else if (lowerName.includes('mistral')) {
+      contextLength = 32768;
+    } else if (lowerName.includes('qwen')) {
+      contextLength = 32768;
+    } else if (lowerName.includes('glm')) {
+      contextLength = 32768;
+    }
+    
+    // 检测输入模态
+    const inputModalities = ['text'];
+    if (lowerName.includes('vision') || lowerName.includes('llava') || lowerName.includes('vl')) {
+      inputModalities.push('image');
+    }
+    
+    // 检测是否支持工具调用
+    const supportedParameters = ['temperature', 'max_tokens', 'top_p', 'frequency_penalty', 'presence_penalty'];
+    if (!lowerName.includes('embedding')) {
+      supportedParameters.push('tools', 'tool_choice');
+    }
+    
+    // 构建增强的模型信息
+    return {
+      id: modelId,
+      object: model.object || 'model',
+      owned_by: model.owned_by || 'local',
+      name: model.name || modelId,
+      context_length: contextLength,
+      pricing: null, // 本地模型免费
+      architecture: {
+        input_modalities: inputModalities,
+        output_modalities: ['text'],
+        modality: 'chat' // 假设都是聊天模型
+      },
+      supported_parameters: supportedParameters,
+      description: `Local model: ${modelId}`,
+      created: model.created || Date.now(),
+      // 保存原始数据
+      _raw: model
+    };
   }
 
   /**
