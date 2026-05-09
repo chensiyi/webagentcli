@@ -105,7 +105,12 @@ window.Pages.chat = async function(container) {
     
     // 检测 panel 切换后恢复
     if (session && isActive && !session.port) {
-      console.log('[Chat] Detected interrupted stream');
+      console.log('[Chat] Detected interrupted stream, restoring state');
+      
+      // 恢复 ChatStreamState 的状态
+      streamState.isStreaming = true;
+      streamState.updateButton(true);
+      
       const hasInterruptedNotice = messages.some(m => 
         m.role === 'system' && m.content?.includes('正在生成回复')
       );

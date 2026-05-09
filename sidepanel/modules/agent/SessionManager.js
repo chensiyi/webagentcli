@@ -612,6 +612,46 @@
       
       return false;
     }
+    
+    /**
+     * 获取会话的流式状态信息（用于 panel 切换后恢复）
+     * 
+     * @param {string} sessionId - 会话 ID
+     * @returns {Object|null} 流式状态对象，包含：
+     *   - hasActiveStream: 是否有活跃的流式请求
+     *   - lastMessageRole: 最后一条消息的角色
+     *   - lastMessageHasContent: 最后一条消息是否有内容
+     *   - lastMessageHasToolCalls: 最后一条消息是否有工具调用
+     */
+    getStreamState(sessionId) {
+      const session = this.sessions[sessionId];
+      if (!session) return null;
+      
+      const isActive = this.isSessionActive(sessionId);
+      
+      let lastMessageInfo = null;
+      if (session.messages.length > 0) {
+        const lastMsg = session.messages[session.messages.length - 1];
+        lastMessageInfo = {
+          role: lastMsg.role,
+          hasContent: lastMsg.content && (
+            typeof lastMsg.content === 'string' ? lastMsg.content.trim() :
+            Array.isArray(lastMsg.content) ? lastMsg.content.length > 0 :
+            false
+          ),
+          hasToolCalls: lastMsg.tool_calls && lastMsg.tool_calls.length > 0,
+          hasReasoning: lastMsg.additional_kwargs?.reasoning_content
+        };
+      }
+      
+      return {
+        sessionId,
+        isActive,
+        hasPort: !!session.port,
+        isLoading: session.isLoading,
+        lastMessage: lastMessageInfo
+      };
+    }
   }
   
   // 全局单例
