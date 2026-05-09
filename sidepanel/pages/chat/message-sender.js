@@ -214,7 +214,8 @@ class MessageSender {
           this.renderIfNeeded(sessionId, renderCallback);
         },
         onReasoning: (currentMsg, session) => {
-          this.renderIfNeeded(sessionId, renderCallback);
+          // 思考内容增量更新，只更新思考气泡，不重绘整个页面
+          this.updateReasoningBubble(currentMsg);
         },
         onToolCall: (currentMsg, session) => {
           // 收到 tool_calls 时立即渲染
@@ -307,6 +308,10 @@ class MessageSender {
   prepareMessages(session, settings) {
     let chatMessages = [...session.messages];
 
+    // 过滤掉临时系统通知（isSystemNotice）和 tool 消息
+    // tool 消息会由工具执行器在正确的时机插入
+    chatMessages = chatMessages.filter(msg => !msg.isSystemNotice && msg.role !== 'tool');
+
     // 清理消息
     chatMessages = chatMessages.map(msg => {
       const cleanMsg = { role: msg.role };
@@ -393,6 +398,23 @@ class MessageSender {
     const currentSession = this.sessionManager.getCurrentSession();
     if (currentSession && currentSession.id === sessionId && renderCallback) {
       renderCallback();
+    }
+  }
+
+  /**
+   * 增量更新思考气泡（不重绘整个页面）
+   * @param {Object} message - 消息对象
+   */
+  updateReasoningBubble(message) {
+    if (!message || !message.id) return;
+    
+    console.log('[MessageSender] updateReasoningBubble called for message:', message.id);
+    
+    // 调用全局的 updateMessageById 函数进行精确更新
+    if (window.updateMessageById) {
+      window.updateMessageById(message.id);
+    } else {
+      console.warn('[MessageSender] updateMessageById not available');
     }
   }
 }

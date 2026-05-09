@@ -111,17 +111,8 @@ window.Pages.chat = async function(container) {
       streamState.isStreaming = true;
       streamState.updateButton(true);
       
-      const hasInterruptedNotice = messages.some(m => 
-        m.role === 'system' && m.content?.includes('正在生成回复')
-      );
-      
-      if (!hasInterruptedNotice) {
-        session.messages.push({
-          role: 'system',
-          content: '⏳ 正在生成回复...（后台仍在运行）',
-          isSystemNotice: true
-        });
-      }
+      // 临时提示消息不再添加到 session.messages，避免污染历史记录
+      // 仅在 UI 层通过 status banner 显示状态
     }
     
     const page = create('div', { 
@@ -1200,6 +1191,7 @@ window.Pages.chat = async function(container) {
     
     // 更新思考过程
     if (targetMsg.additional_kwargs?.reasoning_content) {
+      console.log('[updateMessageById] Updating thinking container for message:', messageId);
       let thinkingContainer = bubble.querySelector('.thinking-container');
       if (!thinkingContainer) {
         thinkingContainer = document.createElement('div');
@@ -1209,6 +1201,8 @@ window.Pages.chat = async function(container) {
       const renderer = new window.ThinkingMode.ThinkingRenderer();
       thinkingContainer.innerHTML = '';
       thinkingContainer.appendChild(renderer.render(targetMsg.additional_kwargs.reasoning_content));
+    } else {
+      console.log('[updateMessageById] No reasoning_content to update');
     }
   }
   

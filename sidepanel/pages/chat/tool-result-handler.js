@@ -144,6 +144,10 @@ class ToolResultHandler {
         onChunk: (currentMsg, session) => {
           if (renderCallback) renderCallback();
         },
+        onReasoning: (currentMsg, session) => {
+          // 思考内容增量更新，只更新思考气泡，不重绘整个页面
+          this.updateReasoningBubble(currentMsg);
+        },
         onToolCall: (currentMsg, session) => {
           if (renderCallback) renderCallback();
         },
@@ -253,6 +257,19 @@ class ToolResultHandler {
       return endpoint.replace(/\/$/, '') + '/chat/completions';
     }
     return endpoint;
+  }
+
+  /**
+   * 增量更新思考气泡（不重绘整个页面）
+   * @param {Object} message - 消息对象
+   */
+  updateReasoningBubble(message) {
+    if (!message || !message.id) return;
+    
+    // 调用全局的 updateMessageById 函数进行精确更新
+    if (window.updateMessageById) {
+      window.updateMessageById(message.id);
+    }
   }
 }
 

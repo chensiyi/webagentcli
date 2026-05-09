@@ -117,7 +117,9 @@ class StreamMessageHandler {
       callback(currentMsg, session);
     }
 
-    this.sessionManager.saveConversations();
+    // 思考过程中不立即保存，避免频繁触发重绘
+    // 会在 chunk 或 complete 时统一保存
+    // this.sessionManager.saveConversations();
   }
 
   /**
