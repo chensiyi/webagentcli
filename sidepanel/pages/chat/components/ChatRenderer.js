@@ -109,9 +109,11 @@ class ChatRenderer {
     // 显示工具调用卡片
     if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
       const toolResults = findToolResults(messages, index);
+      const sessionManager = window.SessionManager;
+      const isActive = session ? sessionManager.isSessionActive(session.id) : false;
       msg.tool_calls.forEach((call, idx) => {
         const result = toolResults[idx];
-        const card = this.messageRenderer.renderToolCallCard(call, idx, result, session.isLoading);
+        const card = this.messageRenderer.renderToolCallCard(call, idx, result, isActive);
         bubble.appendChild(card);
       });
     }
@@ -128,7 +130,6 @@ class ChatRenderer {
     if (hasContent) {
       this.messageRenderer.renderMessageContent(msg.content, bubble);
     }
-    // 有工具调用时不显示加载动画（tool_calls 卡片已经在上面渲染了）
     // 既没有内容也没有工具调用时，才显示加载动画
     else if (!hasToolCalls && msg.role === 'assistant') {
       const loadingDiv = create('div', { 
@@ -155,6 +156,8 @@ class ChatRenderer {
       ]);
       bubble.appendChild(loadingDiv);
     }
+    // 有工具调用但没有文本内容时，不显示加载动画
+    // tool_calls 卡片已经在上方渲染了
     
     // 删除按钮（在所有内容渲染完成后添加）
     const deleteBtn = this.createDeleteButton(index, session);

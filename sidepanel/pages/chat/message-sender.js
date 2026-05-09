@@ -309,10 +309,22 @@ class MessageSender {
 
     // 清理消息
     chatMessages = chatMessages.map(msg => {
-      const cleanMsg = {
-        role: msg.role,
-        content: msg.content
-      };
+      const cleanMsg = { role: msg.role };
+
+      if (msg.role === 'assistant') {
+        cleanMsg.content = msg.content || '';
+        if (msg.tool_calls) {
+          cleanMsg.tool_calls = msg.tool_calls;
+        }
+      } else {
+        cleanMsg.content = msg.content;
+      }
+
+      // tool 消息的标准字段（OpenAI 要求必须包含）
+      if (msg.role === 'tool') {
+        if (msg.tool_call_id) cleanMsg.tool_call_id = msg.tool_call_id;
+        if (msg.name) cleanMsg.name = msg.name;
+      }
 
       if (msg.additional_kwargs) {
         cleanMsg.additional_kwargs = msg.additional_kwargs;

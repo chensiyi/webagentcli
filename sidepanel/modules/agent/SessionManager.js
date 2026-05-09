@@ -350,7 +350,36 @@
       return true;
     }
     
-    // 更新最后一条消息
+    /**
+     * 根据 ID 查找消息
+     * @param {string} sessionId - 会话 ID
+     * @param {string} messageId - 消息 ID
+     * @returns {Object|null} 消息对象或 null
+     */
+    getMessageById(sessionId, messageId) {
+      const session = this.sessions[sessionId];
+      if (!session || !messageId) return null;
+      return session.messages.find(msg => msg.id === messageId) || null;
+    }
+    
+    /**
+     * 根据 ID 更新消息内容
+     * @param {string} sessionId - 会话 ID
+     * @param {string} messageId - 消息 ID
+     * @param {Object} updates - 要更新的字段
+     * @returns {boolean} 是否成功更新
+     */
+    updateMessageById(sessionId, messageId, updates) {
+      const msg = this.getMessageById(sessionId, messageId);
+      if (!msg) return false;
+      
+      Object.assign(msg, updates);
+      const session = this.sessions[sessionId];
+      if (session) session.updatedAt = Date.now();
+      return true;
+    }
+    
+    // 更新最后一条消息（保留兼容）
     updateLastMessage(sessionId, content) {
       const session = this.sessions[sessionId];
       if (!session || session.messages.length === 0) return false;
@@ -552,6 +581,36 @@
       const tools = session.enabledTools || {};
       console.log('[SessionManager] Current session enabled tools:', session.id, tools);
       return tools;
+    }
+    
+    /**
+     * 检查会话是否正在活跃（有活跃的 port 连接或正在执行工具）
+     * 
+     * 这是一个派生状态，通过检查实际的活跃连接来动态计算，
+     * 而不是依赖手动维护的 isLoading 变量。
+     * 
+     * @param {string} sessionId - 会话 ID
+     * @returns {boolean} 是否正在活跃
+     */
+    isSessionActive(sessionId) {
+      const session = this.sessions[sessionId];
+      if (!session) return false;
+      
+      // 如果有活跃的 port 连接，说明正在流式请求中
+      if (session.port) {
+        return true;
+      }
+      
+      // 检查最后一条消息是否是空的 assistant 占位符
+      // （这表示工具执行后正在等待下一轮响应）
+      if (session.messages.length > 0) {
+        const lastMsg = session.messages[session.messages.length - 1];
+        if (lastMsg.role === 'assistant' && !lastMsg.content && !lastMsg.tool_calls) {
+          return true;
+        }
+      }
+      
+      return false;
     }
   }
   

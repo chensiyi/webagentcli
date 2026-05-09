@@ -191,7 +191,10 @@ async function processChunk(trimmed, port, isDisconnected, accumulatedToolCalls)
       if (!isDisconnected) {
         port.postMessage({ 
           type: 'error', 
-          error: chunkData.error.message || JSON.stringify(chunkData.error) 
+          error: chunkData.error.message || JSON.stringify(chunkData.error),
+          code: chunkData.error.code,
+          status: chunkData.error.status,
+          details: chunkData.error
         });
       }
       return;
@@ -264,7 +267,10 @@ async function processChunk(trimmed, port, isDisconnected, accumulatedToolCalls)
         if (!isDisconnected) {
           port.postMessage({ 
             type: 'error', 
-            error: errorData.error?.message || 'API 请求失败' 
+            error: errorData.error?.message || 'API 请求失败',
+            code: errorData.error?.code,
+            status: errorData.error?.status,
+            details: errorData.error
           });
         }
       } catch (parseError) {

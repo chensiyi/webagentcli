@@ -146,9 +146,27 @@ class StreamMessageProcessor {
   async handleError(msg, session, callback) {
     console.error('[StreamMessageProcessor] Error:', msg.error);
 
+    // 构建详细的错误信息
+    const errorDetails = [
+      `❌ API 错误`,
+      '',
+      `错误信息: ${msg.error}`,
+    ];
+
+    // 如果有额外的错误详情，添加到消息中
+    if (msg.code) {
+      errorDetails.push(`错误码: ${msg.code}`);
+    }
+    if (msg.status) {
+      errorDetails.push(`HTTP 状态: ${msg.status}`);
+    }
+    if (msg.stack) {
+      errorDetails.push('', '堆栈跟踪:', msg.stack);
+    }
+
     const errorMessage = {
       role: 'assistant',
-      content: `❌ ${msg.error}`
+      content: errorDetails.join('\n')
     };
 
     this.sessionManager.addMessage(session.id, errorMessage);

@@ -18,7 +18,7 @@ class TerminalManager {
 
       const results = await chrome.scripting.executeScript({
         target: { tabId },
-        func: (scriptCode) => {
+        func: async (scriptCode) => {
           try {
             // 保存原始的 console
             const originalConsoleLog = console.log;
@@ -98,10 +98,10 @@ class TerminalManager {
             const waitForResult = () => {
               return new Promise((resolve) => {
                 const checkResult = () => {
-                  if (window[${resultId}_ready]) {
-                    const resultData = window[${resultId}];
-                    delete window[${resultId}];
-                    delete window[${resultId}_ready];
+                  if (window[resultId + '_ready']) {
+                    const resultData = window[resultId];
+                    delete window[resultId];
+                    delete window[resultId + '_ready'];
                     resolve(resultData);
                   } else {
                     // 轮询检查，最多等待 10 秒
@@ -112,9 +112,9 @@ class TerminalManager {
                 
                 // 超时保护
                 setTimeout(() => {
-                  if (!window[${resultId}_ready]) {
-                    delete window[${resultId}];
-                    delete window[${resultId}_ready];
+                  if (!window[resultId + '_ready']) {
+                    delete window[resultId];
+                    delete window[resultId + '_ready'];
                     resolve({ error: 'Execution timeout (10s)', stack: null });
                   }
                 }, 10000);
@@ -407,4 +407,6 @@ class TerminalManager {
 }
 
 // 导出单例
+console.log('[TerminalManager] Creating instance...');
 window.TerminalManager = new TerminalManager();
+console.log('[TerminalManager] Instance created:', window.TerminalManager);

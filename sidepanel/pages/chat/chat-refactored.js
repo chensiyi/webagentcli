@@ -3,8 +3,36 @@
 
 window.Pages = window.Pages || {};
 
+/**
+ * 确保所有依赖的工具已初始化
+ * 在 chat 页面渲染前调用，确保工具就绪
+ */
+async function ensureToolsInitialized() {
+  const requiredTools = [
+    'TerminalManager',
+    'CodeTool', 
+    'TerminalTool',
+    'SearchTool',
+    'FetchTool',
+    'ToolManager'
+  ];
+  
+  const missingTools = requiredTools.filter(tool => !window[tool]);
+  
+  if (missingTools.length > 0) {
+    console.error('[Chat] Required tools not initialized:', missingTools);
+    throw new Error(`Required tools not initialized: ${missingTools.join(', ')}. Please reload the extension.`);
+  }
+  
+  console.log('[Chat] All required tools are ready');
+}
+
 window.Pages.chat = async function(container) {
   const { create, clear } = window.DOM;
+  
+  // 在渲染聊天页面前，先确保所有依赖的工具已初始化
+  await ensureToolsInitialized();
+  
   const sessionManager = window.SessionManager;
   const chatContext = window.ChatContext;
   const mediaUtils = window.MediaUtils;
@@ -69,12 +97,14 @@ window.Pages.chat = async function(container) {
     
     const session = sessionManager.getCurrentSession();
     const messages = session ? session.messages : [];
-    const isLoading = session ? session.isLoading : false;
     
-    console.log('[Chat] Render called, session:', session?.id, 'messages:', messages.length);
+    // 使用派生状态检查会话是否活跃，而不是依赖 isLoading 变量
+    const isActive = session ? sessionManager.isSessionActive(session.id) : false;
+    
+    console.log('[Chat] Render called, session:', session?.id, 'messages:', messages.length, 'isActive:', isActive);
     
     // 检测 panel 切换后恢复
-    if (session && session.isLoading && !session.port) {
+    if (session && isActive && !session.port) {
       console.log('[Chat] Detected interrupted stream');
       const hasInterruptedNotice = messages.some(m => 
         m.role === 'system' && m.content?.includes('正在生成回复')
@@ -106,11 +136,11 @@ window.Pages.chat = async function(container) {
     }
     
     // 消息列表
-    messageListElement = chatRenderer.createMessageList(messages, session, isLoading, findToolResults);
+    messageListElement = chatRenderer.createMessageList(messages, session, isActive, findToolResults);
     page.appendChild(messageListElement);
     
     // 后台生成状态提示条
-    if (session && session.isLoading && !session.port) {
+    if (session && isActive && !session.port) {
       page.insertBefore(
         createStatusBanner(session),
         messageListElement
@@ -277,9 +307,10 @@ window.Pages.chat = async function(container) {
     if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
       console.log('[Chat] Rendering tool_calls for message', index);
       const toolResults = findToolResults(messages, index);
+      const isActive = session ? sessionManager.isSessionActive(session.id) : false;
       msg.tool_calls.forEach((call, idx) => {
         const result = toolResults[idx];
-        const card = messageRenderer.renderToolCallCard(call, idx, result, session.isLoading);
+        const card = messageRenderer.renderToolCallCard(call, idx, result, isActive);
         bubble.appendChild(card);
       });
     }
@@ -292,10 +323,13 @@ window.Pages.chat = async function(container) {
     );
     const hasToolCalls = msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0;
     
+    // 有内容时渲染内容
     if (hasContent) {
       messageRenderer.renderMessageContent(msg.content, bubble);
-    } else if (msg.role === 'assistant' && !hasToolCalls) {
-      // 只有在没有内容且没有工具调用时才显示加载动画
+    }
+    // 有工具调用但没有内容时，不显示加载动画（tool_calls 卡片已在上面渲染）
+    // 只有在既没有内容也没有工具调用时才显示"思考中..."
+    else if (!hasToolCalls && msg.role === 'assistant') {
       const loadingDiv = create('div', { 
         className: 'message-content loading-content',
         style: {
@@ -441,7 +475,8 @@ window.Pages.chat = async function(container) {
         if (noticeIndex !== -1) {
           session.messages.splice(noticeIndex, 1);
         }
-        session.isLoading = false;
+        // 取消所有活跃的请求
+        sessionManager.cancelRequest(session.id);
         await sessionManager.saveConversations();
         render();
         window.Toast.info('已取消等待');
@@ -907,7 +942,13 @@ window.Pages.chat = async function(container) {
         return;
       }
       
-      if (e.key === 'Enter' && !session?.isLoading) {
+      if (e.key === 'Enter') {
+        // 检查会话是否活跃（有活跃的 port 或正在执行工具）
+        const isActive = session ? sessionManager.isSessionActive(session.id) : false;
+        if (isActive) {
+          return;  // 如果会话活跃，禁止发送新消息
+        }
+        
         const text = input.value.trim();
         const pendingMedia = mediaManager.getPendingMedia();
         
@@ -1146,7 +1187,8 @@ window.Pages.chat = async function(container) {
       
       targetMsg.tool_calls.forEach((call, idx) => {
         const result = toolResults[idx];
-        const card = messageRenderer.renderToolCallCard(call, idx, result, session.isLoading);
+        const isActive = session ? sessionManager.isSessionActive(session.id) : false;
+        const card = messageRenderer.renderToolCallCard(call, idx, result, isActive);
         toolCallsContainer.appendChild(card);
       });
     }
@@ -1175,16 +1217,35 @@ window.Pages.chat = async function(container) {
     if (!session || !messageListElement) return;
     
     const messages = session.messages;
-    const lastMsg = messages[messages.length - 1];
+    // 从后往前找最后一个assistant消息
+    let lastAssistantIndex = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant') {
+        lastAssistantIndex = i;
+        break;
+      }
+    }
     
-    // 只更新assistant消息
-    if (!lastMsg || lastMsg.role !== 'assistant') return;
+    if (lastAssistantIndex === -1) return;
+    const lastMsg = messages[lastAssistantIndex];
     
-    // 查找或创建最后一个气泡
-    let lastBubble = messageListElement.querySelector('.message-bubble.message-assistant:last-child');
+    // 查找对应的assistant气泡（通过索引，不依赖:last-child）
+    const bubbles = messageListElement.querySelectorAll('.message-bubble.message-assistant');
+    let lastBubble = null;
+    let assistantCount = 0;
+    // 重新遍历messages来计算assistant气泡的索引
+    for (let i = 0; i < messages.length; i++) {
+      if (messages[i].role === 'assistant' && !messages[i].isSystemNotice && !messages[i].isInternal && messages[i].role !== 'tool') {
+        if (i === lastAssistantIndex && bubbles[assistantCount]) {
+          lastBubble = bubbles[assistantCount];
+          break;
+        }
+        assistantCount++;
+      }
+    }
     
     if (!lastBubble) {
-      // 如果不存在，需要完整渲染
+      // 如果找不到，需要完整渲染
       render();
       return;
     }
@@ -1239,14 +1300,14 @@ window.Pages.chat = async function(container) {
       toolCallsContainer.innerHTML = '';
       
       // 查找对应的 tool 结果
-      const messages = session.messages;
       const assistantIndex = messages.indexOf(lastMsg);
       const toolResults = findToolResults(messages, assistantIndex);
       
       // 渲染每个工具调用卡片
       lastMsg.tool_calls.forEach((call, idx) => {
         const result = toolResults[idx];
-        const card = messageRenderer.renderToolCallCard(call, idx, result, session.isLoading);
+        const isActive = session ? sessionManager.isSessionActive(session.id) : false;
+        const card = messageRenderer.renderToolCallCard(call, idx, result, isActive);
         toolCallsContainer.appendChild(card);
       });
     }

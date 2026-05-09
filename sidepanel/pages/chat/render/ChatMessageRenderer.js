@@ -448,10 +448,34 @@ class ChatMessageRenderer {
     const errorMessage = errorInfo.error || errorInfo.message || '未知错误';
     const errorType = errorInfo.type || toolCall.type || 'unknown';
     
-    const errorContent = `工具类型: ${errorType}\n错误信息: ${errorMessage}`;
+    // 构建详细错误信息
+    const errorLines = [
+      `工具类型: ${errorType}`,
+      `错误信息: ${errorMessage}`,
+    ];
+    
+    // 如果有堆栈跟踪，添加到详情中
+    if (errorInfo.stack) {
+      errorLines.push('', '堆栈跟踪:', errorInfo.stack);
+    }
+    
+    // 如果有原始错误对象，也显示
+    if (errorInfo.originalError) {
+      try {
+        const originalErrorStr = typeof errorInfo.originalError === 'string' 
+          ? errorInfo.originalError 
+          : JSON.stringify(errorInfo.originalError, null, 2);
+        errorLines.push('', '原始错误:', originalErrorStr);
+      } catch (e) {
+        // 忽略序列化错误
+      }
+    }
+    
+    const errorContent = errorLines.join('\n');
     
     resultContent.style.color = '#dc2626';
     resultContent.style.fontFamily = 'Consolas, Monaco, monospace';
+    resultContent.style.whiteSpace = 'pre-wrap'; // 保留换行和空格
     resultContent.textContent = errorContent;
   }
 }

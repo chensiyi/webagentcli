@@ -87,7 +87,7 @@ return document.querySelector('h1')?.textContent;
   
       const tabId = tabResult.data.id;
       console.log(`[TerminalTool] Target tab: ${tabId} - ${tabResult.data.url}`);
-  
+      
       // 执行代码
       const result = await window.TerminalManager.execute(tabId, actualCode);
   
