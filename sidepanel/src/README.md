@@ -45,14 +45,18 @@ src/
 
 ## 当前进度
 
-- ✅ 核心业务模型定义（Message, Session, ToolCall）
-- ✅ 事件总线实现（EventBus）
-- ✅ 协议适配器接口定义（ProtocolAdapter）
-- ⏳ Model 层管理器（SessionManager, MessageStore）
-- ⏳ 适配器实现迁移
-- ⏳ 控制器层实现
-- ⏳ 并发控制实现
-- ⏳ 视图层实现
+### ✅ 已完成
+- **Layer 1**: 核心业务模型（Message, Session, ToolCall）
+- **Layer 2**: 事件系统（EventBus）
+- **Layer 3**: 协议适配器接口（ProtocolAdapter）
+- **Layer 4**: Model 层管理器（SessionManager, ToolRegistry）
+- **Layer 5**: Adapter 层实现（LMStudioAdapter）
+
+### ⏳ 待实现
+- **Layer 6**: Controller 层（ChatController, ToolController）
+- **Layer 7**: 并发控制（MessageQueue, StreamProcessor）
+- **Layer 8**: View 层（React 组件）
+- **Layer 9**: 其他适配器迁移（OpenAI, Ollama）
 
 ## 使用说明
 
