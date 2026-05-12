@@ -277,7 +277,8 @@ class MessageSender {
       temperature: settings.temperature || 0.7,
       maxTokens: settings.maxTokens || 2000,
       toolsEnabled: toolsEnabled,
-      tools: toolsDefinition
+      tools: toolsDefinition,
+      apiStandard: settings.apiStandard // 传递 API 标准给后端
     });
 
     console.log(`[MessageSender] Chat request started: session=${sessionId}, model=${settings.model}, messages=${chatMessages.length}, toolsEnabled=${toolsEnabled}`);

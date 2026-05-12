@@ -244,7 +244,8 @@ class ToolResultHandler {
       temperature: settings.temperature || 0.7,
       maxTokens: settings.maxTokens || 2000,
       toolsEnabled: true,
-      tools: toolsDefinition
+      tools: toolsDefinition,
+      apiStandard: settings.apiStandard // 传递 API 标准给后端
     });
 
     console.log('[ToolResultHandler] Request sent');

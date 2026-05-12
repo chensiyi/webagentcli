@@ -22,9 +22,9 @@ export function handleStreamPort(port) {
   });
   
   port.onMessage.addListener(async (data) => {
-    const { messages, apiKey, apiEndpoint, model, temperature, maxTokens, toolsEnabled, tools } = data;
+    const { messages, apiKey, apiEndpoint, model, temperature, maxTokens, toolsEnabled, tools, apiStandard } = data;
     
-    console.log('[Background] Stream chat:', model, 'toolsEnabled:', toolsEnabled);
+    console.log('[Background] Stream chat:', model, 'apiStandard:', apiStandard, 'toolsEnabled:', toolsEnabled);
     
     try {
       // 处理消息转换
@@ -35,8 +35,16 @@ export function handleStreamPort(port) {
         console.log('[Background] Message contains images');
       }
       
-      // 构建请求
-      const requestBody = buildRequestBody(processedMessages, model, temperature, maxTokens, tools);
+      // 构建请求 - 根据 API 标准使用不同格式
+      let requestBody;
+      if (apiStandard === 'lm-studio') {
+        // LM Studio 原生 API 格式
+        requestBody = buildLMStudioRequestBody(processedMessages, model, temperature, maxTokens);
+      } else {
+        // OpenAI 兼容格式
+        requestBody = buildRequestBody(processedMessages, model, temperature, maxTokens, tools);
+      }
+      
       const headers = buildHeaders(apiKey);
       
       console.log('[Background] Request body preview:', {
@@ -44,7 +52,8 @@ export function handleStreamPort(port) {
         messagesCount: processedMessages.length,
         toolsEnabled,
         firstMessageRole: processedMessages[0]?.role,
-        lastMessageRole: processedMessages[processedMessages.length - 1]?.role
+        lastMessageRole: processedMessages[processedMessages.length - 1]?.role,
+        requestBodyKeys: Object.keys(requestBody)
       });
       
       // 发送 API 请求
@@ -89,6 +98,22 @@ function processMessages(messages, toolsEnabled) {
   }
   
   return processedMessages;
+}
+
+/**
+ * 构建 LM Studio 原生 API 请求体
+ * 参考: https://lmstudio.ai/docs/developer/rest/chat
+ */
+function buildLMStudioRequestBody(messages, model, temperature, maxTokens) {
+  const requestBody = {
+    model,
+    input: messages, // LM Studio 使用 'input' 而不是 'messages'
+    stream: true,
+    ...(temperature !== undefined && { temperature }),
+    ...(maxTokens && { max_output_tokens: maxTokens }) // LM Studio 使用 'max_output_tokens'
+  };
+  
+  return requestBody;
 }
 
 /**
