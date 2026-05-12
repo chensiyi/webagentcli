@@ -209,10 +209,9 @@ class ToolResultHandler {
 
     console.log('[ToolResultHandler] Sending request with', chatMessages.length, 'messages');
     
-    // 使用适配器构建端点（如果可用）
+    // 使用适配器构建端点
     let apiEndpoint = settings.apiEndpoint;
     
-    // 优先使用 AdapterManager（支持独立适配器）
     if (settings.apiStandard && window.AdapterManager) {
       try {
         window.AdapterManager.select(settings.apiStandard);
@@ -223,42 +222,11 @@ class ToolResultHandler {
         });
         
         const adapter = window.AdapterManager.getCurrentAdapter();
-        
-        // 对于 LM Studio，直接使用适配器构建 URL
-        if (settings.apiStandard === 'lm-studio') {
-          apiEndpoint = adapter.buildUrl('/chat/completions');
-        } else {
-          // 其他适配器使用 ProviderAdapter 兼容方式
-          apiEndpoint = adapter.buildUrl(
-            settings.apiEndpoint,
-            adapter.currentAdapter?.defaults?.chatPath || '/chat/completions'
-          );
-        }
+        apiEndpoint = adapter.buildUrl('/chat/completions');
         
         console.log('[ToolResultHandler] Using adapter:', settings.apiStandard, 'Endpoint:', apiEndpoint);
       } catch (e) {
         console.warn('[ToolResultHandler] Adapter failed, using normalized endpoint:', e);
-        apiEndpoint = this.normalizeEndpoint(settings.apiEndpoint);
-      }
-    } else if (settings.apiStandard && window.ProviderAdapter) {
-      // 回退到 ProviderAdapter
-      try {
-        const adapter = new window.ProviderAdapter();
-        adapter.selectTemplate(settings.apiStandard);
-        adapter.configure({
-          endpoint: settings.apiEndpoint,
-          apiKey: settings.apiKey,
-          defaultModel: settings.model
-        });
-        
-        apiEndpoint = adapter.buildUrl(
-          settings.apiEndpoint,
-          adapter.currentAdapter.defaults.chatPath
-        );
-        
-        console.log('[ToolResultHandler] Using ProviderAdapter:', settings.apiStandard, 'Endpoint:', apiEndpoint);
-      } catch (e) {
-        console.warn('[ToolResultHandler] ProviderAdapter failed, using normalized endpoint:', e);
         apiEndpoint = this.normalizeEndpoint(settings.apiEndpoint);
       }
     } else {
