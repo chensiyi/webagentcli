@@ -210,7 +210,8 @@ class LMStudioAdapter {
    * 为 LM Studio 模型添加详细的元数据
    */
   enrichModelData(model) {
-    const modelId = model.id || model;
+    // 确保 modelId 是字符串
+    const modelId = String(model.id || model);
     const lowerName = modelId.toLowerCase();
     
     // 根据模型名称推断上下文长度
