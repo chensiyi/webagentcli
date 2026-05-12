@@ -4,51 +4,54 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Web Agent Client</title>
+  <!-- Theme CSS (modular by UI element type) -->
   <link rel="stylesheet" href="theme/variables.css">
   <link rel="stylesheet" href="theme/utilities.css">
   <link rel="stylesheet" href="theme/layout.css">
   <link rel="stylesheet" href="theme/buttons.css">
   <link rel="stylesheet" href="theme/forms.css">
   <link rel="stylesheet" href="theme/cards.css">
+  <link rel="stylesheet" href="theme/badges.css">
+  <link rel="stylesheet" href="theme/dialogs.css">
   <link rel="stylesheet" href="theme/tooltips.css">
+  <link rel="stylesheet" href="theme/markdown.css">
+  <link rel="stylesheet" href="theme/chat-components.css">
+  <link rel="stylesheet" href="theme/search-results.css">
+  <link rel="stylesheet" href="theme/settings-ui.css">
   <link rel="stylesheet" href="theme/animations.css">
-  <style>
-    /* iframe 样式 */
-    #page-frame {
-      width: 100%;
-      height: 100%;
-      border: none;
-      display: block;
-    }
-  </style>
 </head>
 <body>
-  <div class="app-container">
-    <!-- 主内容区域 -->
-    <div class="main-content">
-      <iframe id="page-frame" src="pages/chat.html"></iframe>
-    </div>
-    
-    <!-- 侧边栏导航 -->
-    <nav class="sidebar">
-      <button class="sidebar-btn active" data-page="chat.html" data-tooltip="对话">
-        <span class="sidebar-btn-icon">💬</span>
-      </button>
-      <button class="sidebar-btn" data-page="scripts.html" data-tooltip="脚本">
-        <span class="sidebar-btn-icon">📜</span>
-      </button>
-      <button class="sidebar-btn" data-page="history.html" data-tooltip="历史">
-        <span class="sidebar-btn-icon">📋</span>
-      </button>
-      <button class="sidebar-btn" data-page="storage.html" data-tooltip="存储">
-        <span class="sidebar-btn-icon">💾</span>
-      </button>
-      <button class="sidebar-btn" data-page="settings.html" data-tooltip="设置">
-        <span class="sidebar-btn-icon">⚙️</span>
-      </button>
-    </nav>
-  </div>
+  <div id="root"></div>
   
-  <script src="sidepanel.js"></script>
+  <!-- DOM Utils -->
+  <script src="pages/dom.js"></script>
+  
+  <!-- Utils -->
+  <script src="utils/markdown.js"></script>
+  <script src="utils/media.js"></script>
+  <script src="utils/time.js"></script>
+  <script src="utils/toast.js"></script>
+  <script src="utils/confirm.js"></script>
+  <script src="utils/tooltip.js"></script>
+  <script src="utils/messageTypes.js"></script>
+  <script src="utils/thinkingMode.js"></script>
+  <script src="utils/ragCodeExtension.js"></script>
+  
+  <!-- Core: Models -->
+  <script src="core/models/MessageModels.js"></script>
+  
+  <!-- Core: API -->
+  <script src="core/api/BaseAdapter.js"></script>
+  <script src="core/api/adapters/openai/OpenAIAdapter.js"></script>
+  <script src="core/api/adapters/lm-studio/LMStudioAdapter.js"></script>
+  <script src="core/api/adapters/ollama/OllamaAdapter.js"></script>
+  <script src="core/api/adapters/openrouter/OpenRouterAdapter.js"></script>
+  <script src="core/api/adapters/anthropic/AnthropicAdapter.js"></script>
+  <script src="core/api/AdapterManager.js"></script>
+  
+  <!-- Pages -->
+  
+  <!-- App -->
+  <script src="app.js"></script>
 </body>
 </html>

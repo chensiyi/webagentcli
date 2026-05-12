@@ -1,0 +1,1346 @@
+// 聊天页面 - 重构版本
+// 采用模块化架构，将功能拆分到独立模块
+
+window.Pages = window.Pages || {};
+
+/**
+ * 确保所有依赖的工具已初始化
+ * 在 chat 页面渲染前调用，确保工具就绪
+ */
+async function ensureToolsInitialized() {
+  const requiredTools = [
+    'TerminalManager',
+    'CodeTool', 
+    'TerminalTool',
+    'SearchTool',
+    'FetchTool',
+    'ToolManager'
+  ];
+  
+  const missingTools = requiredTools.filter(tool => !window[tool]);
+  
+  if (missingTools.length > 0) {
+    console.error('[Chat] Required tools not initialized:', missingTools);
+    throw new Error(`Required tools not initialized: ${missingTools.join(', ')}. Please reload the extension.`);
+  }
+  
+  console.log('[Chat] All required tools are ready');
+}
+
+window.Pages.chat = async function(container) {
+  const { create, clear } = window.DOM;
+  
+  // 在渲染聊天页面前，先确保所有依赖的工具已初始化
+  await ensureToolsInitialized();
+  
+  const sessionManager = window.SessionManager;
+  const chatContext = window.ChatContext;
+  const mediaUtils = window.MediaUtils;
+  const modelManager = window.ModelManager;
+  const toolManager = window.ToolManager;
+  
+  // 在创建 InputController 之前，先恢复保存的模型详细信息
+  // 这样可以确保 ModelManager 有能力信息
+  try {
+    const result = await new Promise((resolve) => {
+      chrome.storage.local.get(['modelDetails'], resolve);
+    });
+    
+    if (result.modelDetails && modelManager) {
+      modelManager.restoreModelDetails(result.modelDetails);
+      console.log('[Chat] Restored model details before InputController initialization');
+    }
+  } catch (error) {
+    console.warn('[Chat] Failed to restore model details:', error);
+  }
+  
+  // 创建输入控制器
+  const inputController = new window.InputController(modelManager);
+  
+  // 将实例暴露到全局，以便SettingsStorage可以更新它
+  window.InputControllerInstance = inputController;
+  
+  // 创建多媒体管理器
+  const mediaManager = new window.MediaManager();
+  
+  // 创建消息渲染器实例
+  const messageRenderer = new window.ChatMessageRenderer();
+  
+  // 创建聊天渲染器实例
+  const chatRenderer = new window.ChatRenderer(create, messageRenderer);
+  
+  // 导入新模块
+  const streamState = window.ChatStreamState;
+  const MessageSenderClass = window.MessageSender;
+  
+  let messageListElement = null;
+  let lastMessageElement = null;
+  // pendingImages 已废弃，改用 mediaManager.getPendingMedia()
+  let currentSettings = null;
+  
+  // 创建消息发送器实例
+  const messageSender = new MessageSenderClass(
+    sessionManager,
+    toolManager,
+    chatContext,
+    streamState
+  );
+  
+  /**
+   * 渲染聊天页面
+   */
+  async function render() {
+    // 初始化输入控制器
+    await inputController.initialize();
+    
+    clear(container);
+    
+    const session = sessionManager.getCurrentSession();
+    const messages = session ? session.messages : [];
+    
+    // 使用派生状态检查会话是否活跃，而不是依赖 isLoading 变量
+    const isActive = session ? sessionManager.isSessionActive(session.id) : false;
+    
+    console.log('[Chat] Render called, session:', session?.id, 'messages:', messages.length, 'isActive:', isActive);
+    
+    // 检测 panel 切换后恢复
+    if (session && isActive && !session.port) {
+      console.log('[Chat] Detected interrupted stream, restoring state');
+      
+      // 恢复 ChatStreamState 的状态
+      streamState.isStreaming = true;
+      streamState.updateButton(true);
+      
+      // 临时提示消息不再添加到 session.messages，避免污染历史记录
+      // 仅在 UI 层通过 status banner 显示状态
+    }
+    
+    const page = create('div', { 
+      className: 'page', 
+      style: { position: 'relative' }
+    });
+    
+    // 添加动画样式
+    chatRenderer.ensureAnimationStyles();
+    
+    // 拖拽上传支持
+    setupDragAndDrop(page);
+    
+    // 浮动按钮
+    if (messages.length > 0) {
+      page.appendChild(chatRenderer.createNewChatButton(sessionManager));
+    }
+    
+    // 消息列表
+    messageListElement = chatRenderer.createMessageList(messages, session, isActive, findToolResults);
+    page.appendChild(messageListElement);
+    
+    // 后台生成状态提示条
+    if (session && isActive && !session.port) {
+      page.insertBefore(
+        createStatusBanner(session),
+        messageListElement
+      );
+    }
+    
+    // 输入区
+    const inputArea = createInputArea(session, messages);
+    page.appendChild(inputArea);
+    
+    container.appendChild(page);
+    
+    // 滚动到底部
+    scrollToBottom();
+  }
+  
+  /**
+   * 确保动画样式存在
+   */
+  function ensureAnimationStyles() {
+    if (!document.getElementById('chat-spin-animation')) {
+      const styleEl = document.createElement('style');
+      styleEl.id = 'chat-spin-animation';
+      styleEl.textContent = `
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `;
+      document.head.appendChild(styleEl);
+    }
+  }
+  
+  /**
+   * 设置拖拽上传
+   */
+  async function setupDragAndDrop(page) {
+    page.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      page.style.background = 'var(--color-primary-light)';
+    });
+    
+    page.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      page.style.background = '';
+    });
+    
+    page.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      page.style.background = '';
+      
+      const files = Array.from(e.dataTransfer?.files || []);
+      if (files.length === 0) return;
+      
+      try {
+        const { results, errors } = await mediaManager.processFiles(files);
+        
+        // 显示错误
+        errors.forEach(err => {
+          window.Toast.error(`${err.filename}: ${err.error}`);
+        });
+        
+        // 重新渲染
+        if (results.length > 0) {
+          render();
+        }
+      } catch (error) {
+        window.Toast.error('处理文件失败: ' + error.message);
+      }
+    });
+  }
+  
+  /**
+   * 创建新聊天按钮
+   */
+  function createNewChatButton(session) {
+    return create('button', {
+      className: 'btn btn-primary btn-float',
+      text: '开始新聊天',
+      onClick: async () => {
+        await sessionManager.saveConversations();
+        await sessionManager.clearCurrentSession();
+        render();
+      }
+    });
+  }
+  
+  /**
+   * 创建消息列表
+   */
+  function createMessageList(messages, session, isLoading) {
+    const listElement = create('div', { 
+      className: 'page-content',
+      style: { flex: 1, overflowY: 'auto', padding: '16px' }
+    });
+    
+    if (messages.length === 0) {
+      listElement.appendChild(create('div', { className: 'empty-state' }, [
+        create('div', { className: 'empty-state-icon', text: '💬' }),
+        create('div', { className: 'empty-state-title', text: '开始对话' }),
+        create('div', { className: 'empty-state-desc', text: '输入消息开始聊天' })
+      ]));
+    } else {
+      lastMessageElement = null;
+      messages.forEach((msg, index) => {
+        // 跳过系统通知、tool消息和内部消息
+        if (msg.isSystemNotice || msg.role === 'tool' || msg.isInternal) {
+          return;
+        }
+        
+        const bubble = createMessageBubble(msg, index, messages, session);
+        listElement.appendChild(bubble);
+        
+        if (index === messages.length - 1) {
+          lastMessageElement = bubble.querySelector('.message-content') || bubble;
+        }
+      });
+      
+      // 不需要额外的加载指示器，空的assistant消息会显示加载状态
+    }
+    
+    return listElement;
+  }
+  
+  /**
+   * 创建消息气泡
+   */
+  function createMessageBubble(msg, index, messages, session) {
+    const bubble = create('div', {
+      className: `message-bubble message-${msg.role}`,
+      style: { 
+        marginBottom: '12px',
+        position: 'relative'
+      }
+    });
+    
+    // 调试日志：打印 assistant 消息的完整信息
+    if (msg.role === 'assistant') {
+      console.log('[Chat] Rendering assistant message:', {
+        index,
+        hasContent: !!msg.content && (typeof msg.content === 'string' ? msg.content.trim() : msg.content.length > 0),
+        hasToolCalls: !!(msg.tool_calls && msg.tool_calls.length > 0),
+        toolCalls: msg.tool_calls,
+        contentPreview: typeof msg.content === 'string' ? msg.content.substring(0, 50) : 'array'
+      });
+    }
+    
+    // 删除按钮
+    const deleteBtn = createDeleteButton(index, session);
+    bubble.onmouseenter = () => deleteBtn.style.display = 'flex';
+    bubble.onmouseleave = () => deleteBtn.style.display = 'none';
+    bubble.appendChild(deleteBtn);
+    
+    // 渲染思考过程
+    if (msg.role === 'assistant' && msg.additional_kwargs?.reasoning_content) {
+      const renderer = new window.ThinkingMode.ThinkingRenderer();
+      bubble.appendChild(renderer.render(msg.additional_kwargs.reasoning_content));
+    }
+    
+    // 显示工具调用卡片
+    if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+      console.log('[Chat] Rendering tool_calls for message', index);
+      const toolResults = findToolResults(messages, index);
+      const isActive = session ? sessionManager.isSessionActive(session.id) : false;
+      msg.tool_calls.forEach((call, idx) => {
+        const result = toolResults[idx];
+        const card = messageRenderer.renderToolCallCard(call, idx, result, isActive);
+        bubble.appendChild(card);
+      });
+    }
+    
+    // 渲染消息内容
+    const hasContent = msg.content && (
+      typeof msg.content === 'string' ? msg.content.trim() : 
+      Array.isArray(msg.content) ? msg.content.length > 0 : 
+      false
+    );
+    const hasToolCalls = msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0;
+    
+    // 有内容时渲染内容
+    if (hasContent) {
+      messageRenderer.renderMessageContent(msg.content, bubble);
+    }
+    // 有工具调用但没有内容时，不显示加载动画（tool_calls 卡片已在上面渲染）
+    // 只有在既没有内容也没有工具调用时才显示"思考中..."
+    else if (!hasToolCalls && msg.role === 'assistant') {
+      const loadingDiv = create('div', { 
+        className: 'message-content loading-content',
+        style: {
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '8px 0'
+        }
+      }, [
+        create('div', {
+          className: 'loading-dots',
+          style: {
+            display: 'flex',
+            gap: '4px'
+          }
+        }, [
+          create('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: 'var(--color-primary)', animation: 'loadingPulse 1.4s ease-in-out infinite' } }),
+          create('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: 'var(--color-primary)', animation: 'loadingPulse 1.4s ease-in-out 0.2s infinite' } }),
+          create('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: 'var(--color-primary)', animation: 'loadingPulse 1.4s ease-in-out 0.4s infinite' } })
+        ]),
+        create('span', { text: '思考中...', style: { color: 'var(--color-text-secondary)', fontSize: '13px' } })
+      ]);
+      bubble.appendChild(loadingDiv);
+    }
+    
+    return bubble;
+  }
+  
+  /**
+   * 创建删除按钮
+   */
+  function createDeleteButton(index, session) {
+    return create('button', {
+      className: 'btn-delete-message',
+      text: '×',
+      style: {
+        position: 'absolute',
+        bottom: '4px',
+        right: '4px',
+        width: '24px',
+        height: '24px',
+        borderRadius: '50%',
+        background: 'var(--color-danger)',
+        color: 'white',
+        border: 'none',
+        cursor: 'pointer',
+        fontSize: '16px',
+        lineHeight: '1',
+        padding: '0',
+        display: 'none',
+        alignItems: 'center',
+        justifyContent: 'center',
+        boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+        zIndex: 10
+      },
+      onClick: async () => {
+        const confirmed = await window.Toast.confirm({
+          title: '删除消息',
+          message: '确定要删除这条消息吗？此操作不可恢复。'
+        });
+        
+        if (confirmed) {
+          const deleted = sessionManager.deleteMessageWithTools(session.id, index);
+          if (deleted) {
+            await sessionManager.saveConversations();
+            render();
+            window.Toast.success('消息已删除');
+          }
+        }
+      }
+    });
+  }
+  
+  /**
+   * 查找工具结果
+   */
+  function findToolResults(messages, assistantIndex) {
+    const toolResults = [];
+    
+    console.log(`[findToolResults] assistantIndex=${assistantIndex}, messages.length=${messages.length}`);
+    console.log(`[findToolResults] assistant message:`, messages[assistantIndex]);
+    
+    for (let i = assistantIndex + 1; i < messages.length; i++) {
+      if (messages[i].role === 'tool') {
+        console.log(`[findToolResults] Found tool message at index ${i}:`, messages[i]);
+        const toolMsg = messages[i];
+        const matchingCall = messages[assistantIndex].tool_calls.find(
+          tc => tc.id === toolMsg.tool_call_id
+        );
+        if (matchingCall) {
+          console.log(`[findToolResults] Matched tool call:`, matchingCall);
+          toolResults.push({
+            tool_call: matchingCall,
+            tool_result: {
+              success: true,
+              name: toolMsg.name,
+              output: toolMsg.content
+            }
+          });
+        } else {
+          console.warn(`[findToolResults] No matching tool call for tool_call_id=${toolMsg.tool_call_id}`);
+        }
+      } else {
+        break;
+      }
+    }
+    console.log(`[findToolResults] Total results found: ${toolResults.length}`);
+    return toolResults;
+  }
+  
+  /**
+   * 创建状态提示条
+   */
+  function createStatusBanner(session) {
+    const banner = create('div', {
+      className: 'stream-status-banner',
+      style: {
+        padding: '10px 16px',
+        background: 'var(--color-primary-light)',
+        borderBottom: '1px solid var(--color-border)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        fontSize: '13px',
+        color: 'var(--color-text-secondary)'
+      }
+    });
+    
+    banner.appendChild(create('div', { text: '⏳ 后台正在生成回复...' }));
+    banner.appendChild(create('button', {
+      text: '取消',
+      style: {
+        padding: '4px 12px',
+        background: 'transparent',
+        border: '1px solid var(--color-danger)',
+        borderRadius: '4px',
+        color: 'var(--color-danger)',
+        cursor: 'pointer',
+        fontSize: '12px'
+      },
+      onClick: async () => {
+        const noticeIndex = session.messages.findIndex(m => m.isSystemNotice);
+        if (noticeIndex !== -1) {
+          session.messages.splice(noticeIndex, 1);
+        }
+        // 取消所有活跃的请求
+        sessionManager.cancelRequest(session.id);
+        await sessionManager.saveConversations();
+        render();
+        window.Toast.info('已取消等待');
+      }
+    }));
+    
+    return banner;
+  }
+  
+  /**
+   * 创建输入区
+   */
+  function createInputArea(session, messages) {
+    const inputArea = create('div', { 
+      className: 'page-footer',
+      style: { padding: '12px' }
+    });
+    
+    // 多媒体预览
+    const mediaPreview = createMediaPreview();
+    if (mediaPreview) {
+      inputArea.appendChild(mediaPreview);
+    }
+    
+    // 获取模型能力
+    const capabilities = inputController.getCapabilitySummary();
+    
+    // 输入行
+    const inputRow = create('div', { 
+      className: 'input-row',
+      style: { display: 'flex', gap: '8px', alignItems: 'center' } 
+    });
+    
+    // 工具开关（如果支持）
+    if (capabilities.tools) {
+      inputRow.appendChild(createToolsWrapper());
+    }
+    
+    // 图片上传（如果支持）
+    if (capabilities.image) {
+      const { uploadBtn, fileInput } = createMediaUploadButton('image');
+      inputRow.appendChild(uploadBtn);
+      inputRow.appendChild(fileInput);
+    }
+    
+    // 音频上传（如果支持）
+    if (capabilities.audio) {
+      const { uploadBtn, fileInput } = createMediaUploadButton('audio');
+      inputRow.appendChild(uploadBtn);
+      inputRow.appendChild(fileInput);
+    }
+    
+    // 视频上传（如果支持）
+    if (capabilities.video) {
+      const { uploadBtn, fileInput } = createMediaUploadButton('video');
+      inputRow.appendChild(uploadBtn);
+      inputRow.appendChild(fileInput);
+    }
+    
+    // 文本输入
+    const input = createTextInput(capabilities, session);
+    
+    // 发送按钮
+    const sendBtn = createSendButton(input, session);
+    
+    inputRow.appendChild(input);
+    inputRow.appendChild(sendBtn);
+    inputArea.appendChild(inputRow);
+    
+    return inputArea;
+  }
+  
+  /**
+   * 创建多媒体预览
+   */
+  function createMediaPreview() {
+    const pendingMedia = mediaManager.getPendingMedia();
+    if (pendingMedia.length === 0) return null;
+    
+    const previewContainer = create('div', {
+      className: 'media-preview-container',
+      style: { 
+        display: 'flex', 
+        gap: '8px', 
+        marginBottom: '8px',
+        flexWrap: 'wrap',
+        padding: '8px',
+        background: 'var(--color-surface)',
+        borderRadius: '8px'
+      }
+    });
+    
+    pendingMedia.forEach((media, index) => {
+      const previewBox = create('div', { 
+        style: { 
+          position: 'relative', 
+          display: 'inline-block' 
+        } 
+      });
+      
+      // 根据类型显示不同的预览
+      if (media.type === 'image') {
+        const imgEl = create('img', {
+          attrs: { src: media.previewUrl, title: media.filename },
+          style: { 
+            width: '80px', 
+            height: '80px', 
+            objectFit: 'cover',
+            borderRadius: '6px',
+            border: '2px solid var(--color-border)',
+            cursor: 'pointer'
+          }
+        });
+        imgEl.onclick = () => window.open(media.dataUrl, '_blank');
+        previewBox.appendChild(imgEl);
+      } else if (media.type === 'audio') {
+        const audioEl = create('audio', {
+          attrs: { 
+            src: media.previewUrl,
+            controls: true
+          },
+          style: { 
+            width: '200px',
+            borderRadius: '6px'
+          }
+        });
+        previewBox.appendChild(audioEl);
+      } else if (media.type === 'video') {
+        const videoEl = create('video', {
+          attrs: { 
+            src: media.previewUrl,
+            controls: true
+          },
+          style: { 
+            width: '200px',
+            maxHeight: '150px',
+            borderRadius: '6px'
+          }
+        });
+        previewBox.appendChild(videoEl);
+      }
+      
+      // 删除按钮
+      const removeBtn = create('button', {
+        text: '×',
+        className: 'btn-remove-media',
+        style: {
+          position: 'absolute',
+          top: '-6px',
+          right: '-6px',
+          width: '20px',
+          height: '20px',
+          borderRadius: '50%',
+          background: 'var(--color-danger)',
+          color: 'white',
+          border: '2px solid white',
+          cursor: 'pointer',
+          fontSize: '14px',
+          lineHeight: '1',
+          padding: '0',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        },
+        onClick: () => {
+          mediaManager.removeMedia(index);
+          render();
+        }
+      });
+      
+      previewBox.appendChild(removeBtn);
+      previewContainer.appendChild(previewBox);
+    });
+    
+    return previewContainer;
+  }
+  
+  /**
+   * 创建工具包装器
+   */
+  function createToolsWrapper() {
+    const wrapper = create('div', {
+      className: 'tools-wrapper',
+      style: { position: 'relative', display: 'inline-block' }
+    });
+    
+    const trigger = create('button', {
+      className: 'tools-trigger-btn',
+      text: '🛠️',
+      style: {
+        padding: '6px 8px',
+        fontSize: '14px',
+        border: '1px solid var(--color-border)',
+        borderRadius: '4px',
+        background: 'transparent',
+        cursor: 'pointer'
+      },
+      title: '工具开关'
+    });
+    
+    const menu = create('div', {
+      className: 'tools-menu',
+      style: {
+        position: 'absolute',
+        bottom: '100%',
+        left: '0',
+        marginBottom: '8px',
+        padding: '8px',
+        background: 'var(--color-background)',
+        border: '1px solid var(--color-border)',
+        borderRadius: '8px',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '4px',
+        opacity: '0',
+        visibility: 'hidden',
+        transform: 'translateY(10px)',
+        transition: 'all 0.2s',
+        zIndex: '1000'
+      }
+    });
+    
+    // 渲染工具列表函数
+    function renderTools() {
+      menu.innerHTML = '';
+      if (toolManager) {
+        toolManager.getAllTools().forEach(tool => {
+          const toolItem = createToolItem(tool);
+          menu.appendChild(toolItem);
+        });
+      }
+    }
+    
+    // 初始渲染
+    renderTools();
+    
+    wrapper.onmouseenter = () => {
+      menu.style.opacity = '1';
+      menu.style.visibility = 'visible';
+      menu.style.transform = 'translateY(0)';
+      trigger.style.borderColor = 'var(--color-primary)';
+    };
+    
+    wrapper.onmouseleave = () => {
+      menu.style.opacity = '0';
+      menu.style.visibility = 'hidden';
+      menu.style.transform = 'translateY(10px)';
+      trigger.style.borderColor = 'var(--color-border)';
+    };
+    
+    wrapper.appendChild(menu);
+    wrapper.appendChild(trigger);
+    
+    // 暴露重新渲染方法到全局，供切换会话时调用
+    window.renderToolsMenu = renderTools;
+    
+    return wrapper;
+  }
+  
+  /**
+   * 创建工具项
+   */
+  function createToolItem(tool) {
+    const item = create('div', {
+      className: 'tool-item',
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        padding: '6px 8px',
+        borderRadius: '4px',
+        cursor: 'pointer'
+      }
+    });
+    
+    const icon = tool.id === 'web_search' ? '🔍' : '⚡';
+    item.appendChild(create('span', { text: icon, style: { fontSize: '16px' } }));
+    item.appendChild(create('span', { text: tool.name, style: { fontSize: '13px', flex: '1' } }));
+    
+    const toggle = create('div', {
+      className: `toggle-switch ${tool.enabled ? 'active' : ''}`,
+      style: {
+        width: '32px',
+        height: '18px',
+        borderRadius: '9px',
+        background: tool.enabled ? 'var(--color-primary)' : 'var(--color-border)',
+        position: 'relative',
+        cursor: 'pointer'
+      }
+    });
+    
+    const knob = create('div', {
+      style: {
+        width: '14px',
+        height: '14px',
+        borderRadius: '50%',
+        background: 'white',
+        position: 'absolute',
+        top: '2px',
+        left: tool.enabled ? '16px' : '2px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
+      }
+    });
+    
+    toggle.appendChild(knob);
+    item.appendChild(toggle);
+    
+    item.onclick = async () => {
+      const wasEnabled = tool.enabled;
+      const newEnabled = !tool.enabled;
+          
+      // 直接通过 ToolManager 更新会话状态
+      await toolManager.toggleTool(tool.id, newEnabled);
+          
+      // 重新获取工具状态（从会话中读取）
+      const enabledTools = toolManager.getEnabledTools();
+      const isNowEnabled = enabledTools.some(t => t.id === tool.id);
+          
+      toggle.className = `toggle-switch ${isNowEnabled ? 'active' : ''}`;
+      toggle.style.background = isNowEnabled ? 'var(--color-primary)' : 'var(--color-border)';
+      knob.style.left = isNowEnabled ? '16px' : '2px';
+      window.Toast.success(`${tool.name}已${wasEnabled ? '关闭' : '开启'}`);
+    };
+    
+    return item;
+  }
+  
+  /**
+   * 创建多媒体上传按钮
+   */
+  function createMediaUploadButton(mediaType) {
+    const icons = {
+      image: '📷',
+      audio: '🎤',
+      video: '🎥'
+    };
+    
+    const titles = {
+      image: '上传图片（支持拖拽和粘贴）',
+      audio: '上传音频文件',
+      video: '上传视频文件'
+    };
+    
+    const accepts = {
+      image: 'image/*',
+      audio: 'audio/*',
+      video: 'video/*'
+    };
+    
+    const uploadBtn = create('button', {
+      className: 'btn btn-secondary',
+      text: icons[mediaType],
+      style: { 
+        padding: '8px 12px', 
+        fontSize: '16px'
+      },
+      title: titles[mediaType]
+    });
+    
+    const fileInput = create('input', {
+      attrs: { 
+        type: 'file', 
+        accept: accepts[mediaType],
+        multiple: mediaType === 'image' // 只允许多选图片
+      },
+      style: { display: 'none' },
+      onChange: async (e) => {
+        const files = Array.from(e.target.files);
+        if (files.length === 0) return;
+        
+        try {
+          const { results, errors } = await mediaManager.processFiles(files);
+          
+          errors.forEach(err => {
+            window.Toast.error(`${err.filename}: ${err.error}`);
+          });
+          
+          if (results.length > 0) {
+            render();
+          }
+        } catch (error) {
+          window.Toast.error('处理文件失败: ' + error.message);
+        }
+        
+        e.target.value = '';
+      }
+    });
+    
+    uploadBtn.onclick = () => {
+      fileInput.click();
+    };
+    
+    return { uploadBtn, fileInput };
+  }
+  
+  /**
+   * 创建文本输入框
+   */
+  function createTextInput(capabilities, session) {
+    // 根据能力生成placeholder
+    const supportedInputs = [];
+    if (capabilities.image) supportedInputs.push('图片');
+    if (capabilities.audio) supportedInputs.push('音频');
+    if (capabilities.video) supportedInputs.push('视频');
+    
+    let placeholder = '输入消息';
+    if (supportedInputs.length > 0) {
+      placeholder += `（支持拖拽/粘贴${supportedInputs.join('、')}）`;
+    } else {
+      placeholder += '...';
+    }
+    
+    const input = create('input', {
+      className: 'input',
+      attrs: { 
+        type: 'text', 
+        placeholder: placeholder
+      },
+      style: { flex: 1 }
+    });
+    
+    // 粘贴多媒体支持
+    input.addEventListener('paste', async (e) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      
+      const files = [];
+      for (const item of items) {
+        if (item.kind === 'file') {
+          const file = item.getAsFile();
+          if (file) {
+            files.push(file);
+          }
+        }
+      }
+      
+      if (files.length === 0) return;
+      
+      e.preventDefault();
+      
+      try {
+        const { results, errors } = await mediaManager.processFiles(files);
+        
+        errors.forEach(err => {
+          window.Toast.error(`${err.filename}: ${err.error}`);
+        });
+        
+        if (results.length > 0) {
+          render();
+        }
+      } catch (error) {
+        window.Toast.error('处理粘贴文件失败: ' + error.message);
+      }
+    });
+    
+    // Enter发送
+    input.addEventListener('keydown', async (e) => {
+      // Ctrl + ArrowUp/ArrowDown 导航
+      if (e.ctrlKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        e.preventDefault();
+        navigateMessages(e.key === 'ArrowUp');
+        return;
+      }
+      
+      if (e.key === 'Enter') {
+        // 检查会话是否活跃（有活跃的 port 或正在执行工具）
+        const isActive = session ? sessionManager.isSessionActive(session.id) : false;
+        if (isActive) {
+          return;  // 如果会话活跃，禁止发送新消息
+        }
+        
+        const text = input.value.trim();
+        const pendingMedia = mediaManager.getPendingMedia();
+        
+        if (!text && pendingMedia.length === 0) {
+          return;
+        }
+        
+        // 如果没有当前会话，创建新会话
+        if (!sessionManager.currentSessionId) {
+          sessionManager.currentSessionId = 'conv_' + Date.now();
+          sessionManager.createSession(sessionManager.currentSessionId, []);
+          sessionManager.setCurrentSession(sessionManager.currentSessionId);
+          
+          // 重新渲染工具菜单，确保显示当前会话的工具状态
+          if (window.renderToolsMenu) {
+            window.renderToolsMenu();
+          }
+        }
+        
+        const currentSession = sessionManager.getCurrentSession();
+        if (!currentSession) return;
+        
+        // 发送消息
+        const success = await messageSender.sendMessage(
+          currentSession.id,
+          text,
+          pendingMedia,
+          () => updateLastMessage(sessionManager.getCurrentSession()), // 增量更新
+          render  // 全量渲染（工具执行后使用）
+        );
+        
+        if (success) {
+          // 清空输入和多媒体
+          input.value = '';
+          mediaManager.clearAll();
+          
+          render();
+        }
+      }
+    });
+    
+    return input;
+  }
+  
+  /**
+   * 导航消息
+   */
+  function navigateMessages(up) {
+    const session = sessionManager.getCurrentSession();
+    if (!session || session.messages.length === 0 || !messageListElement) return;
+    
+    const userMessageIndices = [];
+    session.messages.forEach((msg, idx) => {
+      if (msg.role === 'user') {
+        userMessageIndices.push(idx);
+      }
+    });
+    
+    if (userMessageIndices.length === 0) return;
+    
+    const bubbles = messageListElement.querySelectorAll('.message-bubble');
+    let currentIndex = -1;
+    
+    for (let i = bubbles.length - 1; i >= 0; i--) {
+      const bubble = bubbles[i];
+      const rect = bubble.getBoundingClientRect();
+      const containerRect = messageListElement.getBoundingClientRect();
+      
+      if (rect.top >= containerRect.top && rect.top < containerRect.top + containerRect.clientHeight / 2) {
+        currentIndex = i;
+        break;
+      }
+    }
+    
+    let targetIndex;
+    if (up) {
+      targetIndex = userMessageIndices.reverse().find(idx => idx < currentIndex) ?? 
+                    userMessageIndices[userMessageIndices.length - 1];
+    } else {
+      targetIndex = userMessageIndices.find(idx => idx > currentIndex) ?? userMessageIndices[0];
+    }
+    
+    if (targetIndex !== undefined && bubbles[targetIndex]) {
+      bubbles[targetIndex].scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+  
+  /**
+   * 创建发送按钮
+   */
+  function createSendButton(input, session) {
+    const capabilities = inputController.getCapabilitySummary();
+    
+    // 如果支持流式，显示切换按钮
+    if (capabilities.streaming) {
+      return createStreamingSendButton(input, session);
+    } else {
+      return createBlockingSendButton(input, session);
+    }
+  }
+  
+  /**
+   * 创建流式发送按钮（支持中断）
+   */
+  function createStreamingSendButton(input, session) {
+    const sendBtn = create('button', {
+      className: 'btn btn-primary',
+      text: '发送',
+      id: 'send-button'
+    });
+    
+    // 绑定到流式状态管理器
+    streamState.bindSendButton(sendBtn);
+    
+    // ESC停止
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && streamState.isStreaming) {
+        streamState.stopStreaming(session?.id, sessionManager, render);
+      }
+    });
+    
+    sendBtn.addEventListener('click', () => {
+      if (streamState.isStreaming) {
+        streamState.stopStreaming(session?.id, sessionManager, render);
+      } else {
+        input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+      }
+    });
+    
+    return sendBtn;
+  }
+  
+  /**
+   * 创建阻断式发送按钮（不支持流式）
+   */
+  function createBlockingSendButton(input, session) {
+    const sendBtn = create('button', {
+      className: 'btn btn-primary',
+      text: '发送',
+      id: 'send-button',
+      style: {
+        opacity: streamState.isStreaming ? 0.5 : 1,
+        cursor: streamState.isStreaming ? 'not-allowed' : 'pointer'
+      },
+      disabled: streamState.isStreaming
+    });
+    
+    sendBtn.addEventListener('click', () => {
+      if (streamState.isStreaming) {
+        window.Toast.warning('正在处理请求，请稍候...');
+        return;
+      }
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    });
+    
+    return sendBtn;
+  }
+  
+  /**
+   * 滚动到底部
+   */
+  function scrollToBottom() {
+    if (messageListElement) {
+      setTimeout(() => {
+        messageListElement.scrollTop = messageListElement.scrollHeight;
+      }, 50);
+    }
+  }
+  
+  /**
+   * 增量更新最后一个消息（流式响应时使用）
+   * 避免完整重渲染导致的闪烁
+   */
+  /**
+   * 基于消息 ID 的精确更新（替代 updateLastMessage）
+   * @param {string} messageId - 消息 ID
+   */
+  function updateMessageById(messageId) {
+    if (!messageId || !messageListElement) return;
+    
+    const session = sessionManager.getCurrentSession();
+    if (!session) return;
+    
+    // 查找目标消息
+    const targetMsg = session.messages.find(msg => msg.id === messageId);
+    if (!targetMsg) {
+      console.log(`[updateMessageById] Message ${messageId} not found`);
+      return;
+    }
+    
+    // 通过 data-message-id 精确定位 DOM 气泡
+    const bubble = messageListElement.querySelector(`.message-bubble[data-message-id="${messageId}"]`);
+    if (!bubble) {
+      console.log(`[updateMessageById] Bubble not found for message ${messageId}`);
+      return;
+    }
+    
+    console.log(`[updateMessageById] Updating message ${messageId}`);
+    
+    // 移除加载动画
+    const loadingContent = bubble.querySelector('.loading-content');
+    if (loadingContent) {
+      loadingContent.remove();
+    }
+    
+    // 更新文本内容
+    const hasContent = targetMsg.content && (
+      typeof targetMsg.content === 'string' ? targetMsg.content.trim() : 
+      Array.isArray(targetMsg.content) ? targetMsg.content.length > 0 : false
+    );
+    
+    if (hasContent) {
+      let contentDiv = bubble.querySelector('.message-content');
+      if (!contentDiv) {
+        contentDiv = document.createElement('div');
+        contentDiv.className = 'message-content';
+        bubble.appendChild(contentDiv);
+      }
+      messageRenderer.renderMessageContent(targetMsg.content, bubble, true);
+    }
+    
+    // 更新工具卡片
+    if (targetMsg.tool_calls && targetMsg.tool_calls.length > 0) {
+      let toolCallsContainer = bubble.querySelector('.tool-calls-container');
+      if (!toolCallsContainer) {
+        toolCallsContainer = document.createElement('div');
+        toolCallsContainer.className = 'tool-calls-container';
+        bubble.appendChild(toolCallsContainer);
+      }
+      
+      // 重新渲染所有工具卡片（查找对应的 tool 结果）
+      toolCallsContainer.innerHTML = '';
+      const messages = session.messages;
+      const assistantIndex = messages.indexOf(targetMsg);
+      const toolResults = findToolResults(messages, assistantIndex);
+      
+      targetMsg.tool_calls.forEach((call, idx) => {
+        const result = toolResults[idx];
+        const isActive = session ? sessionManager.isSessionActive(session.id) : false;
+        const card = messageRenderer.renderToolCallCard(call, idx, result, isActive);
+        toolCallsContainer.appendChild(card);
+      });
+    }
+    
+    // 更新思考过程
+    if (targetMsg.additional_kwargs?.reasoning_content) {
+      console.log('[updateMessageById] Updating thinking container for message:', messageId);
+      let thinkingContainer = bubble.querySelector('.thinking-container');
+      if (!thinkingContainer) {
+        thinkingContainer = document.createElement('div');
+        thinkingContainer.className = 'thinking-container';
+        bubble.insertBefore(thinkingContainer, bubble.firstChild);
+      }
+      const renderer = new window.ThinkingMode.ThinkingRenderer();
+      thinkingContainer.innerHTML = '';
+      thinkingContainer.appendChild(renderer.render(targetMsg.additional_kwargs.reasoning_content));
+    } else {
+      console.log('[updateMessageById] No reasoning_content to update');
+    }
+  }
+  
+  // 暴露到全局供 tool-executor 使用
+  window.updateMessageById = updateMessageById;
+  
+  /**
+   * 增量更新最后一条消息（旧方法，保留兼容）
+   */
+  function updateLastMessage(session) {
+    if (!session || !messageListElement) return;
+    
+    const messages = session.messages;
+    // 从后往前找最后一个assistant消息
+    let lastAssistantIndex = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant') {
+        lastAssistantIndex = i;
+        break;
+      }
+    }
+    
+    if (lastAssistantIndex === -1) return;
+    const lastMsg = messages[lastAssistantIndex];
+    
+    // 查找对应的assistant气泡（通过索引，不依赖:last-child）
+    const bubbles = messageListElement.querySelectorAll('.message-bubble.message-assistant');
+    let lastBubble = null;
+    let assistantCount = 0;
+    // 重新遍历messages来计算assistant气泡的索引
+    for (let i = 0; i < messages.length; i++) {
+      if (messages[i].role === 'assistant' && !messages[i].isSystemNotice && !messages[i].isInternal && messages[i].role !== 'tool') {
+        if (i === lastAssistantIndex && bubbles[assistantCount]) {
+          lastBubble = bubbles[assistantCount];
+          break;
+        }
+        assistantCount++;
+      }
+    }
+    
+    if (!lastBubble) {
+      // 如果找不到，需要完整渲染
+      render();
+      return;
+    }
+    
+    // 更新内容区域（增量更新）
+    let contentDiv = lastBubble.querySelector('.message-content:not(.loading-content)');
+    if (!contentDiv) {
+      contentDiv = document.createElement('div');
+      contentDiv.className = 'message-content';
+      lastBubble.appendChild(contentDiv);
+    }
+    
+    // 检查是否有实际内容
+    const hasContent = lastMsg.content && (
+      typeof lastMsg.content === 'string' ? lastMsg.content.trim() : 
+      Array.isArray(lastMsg.content) ? lastMsg.content.length > 0 : 
+      false
+    );
+    const hasToolCalls = lastMsg.tool_calls && lastMsg.tool_calls.length > 0;
+    
+    // 如果有内容或有工具调用，移除加载动画
+    if (hasContent || hasToolCalls) {
+      // 移除加载动画
+      const loadingContent = lastBubble.querySelector('.loading-content');
+      if (loadingContent) {
+        loadingContent.remove();
+      }
+      
+      // 使用渲染器增量更新内容（如果有）
+      if (hasContent) {
+        messageRenderer.renderMessageContent(lastMsg.content, lastBubble, true);
+      }
+    }
+    
+    // 处理工具调用卡片
+    if (lastMsg.tool_calls && lastMsg.tool_calls.length > 0) {
+      // 移除加载动画
+      const loadingContent = lastBubble.querySelector('.loading-content');
+      if (loadingContent) {
+        loadingContent.remove();
+      }
+      
+      // 查找或创建工具调用容器
+      let toolCallsContainer = lastBubble.querySelector('.tool-calls-container');
+      if (!toolCallsContainer) {
+        toolCallsContainer = document.createElement('div');
+        toolCallsContainer.className = 'tool-calls-container';
+        lastBubble.appendChild(toolCallsContainer);
+      }
+      
+      // 清空旧的工具卡片
+      toolCallsContainer.innerHTML = '';
+      
+      // 查找对应的 tool 结果
+      const assistantIndex = messages.indexOf(lastMsg);
+      const toolResults = findToolResults(messages, assistantIndex);
+      
+      // 渲染每个工具调用卡片
+      lastMsg.tool_calls.forEach((call, idx) => {
+        const result = toolResults[idx];
+        const isActive = session ? sessionManager.isSessionActive(session.id) : false;
+        const card = messageRenderer.renderToolCallCard(call, idx, result, isActive);
+        toolCallsContainer.appendChild(card);
+      });
+    }
+    
+    // 更新思考过程（增量更新）
+    if (lastMsg.additional_kwargs?.reasoning_content) {
+      let thinkingContainer = lastBubble.querySelector('.thinking-container');
+      if (!thinkingContainer) {
+        thinkingContainer = document.createElement('div');
+        thinkingContainer.className = 'thinking-container-wrapper';
+        // 插入到内容之前
+        if (contentDiv.parentNode) {
+          contentDiv.parentNode.insertBefore(thinkingContainer, contentDiv);
+        }
+      }
+      
+      // 更新思考内容
+      thinkingContainer.innerHTML = '';
+      const renderer = new window.ThinkingMode.ThinkingRenderer();
+      thinkingContainer.appendChild(renderer.render(lastMsg.additional_kwargs.reasoning_content));
+    }
+    
+    // 滚动到底部
+    scrollToBottom();
+  }
+  
+  // 初始化
+  sessionManager.loadMessages().then(() => {
+    console.log('[Chat] Messages loaded');
+    render();
+    
+    // 初始渲染工具菜单
+    if (window.renderToolsMenu) {
+      window.renderToolsMenu();
+    }
+  });
+};

@@ -1,0 +1,238 @@
+// 聊天渲染器
+// 负责消息列表、消息气泡的渲染
+
+class ChatRenderer {
+  constructor(create, messageRenderer) {
+    this.create = create;
+    this.messageRenderer = messageRenderer;
+    this.messageListElement = null;
+    this.lastMessageElement = null;
+    
+    // 初始化工具调用渲染器
+    this.toolCallRenderer = new window.ToolCallRenderer(create, messageRenderer);
+  }
+  
+  /**
+   * 确保动画样式存在
+   */
+  ensureAnimationStyles() {
+    if (!document.getElementById('chat-spin-animation')) {
+      const styleEl = document.createElement('style');
+      styleEl.id = 'chat-spin-animation';
+      styleEl.textContent = `
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `;
+      document.head.appendChild(styleEl);
+    }
+  }
+  
+  /**
+   * 创建新聊天按钮
+   */
+  createNewChatButton(sessionManager) {
+    return this.create('button', {
+      className: 'btn btn-primary btn-float',
+      text: '开始新聊天',
+      onClick: async () => {
+        await sessionManager.saveConversations();
+        await sessionManager.clearCurrentSession();
+        // 需要外部调用 render
+        window.dispatchEvent(new CustomEvent('chat:refresh'));
+      }
+    });
+  }
+  
+  /**
+   * 创建消息列表
+   */
+  createMessageList(messages, session, isLoading, findToolResults) {
+    const listElement = this.create('div', { 
+      className: 'page-content',
+      style: { flex: 1, overflowY: 'auto', padding: '16px' }
+    });
+    
+    if (messages.length === 0) {
+      listElement.appendChild(this.create('div', { className: 'empty-state' }, [
+        this.create('div', { className: 'empty-state-icon', text: '' }),
+        this.create('div', { className: 'empty-state-title', text: '开始对话' }),
+        this.create('div', { className: 'empty-state-desc', text: '输入消息开始聊天' })
+      ]));
+    } else {
+      this.lastMessageElement = null;
+      messages.forEach((msg, index) => {
+        // 跳过系统通知和内部消息（保留tool消息，因为它们会被findToolResults查找）
+        if (msg.isSystemNotice || msg.isInternal) {
+          return;
+        }
+        
+        // tool 消息不单独渲染，它们会作为 assistant 消息的 tool_calls 结果展示
+        if (msg.role === 'tool') {
+          return;
+        }
+        
+        const bubble = this.createMessageBubble(msg, index, messages, session, findToolResults);
+        listElement.appendChild(bubble);
+        this.lastMessageElement = bubble;
+      });
+    }
+    
+    this.messageListElement = listElement;
+    return listElement;
+  }
+  
+  /**
+   * 创建消息气泡
+   */
+  createMessageBubble(msg, index, messages, session, findToolResults) {
+    const { create } = this;
+    
+    const isUser = msg.role === 'user';
+    const bubble = create('div', {
+      className: `message-bubble ${isUser ? 'message-user' : 'message-assistant'}`,
+      style: { position: 'relative' }
+    });
+    
+    // 为气泡添加消息 ID（用于精确更新）
+    if (msg.id) {
+      bubble.setAttribute('data-message-id', msg.id);
+    }
+    
+    // 思考过程（如果有）
+    if (msg.additional_kwargs?.reasoning_content) {
+      const renderer = new window.ThinkingMode.ThinkingRenderer();
+      bubble.appendChild(renderer.render(msg.additional_kwargs.reasoning_content));
+    }
+    
+    // 显示工具调用卡片
+    if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+      const toolResults = findToolResults(messages, index);
+      const sessionManager = window.SessionManager;
+      const isActive = session ? sessionManager.isSessionActive(session.id) : false;
+      msg.tool_calls.forEach((call, idx) => {
+        const result = toolResults[idx];
+        const card = this.messageRenderer.renderToolCallCard(call, idx, result, isActive);
+        bubble.appendChild(card);
+      });
+    }
+    
+    // 渲染消息内容
+    const hasContent = msg.content && (
+      typeof msg.content === 'string' ? msg.content.trim() : 
+      Array.isArray(msg.content) ? msg.content.length > 0 : 
+      false
+    );
+    const hasToolCalls = msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0;
+    
+    // 有内容时渲染内容
+    if (hasContent) {
+      this.messageRenderer.renderMessageContent(msg.content, bubble);
+    }
+    // 既没有内容也没有工具调用时，才显示加载动画
+    else if (!hasToolCalls && msg.role === 'assistant') {
+      const loadingDiv = create('div', { 
+        className: 'message-content loading-content',
+        style: {
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '8px 0'
+        }
+      }, [
+        create('div', {
+          className: 'loading-dots',
+          style: {
+            display: 'flex',
+            gap: '4px'
+          }
+        }, [
+          create('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: 'var(--color-primary)', animation: 'loadingPulse 1.4s ease-in-out infinite' } }),
+          create('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: 'var(--color-primary)', animation: 'loadingPulse 1.4s ease-in-out 0.2s infinite' } }),
+          create('div', { style: { width: '8px', height: '8px', borderRadius: '50%', background: 'var(--color-primary)', animation: 'loadingPulse 1.4s ease-in-out 0.4s infinite' } })
+        ]),
+        create('span', { text: '思考中...', style: { color: 'var(--color-text-secondary)', fontSize: '13px' } })
+      ]);
+      bubble.appendChild(loadingDiv);
+    }
+    // 有工具调用但没有文本内容时，不显示加载动画
+    // tool_calls 卡片已经在上方渲染了
+    
+    // 删除按钮（在所有内容渲染完成后添加）
+    const deleteBtn = this.createDeleteButton(index, session);
+    bubble.appendChild(deleteBtn);
+    
+    bubble.addEventListener('mouseenter', () => {
+      deleteBtn.style.display = 'flex';
+    });
+    bubble.addEventListener('mouseleave', () => {
+      deleteBtn.style.display = 'none';
+    });
+    
+    return bubble;
+  }
+  
+  /**
+   * 获取消息列表元素
+   */
+  getMessageListElement() {
+    return this.messageListElement;
+  }
+  
+  /**
+   * 创建删除按钮
+   */
+  createDeleteButton(index, session) {
+    const { create } = this;
+    const sessionManager = window.SessionManager;
+    
+    return create('button', {
+      className: 'btn-delete-message',
+      text: '×',
+      style: {
+        position: 'absolute',
+        bottom: '4px',
+        right: '4px',
+        width: '24px',
+        height: '24px',
+        borderRadius: '50%',
+        background: 'var(--color-danger)',
+        color: 'white',
+        border: 'none',
+        cursor: 'pointer',
+        fontSize: '16px',
+        lineHeight: '1',
+        padding: '0',
+        display: 'none',
+        alignItems: 'center',
+        justifyContent: 'center',
+        boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+        zIndex: 10
+      },
+      onClick: async () => {
+        const confirmed = await window.Toast.confirm({
+          title: '删除消息',
+          message: '确定要删除这条消息吗？此操作不可恢复。'
+        });
+        
+        if (confirmed) {
+          const deleted = sessionManager.deleteMessageWithTools(session.id, index);
+          if (deleted) {
+            await sessionManager.saveConversations();
+            // 重新渲染
+            if (window.Pages && window.Pages.chat) {
+              const container = document.querySelector('.page');
+              if (container) {
+                window.Pages.chat(container);
+              }
+            }
+            window.Toast.success('消息已删除');
+          }
+        }
+      }
+    });
+  }
+}
+
+window.ChatRenderer = ChatRenderer;

@@ -31,26 +31,6 @@ export class TextBlock {
   static fromString(text) {
     return new TextBlock(text);
   }
-
-  /**
-   * 序列化为 JSON 对象
-   */
-  toJSON() {
-    return {
-      type: this.type,
-      text: this.text
-    };
-  }
-
-  /**
-   * 从 JSON 对象反序列化
-   */
-  static fromJSON(json) {
-    if (!json || json.type !== 'text') {
-      throw new Error('Invalid TextBlock JSON');
-    }
-    return new TextBlock(json.text);
-  }
 }
 
 /**
@@ -60,26 +40,6 @@ export class ImageBlock {
   constructor(source) {
     this.type = 'image';
     this.source = source; // { type: 'base64', media_type: 'image/png', data: '...' }
-  }
-
-  /**
-   * 序列化为 JSON 对象
-   */
-  toJSON() {
-    return {
-      type: this.type,
-      source: this.source
-    };
-  }
-
-  /**
-   * 从 JSON 对象反序列化
-   */
-  static fromJSON(json) {
-    if (!json || json.type !== 'image') {
-      throw new Error('Invalid ImageBlock JSON');
-    }
-    return new ImageBlock(json.source);
   }
 }
 
@@ -103,28 +63,6 @@ export class ToolUseBlock {
       toolCall.function.name,
       JSON.parse(toolCall.function.arguments || '{}')
     );
-  }
-
-  /**
-   * 序列化为 JSON 对象
-   */
-  toJSON() {
-    return {
-      type: this.type,
-      id: this.id,
-      name: this.name,
-      input: this.input
-    };
-  }
-
-  /**
-   * 从 JSON 对象反序列化
-   */
-  static fromJSON(json) {
-    if (!json || json.type !== 'tool_use') {
-      throw new Error('Invalid ToolUseBlock JSON');
-    }
-    return new ToolUseBlock(json.id, json.name, json.input);
   }
 }
 
@@ -153,27 +91,6 @@ export class ToolResultBlock {
     }
     return String(content);
   }
-
-  /**
-   * 序列化为 JSON 对象
-   */
-  toJSON() {
-    return {
-      type: this.type,
-      tool_use_id: this.tool_use_id,
-      content: this.content
-    };
-  }
-
-  /**
-   * 从 JSON 对象反序列化
-   */
-  static fromJSON(json) {
-    if (!json || json.type !== 'tool_result') {
-      throw new Error('Invalid ToolResultBlock JSON');
-    }
-    return new ToolResultBlock(json.tool_use_id, json.content);
-  }
 }
 
 /**
@@ -185,27 +102,6 @@ export class ThinkingBlock {
     this.thinking = thinking || '';
     this.signature = signature;
   }
-
-  /**
-   * 序列化为 JSON 对象
-   */
-  toJSON() {
-    return {
-      type: this.type,
-      thinking: this.thinking,
-      signature: this.signature
-    };
-  }
-
-  /**
-   * 从 JSON 对象反序列化
-   */
-  static fromJSON(json) {
-    if (!json || json.type !== 'thinking') {
-      throw new Error('Invalid ThinkingBlock JSON');
-    }
-    return new ThinkingBlock(json.thinking, json.signature);
-  }
 }
 
 /**
@@ -215,26 +111,6 @@ export class RedactedThinkingBlock {
   constructor(data) {
     this.type = 'redacted_thinking';
     this.data = data;
-  }
-
-  /**
-   * 序列化为 JSON 对象
-   */
-  toJSON() {
-    return {
-      type: this.type,
-      data: this.data
-    };
-  }
-
-  /**
-   * 从 JSON 对象反序列化
-   */
-  static fromJSON(json) {
-    if (!json || json.type !== 'redacted_thinking') {
-      throw new Error('Invalid RedactedThinkingBlock JSON');
-    }
-    return new RedactedThinkingBlock(json.data);
   }
 }
 
@@ -389,77 +265,6 @@ export class Message {
     }
     return [];
   }
-
-  /**
-   * 序列化为 JSON 对象
-   */
-  toJSON() {
-    const result = {
-      role: this.role,
-      content: Array.isArray(this.content)
-        ? this.content.map(block => {
-            // 调用每个内容块的 toJSON 方法
-            if (block.toJSON) {
-              return block.toJSON();
-            }
-            return block;
-          })
-        : this.content
-    };
-
-    if (this.reasoning_content) {
-      result.reasoning_content = this.reasoning_content;
-    }
-    if (this.tool_calls) {
-      result.tool_calls = this.tool_calls;
-    }
-    if (this.tool_call_id) {
-      result.tool_call_id = this.tool_call_id;
-    }
-
-    return result;
-  }
-
-  /**
-   * 从 JSON 对象反序列化
-   */
-  static fromJSON(json) {
-    if (!json || !json.role) {
-      throw new Error('Invalid Message JSON');
-    }
-
-    let content = json.content;
-
-    // 如果内容是数组，恢复为对应的内容块对象
-    if (Array.isArray(content)) {
-      content = content.map(block => {
-        if (!block || !block.type) return block;
-
-        switch (block.type) {
-          case 'text':
-            return TextBlock.fromJSON(block);
-          case 'image':
-            return ImageBlock.fromJSON(block);
-          case 'tool_use':
-            return ToolUseBlock.fromJSON(block);
-          case 'tool_result':
-            return ToolResultBlock.fromJSON(block);
-          case 'thinking':
-            return ThinkingBlock.fromJSON(block);
-          case 'redacted_thinking':
-            return RedactedThinkingBlock.fromJSON(block);
-          default:
-            return block;
-        }
-      });
-    }
-
-    return new Message(json.role, content, {
-      reasoning_content: json.reasoning_content,
-      tool_calls: json.tool_calls,
-      tool_call_id: json.tool_call_id
-    });
-  }
 }
 
 // =============================================================================
@@ -500,33 +305,6 @@ export class Tool {
         parameters: this.input_schema
       }
     };
-  }
-
-  /**
-   * 序列化为 JSON 对象
-   */
-  toJSON() {
-    return {
-      name: this.name,
-      description: this.description,
-      input_schema: this.input_schema,
-      type: this.type
-    };
-  }
-
-  /**
-   * 从 JSON 对象反序列化
-   */
-  static fromJSON(json) {
-    if (!json || !json.name) {
-      throw new Error('Invalid Tool JSON');
-    }
-    return new Tool(
-      json.name,
-      json.description,
-      json.input_schema,
-      { type: json.type }
-    );
   }
 }
 
@@ -619,25 +397,7 @@ export class MessagesRequest {
 // =============================================================================
 // 导出
 // =============================================================================
-
-// 导出到 window 对象（供其他脚本使用）
-window.MessageModels = {
-  Role,
-  TextBlock,
-  ImageBlock,
-  ToolUseBlock,
-  ToolResultBlock,
-  ThinkingBlock,
-  RedactedThinkingBlock,
-  Message,
-  Tool,
-  ThinkingConfig,
-  MessagesRequest
-};
-
-// 保留 ES6 export（兼容 module 导入）
-export default window.MessageModels;
-export {
+export default {
   Role,
   TextBlock,
   ImageBlock,

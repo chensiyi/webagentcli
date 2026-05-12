@@ -9,6 +9,7 @@
  * - 状态同步：isLoading、port、messages 等状态统一管理
  * - 会话生命周期：创建、切换、清除、删除
  * - 工具联动删除：删除 assistant 消息时自动删除对应的 tool 消息
+ * - 消息序列化/反序列化：支持持久化存储和恢复
  * 
  * 设计原则：
  * - 单一数据源：所有会话状态集中在 sessions 对象中
@@ -34,6 +35,10 @@
  */
 (function() {
   'use strict';
+  
+  // 导入 Message 模型类（如果可用）
+  const MessageModels = window.MessageModels || null;
+  const MessageClass = MessageModels?.Message || null;
   
   class SessionManager {
   constructor() {
@@ -263,12 +268,18 @@
       const session = this.sessions[sessionId];
       if (!session) return false;
       
-      // 为消息生成唯一 ID（如果没有）
-      if (!message.id) {
-        message.id = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      // 如果是 Message 实例，转换为普通对象用于存储
+      let messageObj = message;
+      if (MessageClass && message instanceof MessageClass) {
+        messageObj = message.toJSON();
       }
       
-      session.messages.push(message);
+      // 为消息生成唯一 ID（如果没有）
+      if (!messageObj.id) {
+        messageObj.id = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      }
+      
+      session.messages.push(messageObj);
       session.updatedAt = Date.now();
       return true;
     }
@@ -461,16 +472,29 @@
       // 将历史会话加载到内存中
       conversations.forEach(conv => {
         if (!this.sessions[conv.id]) {
+          // 反序列化消息：将 JSON 对象转换回 Message 实例
+          const messages = (conv.messages || []).map(msg => {
+            if (MessageClass) {
+              try {
+                return MessageClass.fromJSON(msg);
+              } catch (e) {
+                console.warn('[SessionManager] Failed to deserialize message:', e);
+                return msg; // 降级为普通对象
+              }
+            }
+            return msg;
+          });
+          
           this.sessions[conv.id] = {
             id: conv.id,
-            messages: [...conv.messages],
+            messages: messages,
             isLoading: false,
             port: null,
             enabledTools: conv.enabledTools || {}, // 加载工具启用状态
             createdAt: conv.createdAt,
             updatedAt: conv.updatedAt
           };
-          console.log('[SessionManager] Loaded session:', conv.id, 'messages:', conv.messages.length);
+          console.log('[SessionManager] Loaded session:', conv.id, 'messages:', messages.length);
         }
       });
       
@@ -489,13 +513,23 @@
      * 保存所有会话历史（到 storage）
      */
     async saveConversations() {
-      const conversations = Object.values(this.sessions).map(session => ({
-        id: session.id,
-        messages: [...session.messages],
-        enabledTools: session.enabledTools || {}, // 保存工具启用状态
-        createdAt: session.createdAt,
-        updatedAt: session.updatedAt
-      }));
+      const conversations = Object.values(this.sessions).map(session => {
+        // 序列化消息：将 Message 实例转换为 JSON 对象
+        const serializedMessages = session.messages.map(msg => {
+          if (MessageClass && msg instanceof MessageClass) {
+            return msg.toJSON();
+          }
+          return msg;
+        });
+        
+        return {
+          id: session.id,
+          messages: serializedMessages,
+          enabledTools: session.enabledTools || {}, // 保存工具启用状态
+          createdAt: session.createdAt,
+          updatedAt: session.updatedAt
+        };
+      });
       
       await chrome.storage.local.set({
         conversations,
