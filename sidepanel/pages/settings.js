@@ -551,7 +551,7 @@ window.Pages.settings = function(container) {
             const defaultEndpoints = {
               'openai': 'https://api.openai.com/v1',
               'openrouter': 'https://openrouter.ai/api/v1',
-              'lm-studio': 'http://localhost:1234/v1',
+              'lm-studio': 'http://localhost:1234',
               'ollama': 'http://localhost:11434',
               'anthropic': 'https://api.anthropic.com'
             };
@@ -616,7 +616,7 @@ window.Pages.settings = function(container) {
           },
           text: '?',
           attrs: {
-            title: '选择 API 标准后点击“加载模型”按钮从 API 获取可用模型列表\n\n支持的 API 标准：\n• OpenAI: https://api.openai.com/v1\n• LM Studio: http://localhost:1234/v1\n• Ollama: http://localhost:11434\n• OpenRouter: https://openrouter.ai/api/v1\n• Anthropic: https://api.anthropic.com/v1\n\n加载后可搜索和选择模型'
+            title: '选择 API 标准后点击"加载模型"按钮从 API 获取可用模型列表\n\n支持的 API 标准：\n• OpenAI: https://api.openai.com/v1\n• LM Studio: http://localhost:1234\n• Ollama: http://localhost:11434\n• OpenRouter: https://openrouter.ai/api/v1\n• Anthropic: https://api.anthropic.com\n\n加载后可搜索和选择模型'
           }
         })
       ]),

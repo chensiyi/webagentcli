@@ -23,9 +23,10 @@ class AdapterManager {
       this.register('openai', new window.OpenAIAdapter());
     }
     
-    if (typeof window.LMStudioAdapter !== 'undefined') {
-      this.register('lm-studio', new window.LMStudioAdapter());
-    }
+    // LM Studio 适配器已整合到 ProviderAdapter 中，不再单独注册
+    // if (typeof window.LMStudioAdapter !== 'undefined') {
+    //   this.register('lm-studio', new window.LMStudioAdapter());
+    // }
     
     if (typeof window.OllamaAdapter !== 'undefined') {
       this.register('ollama', new window.OllamaAdapter());

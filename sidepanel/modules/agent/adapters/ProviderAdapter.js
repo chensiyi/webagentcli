@@ -202,14 +202,16 @@ class ProviderAdapter {
 
   /**
    * LM Studio 适配器
+   * 使用 LM Studio 原生 Server API 标准 (Base URL 通常为 http://localhost:1234)
+   * 参考: https://lmstudio.ai/docs/api/server
    */
   createLMStudioTemplate() {
     return {
       name: 'lm-studio',
       defaults: {
-        apiVersion: 'v1',
-        chatPath: '/v1/chat/completions',
-        modelsPath: '/v1/models',
+        apiVersion: 'api/v1',
+        chatPath: '/api/v1/chat/completions',
+        modelsPath: '/api/v1/models',
         apiKey: 'not-needed' // LM Studio 通常不需要 API Key
       },
       headers: (config) => ({}), // 无需认证
@@ -249,22 +251,15 @@ class ProviderAdapter {
         };
       },
       endpoints: {
-        models: '/v1/models'
+        models: '/api/v1/models'
       },
       detectCapabilities: async (modelName, config) => {
-        // LM Studio 本地模型，尝试从 /v1/models 获取信息
+        // LM Studio 本地模型，尝试从 /api/v1/models 获取信息
         try {
-          // 尝试 /v1/models
-          let response = await fetch(`${config.endpoint}/v1/models`, {
+          const modelsEndpoint = this.buildUrl(config.endpoint, '/api/v1/models');
+          const response = await fetch(modelsEndpoint, {
             headers: { 'Content-Type': 'application/json' }
           });
-          
-          // 如果失败，尝试 /api/v1/models
-          if (!response.ok) {
-            response = await fetch(`${config.endpoint}/api/v1/models`, {
-              headers: { 'Content-Type': 'application/json' }
-            });
-          }
           
           if (!response.ok) {
             // 默认能力
