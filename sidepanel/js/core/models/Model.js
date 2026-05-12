@@ -200,10 +200,8 @@ class Model {
   }
 }
 
-// 导出
+// 导出（同时支持 ES Module 和全局变量）
 if (typeof window !== 'undefined') {
   window.Model = Model;
 }
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = Model;
-}
+export { Model };

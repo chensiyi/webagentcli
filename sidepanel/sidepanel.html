@@ -129,13 +129,6 @@
   <script type="module" src="pages/new/ChatPage.js"></script>
   
   <!-- 初始化应用 -->
-  <script>
-    window.addEventListener('load', () => {
-      console.log('[App] All modules loaded, initializing new ChatPage...');
-      if (window.ChatPage) {
-        new ChatPage();
-      }
-    });
-  </script>
+  <script type="module" src="pages/new/init.js"></script>
 </body>
 </html>

@@ -202,10 +202,8 @@ class Message {
   }
 }
 
-// 导出
+// 导出（同时支持 ES Module 和全局变量）
 if (typeof window !== 'undefined') {
   window.Message = Message;
 }
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = Message;
-}
+export { Message };
