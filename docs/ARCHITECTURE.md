@@ -95,51 +95,85 @@ AI 模型 + 浏览器能力 = 智能助手
 
 ## 3. 架构分层
 
-### 3.1 四层架构
+### 3.1 五层架构（新增核心模型层）
 
 ```
 ┌─────────────────────────────────────┐
 │         Pages (UI Layer)            │  ← 页面组件层
 │  chat | history | scripts | settings│     - 负责 UI 渲染和用户交互
-│                                     │     - 调用 Modules 层业务逻辑
+│                                     │     - 调用 Controller 层业务流程
+├─────────────────────────────────────┤
+│    Controller (Control Layer)       │  ← 控制层（待实现）
+│ ChatController | ToolController     │     - 编排业务流程
+│                                     │     - 协调 Model 和 Adapter
 ├─────────────────────────────────────┤
 │      Modules (Business Logic)       │  ← 业务逻辑层
 │ Agent | Tools | UserScripts         │     - 封装核心业务逻辑
 │                                     │     - 不依赖 UI，可独立测试
 ├─────────────────────────────────────┤
+│   Core Models (Protocol-Free)       │  ← 核心模型层（协议无关）
+│ Message | Session | Model | ...     │     - 定义业务实体结构
+│                                     │     - 完全不含 API 标准字段
+├─────────────────────────────────────┤
 │       Utils (Utilities)             │  ← 通用工具层
 │   markdown | media | toast | ...    │     - 纯函数，无状态
 │                                     │     - 被上层模块调用
 ├─────────────────────────────────────┤
-│     Background (Service Worker)     │  ← 后台服务层
-│ stream-core | message-transformer   │     - 处理 API 请求
-│                                     │     - 转发流式响应
+│     Adapters (Protocol Adapter)     │  ← 适配器层
+│ LMStudio | OpenAI | Anthropic       │     - 业务模型 ↔ API 格式转换
+│                                     │     - 隔离不同 API 标准
 └─────────────────────────────────────┘
 ```
 
 ### 3.2 依赖关系
 
-**单向依赖**：Pages → Modules → Utils
+**单向依赖**：Pages → Controller → Modules → Core Models → Utils
 
-- Pages 可以调用 Modules 和 Utils
-- Modules 可以调用 Utils
+- Pages 可以调用 Controller 和 Utils
+- Controller 协调 Modules、Core Models 和 Adapters
+- Modules 可以调用 Core Models 和 Utils
+- Core Models 不依赖任何层（纯数据结构）
+- Adapters 依赖 Core Models，进行格式转换
 - Utils 不依赖任何层
-- Background 独立运行，通过消息通信与 Pages 交互
 
 ### 3.3 职责分离原则
 
 | 层级 | 职责 | 示例 |
 |------|------|------|
 | Pages | UI 渲染、用户交互 | ChatRenderer, ModelSelector |
+| Controller | 业务流程编排 | ChatController, ToolController |
 | Modules | 业务逻辑、状态管理 | SessionManager, ToolManager |
+| Core Models | 业务实体定义 | Message, Session, Model, MediaContent |
+| Adapters | 协议转换 | LMStudioAdapter, OpenAIAdapter |
 | Utils | 工具函数、数据处理 | markdown.render(), Toast.show() |
-| Background | API 请求、流式转发 | handleStreamPort(), processChunk() |
 
 ---
 
-## 4. 核心模块详解
+## 4. 核心模型层（Core Models）
 
-### 4.1 SessionManager - 会话管理器
+### 4.0 设计原则
+
+**协议无关性**：所有业务模型完全不含 API 标准相关的字段。
+
+❌ **禁止的字段**：
+- `tool_calls` (OpenAI)
+- `tool_call_id` (OpenAI)
+- `additional_kwargs` (LangChain)
+- OpenAI 多模态格式 `{type: 'image_url', ...}`
+
+✅ **使用的字段**：
+- `toolIntentions` (业务概念)
+- `toolResultRef` (业务关联)
+- `metadata` (通用元数据)
+- `MediaContent` 数组 (业务模型)
+
+详见 [CORE_MODELS.md](./CORE_MODELS.md)
+
+---
+
+## 5. 核心模块详解
+
+### 5.1 SessionManager - 会话管理器
 
 **文件**: `sidepanel/modules/agent/SessionManager.js`
 
@@ -180,7 +214,7 @@ AI 模型 + 浏览器能力 = 智能助手
 
 ---
 
-### 4.2 ToolManager - 工具管理器
+### 5.2 ToolManager - 工具管理器
 
 **文件**: `sidepanel/modules/tools/BaseToolManager.js`
 
@@ -230,7 +264,7 @@ AI 模型 + 浏览器能力 = 智能助手
 
 ---
 
-### 4.3 StreamCore - 流式处理引擎
+### 5.3 StreamCore - 流式处理引擎
 
 **文件**: `sidepanel/background/stream-core.js`
 
@@ -294,7 +328,7 @@ if (toolCallsDelta && Array.isArray(toolCallsDelta)) {
 
 ---
 
-### 4.4 AdapterManager - 适配器管理器
+### 5.4 AdapterManager - 适配器管理器
 
 **文件**: `sidepanel/modules/agent/adapters/AdapterManager.js`
 
@@ -338,7 +372,7 @@ formatMessages(messages) {
 
 ---
 
-### 4.5 ModelManager - 模型管理器
+### 5.5 ModelManager - 模型管理器
 
 **文件**: `sidepanel/modules/models/ModelManager.js`
 
@@ -378,7 +412,7 @@ if (cached && Date.now() - cached.timestamp < 24 * 60 * 60 * 1000) {
 
 ---
 
-### 4.6 UserScriptManager - 用户脚本管理器
+### 5.6 UserScriptManager - 用户脚本管理器
 
 **文件**: `sidepanel/modules/scripts/UserScriptManager.js`
 
@@ -402,9 +436,9 @@ await chrome.userScripts.register({
 
 ---
 
-## 5. 数据流设计
+## 6. 数据流设计
 
-### 5.1 消息发送流程
+### 6.1 消息发送流程
 
 ```
 用户输入文本
@@ -438,7 +472,7 @@ SessionManager.updateLastMessage(sessionId, content)
 ChatRenderer.renderMessages()  // UI 更新
 ```
 
-### 5.2 工具调用流程
+### 6.2 工具调用流程
 
 ```
 AI 返回 tool_calls
@@ -469,7 +503,7 @@ renderCallback()  // UI 显示工具结果
 等待用户输入（不再自动发送第二轮请求）
 ```
 
-### 5.3 会话切换流程
+### 6.3 会话切换流程
 
 ```
 用户点击会话
@@ -485,9 +519,9 @@ UI 重新渲染新会话的消息
 
 ---
 
-## 6. 通信协议
+## 7. 通信协议
 
-### 6.1 Frontend → Background
+### 7.1 Frontend → Background
 
 ```javascript
 port.postMessage({
@@ -502,7 +536,7 @@ port.postMessage({
 });
 ```
 
-### 6.2 Background → Frontend
+### 7.2 Background → Frontend
 
 **流式片段**:
 ```javascript
@@ -552,9 +586,9 @@ port.postMessage({
 
 ---
 
-## 7. 设计模式
+## 8. 设计模式
 
-### 7.1 适配器模式 (Adapter Pattern)
+### 8.1 适配器模式 (Adapter Pattern)
 
 **应用**: 不同 API 提供商的统一接口
 
@@ -574,7 +608,7 @@ ProviderAdapter (统一接口)
 
 ---
 
-### 7.2 单例模式 (Singleton Pattern)
+### 8.2 单例模式 (Singleton Pattern)
 
 **应用**: SessionManager、ModelManager、AdapterManager 等全局管理器
 
@@ -599,7 +633,7 @@ ProviderAdapter (统一接口)
 
 ---
 
-### 7.3 观察者模式 (Observer Pattern)
+### 8.3 观察者模式 (Observer Pattern)
 
 **应用**: Port 断开监听
 
@@ -616,7 +650,7 @@ port.onDisconnect.addListener(() => {
 
 ---
 
-### 7.4 策略模式 (Strategy Pattern)
+### 8.4 策略模式 (Strategy Pattern)
 
 **应用**: 消息渲染器系统
 
@@ -657,9 +691,9 @@ for (const renderer of this.renderers) {
 
 ---
 
-## 8. 扩展机制
+## 9. 扩展机制
 
-### 8.1 添加工具
+### 9.1 添加工具
 
 1. 创建工具类（继承 BaseTool 或独立实现）
 2. 在 `BaseToolManager` 构造函数中注册
@@ -688,7 +722,7 @@ this.registerTool(window.MyTool.config);
 
 ---
 
-### 8.2 添加 API 适配器
+### 9.2 添加 API 适配器
 
 1. 创建适配器类（实现统一接口）
 2. 在 `AdapterManager` 中注册
@@ -712,7 +746,7 @@ this.adapters.set('new', new NewAdapter());
 
 ---
 
-### 8.3 添加渲染器
+### 9.3 添加渲染器
 
 1. 创建渲染器类（继承 BaseRenderer 或独立实现）
 2. 在 `ChatMessageRenderer` 中注册
@@ -738,16 +772,16 @@ this.renderers.push(new CustomRenderer());
 
 ---
 
-## 9. 重构指南
+## 10. 重构指南
 
-### 9.1 重构原则
+### 10.1 重构原则
 
 1. **保持接口兼容**: 修改内部实现时，保持对外接口不变
 2. **单向依赖**: 严格遵守 Pages → Modules → Utils 的依赖方向
 3. **单一职责**: 每个模块只负责一个功能
 4. **可测试性**: 模块应可独立测试，不依赖全局状态
 
-### 9.2 常见重构场景
+### 10.2 常见重构场景
 
 #### 场景 1: 添加新的 UI 页面
 
@@ -770,7 +804,7 @@ this.renderers.push(new CustomRenderer());
 3. 更新 `ProviderAdapter.selectTemplate` 方法
 4. 测试工具调用、流式响应等功能
 
-### 9.3 调试技巧
+### 10.3 调试技巧
 
 **Background Service Worker**:
 - `chrome://extensions/` → 找到扩展 → 点击 "Service Worker"
@@ -788,7 +822,7 @@ console.warn('[Module] Warning') // 警告
 console.error('[Module] Error')  // 错误
 ```
 
-### 9.4 性能优化
+### 10.4 性能优化
 
 1. **消息截断**: 使用 `ChatContext.truncateMessages` 控制上下文长度
 2. **模型缓存**: ModelManager 使用 5 分钟缓存
