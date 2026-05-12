@@ -108,5 +108,34 @@
   
   <!-- App -->
   <script src="app.js"></script>
+  
+  <!-- 新架构：核心模型层 -->
+  <script type="module" src="js/core/models/index.js"></script>
+  <script type="module" src="js/core/events/EventBus.js"></script>
+  <script type="module" src="js/core/stores/SessionManager.js"></script>
+  <script type="module" src="js/core/stores/ToolRegistry.js"></script>
+  
+  <!-- 新架构：协议适配层 -->
+  <script type="module" src="js/adapters/ProtocolAdapter.js"></script>
+  <script type="module" src="js/adapters/lm-studio/LMStudioAdapter.js"></script>
+  
+  <!-- 新架构：服务层 -->
+  <script type="module" src="js/services/AdapterService.js"></script>
+  
+  <!-- 新架构：控制器层 -->
+  <script type="module" src="js/controllers/ChatController.js"></script>
+  
+  <!-- 新页面：聊天页面（原生 JS） -->
+  <script type="module" src="pages/new/ChatPage.js"></script>
+  
+  <!-- 初始化应用 -->
+  <script>
+    window.addEventListener('load', () => {
+      console.log('[App] All modules loaded, initializing new ChatPage...');
+      if (window.ChatPage) {
+        new ChatPage();
+      }
+    });
+  </script>
 </body>
 </html>
