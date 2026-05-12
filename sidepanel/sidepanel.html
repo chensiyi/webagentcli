@@ -52,26 +52,40 @@
   <script>
   // 等待 DOM 加载完成
   document.addEventListener('DOMContentLoaded', () => {
+    console.log('[Sidebar] DOM ready, initializing navigation...');
+    
     const frame = document.getElementById('page-frame');
     const buttons = document.querySelectorAll('.sidebar-btn');
     
-    buttons.forEach(btn => {
+    console.log('[Sidebar] Found', buttons.length, 'buttons');
+    console.log('[Sidebar] Frame element:', frame);
+    
+    buttons.forEach((btn, index) => {
+      console.log(`[Sidebar] Setting up button ${index}:`, btn.dataset.page);
+      
       // 点击切换页面
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', (e) => {
+        console.log('[Sidebar] Button clicked:', btn.dataset.page);
+        e.preventDefault();
+        e.stopPropagation();
+        
         // 更新 active 状态
         buttons.forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         
         // 切换页面
         const page = btn.dataset.page;
-        frame.src = `pages/${page}`;
-        console.log('[Sidebar] Switched to:', page);
+        const newSrc = `pages/${page}`;
+        console.log('[Sidebar] Switching frame src to:', newSrc);
+        frame.src = newSrc;
       });
       
       // Tooltip 显示逻辑
       let tooltipElement = null;
       
       btn.addEventListener('mouseenter', (e) => {
+        console.log('[Sidebar] Mouse enter:', btn.dataset.tooltip);
+        
         // 移除已存在的 tooltip
         if (tooltipElement && tooltipElement.parentNode) {
           tooltipElement.remove();
@@ -113,7 +127,7 @@
       });
     });
     
-    console.log('[Sidebar] Navigation initialized');
+    console.log('[Sidebar] Navigation initialized successfully');
   });
   </script>
 </body>
