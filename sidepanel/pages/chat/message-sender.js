@@ -125,8 +125,36 @@ class MessageSender {
     let apiEndpoint = settings.apiEndpoint;
     let chatMessages = this.prepareMessages(session, settings);
     
-    // 如果设置了 apiStandard，使用适配器处理
-    if (settings.apiStandard && window.ProviderAdapter) {
+    // 优先使用 AdapterManager（支持独立适配器）
+    if (settings.apiStandard && window.AdapterManager) {
+      try {
+        window.AdapterManager.select(settings.apiStandard);
+        window.AdapterManager.configure({
+          endpoint: settings.apiEndpoint,
+          apiKey: settings.apiKey,
+          defaultModel: settings.model
+        });
+        
+        const adapter = window.AdapterManager.getCurrentAdapter();
+        
+        // 对于 LM Studio，直接使用适配器构建 URL
+        if (settings.apiStandard === 'lm-studio') {
+          apiEndpoint = adapter.buildUrl('/chat/completions');
+        } else {
+          // 其他适配器使用 ProviderAdapter 兼容方式
+          apiEndpoint = adapter.buildUrl(
+            settings.apiEndpoint,
+            adapter.currentAdapter?.defaults?.chatPath || '/chat/completions'
+          );
+        }
+        
+        console.log('[MessageSender] Using adapter:', settings.apiStandard, 'Endpoint:', apiEndpoint);
+      } catch (e) {
+        console.warn('[MessageSender] Adapter failed, using raw endpoint:', e);
+        apiEndpoint = this.normalizeEndpoint(settings.apiEndpoint);
+      }
+    } else if (settings.apiStandard && window.ProviderAdapter) {
+      // 回退到 ProviderAdapter
       try {
         const adapter = new window.ProviderAdapter();
         adapter.selectTemplate(settings.apiStandard);
@@ -136,16 +164,14 @@ class MessageSender {
           defaultModel: settings.model
         });
         
-        // 构建完整的 URL
         apiEndpoint = adapter.buildUrl(
           settings.apiEndpoint,
           adapter.currentAdapter.defaults.chatPath
         );
         
-        console.log('[MessageSender] Using adapter:', settings.apiStandard, 'Endpoint:', apiEndpoint);
+        console.log('[MessageSender] Using ProviderAdapter:', settings.apiStandard, 'Endpoint:', apiEndpoint);
       } catch (e) {
-        console.warn('[MessageSender] Adapter failed, using raw endpoint:', e);
-        // 回退到原始逻辑
+        console.warn('[MessageSender] ProviderAdapter failed, using raw endpoint:', e);
         apiEndpoint = this.normalizeEndpoint(settings.apiEndpoint);
       }
     } else {
