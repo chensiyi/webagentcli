@@ -124,6 +124,7 @@ class MessageSender {
     // 使用适配器构建请求
     let apiEndpoint = settings.apiEndpoint;
     let chatMessages = this.prepareMessages(session, settings);
+    let requestBody = null; // 由适配器构建的请求体
     
     if (settings.apiStandard && window.AdapterManager) {
       try {
@@ -139,6 +140,18 @@ class MessageSender {
         // 让适配器自己决定聊天端点路径
         const chatPath = adapter.getChatEndpoint ? adapter.getChatEndpoint() : '/chat/completions';
         apiEndpoint = adapter.buildUrl(chatPath);
+        
+        // 让适配器构建请求体（标准无关的业务逻辑）
+        if (adapter.buildRequestBody) {
+          requestBody = adapter.buildRequestBody({
+            messages: chatMessages,
+            model: settings.model,
+            temperature: settings.temperature || 0.7,
+            maxTokens: settings.maxTokens || 2000,
+            stream: true,
+            tools: toolsDefinition
+          });
+        }
         
         console.log('[MessageSender] Using adapter:', settings.apiStandard, 'Chat path:', chatPath, 'Endpoint:', apiEndpoint);
       } catch (e) {
@@ -278,7 +291,8 @@ class MessageSender {
       maxTokens: settings.maxTokens || 2000,
       toolsEnabled: toolsEnabled,
       tools: toolsDefinition,
-      apiStandard: settings.apiStandard // 传递 API 标准给后端
+      apiStandard: settings.apiStandard, // 传递 API 标准给后端（用于回退）
+      requestBody // 由适配器构建的请求体（优先使用）
     });
 
     console.log(`[MessageSender] Chat request started: session=${sessionId}, model=${settings.model}, messages=${chatMessages.length}, toolsEnabled=${toolsEnabled}`);

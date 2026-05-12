@@ -268,6 +268,72 @@ class LMStudioAdapter {
   }
 
   /**
+   * 构建请求体
+   * LM Studio 原生 v1 API: POST /api/v1/chat
+   * 参考: https://lmstudio.ai/docs/developer/rest/chat
+   */
+  buildRequestBody(params) {
+    // LM Studio 原生 API 使用不同的字段名
+    const baseBody = {
+      model: params.model || this.config.defaultModel,
+      input: params.messages, // 原生 API 使用 'input' 而不是 'messages'
+      stream: params.stream ?? false
+    };
+    
+    // 添加可选参数
+    if (params.temperature !== undefined) {
+      baseBody.temperature = params.temperature;
+    }
+    
+    if (params.maxTokens) {
+      baseBody.max_output_tokens = params.maxTokens; // 原生 API 使用 'max_output_tokens'
+    }
+    
+    if (params.top_p !== undefined) {
+      baseBody.top_p = params.top_p;
+    }
+    
+    if (params.top_k !== undefined) {
+      baseBody.top_k = params.top_k;
+    }
+    
+    if (params.min_p !== undefined) {
+      baseBody.min_p = params.min_p;
+    }
+    
+    if (params.repeat_penalty !== undefined) {
+      baseBody.repeat_penalty = params.repeat_penalty;
+    }
+    
+    // 系统提示（原生 API 支持）
+    if (params.systemPrompt) {
+      baseBody.system_prompt = params.systemPrompt;
+    }
+    
+    // 上下文长度（原生 API 特有）
+    if (params.contextLength) {
+      baseBody.context_length = params.contextLength;
+    }
+    
+    // 推理设置（原生 API 特有）
+    if (params.reasoning) {
+      baseBody.reasoning = params.reasoning;
+    }
+    
+    // 存储对话（原生 API 特有）
+    if (params.store !== undefined) {
+      baseBody.store = params.store;
+    }
+    
+    // 之前的响应 ID（用于有状态对话）
+    if (params.previousResponseId) {
+      baseBody.previous_response_id = params.previousResponseId;
+    }
+    
+    return baseBody;
+  }
+
+  /**
    * 拉取模型列表
    * GET /api/v1/models
    * @returns {Array} 返回完整的模型数据数组

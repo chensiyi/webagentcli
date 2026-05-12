@@ -209,8 +209,9 @@ class ToolResultHandler {
 
     console.log('[ToolResultHandler] Sending request with', chatMessages.length, 'messages');
     
-    // 使用适配器构建端点
+    // 使用适配器构建端点和请求体
     let apiEndpoint = settings.apiEndpoint;
+    let requestBody = null;
     
     if (settings.apiStandard && window.AdapterManager) {
       try {
@@ -226,6 +227,18 @@ class ToolResultHandler {
         // 让适配器自己决定聊天端点路径
         const chatPath = adapter.getChatEndpoint ? adapter.getChatEndpoint() : '/chat/completions';
         apiEndpoint = adapter.buildUrl(chatPath);
+        
+        // 让适配器构建请求体
+        if (adapter.buildRequestBody) {
+          requestBody = adapter.buildRequestBody({
+            messages: chatMessages,
+            model: settings.model,
+            temperature: settings.temperature || 0.7,
+            maxTokens: settings.maxTokens || 2000,
+            stream: true,
+            tools: toolsDefinition
+          });
+        }
         
         console.log('[ToolResultHandler] Using adapter:', settings.apiStandard, 'Chat path:', chatPath, 'Endpoint:', apiEndpoint);
       } catch (e) {
@@ -245,7 +258,8 @@ class ToolResultHandler {
       maxTokens: settings.maxTokens || 2000,
       toolsEnabled: true,
       tools: toolsDefinition,
-      apiStandard: settings.apiStandard // 传递 API 标准给后端
+      apiStandard: settings.apiStandard, // 传递 API 标准给后端（用于回退）
+      requestBody // 由适配器构建的请求体（优先使用）
     });
 
     console.log('[ToolResultHandler] Request sent');

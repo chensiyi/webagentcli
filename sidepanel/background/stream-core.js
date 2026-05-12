@@ -22,45 +22,47 @@ export function handleStreamPort(port) {
   });
   
   port.onMessage.addListener(async (data) => {
-    const { messages, apiKey, apiEndpoint, model, temperature, maxTokens, toolsEnabled, tools, apiStandard } = data;
+    const { messages, apiKey, apiEndpoint, model, temperature, maxTokens, toolsEnabled, tools, apiStandard, requestBody } = data;
     
     console.log('[Background] Stream chat:', model, 'apiStandard:', apiStandard, 'toolsEnabled:', toolsEnabled);
     
     try {
-      // 处理消息转换
-      let processedMessages = processMessages(messages, toolsEnabled);
+      // 如果前端已经构建了请求体，直接使用
+      let finalRequestBody = requestBody;
       
-      // 检查是否包含图片
-      if (hasImages(processedMessages)) {
-        console.log('[Background] Message contains images');
-      }
-      
-      // 构建请求 - 根据 API 标准使用不同格式
-      let requestBody;
-      if (apiStandard === 'lm-studio') {
-        // LM Studio 原生 API 格式
-        requestBody = buildLMStudioRequestBody(processedMessages, model, temperature, maxTokens);
-      } else {
-        // OpenAI 兼容格式
-        requestBody = buildRequestBody(processedMessages, model, temperature, maxTokens, tools);
+      // 否则使用默认方式构建（向后兼容）
+      if (!finalRequestBody) {
+        // 处理消息转换
+        let processedMessages = processMessages(messages, toolsEnabled);
+        
+        // 检查是否包含图片
+        if (hasImages(processedMessages)) {
+          console.log('[Background] Message contains images');
+        }
+        
+        // 构建请求 - 根据 API 标准使用不同格式
+        if (apiStandard === 'lm-studio') {
+          // LM Studio 原生 API 格式
+          finalRequestBody = buildLMStudioRequestBody(processedMessages, model, temperature, maxTokens);
+        } else {
+          // OpenAI 兼容格式
+          finalRequestBody = buildRequestBody(processedMessages, model, temperature, maxTokens, tools);
+        }
       }
       
       const headers = buildHeaders(apiKey);
       
       console.log('[Background] Request body preview:', {
         model,
-        messagesCount: processedMessages.length,
-        toolsEnabled,
-        firstMessageRole: processedMessages[0]?.role,
-        lastMessageRole: processedMessages[processedMessages.length - 1]?.role,
-        requestBodyKeys: Object.keys(requestBody)
+        requestBodyKeys: Object.keys(finalRequestBody),
+        stream: finalRequestBody.stream
       });
       
       // 发送 API 请求
       const response = await fetch(apiEndpoint, {
         method: 'POST',
         headers,
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify(finalRequestBody)
       });
       
       if (!response.ok) {
