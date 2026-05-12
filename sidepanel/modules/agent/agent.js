@@ -63,8 +63,9 @@ class Agent {
     // 获取当前适配器
     const adapter = this.adapterManager.getCurrentAdapter();
     
-    // 构建 URL
-    const endpoint = adapter.buildUrl('/chat/completions');
+    // 构建 URL - 让适配器自己决定路径
+    const chatPath = adapter.getChatEndpoint ? adapter.getChatEndpoint() : '/chat/completions';
+    const endpoint = adapter.buildUrl(chatPath);
     
     // 格式化消息
     const formattedMessages = adapter.formatMessages(messages);
