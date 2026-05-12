@@ -29,11 +29,13 @@ export function handleStreamPort(port) {
     try {
       // 如果前端已经构建了请求体，直接使用
       let finalRequestBody = requestBody;
+      let messageCount = messages?.length || 0; // 用于错误日志
       
       // 否则使用默认方式构建（向后兼容）
       if (!finalRequestBody) {
         // 处理消息转换
-        let processedMessages = processMessages(messages, toolsEnabled);
+        const processedMessages = processMessages(messages, toolsEnabled);
+        messageCount = processedMessages.length;
         
         // 检查是否包含图片
         if (hasImages(processedMessages)) {
@@ -54,6 +56,7 @@ export function handleStreamPort(port) {
       
       console.log('[Background] Request body preview:', {
         model,
+        messageCount,
         requestBodyKeys: Object.keys(finalRequestBody),
         stream: finalRequestBody.stream
       });
@@ -69,7 +72,7 @@ export function handleStreamPort(port) {
         await handleError(response, port, isDisconnected, {
           model,
           apiEndpoint,
-          messagesCount: processedMessages.length,
+          messagesCount: messageCount,
           toolsEnabled
         });
         return;
