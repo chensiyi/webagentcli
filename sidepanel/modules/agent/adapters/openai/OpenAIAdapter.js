@@ -98,6 +98,13 @@ class OpenAIAdapter {
   }
 
   /**
+   * 获取聊天端点
+   */
+  getChatEndpoint() {
+    return '/chat/completions'; // OpenAI 标准端点
+  }
+
+  /**
    * 获取模型列表端点
    */
   getModelsEndpoint() {

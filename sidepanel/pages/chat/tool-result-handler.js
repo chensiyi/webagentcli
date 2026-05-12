@@ -222,9 +222,12 @@ class ToolResultHandler {
         });
         
         const adapter = window.AdapterManager.getCurrentAdapter();
-        apiEndpoint = adapter.buildUrl('/chat/completions');
         
-        console.log('[ToolResultHandler] Using adapter:', settings.apiStandard, 'Endpoint:', apiEndpoint);
+        // 让适配器自己决定聊天端点路径
+        const chatPath = adapter.getChatEndpoint ? adapter.getChatEndpoint() : '/chat/completions';
+        apiEndpoint = adapter.buildUrl(chatPath);
+        
+        console.log('[ToolResultHandler] Using adapter:', settings.apiStandard, 'Chat path:', chatPath, 'Endpoint:', apiEndpoint);
       } catch (e) {
         console.warn('[ToolResultHandler] Adapter failed, using normalized endpoint:', e);
         apiEndpoint = this.normalizeEndpoint(settings.apiEndpoint);
