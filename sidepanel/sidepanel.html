@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Web Agent Client</title>
+  <!-- Theme CSS (modular by UI element type) -->
+  <link rel="stylesheet" href="theme/variables.css">
+  <link rel="stylesheet" href="theme/utilities.css">
+  <link rel="stylesheet" href="theme/layout.css">
+  <link rel="stylesheet" href="theme/buttons.css">
+  <link rel="stylesheet" href="theme/forms.css">
+  <link rel="stylesheet" href="theme/cards.css">
+  <link rel="stylesheet" href="theme/badges.css">
+  <link rel="stylesheet" href="theme/dialogs.css">
+  <link rel="stylesheet" href="theme/tooltips.css">
+  <link rel="stylesheet" href="theme/markdown.css">
+  <link rel="stylesheet" href="theme/chat-components.css">
+  <link rel="stylesheet" href="theme/search-results.css">
+  <link rel="stylesheet" href="theme/settings-ui.css">
+  <link rel="stylesheet" href="theme/animations.css">
+</head>
+<body>
+  <div id="root"></div>
+  
+  <!-- DOM Utils -->
+  <script src="pages/dom.js"></script>
+  
+  <!-- Utils -->
+  <script src="utils/markdown.js"></script>
+  <script src="utils/media.js"></script>
+  <script src="utils/time.js"></script>
+  <script src="utils/toast.js"></script>
+  <script src="utils/confirm.js"></script>
+  <script src="utils/tooltip.js"></script>
+  <script src="utils/messageTypes.js"></script>
+  <script src="utils/thinkingMode.js"></script>
+  <script src="utils/ragCodeExtension.js"></script>
+  
+  <!-- Modules -->
+  <script type="module" src="modules/models/MessageModels.js"></script>
+  <script type="module" src="modules/api/APIService.js"></script>
+  <script type="module" src="modules/api/providers/OpenAIProvider.js"></script>
+  <script src="modules/scripts/UserScriptStorage.js"></script>
+  <script src="modules/scripts/UserScriptMetadata.js"></script>
+  <script src="modules/scripts/UserScriptSandbox.js"></script>
+  <script src="modules/scripts/UserScriptManager.js"></script>
+  <script src="modules/tools/SearchTool.js"></script>
+  <script src="modules/tools/FetchTool.js"></script>
+  <script src="modules/tools/TerminalManager.js"></script>
+  <script src="modules/tools/CodeTool.js"></script>
+  <script src="modules/tools/TerminalTool.js"></script>
+  <script src="modules/tools/BaseToolManager.js"></script>
+  
+  <!-- Agent Core -->
+  <script src="modules/agent/models/ModelManager.js"></script>
+  <script src="modules/agent/models/ModelSelector.js"></script>
+  <script src="modules/agent/multimodal/ImageHandler.js"></script>
+  <script src="modules/agent/multimodal/AudioHandler.js"></script>
+  <script src="modules/agent/multimodal/VideoHandler.js"></script>
+  <script src="modules/agent/multimodal/MediaManager.js"></script>
+  
+  <!-- API Adapters (每个适配器独立文件夹) -->
+  <script src="modules/agent/adapters/openai/OpenAIAdapter.js"></script>
+  <script src="modules/agent/adapters/lm-studio/LMStudioAdapter.js"></script>
+  <script src="modules/agent/adapters/ollama/OllamaAdapter.js"></script>
+  <script src="modules/agent/adapters/openrouter/OpenRouterAdapter.js"></script>
+  <script src="modules/agent/adapters/anthropic/AnthropicAdapter.js"></script>
+  <script src="modules/agent/adapters/AdapterManager.js"></script>
+  
+  <script src="modules/agent/InputController.js"></script>
+  <script src="modules/agent/SessionManager.js"></script>
+  <script src="modules/agent/agent.js"></script>
+  
+  <!-- Storage -->
+  <script src="modules/storage/SettingsStorage.js"></script>
+  
+  <!-- Pages -->
+  <script src="pages/chat/context.js"></script>
+  
+  <!-- Chat Components (modular) -->
+  <script src="pages/chat/components/ChatRenderer.js"></script>
+  
+  <!-- Chat Renderers (modular) -->
+  <script src="pages/chat/render/TextRenderer.js"></script>
+  <script src="pages/chat/render/ImageRenderer.js"></script>
+  <script src="pages/chat/render/AudioRenderer.js"></script>
+  <script src="pages/chat/render/VideoRenderer.js"></script>
+  <script src="pages/chat/render/FileRenderer.js"></script>
+  <script src="pages/chat/render/ChatMessageRenderer.js"></script>
+  <script src="pages/chat/render.js"></script>
+  
+  <!-- 工具调用模块（按照 OpenAI Tool Calling 标准） -->
+  <script src="modules/tools/ToolCallManager.js"></script>
+  <script src="modules/tools/ToolCallRenderer.js"></script>
+  <script src="modules/tools/StreamMessageProcessor.js"></script>
+  
+  <script src="pages/chat/stream-state.js"></script>
+  <script src="pages/chat/stream-handler.js"></script>
+  <script src="pages/chat/tool-executor.js"></script>
+  <script src="pages/chat/tool-result-handler.js"></script>
+  <script src="pages/chat/message-sender.js"></script>
+  <script src="pages/chat/chat-refactored.js"></script>
+  <script src="pages/scripts.js"></script>
+  <script src="pages/history.js"></script>
+  <script src="pages/storage.js"></script>
+  <script src="pages/settings.js"></script>
+  
+  <!-- App -->
+  <script src="app.js"></script>
+</body>
+</html>

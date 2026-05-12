@@ -1,0 +1,502 @@
+// 模型管理器
+// 负责模型列表获取、能力检测、缓存管理
+(function() {
+  'use strict';
+  
+  class ModelManager {
+    constructor() {
+      this.models = []; // 只存储模型ID列表（向后兼容）
+      this.modelDetails = {}; // { modelId: { id, name, context_length, pricing, ... } }
+      this.capabilities = {}; // { modelName: { vision, streaming, ... } }
+      this.lastFetchTime = null;
+      this.cacheDuration = 30 * 24 * 60 * 60 * 1000; // 缓存30天
+      this.storageKey = 'model_cache';
+      
+      // 使用全局的 CapabilityManager（如果存在）
+      this.capabilityManager = window.MessageTypes?.CapabilityManager || null;
+    }
+    
+    /**
+     * 从 API 获取模型列表
+     */
+    async fetchModels(apiKey, apiEndpoint, apiStandard = 'openrouter') {
+      // 优先从本地存储加载缓存
+      const cached = this.loadFromStorage(apiEndpoint);
+      if (cached && !this.isCacheExpired()) {
+        console.log('[ModelManager] Using cached models from storage:', cached.models.length, 'models');
+        this.restoreFromCache(cached);
+        return this.models;
+      }
+      
+      console.log('[ModelManager] Cache expired or not found, fetching from API');
+      
+      // 记录当前 API 端点
+      this.currentApiEndpoint = apiEndpoint;
+      this.currentApiStandard = apiStandard;
+      
+      try {
+        // 使用 AdapterManager 拉取模型列表
+        let modelData = [];
+        
+        if (window.AdapterManager) {
+          // 选择对应的适配器
+          window.AdapterManager.select(apiStandard);
+          modelData = await window.AdapterManager.fetchModels(apiEndpoint, apiKey);
+        } else {
+          // 回退到原有的实现（向后兼容）
+          modelData = await this.fetchModelsWithFallback(apiEndpoint, apiKey);
+        }
+        
+        // 处理适配器返回的完整模型数据
+        if (modelData && Array.isArray(modelData)) {
+          // 提取模型 ID 列表
+          this.models = modelData.map(m => m.id || m);
+          
+          // 保存每个模型的详细信息
+          modelData.forEach(model => {
+            const modelId = model.id || model;
+            
+            // 如果 model 是字符串（只有 ID），创建基本结构
+            if (typeof model === 'string') {
+              this.modelDetails[modelId] = {
+                id: modelId,
+                name: modelId,
+                context_length: null,
+                pricing: null
+              };
+            } else {
+              // 保存完整的模型信息
+              this.modelDetails[modelId] = {
+                id: model.id,
+                name: model.name || model.id,
+                canonical_slug: model.canonical_slug,
+                description: model.description,
+                context_length: model.context_length,
+                architecture: model.architecture,
+                pricing: model.pricing,
+                top_provider: model.top_provider,
+                supported_parameters: model.supported_parameters || [],
+                created: model.created,
+                input_modalities: model.architecture?.input_modalities || [],
+                output_modalities: model.architecture?.output_modalities || [],
+                // 保存原始数据
+                _raw: model
+              };
+            }
+          });
+        }
+        
+        // 确保 models 数组已初始化
+        if (!this.models) {
+          this.models = [];
+        }
+        
+        this.lastFetchTime = Date.now();
+        
+        // 自动检测模型能力
+        this.detectCapabilities();
+        
+        // 保存到本地存储
+        this.saveToStorage();
+        
+        console.log('[ModelManager] Fetched', this.models.length, 'models from', apiEndpoint);
+        return this.models;
+      } catch (error) {
+        console.error('[ModelManager] Fetch error:', error);
+        throw error;
+      }
+    }
+    
+    /**
+     * 回退实现：直接调用 API（向后兼容）
+     */
+    async fetchModelsWithFallback(apiEndpoint, apiKey) {
+      // 构建 models API URL - 先尝试标准路径
+      let modelsEndpoint = apiEndpoint.replace(/\/$/, '') + '/v1/models';
+      
+      // 构建请求头（API Key 可选）
+      const headers = {};
+      if (apiKey) {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+      }
+      
+      let response = await fetch(modelsEndpoint, {
+        method: 'GET',
+        headers
+      });
+      
+      // 如果标准路径失败，尝试 /api/v1/models
+      if (!response.ok && modelsEndpoint.includes('/v1/models')) {
+        modelsEndpoint = apiEndpoint.replace(/\/$/, '') + '/api/v1/models';
+        console.log('[ModelManager] Retrying with alternative endpoint:', modelsEndpoint);
+        response = await fetch(modelsEndpoint, {
+          method: 'GET',
+          headers
+        });
+      }
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText.substring(0, 200)}`);
+      }
+      
+      const result = await response.json();
+      console.log('[ModelManager] API response:', result);
+      
+      // 提取模型列表和详细信息
+      if (result.data && Array.isArray(result.data)) {
+        this.models = result.data.map(m => m.id);
+        
+        // 保存每个模型的详细信息
+        result.data.forEach(model => {
+          this.modelDetails[model.id] = {
+            id: model.id,
+            name: model.name || model.id,
+            canonical_slug: model.canonical_slug,
+            description: model.description,
+            context_length: model.context_length,
+            architecture: model.architecture,
+            pricing: model.pricing,
+            top_provider: model.top_provider,
+            supported_parameters: model.supported_parameters || [],
+            created: model.created,
+            input_modalities: model.architecture?.input_modalities || [],
+            output_modalities: model.architecture?.output_modalities || []
+          };
+        });
+        
+        // 记录当前 API 端点
+        this.currentApiEndpoint = apiEndpoint;
+        this.lastFetchTime = Date.now();
+        
+        // 自动检测模型能力
+        this.detectCapabilities();
+        
+        // 保存到本地存储（关键：确保持久化）
+        this.saveToStorage();
+        
+        return this.models;
+      }
+      
+      return [];
+    }
+    
+    /**
+     * 根据模型名称推断能力
+     */
+    detectCapabilities() {
+      this.capabilities = {};
+      
+      this.models.forEach(modelName => {
+        const details = this.modelDetails[modelName];
+        
+        if (details) {
+          // 从 API 返回的详细信息中提取能力
+          this.capabilities[modelName] = this.extractCapabilitiesFromDetails(details);
+        } else {
+          // 如果没有详细信息，使用回退机制（基于名称推断）
+          this.capabilities[modelName] = this.fallbackCapabilityDetection(modelName);
+        }
+      });
+    }
+    
+    /**
+     * 从模型详细信息中提取能力
+     */
+    extractCapabilitiesFromDetails(details) {
+      const inputModalities = details.input_modalities || [];
+      const outputModalities = details.output_modalities || [];
+      const supportedParams = details.supported_parameters || [];
+      
+      return {
+        // 多模态能力 - 直接从 architecture 获取
+        vision: inputModalities.includes('image'),
+        audio: inputModalities.includes('audio'),
+        video: inputModalities.includes('video'),
+        
+        // 流式支持 - 默认所有模型都支持
+        streaming: true,
+        
+        // 工具调用 - 检查 supported_parameters 是否包含 tools
+        tools: supportedParams.includes('tools') || supportedParams.includes('tool_choice'),
+        
+        // 上下文窗口 - 直接使用 API 返回的值
+        contextWindow: details.context_length || 8192,
+        
+        // 思考模式 - 检查是否支持 reasoning 参数
+        thinking: supportedParams.includes('reasoning') || supportedParams.includes('include_reasoning'),
+        
+        // 结构化输出
+        structured_output: supportedParams.includes('structured_outputs') || supportedParams.includes('response_format'),
+        
+        // 原始详细信息
+        _details: details
+      };
+    }
+    
+    /**
+     * 回退机制：基于名称推断能力（当没有详细信息时使用）
+     */
+    fallbackCapabilityDetection(modelName) {
+      const lower = modelName.toLowerCase();
+      
+      // 优先使用 CapabilityManager
+      if (this.capabilityManager) {
+        return this.capabilityManager.getModelCapabilities(modelName);
+      }
+      
+      // 简单的默认能力配置
+      console.warn(`[ModelManager] No details for model "${modelName}", using default capabilities`);
+      return {
+        vision: false,
+        audio: false,
+        streaming: true,
+        tools: false,
+        contextWindow: 8192
+      };
+    }
+    
+    /**
+     * 获取模型的上下文窗口大小（公开 API）
+     */
+    getContextWindowSize(modelName) {
+      if (!modelName) return 8192;
+      
+      // 优先从详细信息中获取
+      const details = this.modelDetails[modelName];
+      if (details && details.context_length) {
+        return details.context_length;
+      }
+      
+      // 回退：从能力缓存中获取
+      const capability = this.capabilities[modelName];
+      if (capability && capability.contextWindow) {
+        return capability.contextWindow;
+      }
+      
+      // 默认值
+      return 8192;
+    }
+    
+    /**
+     * 获取模型列表
+     */
+    getModels() {
+      if (!this.models) {
+        console.warn('[ModelManager] models is undefined, returning empty array');
+        return [];
+      }
+      return [...this.models];
+    }
+    
+    /**
+     * 获取模型详细信息
+     */
+    getModelDetails(modelId) {
+      return this.modelDetails[modelId] || null;
+    }
+    
+    /**
+     * 获取所有模型的详细信息
+     */
+    getAllModelDetails() {
+      return { ...this.modelDetails };
+    }
+    
+    /**
+     * 获取模型能力
+     */
+    getCapability(modelName) {
+      return this.capabilities[modelName] ?? null;
+    }
+    
+    /**
+     * 获取模型的完整配置信息（包括能力和详细信息）
+     */
+    getModelFullInfo(modelId) {
+      const details = this.modelDetails[modelId];
+      const capability = this.capabilities[modelId];
+      
+      if (!details && !capability) {
+        return null;
+      }
+      
+      return {
+        id: modelId,
+        name: details?.name || modelId,
+        capability: capability,
+        details: details,
+        // 便捷访问字段
+        context_length: details?.context_length,
+        pricing: details?.pricing,
+        input_modalities: details?.input_modalities || [],
+        output_modalities: details?.output_modalities || [],
+        supported_parameters: details?.supported_parameters || []
+      };
+    }
+    
+    /**
+     * 检查是否已加载模型
+     */
+    isLoaded() {
+      return this.models.length > 0;
+    }
+    
+    /**
+     * 检查缓存是否过期
+     */
+    isCacheExpired() {
+      if (!this.lastFetchTime) return true;
+      return Date.now() - this.lastFetchTime > this.cacheDuration;
+    }
+    
+    /**
+     * 清空缓存
+     */
+    clearCache() {
+      this.models = [];
+      this.modelDetails = {};
+      this.capabilities = {};
+      this.lastFetchTime = null;
+      
+      // 清除本地存储
+      chrome.storage.local.remove([this.storageKey]);
+      console.log('[ModelManager] Cache cleared');
+    }
+    
+    /**
+     * 保存到本地存储
+     */
+    saveToStorage() {
+      const cacheData = {
+        apiEndpoint: this.currentApiEndpoint || '',
+        models: this.models,
+        modelDetails: this.modelDetails,
+        capabilities: this.capabilities,
+        lastFetchTime: this.lastFetchTime,
+        timestamp: Date.now()
+      };
+      
+      chrome.storage.local.set({ [this.storageKey]: cacheData }, () => {
+        console.log('[ModelManager] Saved to storage:', this.models.length, 'models');
+      });
+    }
+    
+    /**
+     * 从本地存储加载
+     */
+    loadFromStorage(apiEndpoint) {
+      return new Promise((resolve) => {
+        chrome.storage.local.get([this.storageKey], (result) => {
+          const cache = result[this.storageKey];
+          if (!cache) {
+            resolve(null);
+            return;
+          }
+          
+          // 检查 API 端点是否匹配
+          if (cache.apiEndpoint !== apiEndpoint) {
+            console.log('[ModelManager] API endpoint changed, ignoring cache');
+            resolve(null);
+            return;
+          }
+          
+          resolve(cache);
+        });
+      });
+    }
+    
+    /**
+     * 从缓存恢复数据
+     */
+    restoreFromCache(cached) {
+      this.models = cached.models || [];
+      this.modelDetails = cached.modelDetails || {};
+      this.capabilities = cached.capabilities || {};
+      this.lastFetchTime = cached.lastFetchTime;
+      this.currentApiEndpoint = cached.apiEndpoint;
+      
+      console.log('[ModelManager] Restored from cache:', this.models.length, 'models');
+    }
+    
+    /**
+     * 恢复模型列表（从存储中加载）
+     */
+    restoreModelList(modelIds) {
+      if (!modelIds || !Array.isArray(modelIds)) return;
+      
+      console.log('[ModelManager] Restoring model list:', modelIds.length, 'models');
+      
+      // 恢复模型ID列表
+      this.models = [...modelIds];
+      
+      console.log('[ModelManager] Model list restored:', this.models.length, 'models');
+    }
+    
+    /**
+     * 恢复模型详细信息（从存储中加载）
+     */
+    restoreModelDetails(details) {
+      if (!details || !details.id) return;
+      
+      console.log('[ModelManager] Restoring model details:', details.id, details);
+      
+      // 添加到modelDetails
+      this.modelDetails[details.id] = details;
+      
+      // 如果models数组中没有这个ID，添加它
+      if (!this.models.includes(details.id)) {
+        this.models.push(details.id);
+      }
+      
+      // 只检测当前模型的能力，不要遍历所有模型
+      this.capabilities[details.id] = this.extractCapabilitiesFromDetails(details);
+      
+      console.log('[ModelManager] Restored model details:', details.id, 'capabilities:', this.capabilities[details.id]);
+    }
+    
+    /**
+     * 检查模型是否支持视觉（无需加载模型列表）
+     * 用于在模型列表未加载时进行快速检测
+     */
+    isVisionModel(modelName) {
+      if (!modelName) return false;
+      
+      // 优先从详细信息中获取
+      const details = this.modelDetails[modelName];
+      if (details) {
+        return details.input_modalities?.includes('image') || false;
+      }
+      
+      // 回退：从能力缓存中获取
+      const capability = this.capabilities[modelName];
+      if (capability) {
+        return capability.vision || false;
+      }
+      
+      // 默认不支持
+      return false;
+    }
+    
+    /**
+     * 检查模型是否支持视觉（回退机制）
+     * 如果已加载模型列表，使用缓存的能力数据
+     * 否则直接使用实例方法检测
+     */
+    checkModelVisionSupport(modelName) {
+      if (!modelName) return false;
+      
+      // 1. 优先使用缓存数据
+      const cachedCapability = this.getCapability(modelName);
+      if (cachedCapability) {
+        return cachedCapability.vision;
+      }
+      
+      // 2. 回退：使用实例方法直接检测
+      return this.isVisionModel(modelName);
+    }
+  }
+  
+  // 全局单例
+  window.ModelManager = new ModelManager();
+})();

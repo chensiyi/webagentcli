@@ -14,7 +14,7 @@
   
   "web_accessible_resources": [
     {
-      "resources": ["plugins/*", "vendor/*", "sandbox/*", "sidepanel/*"],
+      "resources": ["plugins/*", "vendor/*", "sandbox/*", "sidepanel/*", "sidepanel/js/*", "sidepanel/theme/*"],
       "matches": ["<all_urls>"]
     }
   ],
@@ -24,7 +24,7 @@
   ],
   
   "background": {
-    "service_worker": "sidepanel/background/background.js",
+    "service_worker": "background/background.js",
     "type": "module"
   },
   
