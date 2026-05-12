@@ -17,44 +17,11 @@ class ChatPage {
   init() {
     console.log('[ChatPage] Initializing with new core models...');
     
-    // 创建 UI
-    this.createUI();
+    // 绑定事件
+    this.bindEvents();
     
     // 加载初始消息
     this.loadInitialMessages();
-  }
-  
-  createUI() {
-    const root = document.getElementById('root');
-    if (!root) return;
-    
-    root.innerHTML = `
-      <div class="chat-page">
-        <header class="chat-header">
-          <h2>💬 Web Agent Chat</h2>
-          <p class="subtitle">基于新核心模型的聊天界面</p>
-        </header>
-        
-        <div id="message-list" class="message-list"></div>
-        
-        <div class="input-area">
-          <textarea 
-            id="message-input" 
-            placeholder="输入消息..." 
-            rows="3"
-          ></textarea>
-          <div class="input-actions">
-            <button id="send-btn" class="btn btn-primary">发送</button>
-            <button id="stop-btn" class="btn btn-secondary" style="display:none;">停止</button>
-          </div>
-        </div>
-        
-        <div id="status-bar" class="status-bar"></div>
-      </div>
-    `;
-    
-    // 绑定事件
-    this.bindEvents();
   }
   
   bindEvents() {
