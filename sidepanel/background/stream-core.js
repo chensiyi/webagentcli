@@ -24,7 +24,14 @@ export function handleStreamPort(port) {
   port.onMessage.addListener(async (data) => {
     const { messages, apiKey, apiEndpoint, model, temperature, maxTokens, toolsEnabled, tools, apiStandard, requestBody } = data;
     
-    console.log('[Background] Stream chat:', model, 'apiStandard:', apiStandard, 'toolsEnabled:', toolsEnabled);
+    console.log('[Background] ===== Request received =====');
+    console.log('[Background] apiEndpoint:', apiEndpoint);
+    console.log('[Background] apiStandard:', apiStandard);
+    console.log('[Background] requestBody provided:', !!requestBody);
+    if (requestBody) {
+      console.log('[Background] requestBody keys:', Object.keys(requestBody));
+    }
+    console.log('[Background] ==========================');
     
     try {
       // 如果前端已经构建了请求体，直接使用

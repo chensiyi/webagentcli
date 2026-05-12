@@ -141,6 +141,10 @@ class MessageSender {
         const chatPath = adapter.getChatEndpoint ? adapter.getChatEndpoint() : '/chat/completions';
         apiEndpoint = adapter.buildUrl(chatPath);
         
+        console.log('[MessageSender] Adapter config:', adapter.config);
+        console.log('[MessageSender] Chat path from adapter:', chatPath);
+        console.log('[MessageSender] Final API endpoint:', apiEndpoint);
+        
         // 让适配器构建请求体（标准无关的业务逻辑）
         if (adapter.buildRequestBody) {
           requestBody = adapter.buildRequestBody({
