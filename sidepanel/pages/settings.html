@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>设置 - Web Agent</title>
+  <link rel="stylesheet" href="../theme/variables.css">
+  <link rel="stylesheet" href="../theme/utilities.css">
+  <link rel="stylesheet" href="../theme/layout.css">
+  <link rel="stylesheet" href="../theme/buttons.css">
+  <link rel="stylesheet" href="../theme/forms.css">
+  <link rel="stylesheet" href="../theme/cards.css">
+  <link rel="stylesheet" href="../theme/badges.css">
+  <link rel="stylesheet" href="../theme/dialogs.css">
+  <link rel="stylesheet" href="../theme/tooltips.css">
+  <link rel="stylesheet" href="../theme/settings-ui.css">
+  <link rel="stylesheet" href="../theme/animations.css">
+</head>
+<body>
+  <div class="page settings-page">
+    <!-- 页面头部 -->
+    <div class="page-header">
+      <h2 class="page-title">设置</h2>
+    </div>
+    
+    <!-- 内容区域 -->
+    <div class="page-content">
+      <!-- API 配置 -->
+      <div class="setting-group">
+        <h3 class="setting-group-title">API 配置</h3>
+        
+        <div class="setting-item">
+          <label class="setting-label">API 标准</label>
+          <select id="api-standard-select" class="select">
+            <option value="openrouter">OpenRouter</option>
+            <option value="openai">OpenAI</option>
+            <option value="lm-studio">LM Studio</option>
+            <option value="ollama">Ollama</option>
+            <option value="anthropic">Anthropic</option>
+          </select>
+        </div>
+        
+        <div class="setting-item">
+          <label class="setting-label">API 地址</label>
+          <input id="api-endpoint-input" class="input" type="text" placeholder="https://openrouter.ai/api/v1">
+        </div>
+        
+        <div class="setting-item">
+          <label class="setting-label">API Key（可选）</label>
+          <input id="api-key-input" class="input" type="password" placeholder="sk-...">
+        </div>
+        
+        <div class="setting-item">
+          <button id="load-models-btn" class="btn btn-primary">加载模型</button>
+        </div>
+      </div>
+      
+      <!-- 模型选择 -->
+      <div class="setting-group">
+        <h3 class="setting-group-title">模型选择</h3>
+        
+        <div class="setting-item">
+          <label class="setting-label">
+            搜索模型
+            <span class="help-icon" data-tooltip="输入模型名称进行搜索">?</span>
+          </label>
+          <input id="model-search" class="input" type="text" placeholder="输入模型名称...">
+          <div id="model-dropdown" class="model-dropdown" style="display:none;"></div>
+          <select id="model-select-hidden" style="display:none;"></select>
+        </div>
+        
+        <!-- 模型能力提示 -->
+        <div id="model-capability-hint" class="model-capability-hint"></div>
+      </div>
+      
+      <!-- 模型参数 -->
+      <div class="setting-group">
+        <h3 class="setting-group-title">模型参数</h3>
+        
+        <div class="setting-item">
+          <label class="setting-label">Temperature</label>
+          <input id="temperature-input" class="input" type="number" min="0" max="2" step="0.1" value="0.7">
+        </div>
+        
+        <div class="setting-item">
+          <label class="setting-label">Max Tokens</label>
+          <input id="max-tokens-input" class="input" type="number" min="1" max="100000" value="2000">
+        </div>
+      </div>
+      
+      <!-- 系统提示 -->
+      <div class="setting-group">
+        <h3 class="setting-group-title">系统提示</h3>
+        <div class="setting-item">
+          <textarea id="system-prompt-input" class="textarea" rows="4" placeholder="输入系统提示词..."></textarea>
+        </div>
+      </div>
+      
+      <!-- 上下文管理 -->
+      <div class="setting-group">
+        <h3 class="setting-group-title">上下文管理</h3>
+        <div class="setting-item">
+          <label class="setting-label">
+            <input id="auto-context-truncation" type="checkbox" checked>
+            自动截断上下文
+          </label>
+        </div>
+      </div>
+      
+      <!-- 主题设置 -->
+      <div class="setting-group">
+        <h3 class="setting-group-title">主题</h3>
+        <div class="setting-item">
+          <label class="setting-label">主题模式</label>
+          <select id="theme-select" class="select">
+            <option value="light">浅色主题</option>
+            <option value="dark">深色主题</option>
+          </select>
+        </div>
+      </div>
+      
+      <!-- 保存按钮 -->
+      <div class="setting-group">
+        <button id="save-settings-btn" class="btn btn-success" style="width: 100%;">保存设置</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

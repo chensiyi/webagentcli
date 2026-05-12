@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>历史 - Web Agent</title>
+  <link rel="stylesheet" href="../theme/variables.css">
+  <link rel="stylesheet" href="../theme/utilities.css">
+  <link rel="stylesheet" href="../theme/layout.css">
+  <link rel="stylesheet" href="../theme/buttons.css">
+  <link rel="stylesheet" href="../theme/forms.css">
+  <link rel="stylesheet" href="../theme/cards.css">
+  <link rel="stylesheet" href="../theme/badges.css">
+  <link rel="stylesheet" href="../theme/dialogs.css">
+  <link rel="stylesheet" href="../theme/tooltips.css">
+  <link rel="stylesheet" href="../theme/search-results.css">
+  <link rel="stylesheet" href="../theme/animations.css">
+</head>
+<body>
+  <div class="page history-page">
+    <!-- 页面头部 -->
+    <div class="page-header">
+      <h2 class="page-title">历史对话</h2>
+    </div>
+    
+    <!-- 内容区域 -->
+    <div class="page-content">
+      <!-- 搜索框 -->
+      <div class="mb-12">
+        <input 
+          id="history-search" 
+          class="input" 
+          type="text" 
+          placeholder="搜索对话..."
+          style="width: 100%;"
+        >
+      </div>
+      
+      <!-- 对话列表 -->
+      <div id="history-list" class="flex-1 overflow-y-auto p-12"></div>
+      
+      <!-- 空状态 -->
+      <div id="history-empty" class="empty-state" style="display:none;">
+        <div class="empty-state-icon">📋</div>
+        <div class="empty-state-title">暂无历史对话</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

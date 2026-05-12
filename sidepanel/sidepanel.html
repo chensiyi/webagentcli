@@ -4,154 +4,90 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Web Agent Client</title>
-  <!-- Theme CSS (modular by UI element type) -->
   <link rel="stylesheet" href="theme/variables.css">
-  <link rel="stylesheet" href="theme/utilities.css">
   <link rel="stylesheet" href="theme/layout.css">
   <link rel="stylesheet" href="theme/buttons.css">
-  <link rel="stylesheet" href="theme/forms.css">
-  <link rel="stylesheet" href="theme/cards.css">
-  <link rel="stylesheet" href="theme/badges.css">
-  <link rel="stylesheet" href="theme/dialogs.css">
-  <link rel="stylesheet" href="theme/tooltips.css">
-  <link rel="stylesheet" href="theme/markdown.css">
-  <link rel="stylesheet" href="theme/chat-components.css">
-  <link rel="stylesheet" href="theme/search-results.css">
-  <link rel="stylesheet" href="theme/settings-ui.css">
-  <link rel="stylesheet" href="theme/animations.css">
-  <link rel="stylesheet" href="theme/chat-demo.css">
 </head>
 <body>
-  <!-- 聊天页面 -->
-  <div class="chat-page">
-    <header class="chat-header">
-      <h2>💬 Web Agent Chat</h2>
-      <p class="subtitle">基于新核心模型的聊天界面</p>
-    </header>
-    
-    <div id="message-list" class="message-list"></div>
-    
-    <div class="input-area">
-      <textarea 
-        id="message-input" 
-        placeholder="输入消息..." 
-        rows="3"
-      ></textarea>
-      <div class="input-actions">
-        <button id="send-btn" class="btn btn-primary">发送</button>
-        <button id="stop-btn" class="btn btn-secondary" style="display:none;">停止</button>
-      </div>
+  <div class="app-container">
+    <!-- 主内容区域 -->
+    <div class="main-content">
+      <iframe id="page-frame" src="pages/chat.html" style="width:100%;height:100%;border:none;"></iframe>
     </div>
     
-    <div id="status-bar" class="status-bar"></div>
+    <!-- 侧边栏导航 -->
+    <div class="sidebar">
+      <button class="sidebar-btn active" data-page="chat.html" data-tooltip="对话">
+        <span class="sidebar-btn-icon">💬</span>
+      </button>
+      <button class="sidebar-btn" data-page="scripts.html" data-tooltip="脚本">
+        <span class="sidebar-btn-icon">📜</span>
+      </button>
+      <button class="sidebar-btn" data-page="history.html" data-tooltip="历史">
+        <span class="sidebar-btn-icon"></span>
+      </button>
+      <button class="sidebar-btn" data-page="storage.html" data-tooltip="存储">
+        <span class="sidebar-btn-icon">💾</span>
+      </button>
+      <button class="sidebar-btn" data-page="settings.html" data-tooltip="设置">
+        <span class="sidebar-btn-icon">️</span>
+      </button>
+    </div>
   </div>
   
-  <!-- DOM Utils -->
-  <script src="pages/dom.js"></script>
-  
-  <!-- Utils -->
-  <script src="utils/markdown.js"></script>
-  <script src="utils/media.js"></script>
-  <script src="utils/time.js"></script>
-  <script src="utils/toast.js"></script>
-  <script src="utils/confirm.js"></script>
-  <script src="utils/tooltip.js"></script>
-  <script src="utils/messageTypes.js"></script>
-  <script src="utils/thinkingMode.js"></script>
-  <script src="utils/ragCodeExtension.js"></script>
-  
-  <!-- Modules -->
-  <script type="module" src="modules/models/MessageModels.js"></script>
-  <script type="module" src="modules/api/APIService.js"></script>
-  <script type="module" src="modules/api/providers/OpenAIProvider.js"></script>
-  <script src="modules/scripts/UserScriptStorage.js"></script>
-  <script src="modules/scripts/UserScriptMetadata.js"></script>
-  <script src="modules/scripts/UserScriptSandbox.js"></script>
-  <script src="modules/scripts/UserScriptManager.js"></script>
-  <script src="modules/tools/SearchTool.js"></script>
-  <script src="modules/tools/FetchTool.js"></script>
-  <script src="modules/tools/TerminalManager.js"></script>
-  <script src="modules/tools/CodeTool.js"></script>
-  <script src="modules/tools/TerminalTool.js"></script>
-  <script src="modules/tools/BaseToolManager.js"></script>
-  
-  <!-- Agent Core -->
-  <script src="modules/agent/models/ModelManager.js"></script>
-  <script src="modules/agent/models/ModelSelector.js"></script>
-  <script src="modules/agent/multimodal/ImageHandler.js"></script>
-  <script src="modules/agent/multimodal/AudioHandler.js"></script>
-  <script src="modules/agent/multimodal/VideoHandler.js"></script>
-  <script src="modules/agent/multimodal/MediaManager.js"></script>
-  
-  <!-- API Adapters (每个适配器独立文件夹) -->
-  <script src="modules/agent/adapters/openai/OpenAIAdapter.js"></script>
-  <script src="modules/agent/adapters/lm-studio/LMStudioAdapter.js"></script>
-  <script src="modules/agent/adapters/ollama/OllamaAdapter.js"></script>
-  <script src="modules/agent/adapters/openrouter/OpenRouterAdapter.js"></script>
-  <script src="modules/agent/adapters/anthropic/AnthropicAdapter.js"></script>
-  <script src="modules/agent/adapters/AdapterManager.js"></script>
-  
-  <script src="modules/agent/InputController.js"></script>
-  <script src="modules/agent/SessionManager.js"></script>
-  <script src="modules/agent/agent.js"></script>
-  
-  <!-- Storage -->
-  <script src="modules/storage/SettingsStorage.js"></script>
-  
-  <!-- Pages -->
-  <script src="pages/chat/context.js"></script>
-  
-  <!-- Chat Components (modular) -->
-  <script src="pages/chat/components/ChatRenderer.js"></script>
-  
-  <!-- Chat Renderers (modular) -->
-  <script src="pages/chat/render/TextRenderer.js"></script>
-  <script src="pages/chat/render/ImageRenderer.js"></script>
-  <script src="pages/chat/render/AudioRenderer.js"></script>
-  <script src="pages/chat/render/VideoRenderer.js"></script>
-  <script src="pages/chat/render/FileRenderer.js"></script>
-  <script src="pages/chat/render/ChatMessageRenderer.js"></script>
-  <script src="pages/chat/render.js"></script>
-  
-  <!-- 工具调用模块（按照 OpenAI Tool Calling 标准） -->
-  <script src="modules/tools/ToolCallManager.js"></script>
-  <script src="modules/tools/ToolCallRenderer.js"></script>
-  <script src="modules/tools/StreamMessageProcessor.js"></script>
-  
-  <script src="pages/chat/stream-state.js"></script>
-  <script src="pages/chat/stream-handler.js"></script>
-  <script src="pages/chat/tool-executor.js"></script>
-  <script src="pages/chat/tool-result-handler.js"></script>
-  <script src="pages/chat/message-sender.js"></script>
-  <script src="pages/chat/chat-refactored.js"></script>
-  <script src="pages/scripts.js"></script>
-  <script src="pages/history.js"></script>
-  <script src="pages/storage.js"></script>
-  <script src="pages/settings.js"></script>
-  
-  <!-- App -->
-  <script src="app.js"></script>
-  
-  <!-- 新架构：核心模型层 -->
-  <script type="module" src="js/core/models/index.js"></script>
-  <script type="module" src="js/core/events/EventBus.js"></script>
-  <script type="module" src="js/core/stores/SessionManager.js"></script>
-  <script type="module" src="js/core/stores/ToolRegistry.js"></script>
-  
-  <!-- 新架构：协议适配层 -->
-  <script type="module" src="js/adapters/ProtocolAdapter.js"></script>
-  <script type="module" src="js/adapters/lm-studio/LMStudioAdapter.js"></script>
-  
-  <!-- 新架构：服务层 -->
-  <script type="module" src="js/services/AdapterService.js"></script>
-  
-  <!-- 新架构：控制器层 -->
-  <script type="module" src="js/controllers/ChatController.js"></script>
-  
-  <!-- 新页面：聊天页面（原生 JS） -->
-  <script type="module" src="pages/ChatPage.js"></script>
-  
-  <!-- 初始化应用 -->
-  <script type="module" src="pages/init.js"></script>
+  <script>
+    // 侧边栏导航逻辑
+    const frame = document.getElementById('page-frame');
+    const buttons = document.querySelectorAll('.sidebar-btn');
+    
+    buttons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        // 更新 active 状态
+        buttons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        
+        // 切换页面
+        const page = btn.dataset.page;
+        frame.src = `pages/${page}`;
+      });
+      
+      // Tooltip 显示逻辑
+      let tooltipElement = null;
+      
+      btn.addEventListener('mouseenter', (e) => {
+        if (tooltipElement) tooltipElement.remove();
+        
+        tooltipElement = document.createElement('div');
+        tooltipElement.className = 'sidebar-tooltip';
+        tooltipElement.textContent = btn.dataset.tooltip;
+        tooltipElement.style.cssText = `
+          position: fixed;
+          right: 45px;
+          top: ${e.target.getBoundingClientRect().top + e.target.getBoundingClientRect().height / 2}px;
+          transform: translateY(-50%);
+          padding: 6px 10px;
+          background: var(--color-surface);
+          color: var(--color-text);
+          font-size: 12px;
+          font-weight: 500;
+          white-space: nowrap;
+          border-radius: 6px;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+          border: 1px solid var(--color-border);
+          z-index: 999999;
+          pointer-events: none;
+        `;
+        
+        document.body.appendChild(tooltipElement);
+      });
+      
+      btn.addEventListener('mouseleave', () => {
+        if (tooltipElement) {
+          tooltipElement.remove();
+          tooltipElement = null;
+        }
+      });
+    });
+  </script>
 </body>
 </html>

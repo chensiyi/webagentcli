@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>存储 - Web Agent</title>
+  <link rel="stylesheet" href="../theme/variables.css">
+  <link rel="stylesheet" href="../theme/utilities.css">
+  <link rel="stylesheet" href="../theme/layout.css">
+  <link rel="stylesheet" href="../theme/buttons.css">
+  <link rel="stylesheet" href="../theme/forms.css">
+  <link rel="stylesheet" href="../theme/cards.css">
+  <link rel="stylesheet" href="../theme/badges.css">
+  <link rel="stylesheet" href="../theme/dialogs.css">
+  <link rel="stylesheet" href="../theme/tooltips.css">
+  <link rel="stylesheet" href="../theme/animations.css">
+</head>
+<body>
+  <div class="page storage-page">
+    <!-- 页面头部 -->
+    <div class="page-header">
+      <h1 class="page-title">存储管理</h1>
+      <button id="refresh-storage-btn" class="btn btn-primary btn-small">刷新</button>
+    </div>
+    
+    <!-- 内容区域 -->
+    <div class="page-content">
+      <!-- 搜索框 -->
+      <input 
+        id="storage-search" 
+        class="input mb-12" 
+        type="text" 
+        placeholder="搜索存储项..."
+      >
+      
+      <!-- 统计信息和操作按钮 -->
+      <div class="card flex justify-between items-center">
+        <div id="storage-stats" class="text-sm text-secondary">共 0 项</div>
+        <button id="clear-all-btn" class="btn btn-error btn-small">清除所有</button>
+      </div>
+      
+      <!-- 存储列表 -->
+      <div id="storage-list"></div>
+      
+      <!-- 空状态 -->
+      <div id="storage-empty" class="empty-state p-16" style="display:none;">
+        暂无存储数据
+      </div>
+      
+      <!-- 分页控件 -->
+      <div id="storage-pagination" class="pagination" style="display:none;"></div>
+    </div>
+  </div>
+</body>
+</html>
