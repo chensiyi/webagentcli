@@ -1,133 +1,160 @@
 /**
- * EventBus - 事件总线（解耦模块通信）
- * 
- * 提供订阅/发布机制，支持精确卸载监听器。
+ * 事件总线（消息总线）
+ * 统一管理应用内所有事件通信
  */
 
 class EventBus {
   constructor() {
-    this.listeners = new Map(); // listenerId -> { event, handler }
-    this.eventHandlers = new Map(); // event -> Set<listenerId>
-    this.nextListenerId = 1;
+    this.listeners = new Map();
+    this.messageHistory = [];
+    this.maxHistory = 100; // 最多保留100条历史消息
   }
 
   /**
    * 订阅事件
    * @param {string} event - 事件名称
-   * @param {Function} handler - 处理函数
-   * @returns {string} listenerId - 用于卸载监听
+   * @param {Function} callback - 回调函数
+   * @returns {Function} 取消订阅函数
    */
-  on(event, handler) {
-    const listenerId = `listener_${this.nextListenerId++}`;
-    
-    if (!this.eventHandlers.has(event)) {
-      this.eventHandlers.set(event, new Set());
+  on(event, callback) {
+    if (!this.listeners.has(event)) {
+      this.listeners.set(event, []);
     }
     
-    this.eventHandlers.get(event).add(listenerId);
-    this.listeners.set(listenerId, { event, handler });
+    this.listeners.get(event).push(callback);
     
-    return listenerId;
+    // 返回取消订阅函数
+    return () => {
+      this.off(event, callback);
+    };
   }
 
   /**
-   * 一次性订阅（触发后自动卸载）
-   * @param {string} event 
-   * @param {Function} handler 
-   * @returns {string} listenerId
+   * 订阅一次性事件
+   * @param {string} event - 事件名称
+   * @param {Function} callback - 回调函数
    */
-  once(event, handler) {
-    const listenerId = this.on(event, (...args) => {
-      this.off(listenerId);
-      handler(...args);
-    });
-    
-    return listenerId;
+  once(event, callback) {
+    const wrapper = (data) => {
+      callback(data);
+      this.off(event, wrapper);
+    };
+    this.on(event, wrapper);
   }
 
   /**
-   * 卸载监听器
-   * @param {string} listenerId 
+   * 取消订阅
+   * @param {string} event - 事件名称
+   * @param {Function} callback - 回调函数
    */
-  off(listenerId) {
-    const listener = this.listeners.get(listenerId);
-    if (!listener) return;
+  off(event, callback) {
+    if (!this.listeners.has(event)) return;
     
-    const { event } = listener;
-    const handlers = this.eventHandlers.get(event);
+    const callbacks = this.listeners.get(event);
+    const index = callbacks.indexOf(callback);
     
-    if (handlers) {
-      handlers.delete(listenerId);
-      if (handlers.size === 0) {
-        this.eventHandlers.delete(event);
-      }
+    if (index !== -1) {
+      callbacks.splice(index, 1);
     }
-    
-    this.listeners.delete(listenerId);
   }
 
   /**
    * 发布事件
    * @param {string} event - 事件名称
-   * @param {any} data - 事件数据
+   * @param {Object} data - 事件数据
    */
-  emit(event, data) {
-    const handlers = this.eventHandlers.get(event);
-    if (!handlers) return;
+  emit(event, data = {}) {
+    const message = {
+      event,
+      data,
+      timestamp: Date.now(),
+      id: this.generateMessageId()
+    };
     
-    // 复制一份，防止在处理过程中被修改
-    const listenerIds = Array.from(handlers);
+    // 记录历史
+    this.recordMessage(message);
     
-    for (const listenerId of listenerIds) {
-      const listener = this.listeners.get(listenerId);
-      if (listener) {
+    // 触发监听器
+    if (this.listeners.has(event)) {
+      const callbacks = this.listeners.get(event);
+      callbacks.forEach(callback => {
         try {
-          listener.handler(data, event);
+          callback(message.data, message);
         } catch (error) {
-          console.error(`[EventBus] Error in handler for event "${event}":`, error);
+          console.error(`[EventBus] Error in listener for "${event}":`, error);
         }
-      }
+      });
+    }
+    
+    // 同时触发全局自定义事件（用于跨模块通信）
+    window.dispatchEvent(new CustomEvent(event, {
+      detail: message
+    }));
+    
+    return message;
+  }
+
+  /**
+   * 记录消息历史
+   */
+  recordMessage(message) {
+    this.messageHistory.push(message);
+    
+    // 限制历史记录数量
+    if (this.messageHistory.length > this.maxHistory) {
+      this.messageHistory.shift();
     }
   }
 
   /**
-   * 获取某事件的监听器数量
-   * @param {string} event 
+   * 获取消息历史
+   * @param {string} event - 可选，过滤特定事件
+   * @returns {Array} 消息历史
    */
-  listenerCount(event) {
-    const handlers = this.eventHandlers.get(event);
-    return handlers ? handlers.size : 0;
+  getHistory(event = null) {
+    if (event) {
+      return this.messageHistory.filter(m => m.event === event);
+    }
+    return [...this.messageHistory];
   }
 
   /**
-   * 清空所有监听器
+   * 清空消息历史
    */
-  clearAll() {
+  clearHistory() {
+    this.messageHistory = [];
+  }
+
+  /**
+   * 生成消息ID
+   */
+  generateMessageId() {
+    return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  /**
+   * 获取所有已注册的事件
+   */
+  getRegisteredEvents() {
+    return Array.from(this.listeners.keys());
+  }
+
+  /**
+   * 获取某个事件的监听器数量
+   */
+  getListenerCount(event) {
+    if (!this.listeners.has(event)) return 0;
+    return this.listeners.get(event).length;
+  }
+
+  /**
+   * 销毁事件总线
+   */
+  destroy() {
     this.listeners.clear();
-    this.eventHandlers.clear();
-  }
-
-  /**
-   * 清空某事件的所有监听器
-   * @param {string} event 
-   */
-  clearEvent(event) {
-    const handlers = this.eventHandlers.get(event);
-    if (!handlers) return;
-    
-    for (const listenerId of handlers) {
-      this.listeners.delete(listenerId);
-    }
-    
-    this.eventHandlers.delete(event);
+    this.messageHistory = [];
   }
 }
 
 // 导出单例
-if (typeof window !== 'undefined') {
-  window.EventBus = EventBus;
-  window.eventBus = new EventBus();
-}
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = EventBus;
-}
+window.EventBus = new EventBus();
