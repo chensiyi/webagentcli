@@ -42,6 +42,17 @@ const IChatService = {
   async chatStream(params, onChunk, onComplete) {
     throw new Error('Method not implemented');
   },
+
+  /**
+   * 处理流式更新中的推理内容（UI 交互逻辑）
+   * @param {Object} data - 包含 messageId, reasoning_content 等
+   */
+  handleStreamReasoning(data) {
+    // console.log('[IChatService] Stream reasoning:', data.messageId, data.reasoning_content);
+    if (window.ChatEventHandler) {
+      window.ChatEventHandler._handleStreamReasoning(data);
+    }
+  },
   
   /**
    * 取消正在进行的请求
@@ -49,6 +60,71 @@ const IChatService = {
    */
   cancel() {
     throw new Error('Method not implemented');
+  },
+
+  /**
+   * 确认并删除消息（标准交互操作）
+   * @param {string} messageId - 消息 ID
+   * @param {Function} onConfirm - 确认后的回调
+   * @returns {void}
+   */
+  confirmDeleteMessage(messageId, onConfirm) {
+    // 默认实现：使用 Toast 进行确认
+    if (window.Toast && window.Toast.confirm) {
+      window.Toast.confirm('确定要删除这条消息吗？', () => {
+        onConfirm();
+      });
+    } else {
+      // 降级处理：直接使用浏览器原生 confirm
+      if (confirm('确定要删除这条消息吗？')) {
+        onConfirm();
+      }
+    }
+  },
+
+  /**
+   * 处理流式请求开始（UI 交互逻辑）
+   * @param {Object} data - 包含 messageId 等信息
+   */
+  handleStreamStart(data) {
+    console.log('[IChatService] Stream started:', data.messageId);
+    // 默认实现：触发 UI 状态变更
+    if (window.ChatEventHandler) {
+      window.ChatEventHandler._handleStreamStart(data);
+    }
+  },
+
+  /**
+   * 处理流式更新（UI 交互逻辑）
+   * @param {Object} data - 包含 messageId, content 等
+   */
+  handleStreamUpdate(data) {
+    // console.log('[IChatService] Stream update:', data.messageId, data.content);
+    if (window.ChatEventHandler) {
+      window.ChatEventHandler._handleStreamUpdate(data);
+    }
+  },
+
+  /**
+   * 处理流式完成（UI 交互逻辑）
+   * @param {Object} data - 包含 message, duration 等
+   */
+  handleStreamComplete(data) {
+    console.log('[IChatService] Stream completed');
+    if (window.ChatEventHandler) {
+      window.ChatEventHandler._handleStreamComplete(data);
+    }
+  },
+
+  /**
+   * 处理流式错误（UI 交互逻辑）
+   * @param {Object} data - 包含 error, message 等
+   */
+  handleStreamError(data) {
+    console.error('[IChatService] Stream error:', data.error);
+    if (window.ChatEventHandler) {
+      window.ChatEventHandler._handleStreamError(data);
+    }
   }
 };
 

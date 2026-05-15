@@ -30,24 +30,27 @@ class SessionManager {
    * 创建新会话
    * @param {Object} options 
    * @param {string} [options.title] - 会话标题
+   * @param {boolean} [options.persist=true] - 是否立即持久化
    * @returns {Session} 新创建的会话
    */
   createSession(options = {}) {
     const session = new Session({
-      title: options.title || '新会话',
+      title: options.title || '新对话',
       messages: []
     });
-    
+      
     this.sessions.set(session.id, session);
     this.currentSessionId = session.id;
-    
-    // 持久化
-    this._saveSessions();
-    
+      
+    // 默认不立即持久化，除非显式要求（例如用户手动点击“新建对话”）
+    if (options.persist) {
+      this._saveSessions();
+    }
+      
     // 发布事件
     this.eventBus.emit('SESSION_CREATED', { session });
     this.eventBus.emit('CURRENT_SESSION_CHANGED', { sessionId: session.id });
-    
+      
     console.log('[SessionManager] Created session:', session.id);
     return session;
   }
@@ -90,10 +93,8 @@ class SessionManager {
         this.currentSessionId = firstSessionId;
         console.log('[SessionManager] Auto-switched to first session:', firstSessionId);
       } else {
-        // 如果没有任何会话，创建一个默认的
-        console.log('[SessionManager] No sessions found, creating default session');
-        this.createSession();
-        return this.getCurrentSession(); // 递归调用获取新创建的会话
+        // 如果没有任何会话，返回 null，等待第一条消息触发创建
+        return null;
       }
     }
     
@@ -176,21 +177,49 @@ class SessionManager {
    * @returns {boolean}
    */
   addMessage(message) {
-    const session = this.getCurrentSession();
+    let session = this.getCurrentSession();
+    
+    // 如果当前没有会话，则自动创建一个新会话（此时才真正创建）
     if (!session) {
-      console.error('[SessionManager] No current session');
-      return false;
+      session = this.createSession({ title: '新对话', persist: false });
     }
     
     session.addMessage(message);
     
-    // 持久化
+    // 持久化：当产生第一条消息时，确保会话被保存
     this._saveSessions();
     
     // 发布事件
     this.eventBus.emit('MESSAGE_ADDED', { 
       sessionId: session.id,
       message 
+    });
+    
+    return true;
+  }
+
+  /**
+   * 批量添加消息（用于流式交互初始化，避免多次触发 UI 渲染）
+   * @param {Array<Message>} messages 
+   * @returns {boolean}
+   */
+  addMessages(messages) {
+    let session = this.getCurrentSession();
+    
+    // 如果当前没有会话，则自动创建一个新会话
+    if (!session) {
+      session = this.createSession({ title: '新对话', persist: false });
+    }
+    
+    messages.forEach(msg => session.addMessage(msg));
+    
+    // 持久化
+    this._saveSessions();
+    
+    // 仅在所有消息添加完成后发布一次事件
+    this.eventBus.emit('MESSAGES_ADDED', { 
+      sessionId: session.id,
+      messages 
     });
     
     return true;
@@ -229,7 +258,8 @@ class SessionManager {
     const session = this.getCurrentSession();
     if (!session) return false;
     
-    const deleted = session.deleteMessage(messageId);
+    // 使用 Session 模型中的 deleteMessage 方法
+    const deleted = session.deleteMessage ? session.deleteMessage(messageId) : session.removeMessage(messageId);
     if (deleted) {
       this._saveSessions();
       this.eventBus.emit('MESSAGE_DELETED', {
@@ -247,12 +277,8 @@ class SessionManager {
    * 从存储加载会话
    * @private
    */
-  async _loadSessions() {
-    try {
-      const data = await new Promise((resolve) => {
-        this.storage.get(['sessions', 'currentSessionId'], resolve);
-      });
-      
+  _loadSessions() {
+    this.storage.get(['sessions', 'currentSessionId'], (data) => {
       if (data.sessions && Array.isArray(data.sessions)) {
         // 恢复会话
         data.sessions.forEach(sessionData => {
@@ -268,13 +294,9 @@ class SessionManager {
         }
         
         console.log(`[SessionManager] Loaded ${this.sessions.size} sessions`);
-      } else {
-        // 首次使用，创建一个默认会话
-        this.createSession();
       }
-    } catch (error) {
-      console.error('[SessionManager] Failed to load sessions:', error);
-    }
+      // 如果没有会话，不再自动创建，等待用户发送第一条消息时再创建
+    });
   }
 
   /**

@@ -33,6 +33,13 @@ class Session {
   /**
    * 删除消息
    */
+  deleteMessage(messageId) {
+    return this.removeMessage(messageId);
+  }
+
+  /**
+   * 删除消息（别名）
+   */
   removeMessage(messageId) {
     const index = this.messages.findIndex(m => m.id === messageId);
     if (index !== -1) {

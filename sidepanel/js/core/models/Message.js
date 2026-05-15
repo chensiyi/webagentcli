@@ -13,7 +13,7 @@ class Message {
     // 可选字段
     this.tool_calls = options.tool_calls || null;
     this.tool_call_id = options.tool_call_id || null;
-    this.reasoning_content = options.reasoning_content || null;
+    this.reasoning_content = options.reasoning_content || ''; // 推理/思考内容
     this.metadata = options.metadata || {};
   }
   

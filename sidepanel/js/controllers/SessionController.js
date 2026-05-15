@@ -41,7 +41,8 @@ class SessionController {
       console.error('[SessionController] SessionManager not ready');
       return null;
     }
-    return this.manager.createSession({ title });
+    // 用户手动点击“新建对话”时，立即持久化
+    return this.manager.createSession({ title, persist: true });
   }
   
   /**
@@ -75,6 +76,19 @@ class SessionController {
       return false;
     }
     return this.manager.addMessage(message);
+  }
+
+  /**
+   * 批量添加消息到当前会话
+   * @param {Array<Message>} messages 
+   * @returns {boolean}
+   */
+  addMessages(messages) {
+    if (!this.manager) {
+      console.error('[SessionController] SessionManager not ready');
+      return false;
+    }
+    return this.manager.addMessages(messages);
   }
   
   /**

@@ -97,7 +97,7 @@ window.Pages.chat = function(container) {
   function createMessageBubble(msg) {
     const isUser = msg.role === 'user';
     
-    return create('div', {
+    const bubble = create('div', {
       className: `message-bubble message-${msg.role}`,
       attrs: { 'data-message-id': msg.id }  // 添加消息 ID 用于流式更新
     }, [
@@ -116,7 +116,50 @@ window.Pages.chat = function(container) {
         })
       ])
     ]);
+
+    // 添加删除按钮（默认隐藏，鼠标悬停显示）
+    const deleteBtn = create('button', {
+      className: 'message-delete-btn',
+      text: '×',
+      style: {
+        position: 'absolute',
+        top: '4px',
+        right: '4px',
+        background: 'transparent',
+        border: 'none',
+        color: '#999',
+        fontSize: '16px',
+        cursor: 'pointer',
+        opacity: '0',
+        transition: 'opacity 0.2s',
+        padding: '0 4px',
+        lineHeight: '1'
+      },
+      onMouseEnter: (e) => e.target.style.opacity = '1',
+      onMouseLeave: (e) => e.target.style.opacity = '0',
+      onClick: () => {
+        if (window.ChatService) {
+          window.ChatService.confirmDeleteMessage(msg.id, () => {
+            sessionController.deleteMessage(msg.id);
+          });
+        }
+      }
+    });
+
+    // 鼠标进入气泡时显示删除按钮
+    bubble.addEventListener('mouseenter', () => {
+      deleteBtn.style.opacity = '1';
+    });
+    bubble.addEventListener('mouseleave', () => {
+      deleteBtn.style.opacity = '0';
+    });
+
+    bubble.appendChild(deleteBtn);
+    return bubble;
   }
+  
+  // 暴露 createMessageBubble 给 EventHandler 使用
+  window.Pages.chat.createMessageBubble = createMessageBubble;
   
   /**
    * 创建输入区 - 使用 theme 中的 page-footer 样式

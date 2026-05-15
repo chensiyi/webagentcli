@@ -60,15 +60,11 @@ class ChatController {
     }
     
     try {
-      // 1. 创建用户消息
+      // 1. & 2. 批量创建用户消息和助手消息，避免触发多次渲染
       const userMsg = new window.Message({ role: 'user', content: content });
-      this.sessionController.addMessage(userMsg);
-      this.eventBus.emit(Events.CHAT.MESSAGE_ADDED, { message: userMsg, type: 'user' });
-      
-      // 2. 创建空的助手消息（用于流式更新）
       const assistantMsg = new window.Message({ role: 'assistant', content: '' });
-      this.sessionController.addMessage(assistantMsg);
-      this.eventBus.emit(Events.CHAT.MESSAGE_ADDED, { message: assistantMsg, type: 'assistant' });
+      
+      this.sessionController.addMessages([userMsg, assistantMsg]);
       
       // 3. 加入消息队列
       const queueItem = { id: assistantMsg.id, status: 'pending' };
@@ -84,24 +80,56 @@ class ChatController {
       
       // 5. 开始流式请求
       queueItem.status = 'streaming';
-      this.eventBus.emit(Events.CHAT.STREAM_START, { messageId: assistantMsg.id });
+      
+      // 通过 IChatService 接口触发 UI 交互
+      if (this.currentService.handleStreamStart) {
+        this.currentService.handleStreamStart({ messageId: assistantMsg.id });
+      }
       this.notifyActivityState();
       
       await this.currentService.chatStream(
         params,
         (chunk) => {
-          assistantMsg.content += chunk.content || '';
-          this.sessionController.updateMessage(assistantMsg.id, (msg) => { msg.content = assistantMsg.content; });
-          this.eventBus.emit(Events.CHAT.STREAM_UPDATE, { 
-            messageId: assistantMsg.id,
-            content: chunk.content || '',
-            reasoning_content: chunk.reasoning_content || ''
-          });
+          // 更新推理内容
+          if (chunk.reasoning_content) {
+            assistantMsg.reasoning_content += chunk.reasoning_content;
+            this.sessionController.updateMessage(assistantMsg.id, (msg) => { 
+              msg.reasoning_content = assistantMsg.reasoning_content; 
+            });
+            
+            // 通过 IChatService 接口处理流式推理更新
+            if (this.currentService.handleStreamReasoning) {
+              this.currentService.handleStreamReasoning({ 
+                messageId: assistantMsg.id,
+                reasoning_content: chunk.reasoning_content
+              });
+            }
+          }
+
+          // 更新最终回复内容
+          if (chunk.content) {
+            assistantMsg.content += chunk.content;
+            this.sessionController.updateMessage(assistantMsg.id, (msg) => { 
+              msg.content = assistantMsg.content; 
+            });
+            
+            // 通过 IChatService 接口处理流式内容更新
+            if (this.currentService.handleStreamUpdate) {
+              this.currentService.handleStreamUpdate({ 
+                messageId: assistantMsg.id,
+                content: chunk.content
+              });
+            }
+          }
         },
         () => {
           // 完成：从队列移除
           this.messageQueue = this.messageQueue.filter(item => item.id !== assistantMsg.id);
-          this.eventBus.emit(Events.CHAT.STREAM_COMPLETE, { messageId: assistantMsg.id, message: assistantMsg });
+          
+          // 通过 IChatService 接口处理流式完成
+          if (this.currentService.handleStreamComplete) {
+            this.currentService.handleStreamComplete({ messageId: assistantMsg.id, message: assistantMsg });
+          }
           this.notifyActivityState();
         }
       );
@@ -110,7 +138,11 @@ class ChatController {
     } catch (error) {
       // 异常：从队列移除
       this.messageQueue = this.messageQueue.filter(item => item.id !== (assistantMsg?.id));
-      this.eventBus.emit(Events.CHAT.STREAM_ERROR, { error: error.message, stack: error.stack });
+      
+      // 通过 IChatService 接口处理流式错误
+      if (this.currentService.handleStreamError) {
+        this.currentService.handleStreamError({ error: error.message, stack: error.stack });
+      }
       this.notifyActivityState();
       console.error('[ChatController] Send message failed:', error);
       throw error;

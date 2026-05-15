@@ -82,7 +82,7 @@ class IProviderAPIService {
   /**
    * 解析流式片段（子类可重写）
    * @param {Object} data - 流式数据块
-   * @returns {Object|null} 标准化数据块 { content, role, toolCalls, finishReason }
+   * @returns {Object|null} 标准化数据块 { content, reasoning_content, role, toolCalls, finishReason }
    */
   parseStreamChunk(data) {
     throw new Error('Method not implemented: parseStreamChunk');

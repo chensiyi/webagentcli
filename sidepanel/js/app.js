@@ -28,9 +28,8 @@
     // 初始化会话管理器
     if (window.SessionManager && window.EventBus) {
       window.sessionManagerInstance = new window.SessionManager(window.EventBus);
-      console.log('[App] SessionManager initialized');
       
-      // 初始化 SessionController，让它引用 SessionManager
+      // 初始化 SessionController
       if (window.SessionController && window.SessionController.init) {
         window.SessionController.init();
       }
@@ -51,6 +50,8 @@
             });
             
             window.ChatController.setService(service);
+            // 将服务挂载到全局，供 UI 层调用标准交互方法
+            window.ChatService = service;
             console.log('[App] Chat service initialized:', settings.apiStandard);
           } else {
             console.warn('[App] Failed to create chat service for:', settings.apiStandard);
