@@ -1,5 +1,20 @@
 /* ==================== 设置页面 UI ==================== */
 
+.section {
+  margin-bottom: 24px;
+  padding: 16px;
+  background: var(--color-surface);
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+}
+
+.section h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--color-text);
+}
+
 .setting-group {
   margin-bottom: 16px;
 }

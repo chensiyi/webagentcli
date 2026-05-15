@@ -18,15 +18,18 @@ class Model {
    * @param {boolean} [params.capabilities.toolUse] - 是否支持工具调用
    * @param {boolean} [params.capabilities.streaming] - 是否支持流式响应
    * @param {boolean} [params.capabilities.reasoning] - 是否支持思考过程
+   * @param {boolean} [params.capabilities.jsonMode] - 是否支持 JSON 模式输出
    * @param {Array<string>} [params.inputModalities] - 输入模态 ['text', 'image', 'audio']
    * @param {Array<string>} [params.outputModalities] - 输出模态 ['text']
    * @param {number} [params.contextLength] - 最大上下文长度（tokens）
+   * @param {number} [params.maxOutputTokens] - 最大单次输出长度（tokens）
    * @param {string} [params.quantization] - 量化等级（如 'Q4_K_M', '4bit', 'Q8'）
    * @param {string} [params.compatibilityType] - 兼容类型（如 'gguf', 'mlx'）
    * @param {string} [params.state] - 加载状态 ('loaded' | 'not-loaded' | 'loading')
    * @param {number} [params.sizeBytes] - 模型文件大小（字节）
    * @param {string} [params.paramsString] - 参数字符串（如 '7B', '13B'）
    * @param {string} [params.description] - 模型描述
+   * @param {Object} [params.pricing] - 价格信息 { prompt: number, completion: number }
    * @param {Object} [params.metadata] - 额外元数据
    */
   constructor({
@@ -39,12 +42,14 @@ class Model {
     inputModalities = ['text'],
     outputModalities = ['text'],
     contextLength = 8192,
+    maxOutputTokens = null,
     quantization = null,
     compatibilityType = null,
     state = 'not-loaded',
     sizeBytes = null,
     paramsString = null,
     description = '',
+    pricing = null,
     metadata = {}
   }) {
     if (!id) throw new Error('Model id is required');
@@ -60,17 +65,20 @@ class Model {
       toolUse: true,
       streaming: true,
       reasoning: false,
+      jsonMode: false,
       ...capabilities
     };
     this.inputModalities = inputModalities;
     this.outputModalities = outputModalities;
     this.contextLength = contextLength;
+    this.maxOutputTokens = maxOutputTokens;
     this.quantization = quantization; // 'Q4_K_M', '4bit', 'Q8', etc.
     this.compatibilityType = compatibilityType; // 'gguf', 'mlx', etc.
     this.state = state; // 'loaded' | 'not-loaded' | 'loading'
     this.sizeBytes = sizeBytes;
     this.paramsString = paramsString; // '7B', '13B', '70B', etc.
     this.description = description;
+    this.pricing = pricing;
     this.metadata = metadata;
     this.createdAt = Date.now();
   }
@@ -135,6 +143,13 @@ class Model {
   }
 
   /**
+   * 检查是否支持 JSON 模式
+   */
+  supportsJsonMode() {
+    return this.capabilities.jsonMode;
+  }
+
+  /**
    * 获取量化的简短描述
    */
   getQuantizationLabel() {
@@ -181,12 +196,14 @@ class Model {
       inputModalities: this.inputModalities,
       outputModalities: this.outputModalities,
       contextLength: this.contextLength,
+      maxOutputTokens: this.maxOutputTokens,
       quantization: this.quantization,
       compatibilityType: this.compatibilityType,
       state: this.state,
       sizeBytes: this.sizeBytes,
       paramsString: this.paramsString,
       description: this.description,
+      pricing: this.pricing,
       metadata: this.metadata,
       createdAt: this.createdAt
     };

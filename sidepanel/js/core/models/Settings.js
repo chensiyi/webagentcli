@@ -1,24 +1,40 @@
 /**
  * 设置模型
+ * 支持多 API 标准配置
  */
 
 class Settings {
   constructor(options = {}) {
     // API 配置
-    this.provider = options.provider || 'lm-studio'; // 'openai' | 'lm-studio'
-    this.openaiApiKey = options.openaiApiKey || '';
-    this.openaiEndpoint = options.openaiEndpoint || 'https://api.openai.com/v1';
-    this.openaiModel = options.openaiModel || 'gpt-3.5-turbo';
+    this.apiStandard = options.apiStandard || 'openrouter'; // 'openai' | 'openrouter' | 'lm-studio' | 'ollama' | 'anthropic'
+    this.apiKey = options.apiKey || '';
+    this.apiEndpoint = options.apiEndpoint || 'https://openrouter.ai/api/v1';
+    this.model = options.model || '';
     
-    this.lmstudioEndpoint = options.lmstudioEndpoint || 'http://localhost:1234';
-    this.lmstudioModel = options.lmstudioModel || '';
+    // 模型参数
+    this.temperature = options.temperature ?? 0.7;
+    this.maxTokens = options.maxTokens ?? 2000;
+    this.systemPrompt = options.systemPrompt || '';
+    
+    // 上下文管理
+    this.autoContextTruncation = options.autoContextTruncation !== false;
     
     // UI 配置
     this.theme = options.theme || 'light'; // 'light' | 'dark'
-    
-    // 其他配置
-    this.temperature = options.temperature ?? 0.7;
-    this.maxTokens = options.maxTokens || null;
+  }
+  
+  /**
+   * 获取默认端点
+   */
+  static getDefaultEndpoint(apiStandard) {
+    const endpoints = {
+      'openai': 'https://api.openai.com/v1',
+      'openrouter': 'https://openrouter.ai/api/v1',
+      'lm-studio': 'http://localhost:1234',
+      'ollama': 'http://localhost:11434',
+      'anthropic': 'https://api.anthropic.com'
+    };
+    return endpoints[apiStandard] || '';
   }
   
   /**
@@ -26,15 +42,15 @@ class Settings {
    */
   toJSON() {
     return {
-      provider: this.provider,
-      openaiApiKey: this.openaiApiKey,
-      openaiEndpoint: this.openaiEndpoint,
-      openaiModel: this.openaiModel,
-      lmstudioEndpoint: this.lmstudioEndpoint,
-      lmstudioModel: this.lmstudioModel,
-      theme: this.theme,
+      apiStandard: this.apiStandard,
+      apiKey: this.apiKey,
+      apiEndpoint: this.apiEndpoint,
+      model: this.model,
       temperature: this.temperature,
-      maxTokens: this.maxTokens
+      maxTokens: this.maxTokens,
+      systemPrompt: this.systemPrompt,
+      autoContextTruncation: this.autoContextTruncation,
+      theme: this.theme
     };
   }
   

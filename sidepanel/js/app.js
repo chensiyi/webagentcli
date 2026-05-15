@@ -4,6 +4,9 @@
   
   const pages = [
     { id: 'chat', icon: '💬', label: '对话' },
+    { id: 'history', icon: '📋', label: '历史' },
+    { id: 'storage', icon: '💾', label: '存储' },
+    { id: 'scripts', icon: '📜', label: '脚本' },
     { id: 'settings', icon: '⚙️', label: '设置' }
   ];
   
@@ -22,12 +25,43 @@
     const { create } = window.DOM;
     const root = document.getElementById('root');
     
-    // 加载主题
-    chrome.storage.local.get(['settings'], (result) => {
-      if (result.settings && result.settings.theme) {
-        window.DOM.setTheme(result.settings.theme);
+    // 初始化会话管理器
+    if (window.SessionManager && window.EventBus) {
+      window.sessionManagerInstance = new window.SessionManager(window.EventBus);
+      console.log('[App] SessionManager initialized');
+      
+      // 初始化 SessionController，让它引用 SessionManager
+      if (window.SessionController && window.SessionController.init) {
+        window.SessionController.init();
       }
-    });
+    }
+    
+    // 初始化聊天服务（从设置中读取配置）
+    if (window.ChatController && window.ServiceManager && window.SettingsController) {
+      // 等待设置加载完成后初始化服务
+      window.SettingsController.loadSettings().then((settings) => {
+        if (settings && settings.apiStandard) {
+          const service = window.ServiceManager.getService(settings.apiStandard);
+          if (service) {
+            // 配置服务
+            service.configure({
+              endpoint: settings.apiEndpoint,
+              apiKey: settings.apiKey,
+              defaultModel: settings.model || 'default'
+            });
+            
+            window.ChatController.setService(service);
+            console.log('[App] Chat service initialized:', settings.apiStandard);
+          } else {
+            console.warn('[App] Failed to create chat service for:', settings.apiStandard);
+          }
+        } else {
+          console.warn('[App] No API standard configured, please set it in Settings');
+        }
+      }).catch(err => {
+        console.error('[App] Failed to initialize chat service:', err);
+      });
+    }
     
     function render(root) {
       const contentAreaEl = create('div', { className: 'content-area', id: 'content-area' });

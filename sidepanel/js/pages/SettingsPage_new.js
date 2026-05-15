@@ -14,31 +14,12 @@ window.Pages.settings = function(container) {
   let modelSearchValue = '';
   let modelDropdownVisible = false;
   let currentSettings = null; // 从 Controller 加载的设置
-  let cachedModels = []; // 缓存的模型列表
 
   /**
    * 渲染设置页面
    */
-  async function render() {
+  function render() {
     clear(container);
-    
-    // 从 Controller 获取当前设置
-    if (window.SettingsController) {
-      const settings = window.SettingsController.getSettings();
-      if (settings) {
-        currentSettings = settings.toJSON ? settings.toJSON() : settings;
-      }
-    }
-    
-    // 从 StorageModel 加载持久化的模型缓存
-    if (window.StorageModel && currentSettings?.apiEndpoint) {
-      const cacheKey = `models:${currentSettings.apiEndpoint}`;
-      const cached = await window.StorageModel.getCache(cacheKey);
-      if (cached && Array.isArray(cached)) {
-        cachedModels = cached;
-        console.log('[SettingsPage] Loaded cached models from storage:', cachedModels.length);
-      }
-    }
     
     const page = create('div', { className: 'page' });
     
@@ -92,11 +73,6 @@ window.Pages.settings = function(container) {
     page.appendChild(footer);
     
     container.appendChild(page);
-    
-    // 填充表单数据
-    if (currentSettings) {
-      fillForm(currentSettings);
-    }
     
     // 绑定模型下拉列表事件
     setTimeout(() => {
@@ -201,7 +177,7 @@ window.Pages.settings = function(container) {
           id: 'model-search',
           attrs: { 
             type: 'text', 
-            placeholder: cachedModels.length === 0 ? '点击加载模型' : '选择或搜索模型...',
+            placeholder: !window.ModelManager || !window.ModelManager.isLoaded() ? '点击加载模型' : '选择或搜索模型...',
           },
           onInput: (e) => { 
             modelSearchValue = e.target.value;
@@ -211,24 +187,13 @@ window.Pages.settings = function(container) {
           onBlur: handleModelSearchBlur
         }),
         create('button', {
-          className: 'btn btn-secondary btn-small',
+          className: 'btn btn-primary',
           id: 'load-models-btn',
           text: isLoadingModels ? '加载中...' : '加载模型',
           disabled: isLoadingModels,
           onClick: handleLoadModels
         })
       ]),
-      // 缓存状态提示
-      create('div', {
-        id: 'model-cache-status',
-        style: {
-          fontSize: '11px',
-          color: 'var(--color-text-secondary)',
-          marginTop: '4px',
-          display: cachedModels.length > 0 ? 'block' : 'none'
-        },
-        text: cachedModels.length > 0 ? `已缓存 ${cachedModels.length} 个模型` : ''
-      }),
       create('div', {
         className: 'model-dropdown',
         id: 'model-dropdown',
@@ -366,10 +331,7 @@ window.Pages.settings = function(container) {
    * 处理 API 标准变更
    */
   function handleApiStandardChange(apiStandard) {
-    // 确保 currentSettings 存在
-    if (!currentSettings) {
-      currentSettings = {};
-    }
+    if (!currentSettings) return;
     
     currentSettings.apiStandard = apiStandard;
     
@@ -383,37 +345,34 @@ window.Pages.settings = function(container) {
    * 处理端点失去焦点
    */
   function handleEndpointBlur() {
-    // 移除自动加载模型的逻辑，用户需要手动点击“加载模型”按钮
+    if (!currentSettings || !currentSettings.apiEndpoint) return;
+    
+    // 如果模型列表为空，请求加载模型
+    if (window.ModelManager && !window.ModelManager.isLoaded()) {
+      requestLoadModels();
+    }
   }
 
   /**
    * 处理模型搜索框点击
    */
   function handleModelSearchClick() {
-    const dropdown = document.getElementById('model-dropdown');
-    if (!dropdown) return;
-    
-    // 如果没有缓存的模型，提示用户先加载
-    if (cachedModels.length === 0) {
-      window.Toast?.info('请先点击“加载模型”按钮获取模型列表');
-      return;
-    }
-    
-    // 如果输入框有内容且精确匹配某个模型，则显示所有模型
-    if (modelSearchValue) {
-      const allModels = getAllModels();
-      const exactMatch = allModels.find(m => m === modelSearchValue);
-      
-      if (exactMatch) {
-        const savedSearchValue = modelSearchValue;
-        modelSearchValue = '';
-        updateModelDropdown();
-        modelSearchValue = savedSearchValue;
-        return;
+    if (window.ModelManager && window.ModelManager.isLoaded()) {
+      // 如果输入框有内容且精确匹配某个模型，则显示所有模型
+      if (modelSearchValue) {
+        const allModels = window.ModelManager.getModels();
+        const exactMatch = allModels.find(m => m === modelSearchValue);
+        
+        if (exactMatch) {
+          const savedSearchValue = modelSearchValue;
+          modelSearchValue = '';
+          updateModelDropdown();
+          modelSearchValue = savedSearchValue;
+          return;
+        }
       }
+      toggleModelDropdown();
     }
-    
-    toggleModelDropdown();
   }
 
   /**
@@ -448,6 +407,9 @@ window.Pages.settings = function(container) {
   function requestLoadModels() {
     if (!currentSettings) return;
     
+    isLoadingModels = true;
+    updateLoadButtonState();
+    
     // 发布模型加载请求事件
     eventBus.emit(window.Events.SETTINGS.MODELS_REQUEST, {
       apiKey: currentSettings.apiKey,
@@ -476,7 +438,7 @@ window.Pages.settings = function(container) {
     if (!currentSettings) return;
     
     // 发布保存请求事件
-    eventBus.emit(window.Events.SETTINGS.SAVE_REQUEST, {
+    eventBus.emit(window.Events.SETTINGS.SAVED, {
       settings: currentSettings
     });
   }
@@ -518,7 +480,7 @@ window.Pages.settings = function(container) {
    */
   function updateModelDropdown() {
     const dropdown = document.getElementById('model-dropdown');
-    if (!dropdown) return;
+    if (!dropdown || !window.ModelManager) return;
     
     const filtered = getFilteredModels();
     
@@ -530,7 +492,7 @@ window.Pages.settings = function(container) {
     }
     
     filtered.forEach(modelId => {
-      const details = getModelDetailsFromCache(modelId);
+      const details = window.ModelManager.getModelDetails(modelId);
       const modelName = details?.name || modelId;
       const contextLength = details?.context_length;
       const pricing = details?.pricing;
@@ -617,23 +579,6 @@ window.Pages.settings = function(container) {
       
       item.appendChild(infoLine);
       
-      // 鼠标悬停显示详情
-      let tooltipTimer = null;
-      item.addEventListener('mouseenter', (e) => {
-        if (!details) return;
-        
-        tooltipTimer = setTimeout(() => {
-          showModelTooltip(e, details);
-        }, 300); // 延迟300ms显示，避免快速移动时闪烁
-      });
-      
-      item.addEventListener('mouseleave', () => {
-        if (tooltipTimer) {
-          clearTimeout(tooltipTimer);
-        }
-        hideModelTooltip();
-      });
-      
       // 点击事件
       item.addEventListener('click', () => {
         selectModel(modelId);
@@ -664,6 +609,9 @@ window.Pages.settings = function(container) {
       dropdown.style.display = 'none';
       modelDropdownVisible = false;
     }
+    
+    // 更新模型能力提示
+    updateModelCapabilityHint();
   }
 
   /**
@@ -687,44 +635,14 @@ window.Pages.settings = function(container) {
    * 过滤模型列表
    */
   function getFilteredModels() {
-    if (cachedModels.length === 0) return [];
-    
-    // 如果 cachedModels 中的第一项是对象，提取 ID
-    const modelIds = cachedModels.map(m => typeof m === 'object' ? m.id : m);
-    
+    if (!window.ModelManager) return [];
+    const allModels = window.ModelManager.getModels();
     if (!modelSearchValue) {
-      return modelIds;
+      return allModels;
     }
     
     const keyword = modelSearchValue.toLowerCase();
-    return modelIds.filter(m => m.toLowerCase().includes(keyword));
-  }
-
-  /**
-   * 从缓存获取模型详情
-   */
-  function getModelDetailsFromCache(modelId) {
-    if (!cachedModels || cachedModels.length === 0) {
-      return null;
-    }
-    
-    // 在 cachedModels 中查找
-    const model = cachedModels.find(m => m.id === modelId || m === modelId);
-    
-    if (!model) {
-      return null;
-    }
-    
-    // 如果 model 是对象，直接返回
-    if (typeof model === 'object') {
-      return model;
-    }
-    
-    // 如果 model 是字符串，返回基本结构
-    return {
-      id: model,
-      name: model
-    };
+    return allModels.filter(m => m.toLowerCase().includes(keyword));
   }
 
   /**
@@ -757,154 +675,42 @@ window.Pages.settings = function(container) {
   }
 
   /**
-   * 显示模型详情浮窗
+   * 更新模型能力提示
    */
-  function showModelTooltip(event, details) {
-    // 移除已存在的浮窗
-    hideModelTooltip();
+  function updateModelCapabilityHint() {
+    const pageContent = document.querySelector('.page-content');
+    if (!pageContent) return;
     
-    const tooltip = create('div', {
-      id: 'model-tooltip',
-      style: {
-        position: 'fixed',
-        left: event.clientX + 10 + 'px',
-        top: event.clientY + 10 + 'px',
-        maxWidth: '400px',
-        padding: '12px 16px',
-        background: 'var(--color-surface)',
-        border: '1px solid var(--color-border)',
-        borderRadius: '8px',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-        zIndex: 10000,
-        fontSize: '12px',
-        lineHeight: '1.6'
-      }
-    });
-    
-    // 模型名称
-    const nameEl = create('div', {
-      style: {
-        fontWeight: '600',
-        fontSize: '14px',
-        marginBottom: '8px',
-        color: 'var(--color-text)'
-      },
-      text: details.name || details.id
-    });
-    tooltip.appendChild(nameEl);
-    
-    // 描述
-    if (details.description) {
-      const descEl = create('div', {
-        style: {
-          marginBottom: '8px',
-          color: 'var(--color-text-secondary)',
-          fontSize: '11px'
-        },
-        text: details.description.length > 200 
-          ? details.description.substring(0, 200) + '...' 
-          : details.description
-      });
-      tooltip.appendChild(descEl);
+    // 移除旧的能力提示
+    const oldHint = pageContent.querySelector('.setting-hint');
+    if (oldHint) {
+      oldHint.remove();
     }
     
-    // 详细信息
-    const infoItems = [];
-    
-    if (details.context_length) {
-      infoItems.push(`📝 上下文: ${formatContextLength(details.context_length)}`);
-    }
-    
-    if (details.max_output_tokens) {
-      infoItems.push(`⚡ 最大输出: ${formatContextLength(details.max_output_tokens)}`);
-    }
-    
-    if (details.modality) {
-      infoItems.push(`🔀 模态: ${details.modality}`);
-    }
-    
-    if (details.pricing) {
-      const priceText = formatPricing(details.pricing);
-      if (priceText) {
-        infoItems.push(`💰 价格: ${priceText}`);
-      }
-    }
-    
-    // 特性支持
-    const features = [];
-    if (details.supports_reasoning) features.push('思考模式');
-    if (details.supports_tools || details.supports_function_calling) features.push('工具调用');
-    if (details.supports_json_mode) features.push('JSON 模式');
-    if (features.length > 0) {
-      infoItems.push(`✨ 能力: ${features.join(', ')}`);
-    }
-    
-    if (infoItems.length > 0) {
-      const infoEl = create('div', {
-        style: {
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '4px',
-          color: 'var(--color-text-secondary)'
-        }
-      });
-      infoItems.forEach(text => {
-        infoEl.appendChild(create('div', { text }));
-      });
-      tooltip.appendChild(infoEl);
-    }
-    
-    // 链接
-    if (details.links?.details) {
-      const linkContainer = create('div', {
-        style: {
-          marginTop: '8px',
-          paddingTop: '8px',
-          borderTop: '1px solid var(--color-border)'
-        }
-      });
+    // 添加新的能力提示
+    if (currentSettings?.model && window.ModelManager && window.ModelManager.isLoaded()) {
+      const caps = window.ModelManager.getCapability(currentSettings.model);
+      if (!caps) return;
       
-      const linkEl = create('a', {
-        attrs: {
-          href: `https://openrouter.ai${details.links.details}`,
-          target: '_blank'
-        },
-        text: '🔗 查看模型详情',
-        style: {
-          color: 'var(--color-primary)',
-          textDecoration: 'none',
-          fontSize: '11px'
-        }
-      });
+      const badges = [];
+      if (caps.vision) badges.push('🖼️ 支持图片');
+      if (caps.audio) badges.push('🎤 支持音频');
+      if (caps.streaming) badges.push('⚡ 支持流式');
+      if (caps.tools) badges.push('🔧 支持工具');
       
-      linkEl.onmouseenter = () => linkEl.style.textDecoration = 'underline';
-      linkEl.onmouseleave = () => linkEl.style.textDecoration = 'none';
+      if (badges.length === 0) return;
       
-      linkContainer.appendChild(linkEl);
-      tooltip.appendChild(linkContainer);
-    }
-    
-    document.body.appendChild(tooltip);
-    
-    // 调整位置，确保不超出屏幕
-    setTimeout(() => {
-      const rect = tooltip.getBoundingClientRect();
-      if (rect.right > window.innerWidth) {
-        tooltip.style.left = (window.innerWidth - rect.width - 10) + 'px';
+      const capabilityHint = create('div', { 
+        className: 'setting-group setting-hint'
+      }, [
+        create('span', { text: '模型能力: ' + badges.join(' | ') })
+      ]);
+      
+      // 在模型选择区后面插入
+      const modelSection = pageContent.querySelectorAll('.setting-group')[3];
+      if (modelSection) {
+        modelSection.after(capabilityHint);
       }
-      if (rect.bottom > window.innerHeight) {
-        tooltip.style.top = (window.innerHeight - rect.height - 10) + 'px';
-      }
-    }, 0);
-  }
-  
-  /**
-   * 隐藏模型详情浮窗
-   */
-  function hideModelTooltip() {
-    const existing = document.getElementById('model-tooltip');
-    if (existing) {
-      existing.remove();
     }
   }
 
@@ -933,48 +739,17 @@ window.Pages.settings = function(container) {
   /**
    * 更新加载按钮状态
    */
-  function updateLoadButtonState(loading = null) {
+  function updateLoadButtonState() {
     const btn = document.getElementById('load-models-btn');
     if (btn) {
-      if (loading !== null) {
-        isLoadingModels = loading;
-      }
       btn.textContent = isLoadingModels ? '加载中...' : '加载模型';
       btn.disabled = isLoadingModels;
     }
   }
 
-  /**
-   * 更新模型缓存（由 EventHandler 调用）
-   */
-  function updateModelCache(models) {
-    cachedModels = models || [];
-    
-    // 更新输入框 placeholder
-    const modelSearch = document.getElementById('model-search');
-    if (modelSearch) {
-      modelSearch.placeholder = cachedModels.length === 0 ? '点击加载模型' : '选择或搜索模型...';
-    }
-    
-    // 更新缓存状态提示
-    const cacheStatus = document.getElementById('model-cache-status');
-    if (cacheStatus) {
-      if (cachedModels.length > 0) {
-        cacheStatus.textContent = `已缓存 ${cachedModels.length} 个模型`;
-        cacheStatus.style.display = 'block';
-      } else {
-        cacheStatus.style.display = 'none';
-      }
-    }
-    
-    console.log('[SettingsPage] Model cache updated:', cachedModels.length, 'models');
-  }
-
   // 暴露方法供 EventHandler 调用
   window.Pages.settings.fillForm = fillForm;
   window.Pages.settings.updateModelDropdown = updateModelDropdown;
-  window.Pages.settings.updateModelCache = updateModelCache;
-  window.Pages.settings.updateLoadButtonState = updateLoadButtonState;
 
   // 初始渲染
   render();

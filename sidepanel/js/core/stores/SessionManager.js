@@ -83,7 +83,20 @@ class SessionManager {
    * @returns {Session|null}
    */
   getCurrentSession() {
-    if (!this.currentSessionId) return null;
+    if (!this.currentSessionId) {
+      // 如果没有当前会话，尝试获取第一个会话
+      const firstSessionId = Array.from(this.sessions.keys())[0];
+      if (firstSessionId) {
+        this.currentSessionId = firstSessionId;
+        console.log('[SessionManager] Auto-switched to first session:', firstSessionId);
+      } else {
+        // 如果没有任何会话，创建一个默认的
+        console.log('[SessionManager] No sessions found, creating default session');
+        this.createSession();
+        return this.getCurrentSession(); // 递归调用获取新创建的会话
+      }
+    }
+    
     return this.sessions.get(this.currentSessionId) || null;
   }
 
@@ -243,7 +256,7 @@ class SessionManager {
       if (data.sessions && Array.isArray(data.sessions)) {
         // 恢复会话
         data.sessions.forEach(sessionData => {
-          const session = Session.fromJSON(sessionData, window.Message);
+          const session = Session.fromJSON(sessionData);
           this.sessions.set(session.id, session);
         });
         

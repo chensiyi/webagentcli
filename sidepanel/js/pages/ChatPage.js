@@ -56,6 +56,9 @@ window.Pages.chat = function(container) {
     scrollToBottom(messageList);
   }
   
+  // 将 render 方法暴露出去，供 EventHandler 调用
+  window.Pages.chat.render = render;
+  
   /**
    * 创建消息列表
    */
@@ -95,11 +98,12 @@ window.Pages.chat = function(container) {
     const isUser = msg.role === 'user';
     
     return create('div', {
-      className: `message-item message-${msg.role}`
+      className: `message-bubble message-${msg.role}`,
+      attrs: { 'data-message-id': msg.id }  // 添加消息 ID 用于流式更新
     }, [
       create('div', { 
         className: 'message-avatar',
-        text: isUser ? '👤' : '🤖'
+        text: isUser ? '' : '🤖'
       }),
       create('div', { className: 'message-body' }, [
         create('div', { 
@@ -141,10 +145,12 @@ window.Pages.chat = function(container) {
         e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
       },
       onKeyDown: (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
+        // Ctrl/Cmd + Enter 发送消息
+        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
           e.preventDefault();
           sendMessage();
         }
+        // Shift + Enter 换行（默认行为）
       }
     });
       
@@ -170,27 +176,36 @@ window.Pages.chat = function(container) {
       
     function sendMessage() {
       if (!inputValue.trim()) return;
-        
-      // 创建用户消息
-      const userMsg = new window.Message({
-        role: 'user',
-        content: inputValue
-      });
-        
-      // 添加到会话
-      sessionController.addMessage(userMsg);
-        
+      
+      const content = inputValue.trim();
+      
       // 清空输入
       inputValue = '';
       textarea.value = '';
       textarea.style.height = 'auto';
-        
-      // 重新渲染
-      render();
-        
-      console.log('[ChatPage] Sent message:', userMsg);
-        
-      // TODO: 调用 API 发送消息并接收响应
+      
+      // 禁用发送按钮，显示停止按钮
+      sendBtn.style.display = 'none';
+      stopBtn.style.display = 'inline-block';
+      isStreaming = true;
+      
+      console.log('[ChatPage] Sending message:', content);
+      
+      // 调用 ChatController 发送消息
+      chatController.sendMessage(content)
+        .then(() => {
+          console.log('[ChatPage] Message sent successfully');
+        })
+        .catch((error) => {
+          console.error('[ChatPage] Send message failed:', error);
+          window.Toast?.error('发送失败: ' + error.message);
+        })
+        .finally(() => {
+          // 恢复按钮状态
+          isStreaming = false;
+          sendBtn.style.display = 'inline-block';
+          stopBtn.style.display = 'none';
+        });
     }
       
     return create('div', { 

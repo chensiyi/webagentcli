@@ -1,101 +1,118 @@
 /**
  * 会话控制器
- * 负责会话的创建、切换、保存等核心业务逻辑
+ * 负责会话的业务逻辑协调，委托给 SessionManager 进行数据操作
  */
 
 class SessionController {
   constructor() {
-    this.sessions = [];
-    this.currentSessionId = null;
-    this.storageKey = 'chat_sessions';
-    
-    // 加载已保存的会话
-    this.loadSessions();
+    // 等待 SessionManager 初始化完成
+    this.manager = null;
+  }
+  
+  /**
+   * 初始化 SessionManager 引用（由 app.js 调用）
+   */
+  init() {
+    if (window.sessionManagerInstance) {
+      this.manager = window.sessionManagerInstance;
+      console.log('[SessionController] Delegating to SessionManager');
+      return true;
+    }
+    console.warn('[SessionController] SessionManager not ready yet');
+    return false;
   }
   
   /**
    * 获取当前会话
    */
   getCurrentSession() {
-    if (!this.currentSessionId) return null;
-    return this.sessions.find(s => s.id === this.currentSessionId) || null;
+    if (!this.manager) {
+      console.warn('[SessionController] SessionManager not ready');
+      return null;
+    }
+    return this.manager.getCurrentSession();
   }
   
   /**
    * 创建新会话
    */
   createSession(title = '新对话') {
-    const session = new window.Session({ title });
-    this.sessions.push(session);
-    this.currentSessionId = session.id;
-    this.saveSessions();
-    console.log('[SessionController] Created new session:', session.id);
-    return session;
+    if (!this.manager) {
+      console.error('[SessionController] SessionManager not ready');
+      return null;
+    }
+    return this.manager.createSession({ title });
   }
   
   /**
    * 切换到指定会话
    */
   switchSession(sessionId) {
-    const session = this.sessions.find(s => s.id === sessionId);
-    if (!session) {
-      console.warn('[SessionController] Session not found:', sessionId);
+    if (!this.manager) {
+      console.error('[SessionController] SessionManager not ready');
       return null;
     }
-    
-    this.currentSessionId = sessionId;
-    console.log('[SessionController] Switched to session:', sessionId);
-    return session;
+    return this.manager.loadSession(sessionId);
   }
   
   /**
    * 删除会话
    */
   deleteSession(sessionId) {
-    const index = this.sessions.findIndex(s => s.id === sessionId);
-    if (index === -1) return false;
-    
-    this.sessions.splice(index, 1);
-    
-    // 如果删除的是当前会话，切换到第一个或创建新的
-    if (this.currentSessionId === sessionId) {
-      if (this.sessions.length > 0) {
-        this.currentSessionId = this.sessions[0].id;
-      } else {
-        this.createSession();
-      }
+    if (!this.manager) {
+      console.error('[SessionController] SessionManager not ready');
+      return false;
     }
-    
-    this.saveSessions();
-    console.log('[SessionController] Deleted session:', sessionId);
-    return true;
+    return this.manager.deleteSession(sessionId);
   }
   
   /**
    * 添加消息到当前会话
    */
   addMessage(message) {
-    const session = this.getCurrentSession();
-    if (!session) {
-      console.warn('[SessionController] No current session');
-      return null;
+    if (!this.manager) {
+      console.error('[SessionController] SessionManager not ready');
+      return false;
     }
-    
-    session.addMessage(message);
-    this.saveSessions();
-    return message;
+    return this.manager.addMessage(message);
+  }
+  
+  /**
+   * 更新消息（用于流式更新等场景）
+   * @param {string} messageId 
+   * @param {Function} updater 
+   * @returns {boolean}
+   */
+  updateMessage(messageId, updater) {
+    if (!this.manager) {
+      console.error('[SessionController] SessionManager not ready');
+      return false;
+    }
+    return this.manager.updateMessage(messageId, updater);
+  }
+  
+  /**
+   * 删除消息
+   * @param {string} messageId 
+   * @returns {boolean}
+   */
+  deleteMessage(messageId) {
+    if (!this.manager) {
+      console.error('[SessionController] SessionManager not ready');
+      return false;
+    }
+    return this.manager.deleteMessage(messageId);
   }
   
   /**
    * 获取所有会话列表
    */
   getSessions() {
-    return this.sessions.map(s => ({
-      id: s.id,
-      title: s.title,
-      messageCount: s.messages.length,
-      updatedAt: s.updatedAt
-    }));
+    if (!this.manager) {
+      console.warn('[SessionController] SessionManager not ready');
+      return [];
+    }
+    return this.manager.getAllSessions();
   }
   
   /**
@@ -106,42 +123,12 @@ class SessionController {
     if (!session) return false;
     
     session.clearMessages();
-    this.saveSessions();
+    // SessionManager 会在 addMessage 时自动保存，这里需要手动触发保存
+    if (this.manager) {
+      this.manager._saveSessions();
+    }
     console.log('[SessionController] Cleared current session');
     return true;
-  }
-  
-  /**
-   * 保存到存储
-   */
-  saveSessions() {
-    const data = this.sessions.map(s => s.toJSON());
-    chrome.storage.local.set({ [this.storageKey]: data }, () => {
-      console.log('[SessionController] Saved', data.length, 'sessions');
-    });
-  }
-  
-  /**
-   * 从存储加载
-   */
-  loadSessions() {
-    chrome.storage.local.get([this.storageKey], (result) => {
-      const data = result[this.storageKey];
-      if (!data || !Array.isArray(data)) {
-        // 如果没有会话，创建一个默认的
-        this.createSession();
-        return;
-      }
-      
-      this.sessions = data.map(s => window.Session.fromJSON(s));
-      
-      // 设置当前会话为最后一个
-      if (this.sessions.length > 0) {
-        this.currentSessionId = this.sessions[this.sessions.length - 1].id;
-      }
-      
-      console.log('[SessionController] Loaded', this.sessions.length, 'sessions');
-    });
   }
 }
 

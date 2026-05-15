@@ -17,6 +17,7 @@ const Events = {
     STREAM_COMPLETE: 'chat:streamComplete',    // 流式请求完成
     STREAM_ERROR: 'chat:streamError',          // 流式请求出错
     STREAM_STOP: 'chat:streamStop',            // 用户停止生成
+    ACTIVITY_STATE_CHANGED: 'chat:activityStateChanged', // 活动状态变更（用于按钮显示）
     
     // 会话管理
     SESSION_CREATED: 'chat:sessionCreated',    // 会话创建
@@ -27,8 +28,22 @@ const Events = {
   
   // ==================== Settings 相关事件 ====================
   SETTINGS: {
-    UPDATED: 'settings:updated',               // 设置已更新
-    RESET: 'settings:reset',                   // 设置已重置
+    // 设置生命周期
+    LOADED: 'settings:loaded',             // 设置已加载
+    UPDATED: 'settings:updated',           // 设置已更新
+    SAVE_REQUEST: 'settings:saveRequest',  // 请求保存设置
+    SAVED: 'settings:saved',               // 设置已保存
+    RESET: 'settings:reset',               // 设置已重置
+    
+    // API 配置变更
+    API_STANDARD_CHANGED: 'settings:apiStandardChanged',  // API 标准变更
+    API_ENDPOINT_CHANGED: 'settings:apiEndpointChanged',  // API 端点变更
+    MODEL_CHANGED: 'settings:modelChanged',               // 模型变更
+    
+    // 模型管理
+    MODELS_REQUEST: 'settings:modelsRequest',    // 请求加载模型列表
+    MODELS_LOADED: 'settings:modelsLoaded',      // 模型列表已加载
+    MODELS_ERROR: 'settings:modelsError',        // 模型加载错误
   },
   
   // ==================== Service 相关事件 ====================
@@ -43,6 +58,19 @@ const Events = {
     PAGE_CHANGED: 'ui:pageChanged',            // 页面切换
     THEME_CHANGED: 'ui:themeChanged',          // 主题变更
     LOADING: 'ui:loading',                     // 加载状态
+  },
+  
+  // ==================== Storage 相关事件 ====================
+  STORAGE: {
+    LOADED: 'storage:loaded',                  // 存储数据已加载
+    SEARCHED: 'storage:searched',              // 搜索结果
+    ERROR: 'storage:error',                    // 存储操作错误
+  },
+  
+  // ==================== Scripts 相关事件 ====================
+  SCRIPTS: {
+    LOADED: 'scripts:loaded',                  // 脚本列表已加载
+    ERROR: 'scripts:error',                    // 脚本操作错误
   }
 };
 

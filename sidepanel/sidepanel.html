@@ -26,8 +26,12 @@
   <!-- Error Handler -->
   <script src="js/utils/error-handler.js"></script>
   
+  <!-- Toast -->
+  <script src="js/utils/toast.js"></script>
+  
   <!-- DOM Utils -->
   <script src="js/utils/dom.js"></script>
+  <script src="js/utils/time.js"></script>
   
   <!-- Core: Events -->
   <script src="js/core/events/EventBus.js"></script>
@@ -37,20 +41,37 @@
   <script src="js/core/models/Message.js"></script>
   <script src="js/core/models/Session.js"></script>
   <script src="js/core/models/Settings.js"></script>
-  
-  <!-- Core: Controllers -->
-  <script src="js/controllers/SessionController.js"></script>
-  <script src="js/controllers/ChatController.js"></script>
-  <script src="js/controllers/SettingsController.js"></script>
+  <script src="js/core/models/Storage.js"></script>
+  <script src="js/core/models/Scripts.js"></script>
   
   <!-- Core: Services -->
   <script src="js/services/IChatService.js"></script>
-  <script src="js/services/OpenAIService.js"></script>
-  <script src="js/services/LMStudioService.js"></script>
+  <script src="js/services/IProviderAPIService.js"></script>
+  <script src="js/services/ProviderAPIServices/OpenAIService.js"></script>
+  <script src="js/services/ProviderAPIServices/OpenRouterService.js"></script>
+  <script src="js/services/ProviderAPIServices/LMStudioService.js"></script>
   
-  <!-- UI: Pages -->
+  <!-- Core: Controllers -->
+  <script src="js/core/stores/SessionManager.js"></script>
+  <script src="js/controllers/SessionController.js"></script>
+  <script src="js/controllers/ChatController.js"></script>
+  <script src="js/controllers/SettingsController.js"></script>
+  <script src="js/controllers/StorageController.js"></script>
+  <script src="js/controllers/ScriptsController.js"></script>
+  <script src="js/controllers/ServiceManager.js"></script>
+  
+  <!-- UI: Page Event Handlers (每个 Page 对应的 EventHandler) -->
+  <script src="js/pages/ChatEventHandler.js"></script>
+  <script src="js/pages/SettingsEventHandler.js"></script>
+  <script src="js/pages/StorageEventHandler.js"></script>
+  <script src="js/pages/ScriptsEventHandler.js"></script>
+  
+  <!-- UI: Pages (每个 Page 内部使用自己的 EventHandler) -->
   <script src="js/pages/ChatPage.js"></script>
+  <script src="js/pages/HistoryPage.js"></script>
   <script src="js/pages/SettingsPage.js"></script>
+  <script src="js/pages/StoragePage.js"></script>
+  <script src="js/pages/ScriptsPage.js"></script>
   
   <!-- App -->
   <script src="js/app.js"></script>

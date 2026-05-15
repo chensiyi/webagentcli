@@ -9,6 +9,7 @@ class Session {
     this.messages = options.messages || [];
     this.createdAt = options.createdAt || Date.now();
     this.updatedAt = options.updatedAt || Date.now();
+    this.updated_at = this.updatedAt; // 兼容旧版命名
     this.metadata = options.metadata || {};
     
     // 运行时状态（不持久化）
@@ -26,6 +27,7 @@ class Session {
   addMessage(message) {
     this.messages.push(message);
     this.updatedAt = Date.now();
+    this.updated_at = this.updatedAt;
   }
   
   /**
@@ -36,9 +38,36 @@ class Session {
     if (index !== -1) {
       this.messages.splice(index, 1);
       this.updatedAt = Date.now();
+      this.updated_at = this.updatedAt;
       return true;
     }
     return false;
+  }
+  
+  /**
+   * 更新消息（用于流式更新等场景）
+   * @param {string} messageId 
+   * @param {Function} updater - 接收消息对象并返回更新后的消息
+   * @returns {boolean}
+   */
+  updateMessage(messageId, updater) {
+    const message = this.messages.find(m => m.id === messageId);
+    if (!message) return false;
+    
+    // 调用 updater 函数更新消息
+    const result = updater(message);
+    
+    // 如果 updater 返回了新对象，替换原消息
+    if (result && result !== message) {
+      const index = this.messages.findIndex(m => m.id === messageId);
+      if (index !== -1) {
+        this.messages[index] = result;
+      }
+    }
+    
+    this.updatedAt = Date.now();
+    this.updated_at = this.updatedAt;
+    return true;
   }
   
   /**
@@ -54,6 +83,7 @@ class Session {
   clearMessages() {
     this.messages = [];
     this.updatedAt = Date.now();
+    this.updated_at = this.updatedAt;
   }
   
   /**
@@ -73,6 +103,7 @@ class Session {
       messages: this.messages.map(m => m.toJSON ? m.toJSON() : m),
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
+      updated_at: this.updated_at,
       metadata: this.metadata
     };
   }
@@ -88,6 +119,8 @@ class Session {
         window.Message ? window.Message.fromJSON(m) : m
       );
     }
+    // 确保 updated_at 同步
+    session.updated_at = session.updatedAt;
     return session;
   }
 }
