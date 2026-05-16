@@ -948,6 +948,7 @@ window.Pages.settings = function(container) {
   window.Pages.settings.updateModelDropdown = updateModelDropdown;
   window.Pages.settings.updateModelCache = updateModelCache;
   window.Pages.settings.updateLoadButtonState = updateLoadButtonState;
+  window.Pages.settings.rerenderProviderConfig = renderProviderConfig;
 
   // 初始渲染
   render();

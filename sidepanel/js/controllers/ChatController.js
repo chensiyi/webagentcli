@@ -73,9 +73,16 @@ class ChatController {
       
       // 4. 准备请求参数
       const session = this.sessionController.getCurrentSession();
+      
+      // 从会话中读取 Reasoning 配置
+      const reasoningEnabled = session.reasoningEnabled || false;
+      const reasoningEffort = session.reasoningEffort || 'medium';
+      
       const params = {
         messages: session.messages.map(m => ({ role: m.role, content: m.content })),
-        stream: true
+        stream: true,
+        reasoningEnabled: reasoningEnabled,
+        reasoningEffort: reasoningEffort
       };
       
       // 5. 开始流式请求

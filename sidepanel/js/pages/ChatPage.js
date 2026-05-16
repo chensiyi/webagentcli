@@ -13,6 +13,7 @@ window.Pages.chat = function(container) {
   // 获取当前会话
   let currentSession = sessionController.getCurrentSession();
   let isStreaming = false;
+  let modelSupportsReasoning = false; // 缓存模型是否支持 reasoning
   
   /**
    * 渲染聊天页面
@@ -26,19 +27,33 @@ window.Pages.chat = function(container) {
     const page = create('div', { className: 'page' });
     
     // 头部 - 使用 theme 中的 page-header 样式
+    const headerActions = [];
+    
+    // Reasoning 模式切换按钮（仅当模型支持时显示）
+    if (currentSession && modelSupportsReasoning) {
+      headerActions.push(create('button', {
+        className: `btn ${currentSession.reasoningEnabled ? 'btn-primary' : 'btn-secondary'}`,
+        style: { marginRight: '8px' },
+        text: currentSession.reasoningEnabled ? '💭 思考中' : '💭 思考',
+        onClick: () => toggleReasoning()
+      }));
+    }
+    
+    headerActions.push(create('button', {
+      className: 'btn btn-primary',
+      text: '+ 新对话',
+      onClick: () => {
+        sessionController.createSession();
+        render();
+      }
+    }));
+    
     const header = create('div', { className: 'page-header' }, [
       create('h2', { 
         className: 'page-title',
         text: currentSession ? currentSession.title : '新对话'
       }),
-      create('button', {
-        className: 'btn btn-primary',
-        text: '+ 新对话',
-        onClick: () => {
-          sessionController.createSession();
-          render();
-        }
-      })
+      ...headerActions
     ]);
     page.appendChild(header);
     
@@ -262,6 +277,40 @@ window.Pages.chat = function(container) {
       ])
     ]);
   }
+
+  /**
+   * 检查当前模型是否支持 reasoning（同步，使用全局缓存）
+   */
+  function checkModelSupportsReasoning() {
+    // 从全局缓存读取
+    if (window.modelCapabilities) {
+      modelSupportsReasoning = window.modelCapabilities.supportsReasoning || false;
+    } else {
+      modelSupportsReasoning = false;
+    }
+  }
+
+  /**
+   * 切换 Reasoning 模式
+   */
+  function toggleReasoning() {
+    if (!currentSession) return;
+    
+    // 切换 reasoningEnabled 状态
+    currentSession.reasoningEnabled = !currentSession.reasoningEnabled;
+    
+    // 保存会话
+    if (window.SessionController) {
+      window.SessionController.updateSession(currentSession.id, (session) => {
+        session.reasoningEnabled = currentSession.reasoningEnabled;
+      });
+    }
+    
+    // 重新渲染页面以更新按钮状态
+    render();
+    
+    console.log('[ChatPage] Reasoning mode:', currentSession.reasoningEnabled ? 'enabled' : 'disabled');
+  }
   
   /**
    * 滚动到底部
@@ -272,6 +321,35 @@ window.Pages.chat = function(container) {
     }, 0);
   }
   
-  // 初始渲染
+  // 加载模型能力
+  function initModelCapabilities() {
+    if (!window.SettingsController || !window.StorageModel) return;
+    
+    try {
+      const settings = window.SettingsController.getSettings();
+      if (!settings || !settings.apiEndpoint || !settings.model) return;
+      
+      const cacheKey = `models:${settings.apiEndpoint}`;
+      const cachedModels = await window.StorageModel.getCache(cacheKey);
+      
+      if (!cachedModels || !Array.isArray(cachedModels)) return;
+      
+      const currentModel = cachedModels.find(m => m.id === settings.model);
+      if (!currentModel) return;
+      
+      // 将模型支持信息存储到全局
+      window.modelCapabilities = {
+        supportsReasoning: currentModel.supports_reasoning === true,
+        modelId: settings.model
+      };
+      
+      console.log('[ChatPage] Model capabilities loaded:', window.modelCapabilities);
+    } catch (error) {
+      console.error('[ChatPage] Failed to load model capabilities:', error);
+    }
+  }
+  
+  // 初始渲染（先加载模型能力，再渲染）
+  initModelCapabilities();
   render();
 };

@@ -12,6 +12,10 @@ class Session {
     this.updated_at = this.updatedAt; // 兼容旧版命名
     this.metadata = options.metadata || {};
     
+    // Reasoning 配置（持久化）
+    this.reasoningEnabled = options.reasoningEnabled || false;
+    this.reasoningEffort = options.reasoningEffort || 'medium'; // 'low' | 'medium' | 'high'
+    
     // 运行时状态（不持久化）
     this.port = null;
     this.isStreaming = false;
@@ -111,7 +115,9 @@ class Session {
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
       updated_at: this.updated_at,
-      metadata: this.metadata
+      metadata: this.metadata,
+      reasoningEnabled: this.reasoningEnabled,
+      reasoningEffort: this.reasoningEffort
     };
   }
   

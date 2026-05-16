@@ -66,6 +66,14 @@ class OpenRouterService extends OpenAIService {
       body.route = params.route;
     }
     
+    // OpenRouter reasoning 参数（统一格式）
+    if (params.reasoningEnabled !== undefined) {
+      body.reasoning = {
+        enabled: params.reasoningEnabled,
+        ...(params.reasoningEffort && { effort: params.reasoningEffort })
+      };
+    }
+    
     return body;
   }
 
