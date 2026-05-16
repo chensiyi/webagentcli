@@ -1,861 +1,315 @@
-# Web Agent Client - 架构文档
+# Web Agent Client 架构文档
 
-> 本文档记录系统的整体架构设计、模块关系、数据流向和核心设计模式。根据此文档可以快速理解和重构整个项目。
+## 项目概述
 
-**最后更新**: 2026-05-06  
-**版本**: v1.0.0
+Web Agent Client 是一个 Chrome Extension (Manifest V3)，为 AI Agent 提供网页端执行环境。核心功能包括多会话对话、脚本管理、存储管理、设置管理等。
 
----
+## 架构分层
 
-## 目录
-
-- [1. 系统概览](#1-系统概览)
-- [2. 技术栈](#2-技术栈)
-- [3. 架构分层](#3-架构分层)
-- [4. 核心模块详解](#4-核心模块详解)
-- [5. 数据流设计](#5-数据流设计)
-- [6. 通信协议](#6-通信协议)
-- [7. 设计模式](#7-设计模式)
-- [8. 扩展机制](#8-扩展机制)
-- [9. 重构指南](#9-重构指南)
-
----
-
-## 1. 系统概览
-
-### 1.1 项目定位
-
-Web Agent Client 是一个 Chrome Extension，为 AI Agent 提供浏览器运行时环境，使 AI 能够：
-- 与用户进行多轮对话
-- 执行工具调用（搜索、网页抓取、代码执行等）
-- 处理多模态内容（图片、音频、视频）
-- 注入和执行用户脚本
-
-### 1.2 核心价值
+项目采用**分层架构**，各层职责明确，通过**事件总线**和**接口规范**进行通信。
 
 ```
-AI 模型 + 浏览器能力 = 智能助手
+┌─────────────────────────────────────────────────────┐
+│                    UI Layer (Pages)                  │
+│  ChatPage | HistoryPage | SettingsPage | ScriptsPage │
+│  每个 Page 对应一个 EventHandler 处理用户交互         │
+└─────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────┐
+│                 Controller Layer                     │
+│  ChatController | SessionController | SettingsCtrl  │
+│  业务逻辑协调，委托给底层处理                         │
+└─────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────┐
+│                  Service Layer                       │
+│  OpenAIService | LMStudioService | OpenRouterService│
+│  IProviderAPIService 抽象基类，各 Provider 具体实现  │
+│  IChatService 定义 UI 交互回调接口                    │
+└─────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────┐
+│                 Core Layer                           │
+│  EventBus | Events | Models (Message/Session/...)   │
+│  SessionManager | ServiceManager                    │
+─────────────────────────────────────────────────────┘
 ```
 
-通过 Chrome Extension API，将 AI 的能力扩展到：
-- DOM 操作
-- 网络请求（绕过 CSP）
-- 本地存储
-- 脚本注入
-
-### 1.3 项目结构
+## 目录结构
 
 ```
-├── manifest.json                    # Chrome 扩展清单（MV3）
-├── content.js                       # Content Script（页面交互）
-├── sidepanel/                       # Side Panel UI + Background
-│   ├── background/                  # 后台服务层（Service Worker）
-│   │   ├── background.js            # Service Worker 协调器
-│   │   ├── stream-core.js           # 核心流式引擎
-│   │   ├── message-transformer.js   # 消息转换逻辑
-│   │   └── script-injector.js       # 脚本注入管理
-│   │
-│   ├── pages/                       # UI 页面组件
-│   │   ├── chat/                    # 聊天页面（模块化）
-│   │   ├── history.js               # 历史对话页面
-│   │   ├── settings.js              # 设置页面
-│   │   └── scripts.js               # 用户脚本页面
-│   │
-│   ├── modules/                     # 功能模块（业务逻辑层）
-│   │   ├── agent/                   # Agent 核心
-│   │   ├── tools/                   # 工具集
-│   │   ├── scripts/                 # 用户脚本系统
-│   │   └── storage/                 # 存储管理
-│   │
-│   └── utils/                       # 通用工具
-│
-└── assets/                          # 静态资源
+webagentcli/
+├── manifest.json              # 扩展配置
+├── background.js              # Service Worker
+├── content.js                 # 内容脚本
+├── sidepanel/                 # 侧边栏主目录
+│   ├── sidepanel.html         # 入口 HTML
+│   ├── js/                    # JavaScript 代码
+│   │   ├── app.js             # 应用入口
+│   │   ├── core/              # 核心层
+│   │   │   ├── events/        # 事件系统
+│   │   │   │   ├── EventBus.js
+│   │   │   │   └── Events.js
+│   │   │   ├── models/        # 数据模型
+│   │   │   │   ├── Message.js
+│   │   │   │   ├── Session.js
+│   │   │   │   ├── Settings.js
+│   │   │   │   ├── Storage.js
+│   │   │   │   └── Scripts.js
+│   │   │   ── stores/        # 状态存储
+│   │   │       └── SessionManager.js
+│   │   ├── services/          # 服务层
+│   │   │   ├── IChatService.js              # UI 交互回调接口
+│   │   │   ├── IProviderAPIService.js       # Provider API 抽象基类
+│   │   │   └── ProviderAPIServices/         # 具体 Provider 实现
+│   │   │       ├── OpenAIService.js
+│   │   │       ├── LMStudioService.js
+│   │   │       └── OpenRouterService.js
+│   │   ├── controllers/       # 控制器层
+│   │   │   ├── ChatController.js
+│   │   │   ├── SessionController.js
+│   │   │   ├── SettingsController.js
+│   │   │   ├── StorageController.js
+│   │   │   ├── ScriptsController.js
+│   │   │   └── ServiceManager.js
+│   │   ├── pages/             # UI 页面层
+│   │   │   ├── ChatPage.js
+│   │   │   ├── ChatEventHandler.js
+│   │   │   ├── HistoryPage.js
+│   │   │   ├── SettingsPage.js
+│   │   │   ├── SettingsEventHandler.js
+│   │   │   ├── StoragePage.js
+│   │   │   ├── StorageEventHandler.js
+│   │   │   ├── ScriptsPage.js
+│   │   │   ── ScriptsEventHandler.js
+│   │   └── utils/             # 工具函数
+│   │       ├── dom.js         # DOM 创建工具
+│   │       ├── time.js
+│   │       ├── markdown.js
+│   │       ├── toast.js
+│   │       ├── tooltip.js
+│   │       ├── confirm.js
+│   │       ├── error-handler.js
+│   │       ├── messageTypes.js
+│   │       ├── media.js
+│   │       ├── thinkingMode.js
+│   │       └── ragCodeExtension.js
+│   └── theme/                 # CSS 主题样式
+│       ├── variables.css      # CSS 变量定义
+│       ├── layout.css
+│       ├── buttons.css
+│       ├── forms.css
+│       ├── cards.css
+│       ├── chat-components.css
+│       ├── settings-ui.css
+│       ├── markdown.css
+│       ├── tooltips.css
+│       ├── dialogs.css
+│       ├── badges.css
+│       ├── search-results.css
+│       ├── animations.css
+│       └── utilities.css
+└── docs/
+    ├── ARCHITECTURE.md        # 本文件
+    ├── CORE_MODELS.md         # 数据模型文档
+    └── FEATURE_DEVELOPMENT.md # 功能开发文档
 ```
 
----
+## 核心模块详解
 
-## 2. 技术栈
+### 1. 事件系统 (EventBus)
 
-### 2.1 核心技术
+位于 `js/core/events/`，提供应用内所有组件的解耦通信。
 
-- **Manifest V3** - Chrome Extension 最新架构
-- **Service Worker** - 后台运行时（background/）
-- **Side Panel API** - 浏览器侧边栏 UI
-- **Content Scripts** - 页面交互（content.js）
-- **原生 JavaScript** - 无框架，轻量级实现
+- **EventBus.js**: 全局事件总线单例，支持订阅/发布、一次性事件、消息历史记录
+- **Events.js**: 事件常量定义，统一管理所有事件名称
 
-### 2.2 关键 API
+**主要事件分类**:
+- `CHAT.*`: 消息生命周期、流式请求、会话管理
+- `SETTINGS.*`: 设置加载/保存、API 配置变更、模型管理
+- `SERVICE.*`: 服务配置/切换/错误
+- `UI.*`: 页面切换、主题变更
+- `STORAGE.*`: 存储操作
+- `SCRIPTS.*`: 脚本管理
 
-- `chrome.runtime.connect` - 长连接通信
-- `chrome.storage.local` - 持久化存储
-- `chrome.userScripts` - 动态脚本注册
-- `fetch` - 网络请求（Service Worker 中不受 CSP 限制）
+### 2. 数据模型 (Models)
 
----
+位于 `js/core/models/`，定义应用的核心数据结构。
 
-## 3. 架构分层
+- **Message**: 消息模型，支持 user/assistant/system/tool 角色，包含 tool_calls、reasoning_content 等字段
+- **Session**: 会话模型，管理消息列表和元数据
+- **Settings**: 设置模型，API 配置、主题等
+- **Storage**: 存储模型
+- **Scripts**: 脚本模型
 
-### 3.1 五层架构（新增核心模型层）
+### 3. 服务层 (Services)
+
+位于 `js/services/`，实现与外部 API 的通信。
+
+#### 抽象接口
+
+- **IProviderAPIService**: Provider API 服务的抽象基类，定义所有 AI Provider 必须实现的接口
+  - `configure(config)`: 配置服务
+  - `buildUrl(path)`: 构建 API URL
+  - `buildHeaders()`: 构建请求头
+  - `formatMessages(messages)`: 格式化消息
+  - `buildRequestBody(params)`: 构建请求体
+  - `parseResponse(data)`: 解析响应
+  - `parseStreamChunk(data)`: 解析流式片段
+  - `chat(params)`: 非流式请求
+  - `chatStream(params, onChunk, onComplete)`: 流式请求
+  - `listModels()`: 获取模型列表
+  - `getModelDetails(modelId)`: 获取模型详情
+
+- **IChatService**: 定义聊天服务的标准接口和 UI 交互回调
+  - `handleStreamStart(data)`: 流式请求开始
+  - `handleStreamUpdate(data)`: 流式内容更新
+  - `handleStreamReasoning(data)`: 流式推理内容更新
+  - `handleStreamComplete(data)`: 流式请求完成
+  - `handleStreamError(data)`: 流式请求错误
+  - `confirmDeleteMessage(messageId, onConfirm)`: 确认删除消息
+
+#### 具体实现
+
+- **OpenAIService**: OpenAI 标准 API 实现
+- **LMStudioService**: LM Studio 原生 v1 REST API 实现
+- **OpenRouterService**: OpenRouter API 实现
+
+#### ServiceManager
+
+全局单例，统一管理 Service 实例的创建和访问，提供类似依赖注入的功能。
+
+### 4. 控制器层 (Controllers)
+
+位于 `js/controllers/`，协调业务逻辑。
+
+- **ChatController**: 聊天核心逻辑，消息队列管理、流式处理、任务队列
+- **SessionController**: 会话管理，委托给 SessionManager 进行数据操作
+- **SettingsController**: 设置管理
+- **StorageController**: 存储管理
+- **ScriptsController**: 脚本管理
+- **ServiceManager**: 服务管理器
+
+### 5. UI 页面层 (Pages)
+
+位于 `js/pages/`，每个页面由 **Page** 和 **EventHandler** 两部分组成。
+
+- **Page**: 负责渲染页面内容到指定容器
+- **EventHandler**: 负责处理该页面的用户交互和事件响应
+
+| 页面 | Page 文件 | EventHandler 文件 |
+|------|-----------|-------------------|
+| 对话 | ChatPage.js | ChatEventHandler.js |
+| 历史 | HistoryPage.js | - |
+| 设置 | SettingsPage.js | SettingsEventHandler.js |
+| 存储 | StoragePage.js | StorageEventHandler.js |
+| 脚本 | ScriptsPage.js | ScriptsEventHandler.js |
+
+### 6. 工具函数 (Utils)
+
+位于 `js/utils/`，提供通用的工具函数。
+
+- **dom.js**: DOM 元素创建工具
+- **time.js**: 时间格式化
+- **markdown.js**: Markdown 渲染
+- **toast.js**: Toast 通知
+- **tooltip.js**: 工具提示
+- **confirm.js**: 确认对话框
+- **error-handler.js**: 全局错误处理
+- **messageTypes.js**: 消息类型渲染
+- **media.js**: 媒体处理
+- **thinkingMode.js**: 思考模式
+- **ragCodeExtension.js**: RAG 代码扩展
+
+## 数据流
+
+### 发送消息流程
 
 ```
-┌─────────────────────────────────────┐
-│         Pages (UI Layer)            │  ← 页面组件层
-│  chat | history | scripts | settings│     - 负责 UI 渲染和用户交互
-│                                     │     - 调用 Controller 层业务流程
-├─────────────────────────────────────┤
-│    Controller (Control Layer)       │  ← 控制层（待实现）
-│ ChatController | ToolController     │     - 编排业务流程
-│                                     │     - 协调 Model 和 Adapter
-├─────────────────────────────────────┤
-│      Modules (Business Logic)       │  ← 业务逻辑层
-│ Agent | Tools | UserScripts         │     - 封装核心业务逻辑
-│                                     │     - 不依赖 UI，可独立测试
-├─────────────────────────────────────┤
-│   Core Models (Protocol-Free)       │  ← 核心模型层（协议无关）
-│ Message | Session | Model | ...     │     - 定义业务实体结构
-│                                     │     - 完全不含 API 标准字段
-├─────────────────────────────────────┤
-│       Utils (Utilities)             │  ← 通用工具层
-│   markdown | media | toast | ...    │     - 纯函数，无状态
-│                                     │     - 被上层模块调用
-├─────────────────────────────────────┤
-│     Adapters (Protocol Adapter)     │  ← 适配器层
-│ LMStudio | OpenAI | Anthropic       │     - 业务模型 ↔ API 格式转换
-│                                     │     - 隔离不同 API 标准
-└─────────────────────────────────────┘
+用户输入 → ChatEventHandler → ChatController.sendMessage()
+                              ↓
+                         创建 Message 对象
+                              ↓
+                         SessionController.addMessages()
+                              ↓
+                         SessionManager 存储
+                              ↓
+                         ChatService.chatStream()
+                              ↓
+                    ┌─────────────────────────────┐
+                    │  流式响应                    │
+                    │  ↓                          │
+                    │  onChunk(chunk)             │
+                    │  ↓                          │
+                    │  更新 Message 内容           │
+                    │  ↓                          │
+                    │  IChatService.handleStream* │
+                    │  ↓                          │
+                    │  ChatEventHandler 更新 UI    │
+                    └─────────────────────────────┘
 ```
 
-### 3.2 依赖关系
+### 设置变更流程
 
-**单向依赖**：Pages → Controller → Modules → Core Models → Utils
+```
+用户修改设置 → SettingsEventHandler → SettingsController
+                                       ↓
+                                  更新 Settings 模型
+                                       ↓
+                                  chrome.storage.local
+                                       ↓
+                                  EventBus.emit(SETTINGS.UPDATED)
+                                       ↓
+                                  各 Controller 响应变更
+```
 
-- Pages 可以调用 Controller 和 Utils
-- Controller 协调 Modules、Core Models 和 Adapters
-- Modules 可以调用 Core Models 和 Utils
-- Core Models 不依赖任何层（纯数据结构）
-- Adapters 依赖 Core Models，进行格式转换
-- Utils 不依赖任何层
+## 扩展 API
 
-### 3.3 职责分离原则
+### 全局对象
 
-| 层级 | 职责 | 示例 |
+| 对象 | 类型 | 说明 |
 |------|------|------|
-| Pages | UI 渲染、用户交互 | ChatRenderer, ModelSelector |
-| Controller | 业务流程编排 | ChatController, ToolController |
-| Modules | 业务逻辑、状态管理 | SessionManager, ToolManager |
-| Core Models | 业务实体定义 | Message, Session, Model, MediaContent |
-| Adapters | 协议转换 | LMStudioAdapter, OpenAIAdapter |
-| Utils | 工具函数、数据处理 | markdown.render(), Toast.show() |
-
----
-
-## 4. 核心模型层（Core Models）
-
-### 4.0 设计原则
-
-**协议无关性**：所有业务模型完全不含 API 标准相关的字段。
-
-❌ **禁止的字段**：
-- `tool_calls` (OpenAI)
-- `tool_call_id` (OpenAI)
-- `additional_kwargs` (LangChain)
-- OpenAI 多模态格式 `{type: 'image_url', ...}`
-
-✅ **使用的字段**：
-- `toolIntentions` (业务概念)
-- `toolResultRef` (业务关联)
-- `metadata` (通用元数据)
-- `MediaContent` 数组 (业务模型)
-
-详见 [CORE_MODELS.md](./CORE_MODELS.md)
-
----
-
-## 5. 核心模块详解
-
-### 5.1 SessionManager - 会话管理器
-
-**文件**: `sidepanel/modules/agent/SessionManager.js`
-
-**职责**: 管理多个对话的状态和流式请求
-
-**核心数据结构**:
-```javascript
-{
-  sessions: {
-    [sessionId]: {
-      id: string,
-      messages: Array<Message>,
-      isLoading: boolean,
-      port: chrome.runtime.Port | null,
-      enabledTools: { [toolId]: boolean },
-      createdAt: number,
-      updatedAt: number
-    }
-  },
-  currentSessionId: string | null
-}
-```
-
-**关键方法**:
-- `createSession(sessionId, initialMessages)` - 创建新会话
-- `getSession(sessionId)` - 获取会话
-- `startStreamRequest(sessionId, port)` - 开始流式请求（绑定 port）
-- `completeStreamRequest(sessionId)` - 完成流式请求
-- `addMessage(sessionId, message)` - 添加消息
-- `deleteMessageWithTools(sessionId, messageIndex)` - 删除消息及关联 tool 消息
-- `switchSession(sessionId)` - 切换会话（不断开其他会话的请求）
-
-**设计亮点**:
-- **单一数据源**: 所有会话状态集中在 `sessions` 对象
-- **流式请求绑定**: port 绑定到特定会话，切换会话不影响正在进行的请求
-- **自动清理**: 监听 `port.onDisconnect` 自动更新状态
-- **工具联动删除**: 删除 assistant 消息时自动删除对应的 tool 消息
-
----
-
-### 5.2 ToolManager - 工具管理器
-
-**文件**: `sidepanel/modules/tools/BaseToolManager.js`
-
-**职责**: 工具的注册、解析、执行调度
-
-**核心数据结构**:
-```javascript
-{
-  tools: Map<toolId, ToolConfig>,
-  // ToolConfig 结构见各工具文件（SearchTool.js, CodeTool.js 等）
-}
-```
-
-**关键方法**:
-- `registerTool(tool)` - 注册工具
-- `getTool(id)` - 获取工具配置
-- `getAllTools()` - 获取所有工具（含启用状态）
-- `getOpenAIToolsDefinition()` - 生成 OpenAI 标准格式的工具定义
-- `buildToolParameters(tool)` - 构建工具的参数 Schema
-- `toggleTool(id, enabled)` - 切换工具开关
-- `isToolEnabled(id)` - 检查工具是否启用
-- `getEnabledTools()` - 获取所有启用的工具
-- `generateSystemPrompt()` - 生成系统提示（包含启用工具的说明）
-
-**工具定义格式** (OpenAI 标准):
-```javascript
-{
-  type: 'function',
-  function: {
-    name: 'web_search',
-    description: '搜索网络信息',
-    parameters: {
-      type: 'object',
-      properties: { query: { type: 'string' } },
-      required: ['query']
-    }
-  }
-}
-```
-
-**工具执行流程**:
-1. BaseToolManager 生成工具定义
-2. 适配器转换为对应 API 标准（如 Anthropic 的 input_schema）
-3. API 返回 tool_calls
-4. ToolExecutor 执行工具
-5. 创建 tool 消息并添加到会话
-
----
-
-### 5.3 StreamCore - 流式处理引擎
-
-**文件**: `sidepanel/background/stream-core.js`
-
-**职责**: 处理 API 请求和流式响应
-
-**核心流程**:
-```
-handleStreamPort(port)
-  ↓
-processMessages(messages, toolsEnabled)
-  ↓
-buildRequestBody(processedMessages, model, ...)
-  ↓
-fetch(apiEndpoint, { method: 'POST', ... })
-  ↓
-handleStreamResponse(response, port, isDisconnected)
-  ↓
-processChunk(trimmed, port, accumulatedToolCalls)
-  ↓
-port.postMessage({ type: 'chunk' | 'tool_call' | 'complete' })
-```
-
-**关键方法**:
-- `handleStreamPort(port)` - 处理流式聊天端口连接
-- `processMessages(messages, toolsEnabled)` - 处理消息转换
-- `handleStreamResponse(response, port, isDisconnected)` - 处理流式响应
-- `processChunk(trimmed, port, accumulatedToolCalls)` - 处理单个数据块
-
-**tool_calls 累积逻辑**:
-```javascript
-// 用于累积 tool_calls 片段
-let accumulatedToolCalls = {};
-
-// 在 processChunk 中
-if (toolCallsDelta && Array.isArray(toolCallsDelta)) {
-  for (const delta of toolCallsDelta) {
-    const index = delta.index;
-    
-    // 初始化该索引的 tool_call
-    if (!accumulatedToolCalls[index]) {
-      accumulatedToolCalls[index] = {
-        id: '',
-        type: 'function',
-        function: { name: '', arguments: '' }
-      };
-    }
-    
-    // 累积字段
-    if (delta.id) current.id = delta.id;
-    if (delta.function?.name) current.function.name += delta.function.name;
-    if (delta.function?.arguments) current.function.arguments += delta.function.arguments;
-  }
-  
-  // 发送完整的 tool_calls 到前端
-  port.postMessage({ 
-    type: 'tool_call', 
-    tool_calls: Object.values(accumulatedToolCalls)
-  });
-}
-```
-
----
-
-### 5.4 AdapterManager - 适配器管理器
-
-**文件**: `sidepanel/modules/agent/adapters/AdapterManager.js`
-
-**职责**: 管理不同 API 提供商的适配器
-
-**支持的适配器**:
-- OpenAIAdapter - OpenAI 标准格式
-- AnthropicAdapter - Anthropic Claude 格式
-- OllamaAdapter - Ollama 本地模型
-- LMStudioAdapter - LM Studio 本地模型
-- OpenRouterAdapter - OpenRouter 聚合平台
-
-**关键方法**:
-- `select(adapterType)` - 选择适配器
-- `configure(config)` - 配置适配器
-- `getCurrentAdapter()` - 获取当前适配器
-- `buildUrl(path)` - 构建 API URL
-- `formatMessages(messages)` - 格式化消息
-- `buildRequestBody(params)` - 构建请求体
-- `parseResponse(data)` - 解析响应
-- `parseStreamChunk(data)` - 解析流式片段
-
-**Anthropic 特殊处理**:
-```javascript
-// 工具定义转换
-convertToolsForAnthropic(openaiTools) {
-  return openaiTools.map(tool => ({
-    name: tool.function.name,
-    description: tool.function.description,
-    input_schema: tool.function.parameters  // parameters → input_schema
-  }));
-}
-
-// 消息格式转换
-formatMessages(messages) {
-  // role: 'tool' → role: 'user' + content: [{ type: 'tool_result' }]
-}
-```
-
-详见 [TOOL_CALL_STANDARDS.md](./adapters/TOOL_CALL_STANDARDS.md)
-
----
-
-### 5.5 ModelManager - 模型管理器
-
-**文件**: `sidepanel/modules/models/ModelManager.js`
-
-**职责**: 模型列表获取、能力检测、缓存管理
-
-**核心功能**:
-- **API 调用**: 直接从 OpenAI 兼容 API 获取模型列表
-- **能力检测**: 自动识别模型的视觉、流式、工具调用等能力
-- **缓存管理**: 5分钟缓存，避免频繁请求
-- **模型映射**: 维护常见模型的上下文窗口大小
-
-**关键方法**:
-- `fetchModels(apiKey, apiEndpoint)` - 获取模型列表
-- `detectCapabilities(modelName)` - 检测模型能力
-- `getModelInfo(modelId)` - 获取模型详细信息
-- `isVisionModel(modelId)` - 是否为视觉模型
-- `getContextWindow(modelId)` - 获取上下文窗口大小
-
-**缓存策略**:
-```javascript
-// chrome.storage.local 缓存（非 localStorage）
-const cacheData = {
-  apiEndpoint: this.currentApiEndpoint,
-  models: this.models,
-  modelDetails: this.modelDetails,
-  capabilities: this.capabilities,
-  timestamp: Date.now()
-};
-
-chrome.storage.local.set({ [this.storageKey]: cacheData });
-
-// 加载时检查缓存（24小时有效期）
-if (cached && Date.now() - cached.timestamp < 24 * 60 * 60 * 1000) {
-  return cached; // 24小时内使用缓存
-}
-```
-
----
-
-### 5.6 UserScriptManager - 用户脚本管理器
-
-**文件**: `sidepanel/modules/scripts/UserScriptManager.js`
-
-**职责**: 管理 Chrome userScripts API，实现动态脚本注入
-
-**核心功能**:
-- **脚本注册**: 通过 `chrome.userScripts.register()` 动态注册脚本
-- **URL 匹配**: 根据配置的 URL patterns 自动在对应页面执行
-- **MAIN world 执行**: 绕过 CSP 限制，直接访问页面 DOM
-- **脚本生命周期**: 安装、启用、禁用、卸载
-
-**工作流程**:
-```javascript
-await chrome.userScripts.register({
-  id: scriptId,
-  matches: ['*://*.example.com/*'],
-  js: [{ code: scriptCode }],
-  world: 'MAIN'  // 关键：在 MAIN world 执行
-});
-```
-
----
-
-## 6. 数据流设计
-
-### 6.1 消息发送流程
-
-```
-用户输入文本
-  ↓
-MessageSender.sendMessage(sessionId, text, media)
-  ↓
-SessionManager.addMessage(sessionId, userMessage)
-  ↓
-prepareMessages(session, settings)  // 准备消息列表
-  ↓
-chrome.runtime.connect({ name: 'chat-stream' })
-  ↓
-port.postMessage({ messages, apiKey, apiEndpoint, model, tools })
-  ↓
-Background: handleStreamPort(port)
-  ↓
-fetch(apiEndpoint, { body: JSON.stringify(requestBody) })
-  ↓
-AI Provider 返回 SSE 流
-  ↓
-Background: handleStreamResponse(response, port)
-  ↓
-Background: processChunk(chunk) → port.postMessage({ type: 'chunk' })
-  ↓
-Frontend: StreamMessageHandler.handleMessage(msg)
-  ↓
-StreamMessageProcessor.processMessage(responseMsg, sessionId)
-  ↓
-SessionManager.updateLastMessage(sessionId, content)
-  ↓
-ChatRenderer.renderMessages()  // UI 更新
-```
-
-### 6.2 工具调用流程
-
-```
-AI 返回 tool_calls
-  ↓
-Background: processChunk(chunk) 累积 tool_calls
-  ↓
-Background: port.postMessage({ type: 'tool_call', tool_calls: [...] })
-  ↓
-Frontend: StreamMessageHandler.handleMessage(msg)
-  ↓
-StreamMessageProcessor.handleToolCall(msg, session)
-  ↓
-currentMsg.tool_calls = msg.tool_calls  // 保存到消息对象
-  ↓
-onToolCall callback → renderCallback()  // UI 显示工具卡片
-  ↓
-stream complete
-  ↓
-ToolExecutor.executeToolCalls(sessionId, assistantMessage)
-  ↓
-for each tool_call:
-  ToolManager.getTool(toolType).execute(args)
-  ↓
-SessionManager.addMessage(sessionId, toolMessage)
-  ↓
-renderCallback()  // UI 显示工具结果
-  ↓
-等待用户输入（不再自动发送第二轮请求）
-```
-
-### 6.3 会话切换流程
-
-```
-用户点击会话
-  ↓
-SessionManager.switchSession(sessionId)
-  ↓
-currentSessionId = sessionId
-  ↓
-UI 重新渲染新会话的消息
-  ↓
-注意：其他会话的 port 不断开，请求继续完成
-```
-
----
-
-## 7. 通信协议
-
-### 7.1 Frontend → Background
-
-```javascript
-port.postMessage({
-  messages: Array<Message>,
-  apiKey: string,
-  apiEndpoint: string,
-  model: string,
-  temperature: number,
-  maxTokens: number,
-  toolsEnabled: boolean,
-  tools: Array<ToolDefinition> | null
-});
-```
-
-### 7.2 Background → Frontend
-
-**流式片段**:
-```javascript
-port.postMessage({
-  type: 'chunk',
-  content: string
-});
-```
-
-**思考内容**:
-```javascript
-port.postMessage({
-  type: 'reasoning',
-  reasoning_content: string
-});
-```
-
-**工具调用**:
-```javascript
-port.postMessage({
-  type: 'tool_call',
-  tool_calls: Array<{
-    id: string,
-    type: 'function',
-    function: {
-      name: string,
-      arguments: string  // JSON 字符串
-    }
-  }>
-});
-```
-
-**完成**:
-```javascript
-port.postMessage({
-  type: 'complete'
-});
-```
-
-**错误**:
-```javascript
-port.postMessage({
-  type: 'error',
-  error: string
-});
-```
-
----
-
-## 8. 设计模式
-
-### 8.1 适配器模式 (Adapter Pattern)
-
-**应用**: 不同 API 提供商的统一接口
-
-```
-ProviderAdapter (统一接口)
-  ├─ OpenAIAdapter
-  ├─ AnthropicAdapter
-  ├─ OllamaAdapter
-  ├─ LMStudioAdapter
-  └─ OpenRouterAdapter
-```
-
-**优势**:
-- 新增 API 提供商只需添加新适配器
-- 上层代码无需关心具体 API 标准
-- 内部统一使用 OpenAI 格式
-
----
-
-### 8.2 单例模式 (Singleton Pattern)
-
-**应用**: SessionManager、ModelManager、AdapterManager 等全局管理器
-
-```javascript
-// 在文件末尾创建全局单例
-(function() {
-  'use strict';
-  
-  class SessionManager {
-    // ... 实现
-  }
-  
-  // 全局单例
-  window.SessionManager = new SessionManager();
-})();
-```
-
-**优势**:
-- 全局唯一实例，避免重复创建
-- 通过 IIFE 封装，避免污染全局命名空间
-- 所有模块共享同一状态
-
----
-
-### 8.3 观察者模式 (Observer Pattern)
-
-**应用**: Port 断开监听
-
-```javascript
-port.onDisconnect.addListener(() => {
-  session.port = null;
-  session.isLoading = false;
-});
-```
-
-**优势**:
-- 自动清理资源
-- 解耦状态管理
-
----
-
-### 8.4 策略模式 (Strategy Pattern)
-
-**应用**: 消息渲染器系统
-
-虽然各个渲染器没有统一的基类，但通过约定俗成的接口实现了策略模式：
-
-```javascript
-// TextRenderer.js
-class TextRenderer {
-  render(text) { /* 渲染逻辑 */ }
-  update(text, container) { /* 增量更新 */ }
-}
-
-// ImageRenderer.js
-class ImageRenderer {
-  render(message) { /* 渲染逻辑 */ }
-}
-
-// 在 ChatMessageRenderer 中注册和使用
-this.renderers = [
-  new TextRenderer(),
-  new ImageRenderer(),
-  new AudioRenderer(),
-  // ...
-];
-
-// 选择合适的渲染器
-for (const renderer of this.renderers) {
-  if (renderer.canRender?.(message) || matchesMessageType(message)) {
-    return renderer.render(message);
-  }
-}
-```
-
-**优势**:
-- 新增媒体类型只需添加新渲染器
-- 每个渲染器职责单一，易于维护
-- 运行时动态选择渲染策略
-
----
-
-## 9. 扩展机制
-
-### 9.1 添加工具
-
-1. 创建工具类（继承 BaseTool 或独立实现）
-2. 在 `BaseToolManager` 构造函数中注册
-3. 实现 `config` 对象（id, name, description, systemPrompt, execute）
-4. 在 `buildToolParameters` 中添加参数 Schema
-
-**示例**:
-```javascript
-// MyTool.js
-window.MyTool = {
-  config: {
-    id: 'my_tool',
-    name: 'My Tool',
-    description: '工具描述',
-    systemPrompt: '工具使用说明',
-    execute: async (args) => {
-      // 执行逻辑
-      return result;
-    }
-  }
-};
-
-// BaseToolManager.js
-this.registerTool(window.MyTool.config);
-```
-
----
-
-### 9.2 添加 API 适配器
-
-1. 创建适配器类（实现统一接口）
-2. 在 `AdapterManager` 中注册
-3. 实现必要方法：`buildUrl`, `formatMessages`, `buildRequestBody`, `parseResponse`, `parseStreamChunk`
-4. 如有需要，添加工具定义转换方法
-
-**示例**:
-```javascript
-// NewAdapter.js
-class NewAdapter {
-  buildUrl(path) { ... }
-  formatMessages(messages) { ... }
-  buildRequestBody(params) { ... }
-  parseResponse(data) { ... }
-  parseStreamChunk(data) { ... }
-}
-
-// AdapterManager.js
-this.adapters.set('new', new NewAdapter());
-```
-
----
-
-### 9.3 添加渲染器
-
-1. 创建渲染器类（继承 BaseRenderer 或独立实现）
-2. 在 `ChatMessageRenderer` 中注册
-3. 实现 `canRender(message)` 和 `render(message)` 方法
-
-**示例**:
-```javascript
-// CustomRenderer.js
-class CustomRenderer {
-  canRender(message) {
-    return message.type === 'custom';
-  }
-  
-  render(message) {
-    // 渲染逻辑
-    return element;
-  }
-}
-
-// ChatMessageRenderer.js
-this.renderers.push(new CustomRenderer());
-```
-
----
-
-## 10. 重构指南
-
-### 10.1 重构原则
-
-1. **保持接口兼容**: 修改内部实现时，保持对外接口不变
-2. **单向依赖**: 严格遵守 Pages → Modules → Utils 的依赖方向
-3. **单一职责**: 每个模块只负责一个功能
-4. **可测试性**: 模块应可独立测试，不依赖全局状态
-
-### 10.2 常见重构场景
-
-#### 场景 1: 添加新的 UI 页面
-
-1. 在 `pages/` 目录下创建新页面文件
-2. 在 `sidepanel.html` 中添加导航
-3. 在 `app.js` 中注册路由
-4. 如需业务逻辑，在 `modules/` 中创建新模块
-
-#### 场景 2: 修改消息格式
-
-1. 更新 `SessionManager.addMessage` 的数据验证
-2. 更新相关渲染器
-3. 更新 `message-transformer.js` 中的转换逻辑
-4. 更新适配器中的 `formatMessages` 方法
-
-#### 场景 3: 更换 AI Provider
-
-1. 在 `AdapterManager` 中添加新适配器
-2. 在设置页面添加选项
-3. 更新 `ProviderAdapter.selectTemplate` 方法
-4. 测试工具调用、流式响应等功能
-
-### 10.3 调试技巧
-
-**Background Service Worker**:
-- `chrome://extensions/` → 找到扩展 → 点击 "Service Worker"
-
-**Content Script**:
-- 在网页中按 F12 → Console 标签
-
-**Side Panel UI**:
-- 在 Side Panel 中右键 → "检查" → Console
-
-**日志级别**:
-```javascript
-console.log('[Module] Message')  // 普通日志
-console.warn('[Module] Warning') // 警告
-console.error('[Module] Error')  // 错误
-```
-
-### 10.4 性能优化
-
-1. **消息截断**: 使用 `ChatContext.truncateMessages` 控制上下文长度
-2. **模型缓存**: ModelManager 使用 5 分钟缓存
-3. **懒加载**: 按需加载模块，避免一次性加载所有代码
-4. **防抖**: 输入框使用防抖，避免频繁触发
-
----
-
-## 附录
-
-### A. 关键文件清单
-
-| 文件 | 职责 | 行数 |
-|------|------|------|
-| `background.js` | Service Worker 协调器 | ~191 |
-| `stream-core.js` | 核心流式引擎 | ~248 |
-| `SessionManager.js` | 会话管理器 | ~396 |
-| `BaseToolManager.js` | 工具管理器 | ~362 |
-| `AdapterManager.js` | 适配器管理器 | ~XXX |
-| `ModelManager.js` | 模型管理器 | ~XXX |
-| `UserScriptManager.js` | 用户脚本管理器 | ~XXX |
-
-### B. 相关文档
-
-- [TOOL_CALL_STANDARDS.md](./adapters/TOOL_CALL_STANDARDS.md) - 工具调用 API 标准对照
-- [README.md](../../README.md) - 项目总览
-- [modules/README.md](../modules/README.md) - 模块说明
-
-### C. 版本历史
-
-- v1.0.0 (2026-05-06) - 初始版本，完成架构文档
-
----
-
-**维护者**: Lingma  
-**更新频率**: 每次重大功能更新后同步更新此文档
+| `EventBus` | EventBus | 全局事件总线 |
+| `Events` | Object | 事件常量 |
+| `Message` | Class | 消息模型 |
+| `Session` | Class | 会话模型 |
+| `SessionManager` | Class | 会话管理器 |
+| `SessionController` | Object | 会话控制器 |
+| `ChatController` | Object | 聊天控制器 |
+| `SettingsController` | Object | 设置控制器 |
+| `ServiceManager` | Object | 服务管理器 |
+| `IChatService` | Object | 聊天服务接口 |
+| `IProviderAPIService` | Class | Provider API 抽象基类 |
+| `DOM` | Object | DOM 工具 |
+| `Toast` | Object | Toast 通知 |
+| `Pages` | Object | 页面注册表 |
+
+## 开发指南
+
+### 添加新的 Provider
+
+1. 在 `js/services/ProviderAPIServices/` 创建新文件 `XxxService.js`
+2. 继承 `IProviderAPIService` 并实现所有抽象方法
+3. 在 `ServiceManager.js` 中注册服务类
+4. 在 `sidepanel.html` 中添加脚本引用
+
+### 添加新的页面
+
+1. 在 `js/pages/` 创建 `XxxPage.js` 和 `XxxEventHandler.js`
+2. 在 Page 文件中导出到 `window.Pages.xxx`
+3. 在 `sidepanel.html` 中添加脚本引用
+4. 在 `app.js` 的 `pages` 数组中添加页面配置
+
+### 添加新的事件
+
+1. 在 `js/core/events/Events.js` 中添加事件常量
+2. 使用 `EventBus.emit()` 发布事件
+3. 使用 `EventBus.on()` 订阅事件
+
+## 版本信息
+
+- 扩展版本: 0.3.3
+- Manifest 版本: 3

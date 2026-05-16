@@ -30,6 +30,68 @@ class SettingsController {
     this.eventBus.on(window.Events.SETTINGS.MODELS_REQUEST, (data) => {
       this._handleModelsRequest(data);
     });
+    
+    // 监听设置更新，动态重新配置 Service
+    this.eventBus.on(window.Events.SETTINGS.UPDATED, (data) => {
+      this._handleSettingsUpdate(data);
+    });
+  }
+  
+  /**
+   * 处理设置更新
+   */
+  _handleSettingsUpdate(data) {
+    const { updates } = data;
+    
+    // 检查是否更新了 API 相关配置
+    const apiRelatedKeys = ['apiStandard', 'apiEndpoint', 'apiKey', 'model'];
+    const hasApiUpdate = apiRelatedKeys.some(key => key in updates);
+    
+    if (!hasApiUpdate) {
+      return; // 非 API 配置更新，无需重新配置 Service
+    }
+    
+    // 重新配置 ChatService
+    this._reconfigureChatService();
+  }
+  
+  /**
+   * 重新配置聊天服务
+   */
+  _reconfigureChatService() {
+    if (!window.ChatController || !window.serviceManager) {
+      console.warn('[SettingsController] ChatController or serviceManager not available');
+      return;
+    }
+    
+    const settings = this.settings.toJSON();
+    const service = window.serviceManager.getService(settings.apiStandard);
+    
+    if (!service) {
+      console.warn('[SettingsController] No service found for:', settings.apiStandard);
+      return;
+    }
+    
+    // 重新配置服务
+    service.configure({
+      endpoint: settings.apiEndpoint,
+      apiKey: settings.apiKey,
+      defaultModel: settings.model || 'default'
+    });
+    
+    // 更新 ChatController 的服务引用
+    window.ChatController.setService(service);
+    
+    // 同步更新全局 ChatService 引用（供 UI 层调用）
+    window.ChatService = service;
+    
+    console.log('[SettingsController] ChatService reconfigured:', settings.apiStandard);
+    
+    // 发布服务重新配置事件
+    this.eventBus.emit(window.Events.SERVICE.CONFIGURED, {
+      apiStandard: settings.apiStandard,
+      endpoint: settings.apiEndpoint
+    });
   }
   
   /**
@@ -69,8 +131,8 @@ class SettingsController {
       // 直接从 API 获取最新模型列表
       console.log('[SettingsController] Fetching models from API:', apiEndpoint);
       
-      // 通过 ServiceManager 获取 Service
-      const service = window.ServiceManager.getService(apiStandard);
+      // 通过 serviceManager 获取 Service
+      const service = window.serviceManager.getService(apiStandard);
       if (!service) {
         throw new Error(`Unsupported API standard: ${apiStandard}`);
       }

@@ -15,6 +15,7 @@ window.Pages.settings = function(container) {
   let modelDropdownVisible = false;
   let currentSettings = null; // 从 Controller 加载的设置
   let cachedModels = []; // 缓存的模型列表
+  let currentSettingsUI = null; // 当前 Provider 的 SettingsUI 实例
 
   /**
    * 渲染设置页面
@@ -54,23 +55,12 @@ window.Pages.settings = function(container) {
     // API 标准选择
     content.appendChild(createApiStandardSection());
     
-    // API Key
-    content.appendChild(createApiKeySection());
+    // Provider 特定配置区域（动态渲染，包含 API Key、Endpoint、Model、Temperature、MaxTokens、SystemPrompt）
+    const providerConfigContainer = create('div', { id: 'provider-config-container' });
+    content.appendChild(providerConfigContainer);
     
-    // API 端点
-    content.appendChild(createApiEndpointSection());
-    
-    // 模型选择
+    // 模型选择（保留，因为需要搜索和下拉功能）
     content.appendChild(createModelSection());
-    
-    // 温度
-    content.appendChild(createTemperatureSection());
-    
-    // 最大 Token
-    content.appendChild(createMaxTokensSection());
-    
-    // 系统提示词
-    content.appendChild(createSystemPromptSection());
     
     // 上下文管理
     content.appendChild(createContextSection());
@@ -96,6 +86,8 @@ window.Pages.settings = function(container) {
     // 填充表单数据
     if (currentSettings) {
       fillForm(currentSettings);
+      // 渲染 Provider 特定配置
+      renderProviderConfig();
     }
     
     // 绑定模型下拉列表事件
@@ -105,59 +97,99 @@ window.Pages.settings = function(container) {
   }
 
   /**
+   * 渲染 Provider 特定配置
+   */
+  function renderProviderConfig() {
+    const container = document.getElementById('provider-config-container');
+    if (!container || !currentSettings) return;
+    
+    // 获取对应的 Settings 实例
+    const apiStandard = currentSettings.apiStandard || 'openrouter';
+    
+    // 直接创建 Settings 实例
+    let SettingsClass = null;
+    switch (apiStandard) {
+      case 'openai':
+        SettingsClass = window.SettingsPage_OpenAI;
+        break;
+      case 'openrouter':
+        SettingsClass = window.SettingsPage_OpenRouter;
+        break;
+      case 'lm-studio':
+        SettingsClass = window.SettingsPage_LMStudio;
+        break;
+    }
+    
+    if (!SettingsClass) {
+      console.warn('[SettingsPage] No Settings for:', apiStandard);
+      return;
+    }
+    
+    currentSettingsUI = new SettingsClass();
+    
+    // 清空容器
+    container.innerHTML = '';
+    
+    // 创建分组标题
+    const { create } = window.DOM;
+    container.appendChild(create('h3', { 
+      className: 'setting-group-title',
+      style: { fontSize: '14px', fontWeight: '600', marginBottom: '12px', color: 'var(--color-text)' },
+      text: `${currentSettingsUI.getProviderName()} 配置`
+    }));
+    
+    // 渲染配置项
+    const configGroup = create('div', { className: 'setting-group' });
+    currentSettingsUI.render(configGroup, currentSettings, (key, value) => {
+      updateSettingField(key, value);
+    });
+    container.appendChild(configGroup);
+  }
+
+  /**
    * 创建 API 标准选择区
    */
   function createApiStandardSection() {
+    const { create } = window.DOM;
+    
+    // 支持的 API 标准列表
+    const supportedStandards = ['openrouter', 'openai', 'lm-studio'];
+    
+    const options = supportedStandards.map(standard => {
+      // 获取对应的 Settings 实例以获取显示名称
+      let displayName = standard;
+      let SettingsClass = null;
+      
+      switch (standard) {
+        case 'openai':
+          SettingsClass = window.SettingsPage_OpenAI;
+          break;
+        case 'openrouter':
+          SettingsClass = window.SettingsPage_OpenRouter;
+          break;
+        case 'lm-studio':
+          SettingsClass = window.SettingsPage_LMStudio;
+          break;
+      }
+      
+      if (SettingsClass) {
+        const settings = new SettingsClass();
+        displayName = settings.getProviderName();
+      }
+      
+      return create('option', { 
+        attrs: { value: standard }, 
+        text: displayName 
+      });
+    });
+    
     return create('div', { className: 'setting-group' }, [
       create('label', { className: 'setting-label', text: 'API 标准' }),
       create('select', {
         className: 'input',
         id: 'api-standard-select',
         onChange: (e) => handleApiStandardChange(e.target.value)
-      }, [
-        create('option', { attrs: { value: 'openrouter' }, text: 'OpenRouter' }),
-        create('option', { attrs: { value: 'openai' }, text: 'OpenAI' }),
-        create('option', { attrs: { value: 'lm-studio' }, text: 'LM Studio' }),
-        create('option', { attrs: { value: 'ollama' }, text: 'Ollama' }),
-        create('option', { attrs: { value: 'anthropic' }, text: 'Anthropic Claude' })
-      ])
-    ]);
-  }
-
-  /**
-   * 创建 API Key 区
-   */
-  function createApiKeySection() {
-    return create('div', { className: 'setting-group' }, [
-      create('label', { className: 'setting-label', text: 'API Key（可选）' }),
-      create('input', {
-        className: 'input',
-        attrs: { 
-          type: 'password', 
-          id: 'api-key-input',
-          placeholder: '本地服务留空,无需更改留空' 
-        },
-        onInput: (e) => updateSettingField('apiKey', e.target.value)
-      })
-    ]);
-  }
-
-  /**
-   * 创建 API 端点区
-   */
-  function createApiEndpointSection() {
-    return create('div', { className: 'setting-group' }, [
-      create('label', { className: 'setting-label', text: 'API 端点' }),
-      create('input', {
-        className: 'input',
-        id: 'api-endpoint-input',
-        attrs: { 
-          type: 'text', 
-          placeholder: 'https://openrouter.ai/api/v1' 
-        },
-        onInput: (e) => updateSettingField('apiEndpoint', e.target.value),
-        onBlur: handleEndpointBlur
-      })
+      }, options)
     ]);
   }
 
@@ -233,60 +265,6 @@ window.Pages.settings = function(container) {
         className: 'model-dropdown',
         id: 'model-dropdown',
         style: { display: 'none' }
-      })
-    ]);
-  }
-
-  /**
-   * 创建温度设置区
-   */
-  function createTemperatureSection() {
-    return create('div', { className: 'setting-group' }, [
-      create('label', { className: 'setting-label', text: '温度 (0-2)' }),
-      create('input', {
-        className: 'input',
-        attrs: { 
-          type: 'number', 
-          id: 'temperature-input',
-          min: '0', 
-          max: '2', 
-          step: '0.1' 
-        },
-        onInput: (e) => updateSettingField('temperature', parseFloat(e.target.value))
-      })
-    ]);
-  }
-
-  /**
-   * 创建最大 Token 设置区
-   */
-  function createMaxTokensSection() {
-    return create('div', { className: 'setting-group' }, [
-      create('label', { className: 'setting-label', text: '最大 Token' }),
-      create('input', {
-        className: 'input',
-        attrs: { 
-          type: 'number', 
-          id: 'max-tokens-input',
-          min: '100', 
-          max: '8000' 
-        },
-        onInput: (e) => updateSettingField('maxTokens', parseInt(e.target.value))
-      })
-    ]);
-  }
-
-  /**
-   * 创建系统提示词区
-   */
-  function createSystemPromptSection() {
-    return create('div', { className: 'setting-group' }, [
-      create('label', { className: 'setting-label', text: '系统提示词' }),
-      create('textarea', {
-        className: 'input setting-textarea',
-        id: 'system-prompt-input',
-        attrs: { placeholder: '可选，设置 AI 的行为和角色' },
-        onInput: (e) => updateSettingField('systemPrompt', e.target.value)
       })
     ]);
   }
@@ -377,6 +355,11 @@ window.Pages.settings = function(container) {
     eventBus.emit(window.Events.SETTINGS.API_STANDARD_CHANGED, {
       apiStandard
     });
+    
+    // 重新渲染 Provider 配置
+    setTimeout(() => {
+      renderProviderConfig();
+    }, 0);
   }
 
   /**
@@ -488,23 +471,13 @@ window.Pages.settings = function(container) {
     currentSettings = settings;
     
     const apiStandardSelect = document.getElementById('api-standard-select');
-    const apiKeyInput = document.getElementById('api-key-input');
-    const endpointInput = document.getElementById('api-endpoint-input');
     const modelSearch = document.getElementById('model-search');
-    const tempInput = document.getElementById('temperature-input');
-    const maxTokensInput = document.getElementById('max-tokens-input');
-    const systemPromptInput = document.getElementById('system-prompt-input');
     const autoContextCheckbox = document.getElementById('auto-context-checkbox');
     const themeLight = document.getElementById('theme-light');
     const themeDark = document.getElementById('theme-dark');
     
     if (apiStandardSelect) apiStandardSelect.value = settings.apiStandard || 'openrouter';
-    if (apiKeyInput) apiKeyInput.value = settings.apiKey || '';
-    if (endpointInput) endpointInput.value = settings.apiEndpoint || '';
     if (modelSearch) modelSearch.value = settings.model || '';
-    if (tempInput) tempInput.value = settings.temperature ?? 0.7;
-    if (maxTokensInput) maxTokensInput.value = settings.maxTokens ?? 2000;
-    if (systemPromptInput) systemPromptInput.value = settings.systemPrompt || '';
     if (autoContextCheckbox) autoContextCheckbox.checked = settings.autoContextTruncation !== false;
     if (themeLight) themeLight.checked = settings.theme === 'light';
     if (themeDark) themeDark.checked = settings.theme === 'dark';

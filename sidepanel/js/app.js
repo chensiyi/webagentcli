@@ -25,6 +25,12 @@
     const { create } = window.DOM;
     const root = document.getElementById('root');
     
+    // 初始化 ServiceManager
+    if (window.ServiceManager) {
+      window.serviceManager = new window.ServiceManager();
+      console.log('[App] ServiceManager initialized');
+    }
+    
     // 初始化会话管理器
     if (window.SessionManager && window.EventBus) {
       window.sessionManagerInstance = new window.SessionManager(window.EventBus);
@@ -36,11 +42,11 @@
     }
     
     // 初始化聊天服务（从设置中读取配置）
-    if (window.ChatController && window.ServiceManager && window.SettingsController) {
+    if (window.ChatController && window.serviceManager && window.SettingsController) {
       // 等待设置加载完成后初始化服务
       window.SettingsController.loadSettings().then((settings) => {
         if (settings && settings.apiStandard) {
-          const service = window.ServiceManager.getService(settings.apiStandard);
+          const service = window.serviceManager.getService(settings.apiStandard);
           if (service) {
             // 配置服务
             service.configure({

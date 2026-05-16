@@ -94,5 +94,4 @@ class ServiceManager {
   }
 }
 
-// 导出全局单例
-window.ServiceManager = new ServiceManager();
+// 不导出全局单例，由 app.js 创建实例
