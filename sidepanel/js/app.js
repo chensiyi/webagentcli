@@ -25,10 +25,19 @@
     const { create } = window.DOM;
     const root = document.getElementById('root');
     
-    // 初始化 ServiceManager
-    if (window.ServiceManager) {
-      window.serviceManager = new window.ServiceManager();
-      console.log('[App] ServiceManager initialized');
+    // 初始化 SettingsEventHandler
+    if (window.SettingsEventHandler) {
+      window.settingsEventHandler = new window.SettingsEventHandler();
+      console.log('[App] SettingsEventHandler initialized');
+    }
+    
+    // 初始化 SettingsController 并加载设置
+    if (window.SettingsController) {
+      window.SettingsController.loadSettings().then((settings) => {
+        console.log('[App] Settings loaded:', settings);
+      }).catch(err => {
+        console.error('[App] Failed to load settings:', err);
+      });
     }
     
     // 初始化会话管理器
@@ -42,26 +51,42 @@
     }
     
     // 初始化聊天服务（从设置中读取配置）
-    if (window.ChatController && window.serviceManager && window.SettingsController) {
+    if (window.ChatController && window.SettingsController) {
       // 等待设置加载完成后初始化服务
       window.SettingsController.loadSettings().then((settings) => {
         if (settings && settings.apiStandard) {
-          const service = window.serviceManager.getService(settings.apiStandard);
-          if (service) {
-            // 配置服务
-            service.configure({
-              endpoint: settings.apiEndpoint,
-              apiKey: settings.apiKey,
-              defaultModel: settings.model || 'default'
-            });
-            
-            window.ChatController.setService(service);
-            // 将服务挂载到全局，供 UI 层调用标准交互方法
-            window.ChatService = service;
-            console.log('[App] Chat service initialized:', settings.apiStandard);
-          } else {
-            console.warn('[App] Failed to create chat service for:', settings.apiStandard);
+          // 直接创建 Service 实例
+          let ServiceClass = null;
+          switch (settings.apiStandard) {
+            case 'openai':
+              ServiceClass = window.OpenAIService;
+              break;
+            case 'openrouter':
+              ServiceClass = window.OpenRouterService;
+              break;
+            case 'lm-studio':
+              ServiceClass = window.LMStudioService;
+              break;
           }
+          
+          if (!ServiceClass) {
+            console.warn('[App] Unsupported API standard:', settings.apiStandard);
+            return;
+          }
+          
+          const service = new ServiceClass();
+          
+          // 配置服务
+          service.configure({
+            endpoint: settings.apiEndpoint,
+            apiKey: settings.apiKey,
+            defaultModel: settings.model || 'default'
+          });
+          
+          window.ChatController.setService(service);
+          // 将服务挂载到全局，供 UI 层调用标准交互方法
+          window.ChatService = service;
+          console.log('[App] Chat service initialized:', settings.apiStandard);
         } else {
           console.warn('[App] No API standard configured, please set it in Settings');
         }

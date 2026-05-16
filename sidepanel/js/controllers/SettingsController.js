@@ -13,8 +13,8 @@ class SettingsController {
     // 注册事件监听
     this._registerEventListeners();
     
-    // 加载设置
-    this.loadSettings();
+    // 不在构造函数中加载设置，由 app.js 控制初始化时机
+    // this.loadSettings();
   }
   
   /**
@@ -59,18 +59,33 @@ class SettingsController {
    * 重新配置聊天服务
    */
   _reconfigureChatService() {
-    if (!window.ChatController || !window.serviceManager) {
-      console.warn('[SettingsController] ChatController or serviceManager not available');
+    if (!window.ChatController) {
+      console.warn('[SettingsController] ChatController not available');
       return;
     }
     
     const settings = this.settings.toJSON();
-    const service = window.serviceManager.getService(settings.apiStandard);
     
-    if (!service) {
-      console.warn('[SettingsController] No service found for:', settings.apiStandard);
+    // 直接创建 Service 实例
+    let ServiceClass = null;
+    switch (settings.apiStandard) {
+      case 'openai':
+        ServiceClass = window.OpenAIService;
+        break;
+      case 'openrouter':
+        ServiceClass = window.OpenRouterService;
+        break;
+      case 'lm-studio':
+        ServiceClass = window.LMStudioService;
+        break;
+    }
+    
+    if (!ServiceClass) {
+      console.warn('[SettingsController] Unsupported API standard:', settings.apiStandard);
       return;
     }
+    
+    const service = new ServiceClass();
     
     // 重新配置服务
     service.configure({
@@ -119,6 +134,9 @@ class SettingsController {
   async _handleModelsRequest(data) {
     const { apiKey, apiEndpoint, apiStandard } = data;
     
+    console.log('[SettingsController] MODELS_REQUEST received');
+    console.trace('[SettingsController] MODELS_REQUEST call stack:');
+    
     // 设置加载状态
     if (window.Pages && window.Pages.settings) {
       const updateLoadButtonState = window.Pages.settings.updateLoadButtonState;
@@ -131,11 +149,25 @@ class SettingsController {
       // 直接从 API 获取最新模型列表
       console.log('[SettingsController] Fetching models from API:', apiEndpoint);
       
-      // 通过 serviceManager 获取 Service
-      const service = window.serviceManager.getService(apiStandard);
-      if (!service) {
+      // 直接创建 Service 实例
+      let ServiceClass = null;
+      switch (apiStandard) {
+        case 'openai':
+          ServiceClass = window.OpenAIService;
+          break;
+        case 'openrouter':
+          ServiceClass = window.OpenRouterService;
+          break;
+        case 'lm-studio':
+          ServiceClass = window.LMStudioService;
+          break;
+      }
+      
+      if (!ServiceClass) {
         throw new Error(`Unsupported API standard: ${apiStandard}`);
       }
+      
+      const service = new ServiceClass();
       
       // 配置 Service
       service.configure({

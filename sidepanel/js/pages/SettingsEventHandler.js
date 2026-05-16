@@ -223,5 +223,5 @@ class SettingsEventHandler {
   }
 }
 
-// 导出单例
-window.SettingsEventHandler = new SettingsEventHandler();
+// 导出类（不自动实例化，由 app.js 控制初始化时机）
+window.SettingsEventHandler = SettingsEventHandler;
