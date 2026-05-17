@@ -13,7 +13,6 @@ window.Pages.chat = function(container) {
   // 获取当前会话
   let currentSession = sessionController.getCurrentSession();
   let isStreaming = false;
-  let modelSupportsReasoning = false; // 缓存模型是否支持 reasoning
   
   /**
    * 渲染聊天页面
@@ -30,6 +29,7 @@ window.Pages.chat = function(container) {
     const headerActions = [];
     
     // Reasoning 模式切换按钮（仅当模型支持时显示）
+    const modelSupportsReasoning = checkModelSupportsReasoning();
     if (currentSession && modelSupportsReasoning) {
       headerActions.push(create('button', {
         className: `btn ${currentSession.reasoningEnabled ? 'btn-primary' : 'btn-secondary'}`,
@@ -279,15 +279,26 @@ window.Pages.chat = function(container) {
   }
 
   /**
-   * 检查当前模型是否支持 reasoning（同步，使用全局缓存）
+   * 检查当前模型是否支持 reasoning（同步，从缓存读取）
    */
   function checkModelSupportsReasoning() {
-    // 从全局缓存读取
-    if (window.modelCapabilities) {
-      modelSupportsReasoning = window.modelCapabilities.supportsReasoning || false;
-    } else {
-      modelSupportsReasoning = false;
-    }
+    if (!currentSession) return false;
+    
+    // 从 Settings 获取当前模型
+    const settings = window.SettingsController ? window.SettingsController.getSettings() : null;
+    if (!settings || !settings.apiEndpoint || !settings.model) return false;
+    
+    // 从 StorageModel 同步读取缓存
+    const cacheKey = `models:${settings.apiEndpoint}`;
+    const cachedModels = window.StorageModel.getCacheSync ? 
+      window.StorageModel.getCacheSync(cacheKey) : null;
+    
+    if (!cachedModels || !Array.isArray(cachedModels)) return false;
+    
+    const currentModel = cachedModels.find(m => m.id === settings.model);
+    if (!currentModel) return false;
+    
+    return currentModel.supports_reasoning === true;
   }
 
   /**
@@ -321,35 +332,6 @@ window.Pages.chat = function(container) {
     }, 0);
   }
   
-  // 加载模型能力
-  function initModelCapabilities() {
-    if (!window.SettingsController || !window.StorageModel) return;
-    
-    try {
-      const settings = window.SettingsController.getSettings();
-      if (!settings || !settings.apiEndpoint || !settings.model) return;
-      
-      const cacheKey = `models:${settings.apiEndpoint}`;
-      const cachedModels = await window.StorageModel.getCache(cacheKey);
-      
-      if (!cachedModels || !Array.isArray(cachedModels)) return;
-      
-      const currentModel = cachedModels.find(m => m.id === settings.model);
-      if (!currentModel) return;
-      
-      // 将模型支持信息存储到全局
-      window.modelCapabilities = {
-        supportsReasoning: currentModel.supports_reasoning === true,
-        modelId: settings.model
-      };
-      
-      console.log('[ChatPage] Model capabilities loaded:', window.modelCapabilities);
-    } catch (error) {
-      console.error('[ChatPage] Failed to load model capabilities:', error);
-    }
-  }
-  
-  // 初始渲染（先加载模型能力，再渲染）
-  initModelCapabilities();
+  // 初始渲染
   render();
 };
