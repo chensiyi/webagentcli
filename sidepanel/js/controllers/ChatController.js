@@ -102,11 +102,8 @@ class ChatController {
           // 更新推理内容
           if (chunk.reasoning_content) {
             assistantMsg.reasoning_content += chunk.reasoning_content;
-            this.sessionController.updateMessage(assistantMsg.id, (msg) => { 
-              msg.reasoning_content = assistantMsg.reasoning_content; 
-            });
             
-            // 通过 IChatService 接口处理流式推理更新
+            // 通过 IChatService 接口处理流式推理更新（增量追加）
             if (this.currentService.handleStreamReasoning) {
               this.currentService.handleStreamReasoning({ 
                 messageId: assistantMsg.id,
@@ -118,9 +115,6 @@ class ChatController {
           // 更新最终回复内容
           if (chunk.content) {
             assistantMsg.content += chunk.content;
-            this.sessionController.updateMessage(assistantMsg.id, (msg) => { 
-              msg.content = assistantMsg.content; 
-            });
             
             // 通过 IChatService 接口处理流式内容更新
             if (this.currentService.handleStreamUpdate) {

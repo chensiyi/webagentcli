@@ -32,6 +32,19 @@
   <!-- DOM Utils -->
   <script src="js/utils/dom.js"></script>
   <script src="js/utils/time.js"></script>
+  <!-- Markdown Parser: marked.js -->
+  <script src="js/utils/marked.min.js"></script>
+  <script>
+    // 配置 marked.js
+    if (typeof marked !== 'undefined') {
+      marked.setOptions({
+        gfm: true,
+        breaks: false,
+        sanitize: false,
+        smartypants: false
+      });
+    }
+  </script>
   
   <!-- Core: Events -->
   <script src="js/core/events/EventBus.js"></script>

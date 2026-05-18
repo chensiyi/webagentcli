@@ -72,11 +72,9 @@ class OpenAIService {
       ...(params.maxTokens && { max_tokens: params.maxTokens }),
       ...(params.tools && { tools: params.tools }),
       ...(params.toolChoice && { tool_choice: params.toolChoice }),
-      // Reasoning 参数（OpenAI o系列模型）
-      ...(params.reasoningEnabled && { 
-        reasoning: {
-          effort: params.reasoningEffort || 'medium'
-        }
+      // Reasoning 参数（OpenAI o系列模型）- reasoning_effort 是顶层参数
+      ...(params.reasoningEnabled && params.reasoningEffort && { 
+        reasoning_effort: params.reasoningEffort
       })
     };
   }
@@ -88,6 +86,7 @@ class OpenAIService {
     const choice = data.choices[0];
     return {
       content: choice.message.content,
+      reasoning_content: choice.message.reasoning_content || '',
       role: choice.message.role,
       toolCalls: choice.message.tool_calls || [],
       finishReason: choice.finish_reason,

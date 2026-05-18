@@ -176,30 +176,23 @@ class SessionManager {
   /**
    * 删除会话
    * @param {string} sessionId 
+   * @param {boolean} autoSwitch - 是否自动切换到第一个可用会话（已废弃，默认 false）
    */
-  deleteSession(sessionId) {
+  deleteSession(sessionId, autoSwitch = true) {
     const deleted = this.sessions.delete(sessionId);
     if (!deleted) {
       console.warn('[SessionManager] Session not found for deletion:', sessionId);
       return false;
     }
     
-    // 如果删除的是当前会话，切换到第一个可用会话
+    // 如果删除的是当前会话，清空指向
     if (this.currentSessionId === sessionId) {
-      const firstSessionId = Array.from(this.sessions.keys())[0] || null;
-      this.currentSessionId = firstSessionId;
+      this.currentSessionId = null;
       
-      if (firstSessionId) {
-        this.eventBus.emit('CURRENT_SESSION_CHANGED', { 
-          sessionId: firstSessionId,
-          previousId: sessionId
-        });
-      } else {
-        this.eventBus.emit('CURRENT_SESSION_CHANGED', { 
-          sessionId: null,
-          previousId: sessionId
-        });
-      }
+      this.eventBus.emit('CURRENT_SESSION_CHANGED', { 
+        sessionId: null,
+        previousId: sessionId
+      });
     }
     
     // 持久化

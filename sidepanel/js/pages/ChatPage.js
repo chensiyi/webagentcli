@@ -12,7 +12,6 @@ window.Pages.chat = function(container) {
   
   // 获取当前会话
   let currentSession = sessionController.getCurrentSession();
-  let isStreaming = false;
   
   /**
    * 渲染聊天页面
@@ -31,12 +30,123 @@ window.Pages.chat = function(container) {
     // Reasoning 模式切换按钮（仅当模型支持时显示）
     const modelSupportsReasoning = checkModelSupportsReasoning();
     if (currentSession && modelSupportsReasoning) {
-      headerActions.push(create('button', {
+      const reasoningButtonContainer = create('div', {
+        className: 'reasoning-control',
+        style: { position: 'relative', display: 'inline-block' }
+      });
+      
+      // 思考强度选择器（默认隐藏）
+      const effortSelector = create('div', {
+        className: 'reasoning-effort-selector',
+        style: {
+          position: 'absolute',
+          top: '100%',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          marginTop: '8px',
+          background: 'var(--bg-secondary, #2a2a2a)',
+          border: '1px solid var(--border-color, #444)',
+          borderRadius: '8px',
+          padding: '8px',
+          display: 'none',
+          zIndex: '1000',
+          minWidth: '120px'
+        }
+      });
+      
+      // 强度选项（从高到低排列，符合滚轮直觉）
+      const efforts = [
+        { value: 'high', label: '高', icon: '🚀' },
+        { value: 'medium', label: '中', icon: '🔥' },
+        { value: 'low', label: '低', icon: '⚡' }
+      ];
+      
+      efforts.forEach(effort => {
+        const option = create('div', {
+          className: `effort-option ${currentSession.reasoningEffort === effort.value ? 'active' : ''}`,
+          style: {
+            padding: '6px 12px',
+            cursor: 'pointer',
+            borderRadius: '4px',
+            marginBottom: '4px',
+            background: currentSession.reasoningEffort === effort.value ? 'var(--primary-color, #4CAF50)' : 'transparent',
+            color: currentSession.reasoningEffort === effort.value ? '#fff' : 'inherit',
+            textAlign: 'center',
+            fontSize: '13px'
+          },
+          text: `${effort.icon} ${effort.label}`,
+          onClick: (e) => {
+            e.stopPropagation();
+            updateReasoningEffort(effort.value);
+          }
+        });
+        
+        // 悬停效果
+        option.addEventListener('mouseenter', () => {
+          if (currentSession.reasoningEffort !== effort.value) {
+            option.style.background = 'rgba(255, 255, 255, 0.1)';
+          }
+        });
+        option.addEventListener('mouseleave', () => {
+          if (currentSession.reasoningEffort !== effort.value) {
+            option.style.background = 'transparent';
+          }
+        });
+        
+        effortSelector.appendChild(option);
+      });
+      
+      // 主按钮
+      const reasoningBtn = create('button', {
         className: `btn ${currentSession.reasoningEnabled ? 'btn-primary' : 'btn-secondary'}`,
         style: { marginRight: '8px' },
-        text: currentSession.reasoningEnabled ? 'thinkOn' : 'thinkOff',
+        text: currentSession.reasoningEnabled ? 'think💡' : 'think',
         onClick: () => toggleReasoning()
-      }));
+      });
+      
+      // 鼠标悬停显示/隐藏强度选择器
+      let hideTimeout = null;
+      
+      const showSelector = () => {
+        if (hideTimeout) clearTimeout(hideTimeout);
+        effortSelector.style.display = 'block';
+      };
+      
+      const hideSelector = () => {
+        hideTimeout = setTimeout(() => {
+          effortSelector.style.display = 'none';
+        }, 200);
+      };
+      
+      reasoningBtn.addEventListener('mouseenter', showSelector);
+      reasoningBtn.addEventListener('mouseleave', hideSelector);
+      effortSelector.addEventListener('mouseenter', showSelector);
+      effortSelector.addEventListener('mouseleave', hideSelector);
+      
+      // 鼠标滚轮调整强度
+      effortSelector.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const currentIndex = efforts.findIndex(eff => eff.value === currentSession.reasoningEffort);
+        let newIndex;
+        
+        if (e.deltaY < 0) {
+          // 向上滚动 - 序号缩小（向列表顶部移动）
+          newIndex = Math.max(0, currentIndex - 1);
+        } else {
+          // 向下滚动 - 序号增大（向列表底部移动）
+          newIndex = Math.min(efforts.length - 1, currentIndex + 1);
+        }
+        
+        if (newIndex !== currentIndex) {
+          updateReasoningEffort(efforts[newIndex].value, false); // 不重新渲染
+        }
+      }, { passive: false }); // 需要调用 preventDefault，必须设为 false
+      
+      reasoningButtonContainer.appendChild(reasoningBtn);
+      reasoningButtonContainer.appendChild(effortSelector);
+      headerActions.push(reasoningButtonContainer);
     }
     
     headerActions.push(create('button', {
@@ -116,13 +226,14 @@ window.Pages.chat = function(container) {
     // 构建消息主体内容
     const bodyChildren = [];
     
-    // 如果有思考内容，添加可折叠的思考区域
-    if (!isUser && hasReasoning) {
-      let isExpanded = false;
+    // assistant 消息始终预留思考容器（初始隐藏，收到 reasoning 时显示）
+    if (!isUser) {
+      const reasoningContainer = create('div', { 
+        className: 'message-reasoning',
+        style: { display: hasReasoning ? 'block' : 'none' }
+      });
       
-      const reasoningContainer = create('div', { className: 'message-reasoning' });
-      
-      // 思考区域头部（始终显示）
+      // 思考区域头部
       const reasoningHeader = create('div', {
         className: 'reasoning-header'
       }, [
@@ -130,11 +241,11 @@ window.Pages.chat = function(container) {
         create('span', { className: 'reasoning-toggle', text: '▼' })
       ]);
       
-      // 思考内容（默认隐藏）
+      // 思考内容（默认收缩）
       const reasoningContent = create('div', {
         className: 'reasoning-content',
-        style: { display: 'none' },
-        text: msg.reasoning_content
+        text: msg.reasoning_content || '',
+        style: { display: 'none' }
       });
       
       reasoningContainer.appendChild(reasoningHeader);
@@ -143,25 +254,22 @@ window.Pages.chat = function(container) {
       // 点击切换展开/折叠
       reasoningHeader.addEventListener('click', (e) => {
         e.stopPropagation();
-        isExpanded = !isExpanded;
-        
-        if (isExpanded) {
-          reasoningContent.style.display = 'block';
-          reasoningHeader.querySelector('.reasoning-toggle').style.transform = 'rotate(180deg)';
-        } else {
-          reasoningContent.style.display = 'none';
-          reasoningHeader.querySelector('.reasoning-toggle').style.transform = 'rotate(0deg)';
-        }
+        const isHidden = reasoningContent.style.display === 'none';
+        reasoningContent.style.display = isHidden ? 'block' : 'none';
+        reasoningHeader.querySelector('.reasoning-toggle').style.transform = isHidden ? 'rotate(180deg)' : 'rotate(0deg)';
       });
       
       bodyChildren.push(reasoningContainer);
     }
     
     // 添加主要内容区域
-    bodyChildren.push(create('div', { 
+    const contentDiv = create('div', { 
       className: 'message-content',
-      text: msg.content || ''
-    }));
+      html: typeof marked !== 'undefined' ? marked.parse(msg.content || '') : (msg.content || '')
+    });
+    // 保存原始内容用于流式追加
+    contentDiv.dataset.fullContent = msg.content || '';
+    bodyChildren.push(contentDiv);
     
     const bubble = create('div', {
       className: `message-bubble message-${msg.role}`,
@@ -209,6 +317,7 @@ window.Pages.chat = function(container) {
    */
   function createInputArea() {
     let inputValue = '';
+    const chatController = window.ChatController;
       
     const textarea = create('textarea', {
       className: 'textarea',
@@ -252,13 +361,20 @@ window.Pages.chat = function(container) {
       className: 'btn btn-error',
       id: 'stop-btn',
       text: '停止',
-      style: { display: isStreaming ? 'inline-block' : 'none', marginLeft: '8px', whiteSpace: 'nowrap' },
+      style: { display: 'none', marginLeft: '8px', whiteSpace: 'nowrap' },
       onClick: () => {
         chatController.stopGeneration();
-        isStreaming = false;
-        render();
       }
     });
+    
+    // 监听队列状态变化
+    if (window.EventBus) {
+      window.EventBus.on('ACTIVITY_STATE_CHANGED', (data) => {
+        const hasActive = data.hasActive || data.messageQueueLength > 0;
+        sendBtn.style.display = hasActive ? 'none' : 'inline-block';
+        stopBtn.style.display = hasActive ? 'inline-block' : 'none';
+      });
+    }
       
     function sendMessage() {
       if (!inputValue.trim()) return;
@@ -270,14 +386,9 @@ window.Pages.chat = function(container) {
       textarea.value = '';
       textarea.style.height = 'auto';
       
-      // 禁用发送按钮，显示停止按钮
-      sendBtn.style.display = 'none';
-      stopBtn.style.display = 'inline-block';
-      isStreaming = true;
-      
       console.log('[ChatPage] Sending message:', content);
       
-      // 调用 ChatController 发送消息
+      // 调用 ChatController 发送消息（会自动触发 ACTIVITY_STATE_CHANGED）
       chatController.sendMessage(content)
         .then(() => {
           console.log('[ChatPage] Message sent successfully');
@@ -285,12 +396,6 @@ window.Pages.chat = function(container) {
         .catch((error) => {
           console.error('[ChatPage] Send message failed:', error);
           window.Toast?.error('发送失败: ' + error.message);
-        })
-        .finally(() => {
-          // 恢复按钮状态
-          isStreaming = false;
-          sendBtn.style.display = 'inline-block';
-          stopBtn.style.display = 'none';
         });
     }
       
@@ -356,6 +461,64 @@ window.Pages.chat = function(container) {
     render();
     
     console.log('[ChatPage] Reasoning mode:', currentSession.reasoningEnabled ? 'enabled' : 'disabled');
+  }
+
+  /**
+   * 更新 Reasoning 强度
+   * @param {string} effort - 强度值
+   * @param {boolean} shouldRerender - 是否重新渲染整个页面（默认 true）
+   */
+  function updateReasoningEffort(effort, shouldRerender = true) {
+    if (!currentSession) return;
+    
+    // 验证强度值
+    const validEfforts = ['low', 'medium', 'high'];
+    if (!validEfforts.includes(effort)) {
+      console.warn('[ChatPage] Invalid reasoning effort:', effort);
+      return;
+    }
+    
+    // 更新强度
+    currentSession.reasoningEffort = effort;
+    
+    // 保存会话
+    if (window.SessionController) {
+      window.SessionController.updateSession(currentSession.id, (session) => {
+        session.reasoningEffort = effort;
+      });
+    }
+    
+    // 如果需要，重新渲染页面以更新选择器状态
+    if (shouldRerender) {
+      render();
+    } else {
+      // 否则只更新选择器的视觉状态
+      updateEffortSelectorUI();
+    }
+    
+    console.log('[ChatPage] Reasoning effort updated to:', effort);
+  }
+
+  /**
+   * 更新强度选择器的 UI 状态（不重新渲染整个页面）
+   */
+  function updateEffortSelectorUI() {
+    const selector = document.querySelector('.reasoning-effort-selector');
+    if (!selector) return;
+    
+    const options = selector.querySelectorAll('.effort-option');
+    options.forEach(option => {
+      const optionEffort = option.textContent.trim().includes('高') ? 'high' :
+                          option.textContent.trim().includes('中') ? 'medium' : 'low';
+      
+      if (optionEffort === currentSession.reasoningEffort) {
+        option.style.background = 'var(--primary-color, #4CAF50)';
+        option.style.color = '#fff';
+      } else {
+        option.style.background = 'transparent';
+        option.style.color = 'inherit';
+      }
+    });
   }
   
   /**

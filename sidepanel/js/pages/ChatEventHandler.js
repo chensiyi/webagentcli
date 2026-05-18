@@ -169,16 +169,25 @@ class ChatEventHandler {
     if (!reasoningContainer) {
       const messageBody = messageElement.querySelector('.message-body');
       const roleEl = messageElement.querySelector('.message-role');
+      
+      if (!messageBody) {
+        console.warn('[ChatEventHandler] .message-body not found in message element');
+      }
+      if (!roleEl) {
+        console.warn('[ChatEventHandler] .message-role not found in message element');
+      }
+      
       if (messageBody && roleEl) {
         reasoningContainer = document.createElement('div');
         reasoningContainer.className = 'message-reasoning';
-        reasoningContainer.style.cssText = 'margin-bottom: 8px; cursor: pointer;';
+        reasoningContainer.style.cssText = 'margin-bottom: 8px; padding: 8px; background: #f8f9fa; border-radius: 6px; border-left: 3px solid #667eea;';
           
         const reasoningHeader = document.createElement('div');
+        reasoningHeader.className = 'reasoning-header';
         reasoningHeader.style.cssText = `
-          font-size: 12px; color: #888; padding: 8px; background: #f5f5f5;
-          border-radius: 6px; border-left: 3px solid #667eea;
+          font-size: 12px; color: #666; font-weight: 500; cursor: pointer;
           display: flex; justify-content: space-between; align-items: center;
+          margin-bottom: 6px;
         `;
           
         const titleSpan = document.createElement('span');
@@ -195,22 +204,19 @@ class ChatEventHandler {
         const reasoningContent = document.createElement('div');
         reasoningContent.className = 'reasoning-content';
         reasoningContent.style.cssText = `
-          display: block; font-size: 12px; color: #666; padding: 8px;
-          background: #fafafa; border-radius: 0 0 6px 6px;
-          border-left: 3px solid #667eea; margin-top: -1px;
-          white-space: pre-wrap; word-break: break-word;
+          font-size: 12px; color: #555; padding: 4px 0;
+          white-space: pre-wrap; word-break: break-word; line-height: 1.6;
         `;
           
         reasoningContainer.appendChild(reasoningHeader);
         reasoningContainer.appendChild(reasoningContent);
         messageBody.insertBefore(reasoningContainer, roleEl.nextSibling);
           
-        let isExpanded = true;
         reasoningHeader.addEventListener('click', (e) => {
           e.stopPropagation();
-          isExpanded = !isExpanded;
-          reasoningContent.style.display = isExpanded ? 'block' : 'none';
-          toggleSpan.style.transform = isExpanded ? 'rotate(180deg)' : 'rotate(0deg)';
+          const isHidden = reasoningContent.style.display === 'none';
+          reasoningContent.style.display = isHidden ? 'block' : 'none';
+          toggleSpan.style.transform = isHidden ? 'rotate(180deg)' : 'rotate(0deg)';
         });
       }
     }
@@ -222,16 +228,29 @@ class ChatEventHandler {
    */
   _updateMessageReasoning(messageId, content) {
     const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
-    if (!messageElement) return;
+    if (!messageElement) {
+      console.warn('[ChatEventHandler] Message element not found for reasoning update:', messageId);
+      return;
+    }
   
     const container = this._getOrCreateReasoningContainer(messageElement);
     if (container) {
       const contentEl = container.querySelector('.reasoning-content');
       if (contentEl) {
+        // 显示容器（只在首次收到内容时显示）
+        if (container.style.display === 'none') {
+          container.style.display = 'block';
+        }
+        // MESSAGE_UPDATED 传递的是完整内容，使用覆盖模式
         contentEl.textContent = content;
+        console.log('[ChatEventHandler] Reasoning updated:', content.substring(0, 50));
         const messageList = document.getElementById('message-list');
         if (messageList) messageList.scrollTop = messageList.scrollHeight;
+      } else {
+        console.warn('[ChatEventHandler] Reasoning content element not found');
       }
+    } else {
+      console.warn('[ChatEventHandler] Reasoning container not created');
     }
   }
   
@@ -264,9 +283,14 @@ class ChatEventHandler {
     // 恢复发送按钮状态
     this._updateSendButtonState(true);
     
-    // 重新渲染该消息气泡以进行格式化等最终处理
+    // 保存最终消息到 SessionManager（流式过程中已增量更新 UI）
     if (message) {
-      this._rerenderMessageBubble(message);
+      if (window.sessionController) {
+        window.sessionController.updateMessage(message.id, (msg) => {
+          msg.content = message.content;
+          msg.reasoning_content = message.reasoning_content;
+        });
+      }
     }
   }
   
@@ -321,13 +345,15 @@ class ChatEventHandler {
     if (messageElement) {
       const contentElement = messageElement.querySelector('.message-content');
       if (contentElement) {
+        // 获取当前完整内容
+        let fullContent = contentElement.dataset.fullContent || '';
         if (append) {
-          // 追加模式：在现有内容后添加新内容
-          contentElement.textContent += content;
+          fullContent += content;
         } else {
-          // 替换模式：完全替换内容
-          contentElement.textContent = content;
+          fullContent = content;
         }
+        contentElement.dataset.fullContent = fullContent;
+        contentElement.innerHTML = typeof marked !== 'undefined' ? marked.parse(fullContent) : fullContent;
         
         // 滚动到底部
         const messageList = document.getElementById('message-list');
@@ -360,16 +386,8 @@ class ChatEventHandler {
    * 更新发送按钮状态
    */
   _updateSendButtonState(enabled) {
-    const sendBtn = document.getElementById('send-btn');
-    const stopBtn = document.getElementById('stop-btn');
-    
-    if (sendBtn) {
-      sendBtn.style.display = enabled ? 'inline-block' : 'none';
-    }
-    
-    if (stopBtn) {
-      stopBtn.style.display = enabled ? 'none' : 'inline-block';
-    }
+    // 通过事件总线通知 UI 更新按钮状态
+    this.eventBus.emit('ACTIVITY_STATE_CHANGED', { hasActive: !enabled });
   }
   
   /**

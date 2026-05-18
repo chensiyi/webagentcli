@@ -78,6 +78,64 @@ class OpenRouterService extends OpenAIService {
   }
 
   /**
+   * 解析响应
+   * OpenRouter 可能返回 reasoning_details 数组或 message.reasoning 字段
+   */
+  parseResponse(data) {
+    const choice = data.choices[0];
+    
+    // 提取 reasoning_content（优先级：message.reasoning > reasoning_details > message.reasoning_content）
+    let reasoningContent = '';
+    if (choice.message.reasoning) {
+      // OpenRouter 流式/非流式都可能使用 reasoning 字段
+      reasoningContent = choice.message.reasoning;
+    } else if (data.reasoning_details && Array.isArray(data.reasoning_details)) {
+      // OpenRouter 格式：reasoning_details 数组
+      reasoningContent = data.reasoning_details
+        .map(detail => detail.text || detail.content || '')
+        .join('\n');
+    } else if (choice.message.reasoning_content) {
+      // 兼容其他格式
+      reasoningContent = choice.message.reasoning_content;
+    }
+    
+    return {
+      content: choice.message.content,
+      reasoning_content: reasoningContent,
+      role: choice.message.role,
+      toolCalls: choice.message.tool_calls || [],
+      finishReason: choice.finish_reason,
+      usage: data.usage,
+      model: data.model
+    };
+  }
+
+  /**
+   * 解析流式片段
+   * OpenRouter 流式响应中 reasoning 在 delta.reasoning 字段
+   */
+  parseStreamChunk(data) {
+    const choice = data.choices[0];
+    if (!choice || !choice.delta) return null;
+    
+    const reasoningContent = choice.delta.reasoning || choice.delta.reasoning_content || '';
+    
+    // 调试日志：检查 reasoning 字段
+    if (reasoningContent) {
+      console.log('[OpenRouterService] Parsed reasoning chunk:', reasoningContent.substring(0, 50));
+    }
+    
+    return {
+      content: choice.delta.content || '',
+      // OpenRouter 使用 delta.reasoning 而非 delta.reasoning_content
+      reasoning_content: reasoningContent,
+      role: choice.delta.role,
+      toolCalls: choice.delta.tool_calls || [],
+      finishReason: choice.finish_reason
+    };
+  }
+
+  /**
    * 列出可用模型
    * OpenRouter 使用不同的端点和数据结构，提供更丰富的模型详情
    */

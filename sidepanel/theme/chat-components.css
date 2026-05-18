@@ -37,8 +37,8 @@
 /* 消息气泡容器 */
 .message-bubble {
   position: relative;
-  margin-bottom: 16px;
-  padding: 12px 16px;
+  margin-bottom: 8px;
+  padding: 8px 12px;
   border-radius: 12px;
   background: var(--color-surface);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
@@ -69,7 +69,7 @@
 /* 消息主体内容区域 */
 .message-body {
   position: relative;
-  padding: 8px 0;
+  padding: 4px 0;
 }
 
 /* 思考过程容器 */

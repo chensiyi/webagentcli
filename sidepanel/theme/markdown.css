@@ -5,38 +5,38 @@
   overflow-wrap: break-word;
 }
 
+/* 移除 p 标签的块级元素效果，避免额外换行 */
+.message-content p {
+  margin: 0;
+  padding: 0;
+  display: inline;
+  line-height: 1.5;
+}
+
 .message-content img {
   max-width: 100%;
   height: auto;
-  border-radius: 6px;
-  margin: 8px 0;
-}
-
-.message-content p {
-  margin: 0 0 8px 0;
-}
-
-.message-content p:last-child {
-  margin-bottom: 0;
+  border-radius: 4px;
+  margin: 4px 0;
 }
 
 /* Markdown 代码块 */
 .message-content pre {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: 6px;
-  padding: 12px;
-  margin: 8px 0;
+  border-radius: 4px;
+  padding: 6px;
+  margin: 4px 0;
   overflow-x: auto;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .message-content code {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: 4px;
-  padding: 2px 6px;
-  font-size: 13px;
+  border-radius: 3px;
+  padding: 0 3px;
+  font-size: 12px;
   font-family: 'Consolas', 'Monaco', monospace;
 }
 
@@ -50,13 +50,14 @@
 .message-content h1,
 .message-content h2,
 .message-content h3 {
-  margin: 12px 0 8px 0;
+  margin: 2px 0;
   font-weight: 600;
+  line-height: 1.4;
 }
 
-.message-content h1 { font-size: 20px; }
-.message-content h2 { font-size: 18px; }
-.message-content h3 { font-size: 16px; }
+.message-content h1 { font-size: 15px; }
+.message-content h2 { font-size: 14px; }
+.message-content h3 { font-size: 13px; }
 
 /* Markdown 文本样式 */
 .message-content strong {
@@ -70,6 +71,60 @@
 .message-content a {
   color: var(--color-primary);
   text-decoration: underline;
+}
+
+/* Markdown 表格 */
+.message-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 4px 0;
+  font-size: 12px;
+}
+
+.message-content th,
+.message-content td {
+  border: 1px solid var(--color-border);
+  padding: 3px 6px;
+  text-align: left;
+}
+
+.message-content th {
+  background: var(--color-surface);
+  font-weight: 600;
+}
+
+.message-content tr:nth-child(even) {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+[data-theme="dark"] .message-content tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* Markdown 列表 */
+.message-content ul,
+.message-content ol {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.message-content li {
+  margin: 0;
+  padding: 0;
+  line-height: 1.5;
+}
+
+/* Markdown 引用 */
+.message-content blockquote {
+  border-left: 2px solid var(--color-primary);
+  margin: 4px 0;
+  padding: 2px 8px;
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: 0 3px 3px 0;
+}
+
+[data-theme="dark"] .message-content blockquote {
+  background: rgba(255, 255, 255, 0.02);
 }
 
 /* 代码块容器 */

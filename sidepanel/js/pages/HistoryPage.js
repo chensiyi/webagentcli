@@ -57,7 +57,8 @@ window.Pages.history = function(container) {
     if (!confirmed) return;
     
     if (sessionManager.deleteSession) {
-      sessionManager.deleteSession(id);
+      // 历史页面删除会话时不自动切换，避免影响用户当前浏览的页面
+      sessionManager.deleteSession(id, false);
     }
     render();
     window.Toast.success('对话已删除');
