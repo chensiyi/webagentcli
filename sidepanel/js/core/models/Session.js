@@ -125,7 +125,11 @@ class Session {
    * 从纯对象创建
    */
   static fromJSON(data) {
-    const session = new Session(data);
+    const session = new Session({
+      ...data,
+      // 确保 reasoningEnabled 有默认值。如果模型支持，新会话默认开启；旧数据保持原样
+      reasoningEnabled: data.reasoningEnabled !== undefined ? data.reasoningEnabled : true
+    });
     // 恢复消息为 Message 对象
     if (data.messages && Array.isArray(data.messages)) {
       session.messages = data.messages.map(m => 

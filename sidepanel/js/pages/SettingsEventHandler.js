@@ -74,10 +74,17 @@ class SettingsEventHandler {
   async _handleSaveRequest(data) {
     const { settings } = data;
     
+    console.log('[SettingsEventHandler] Save request received:', {
+      apiStandard: settings.apiStandard,
+      apiEndpoint: settings.apiEndpoint,
+      model: settings.model
+    });
+    
     try {
       // 调用 Controller 的 updateSettings 方法
       if (this.settingsController) {
         this.settingsController.updateSettings(settings);
+        console.log('[SettingsEventHandler] Settings update delegated to Controller');
       }
     } catch (error) {
       console.error('[SettingsEventHandler] Save error:', error);
@@ -89,17 +96,53 @@ class SettingsEventHandler {
    * 处理 API 端点变更
    */
   _handleApiEndpointChanged(data) {
-    const { endpoint, isAutoFilled } = data;
-    const endpointInput = document.getElementById('api-endpoint-input');
+    const { endpoint, isAutoFilled, apiStandard } = data;
     
-    if (endpointInput && isAutoFilled) {
-      endpointInput.value = endpoint;
+    console.log('[SettingsEventHandler] API_ENDPOINT_CHANGED received:', {
+      endpoint,
+      isAutoFilled,
+      apiStandard,
+      hasPages: !!window.Pages,
+      hasSettingsPage: !!(window.Pages && window.Pages.settings)
+    });
+    
+    if (isAutoFilled && window.Pages && window.Pages.settings) {
+      // 先更新 Page 的内部 currentSettings，确保后续操作（如加载模型）使用新端点
+      if (window.Pages.settings.currentSettings) {
+        console.log('[SettingsEventHandler] Before update - currentSettings:', {
+          apiStandard: window.Pages.settings.currentSettings.apiStandard,
+          apiEndpoint: window.Pages.settings.currentSettings.apiEndpoint
+        });
+        
+        window.Pages.settings.currentSettings.apiEndpoint = endpoint;
+        window.Pages.settings.currentSettings.apiStandard = apiStandard;
+        
+        console.log('[SettingsEventHandler] After update - currentSettings:', { 
+          apiStandard: window.Pages.settings.currentSettings.apiStandard,
+          apiEndpoint: window.Pages.settings.currentSettings.apiEndpoint 
+        });
+      } else {
+        console.warn('[SettingsEventHandler] window.Pages.settings.currentSettings is null!');
+      }
       
-      // 触发 input 事件以更新内部状态
-      const event = new Event('input', { bubbles: true });
-      endpointInput.dispatchEvent(event);
+      // 重新渲染整个页面以反映新的 API 标准
+      // 注意：这里调用 fillForm 来更新所有表单字段（包括 API 标准选择框）
+      const fillForm = window.Pages.settings.fillForm;
+      if (typeof fillForm === 'function') {
+        console.log('[SettingsEventHandler] Calling fillForm with:', {
+          apiStandard: window.Pages.settings.currentSettings?.apiStandard,
+          apiEndpoint: window.Pages.settings.currentSettings?.apiEndpoint
+        });
+        fillForm(window.Pages.settings.currentSettings);
+      }
       
-      console.log('[SettingsEventHandler] Auto-filled endpoint:', endpoint);
+      // 重新渲染 Provider 配置，这会自动使用新的端点值填充输入框
+      const rerenderProviderConfig = window.Pages.settings.rerenderProviderConfig;
+      if (typeof rerenderProviderConfig === 'function') {
+        rerenderProviderConfig();
+      }
+      
+      console.log('[SettingsEventHandler] Auto-filled endpoint and re-rendered UI:', endpoint);
     }
   }
   
@@ -151,6 +194,12 @@ class SettingsEventHandler {
    */
   _handleSettingsSaved(data) {
     const { settings } = data;
+    
+    console.log('[SettingsEventHandler] Settings saved successfully:', {
+      apiStandard: settings.apiStandard,
+      apiEndpoint: settings.apiEndpoint,
+      model: settings.model
+    });
     
     // 初始化 Agent
     if (window.Agent) {
@@ -223,5 +272,5 @@ class SettingsEventHandler {
   }
 }
 
-// 导出类（不自动实例化，由 app.js 控制初始化时机）
-window.SettingsEventHandler = SettingsEventHandler;
+// 导出单例
+window.SettingsEventHandler = new SettingsEventHandler();

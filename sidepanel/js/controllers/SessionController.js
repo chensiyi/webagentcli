@@ -41,7 +41,8 @@ class SessionController {
       console.error('[SessionController] SessionManager not ready');
       return null;
     }
-    // 用户手动点击“新建对话”时，立即持久化
+    // 用户手动点击"新建对话"时，立即持久化
+    // SessionManager.createSession 内部会自动检测模型能力并设置 reasoningEnabled
     return this.manager.createSession({ title, persist: true });
   }
   
@@ -115,7 +116,9 @@ class SessionController {
       console.error('[SessionController] SessionManager not ready');
       return false;
     }
-    return this.manager.deleteMessage(messageId);
+    const result = this.manager.deleteMessage(messageId);
+    console.log('[SessionController] Delete message result:', result, 'for id:', messageId);
+    return result;
   }
   
   /**
@@ -143,6 +146,20 @@ class SessionController {
     }
     console.log('[SessionController] Cleared current session');
     return true;
+  }
+
+  /**
+   * 更新会话（通用）
+   * @param {string} sessionId 
+   * @param {Function} updater - 接收会话对象并执行修改
+   * @returns {boolean}
+   */
+  updateSession(sessionId, updater) {
+    if (!this.manager) {
+      console.error('[SessionController] SessionManager not ready');
+      return false;
+    }
+    return this.manager.updateSession(sessionId, updater);
   }
 }
 

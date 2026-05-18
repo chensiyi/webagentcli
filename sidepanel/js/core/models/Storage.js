@@ -6,6 +6,7 @@
 class StorageModel {
   constructor() {
     this.storage = chrome.storage.local;
+    this.memoryCache = new Map(); // 内存缓存，用于同步读取
   }
 
   /**
@@ -50,6 +51,8 @@ class StorageModel {
   async set(key, value) {
     try {
       await this.storage.set({ [key]: value });
+      // 更新内存缓存
+      this.memoryCache.set(key, value);
     } catch (error) {
       console.error('[StorageModel] Failed to set:', key, error);
       throw error;
@@ -137,7 +140,19 @@ class StorageModel {
       timestamp: Date.now(),
       ttl
     };
-    await this.set(`cache:${key}`, cacheData);
+    const fullKey = `cache:${key}`;
+    
+    // 先更新内存缓存，确保同步读取能立即拿到最新值
+    this.memoryCache.set(fullKey, cacheData);
+    
+    try {
+      await this.storage.set({ [fullKey]: cacheData });
+    } catch (error) {
+      console.error('[StorageModel] Failed to set cache:', key, error);
+      // 如果存储失败，回滚内存缓存
+      this.memoryCache.delete(fullKey);
+      throw error;
+    }
   }
 
   /**
@@ -160,6 +175,51 @@ class StorageModel {
     }
 
     return cacheData.value;
+  }
+
+  /**
+   * 获取缓存（同步版本，读写分离）
+   * @param {string} key - 缓存键
+   * @returns {any|null} 缓存值
+   */
+  getCacheSync(key) {
+    const fullKey = `cache:${key}`;
+    let data = this.memoryCache.get(fullKey);
+
+    // 1. 如果内存缓存存在且有效，直接返回
+    if (data) {
+      if (Date.now() - data.timestamp > data.ttl) {
+        this.memoryCache.delete(fullKey);
+        return null;
+      }
+      return data.value;
+    }
+
+    // 2. 否则从持久化存储中读取并写入缓存
+    // 注意：chrome.storage.local 是异步 API。在同步方法中，我们无法等待结果。
+    // 这里的实现采用“懒加载 + 异步回填”策略：
+    // - 第一次调用：触发异步读取，但立即返回 null。
+    // - 异步回调完成后：更新内存缓存。
+    // - 第二次调用：命中内存缓存，返回实际值。
+    
+    try {
+      this.storage.get([fullKey], (result) => {
+        const storedData = result[fullKey];
+        if (storedData) {
+          // 检查过期
+          if (Date.now() - storedData.timestamp <= storedData.ttl) {
+            this.memoryCache.set(fullKey, storedData);
+          } else {
+            this.memoryCache.delete(fullKey);
+            this.storage.remove([fullKey]); // 异步删除过期缓存
+          }
+        }
+      });
+    } catch (error) {
+      console.error('[StorageModel] Failed to trigger cache load:', key, error);
+    }
+
+    return null;
   }
 
   /**

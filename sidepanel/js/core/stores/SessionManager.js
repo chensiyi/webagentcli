@@ -31,12 +31,46 @@ class SessionManager {
    * @param {Object} options 
    * @param {string} [options.title] - 会话标题
    * @param {boolean} [options.persist=true] - 是否立即持久化
+   * @param {boolean} [options.reasoningEnabled] - 是否开启思考模式（默认根据模型能力决定）
    * @returns {Session} 新创建的会话
    */
   createSession(options = {}) {
+    // 自动检测当前模型是否支持 reasoning
+    let reasoningEnabled = options.reasoningEnabled;
+    if (reasoningEnabled === undefined) {
+      const settings = window.SettingsController ? window.SettingsController.getSettings() : null;
+      if (settings && settings.model) {
+        const cacheKey = `models:${settings.apiEndpoint}`;
+        const cachedModels = window.StorageModel && window.StorageModel.getCacheSync ? 
+          window.StorageModel.getCacheSync(cacheKey) : null;
+        
+        if (cachedModels && Array.isArray(cachedModels)) {
+          const currentModel = cachedModels.find(m => m.id === settings.model);
+          // 使用 Model 对象的方法或 capabilities 字段进行检查
+          if (currentModel) {
+            const supportsReasoning = typeof currentModel.supportsReasoning === 'function' 
+              ? currentModel.supportsReasoning() 
+              : (currentModel.capabilities?.reasoning || currentModel.supports_reasoning);
+            
+            if (supportsReasoning) {
+              reasoningEnabled = true;
+            }
+          }
+        } else {
+          // 如果缓存中没有模型列表，但用户已选择模型，默认认为其支持 Reasoning（符合“默认开启”的设计）
+          reasoningEnabled = true;
+        }
+      } else {
+        // 如果没有设置任何模型，也默认开启
+        reasoningEnabled = true;
+      }
+    }
+
     const session = new Session({
       title: options.title || '新对话',
-      messages: []
+      messages: [],
+      reasoningEnabled: reasoningEnabled,
+      reasoningEffort: 'medium'
     });
       
     this.sessions.set(session.id, session);
@@ -51,7 +85,7 @@ class SessionManager {
     this.eventBus.emit('SESSION_CREATED', { session });
     this.eventBus.emit('CURRENT_SESSION_CHANGED', { sessionId: session.id });
       
-    console.log('[SessionManager] Created session:', session.id);
+    console.log('[SessionManager] Created session:', session.id, 'Reasoning:', reasoningEnabled);
     return session;
   }
 
@@ -70,15 +104,53 @@ class SessionManager {
     const previousId = this.currentSessionId;
     this.currentSessionId = sessionId;
     
+    // 切换会话时，重新评估并同步会话的环境配置（如 Reasoning, Tools 等）
+    this._syncSessionEnvironment(session);
+    
     if (previousId !== sessionId) {
       this.eventBus.emit('CURRENT_SESSION_CHANGED', { 
         sessionId, 
-        previousId 
+        previousId,
+        session: session // 携带会话信息，方便 UI 层直接更新状态
       });
     }
     
     this.eventBus.emit('SESSION_LOADED', { session });
     return session;
+  }
+
+  /**
+   * 同步会话环境配置
+   * 确保会话中的功能开关（如 Reasoning）与当前选定的模型能力相匹配
+   * @param {Session} session 
+   */
+  _syncSessionEnvironment(session) {
+    const settings = window.SettingsController ? window.SettingsController.getSettings() : null;
+    if (!settings || !settings.model) return;
+
+    const cacheKey = `models:${settings.apiEndpoint}`;
+    const cachedModels = window.StorageModel && window.StorageModel.getCacheSync ? 
+      window.StorageModel.getCacheSync(cacheKey) : null;
+    
+    if (!cachedModels || !Array.isArray(cachedModels)) return;
+
+    const currentModel = cachedModels.find(m => m.id === settings.model);
+    if (!currentModel) return;
+
+    // 1. 同步 Reasoning 状态
+    const supportsReasoning = typeof currentModel.supportsReasoning === 'function' 
+      ? currentModel.supportsReasoning() 
+      : (currentModel.capabilities?.reasoning || currentModel.supports_reasoning);
+
+    // 如果模型不支持，强制关闭会话中的 Reasoning 开关
+    if (!supportsReasoning && session.reasoningEnabled) {
+      console.log(`[SessionManager] Model ${settings.model} does not support reasoning. Disabling for session ${session.id}`);
+      session.reasoningEnabled = false;
+      this._saveSessions(); // 持久化变更
+    }
+    
+    // 2. 此处可以扩展其他能力的同步逻辑（如工具调用、多媒体等）
+    // if (!currentModel.capabilities.toolUse && session.toolsEnabled) { ... }
   }
 
   /**
@@ -169,6 +241,28 @@ class SessionManager {
     return true;
   }
 
+  /**
+   * 更新会话（通用）
+   * @param {string} sessionId 
+   * @param {Function} updater - 接收会话对象并执行修改
+   * @returns {boolean}
+   */
+  updateSession(sessionId, updater) {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      console.warn('[SessionManager] Session not found:', sessionId);
+      return false;
+    }
+    
+    updater(session);
+    session.updatedAt = Date.now();
+    session.updated_at = session.updatedAt;
+    
+    this._saveSessions();
+    this.eventBus.emit('SESSION_UPDATED', { session });
+    return true;
+  }
+
   // ==================== 消息管理（委托给 Session）====================
 
   /**
@@ -176,7 +270,7 @@ class SessionManager {
    * @param {Message} message 
    * @returns {boolean}
    */
-  addMessage(message) {
+  async addMessage(message) {
     let session = this.getCurrentSession();
     
     // 如果当前没有会话，则自动创建一个新会话（此时才真正创建）
@@ -187,7 +281,7 @@ class SessionManager {
     session.addMessage(message);
     
     // 持久化：当产生第一条消息时，确保会话被保存
-    this._saveSessions();
+    await this._saveSessions();
     
     // 发布事件
     this.eventBus.emit('MESSAGE_ADDED', { 
@@ -203,7 +297,7 @@ class SessionManager {
    * @param {Array<Message>} messages 
    * @returns {boolean}
    */
-  addMessages(messages) {
+  async addMessages(messages) {
     let session = this.getCurrentSession();
     
     // 如果当前没有会话，则自动创建一个新会话
@@ -214,7 +308,7 @@ class SessionManager {
     messages.forEach(msg => session.addMessage(msg));
     
     // 持久化
-    this._saveSessions();
+    await this._saveSessions();
     
     // 仅在所有消息添加完成后发布一次事件
     this.eventBus.emit('MESSAGES_ADDED', { 
@@ -256,16 +350,22 @@ class SessionManager {
    */
   deleteMessage(messageId) {
     const session = this.getCurrentSession();
-    if (!session) return false;
+    if (!session) {
+      console.warn('[SessionManager] No current session to delete message from');
+      return false;
+    }
     
     // 使用 Session 模型中的 deleteMessage 方法
     const deleted = session.deleteMessage ? session.deleteMessage(messageId) : session.removeMessage(messageId);
     if (deleted) {
+      console.log('[SessionManager] Message deleted successfully:', messageId);
       this._saveSessions();
       this.eventBus.emit('MESSAGE_DELETED', {
         sessionId: session.id,
         messageId
       });
+    } else {
+      console.warn('[SessionManager] Failed to delete message:', messageId, 'not found in session');
     }
     
     return deleted;
@@ -274,29 +374,39 @@ class SessionManager {
   // ==================== 持久化 ====================
 
   /**
+   * 从存储加载会话（返回 Promise 以便外部等待）
+   */
+  loadSessionsFromStorage() {
+    return new Promise((resolve) => {
+      this.storage.get(['sessions', 'currentSessionId'], (data) => {
+        if (data.sessions && Array.isArray(data.sessions)) {
+          // 恢复会话
+          data.sessions.forEach(sessionData => {
+            const session = Session.fromJSON(sessionData);
+            this.sessions.set(session.id, session);
+          });
+          
+          // 恢复当前会话
+          if (data.currentSessionId && this.sessions.has(data.currentSessionId)) {
+            this.currentSessionId = data.currentSessionId;
+          } else if (this.sessions.size > 0) {
+            this.currentSessionId = Array.from(this.sessions.keys())[0];
+          }
+          
+          console.log(`[SessionManager] Loaded ${this.sessions.size} sessions`);
+        }
+        resolve();
+      });
+    });
+  }
+
+  /**
    * 从存储加载会话
    * @private
    */
   _loadSessions() {
-    this.storage.get(['sessions', 'currentSessionId'], (data) => {
-      if (data.sessions && Array.isArray(data.sessions)) {
-        // 恢复会话
-        data.sessions.forEach(sessionData => {
-          const session = Session.fromJSON(sessionData);
-          this.sessions.set(session.id, session);
-        });
-        
-        // 恢复当前会话
-        if (data.currentSessionId && this.sessions.has(data.currentSessionId)) {
-          this.currentSessionId = data.currentSessionId;
-        } else if (this.sessions.size > 0) {
-          this.currentSessionId = Array.from(this.sessions.keys())[0];
-        }
-        
-        console.log(`[SessionManager] Loaded ${this.sessions.size} sessions`);
-      }
-      // 如果没有会话，不再自动创建，等待用户发送第一条消息时再创建
-    });
+    // 保持原有的异步逻辑，用于后台静默刷新或兼容旧调用
+    this.loadSessionsFromStorage();
   }
 
   /**
@@ -319,6 +429,7 @@ class SessionManager {
           }
         });
       });
+      console.log('[SessionManager] Sessions saved to storage');
     } catch (error) {
       console.error('[SessionManager] Failed to save sessions:', error);
     }

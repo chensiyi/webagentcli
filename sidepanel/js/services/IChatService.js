@@ -63,6 +63,15 @@ const IChatService = {
   },
 
   /**
+   * 删除消息（标准交互操作）
+   * @param {string} messageId - 消息 ID
+   * @returns {Promise<void>}
+   */
+  async deleteMessage(messageId) {
+    throw new Error('Method not implemented');
+  },
+
+  /**
    * 确认并删除消息（标准交互操作）
    * @param {string} messageId - 消息 ID
    * @param {Function} onConfirm - 确认后的回调
@@ -71,8 +80,15 @@ const IChatService = {
   confirmDeleteMessage(messageId, onConfirm) {
     // 默认实现：使用 Toast 进行确认
     if (window.Toast && window.Toast.confirm) {
-      window.Toast.confirm('确定要删除这条消息吗？', () => {
-        onConfirm();
+      window.Toast.confirm({
+        message: '确定要删除这条消息吗？',
+        title: '删除确认',
+        onConfirm: () => {
+          console.log('[IChatService] Delete confirmed for:', messageId);
+          if (typeof onConfirm === 'function') {
+            onConfirm();
+          }
+        }
       });
     } else {
       // 降级处理：直接使用浏览器原生 confirm

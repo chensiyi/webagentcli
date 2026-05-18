@@ -10,11 +10,8 @@
     { id: 'settings', icon: '⚙️', label: '设置' }
   ];
   
-  function init() {
+  async function init() {
     console.log('[App] Initializing...');
-    console.log('[App] window.DOM:', typeof window.DOM);
-    console.log('[App] window.Pages:', window.Pages);
-    console.log('[App] Available pages:', Object.keys(window.Pages || {}));
     
     if (!window.DOM || !window.Pages) {
       console.error('[App] DOM or Pages not loaded');
@@ -22,180 +19,157 @@
       return;
     }
     
-    const { create } = window.DOM;
     const root = document.getElementById('root');
     
-    // 初始化 SettingsEventHandler
-    if (window.SettingsEventHandler) {
-      window.settingsEventHandler = new window.SettingsEventHandler();
-      console.log('[App] SettingsEventHandler initialized');
-    }
-    
-    // 初始化 SettingsController 并加载设置
-    if (window.SettingsController) {
-      window.SettingsController.loadSettings().then((settings) => {
-        console.log('[App] Settings loaded:', settings);
-      }).catch(err => {
-        console.error('[App] Failed to load settings:', err);
-      });
-    }
-    
-    // 初始化会话管理器
-    if (window.SessionManager && window.EventBus) {
-      window.sessionManagerInstance = new window.SessionManager(window.EventBus);
-      
-      // 初始化 SessionController
-      if (window.SessionController && window.SessionController.init) {
-        window.SessionController.init();
+    try {
+      // 1. 初始化 SettingsController 并加载设置（同步等待）
+      if (window.SettingsController) {
+        await window.SettingsController.loadSettings();
+        console.log('[App] Settings loaded');
       }
-    }
-    
-    // 初始化聊天服务（从设置中读取配置）
-    if (window.ChatController && window.SettingsController) {
-      // 等待设置加载完成后初始化服务
-      window.SettingsController.loadSettings().then((settings) => {
-        if (settings && settings.apiStandard) {
-          // 直接创建 Service 实例
-          let ServiceClass = null;
-          switch (settings.apiStandard) {
-            case 'openai':
-              ServiceClass = window.OpenAIService;
-              break;
-            case 'openrouter':
-              ServiceClass = window.OpenRouterService;
-              break;
-            case 'lm-studio':
-              ServiceClass = window.LMStudioService;
-              break;
-          }
-          
-          if (!ServiceClass) {
-            console.warn('[App] Unsupported API standard:', settings.apiStandard);
-            return;
-          }
-          
-          const service = new ServiceClass();
-          
-          // 配置服务
-          service.configure({
-            endpoint: settings.apiEndpoint,
-            apiKey: settings.apiKey,
-            defaultModel: settings.model || 'default'
-          });
-          
-          window.ChatController.setService(service);
-          // 将服务挂载到全局，供 UI 层调用标准交互方法
-          window.ChatService = service;
-          console.log('[App] Chat service initialized:', settings.apiStandard);
-        } else {
-          console.warn('[App] No API standard configured, please set it in Settings');
-        }
-      }).catch(err => {
-        console.error('[App] Failed to initialize chat service:', err);
-      });
-    }
-    
-    function render(root) {
-      const contentAreaEl = create('div', { className: 'content-area', id: 'content-area' });
       
-      const app = create('div', { className: 'app-container' }, [
-        create('div', { className: 'main-content' }, [
-          contentAreaEl,
-          createSidebar()
-        ])
+      // 2. 初始化会话管理器并同步加载数据
+      if (window.SessionManager && window.EventBus) {
+        window.sessionManagerInstance = new window.SessionManager(window.EventBus);
+        
+        // 关键：显式等待会话从存储加载完成
+        await window.sessionManagerInstance.loadSessionsFromStorage();
+        
+        if (window.SessionController && window.SessionController.init) {
+          window.SessionController.init();
+        }
+        console.log('[App] SessionManager initialized');
+      }
+      
+      // 3. 通过 ServiceRegistry 注册并初始化聊天服务
+      if (window.ChatController && window.SettingsController && window.ServiceRegistry) {
+        const settings = window.SettingsController.getSettings();
+        if (settings && settings.apiStandard) {
+          try {
+            const service = window.ServiceRegistry.registerChatService(settings.apiStandard, {
+              endpoint: settings.apiEndpoint,
+              apiKey: settings.apiKey,
+              defaultModel: settings.model || 'default'
+            });
+            
+            window.ChatController.setService(service);
+            window.ChatService = service;
+            console.log('[App] Chat service initialized via Registry:', settings.apiStandard);
+          } catch (error) {
+            console.error('[App] Failed to register chat service:', error);
+          }
+        }
+      }
+      
+      // 4. 所有数据就绪后，渲染页面
+      renderPage(root);
+      
+    } catch (err) {
+      console.error('[App] Initialization failed:', err);
+      document.getElementById('root').textContent = 'Error: Initialization failed';
+    }
+  }
+
+  function renderPage(root) {
+    const { create } = window.DOM;
+    const contentAreaEl = create('div', { className: 'content-area', id: 'content-area' });
+    
+    const app = create('div', { className: 'app-container' }, [
+      create('div', { className: 'main-content' }, [
+        contentAreaEl,
+        createSidebar()
+      ])
+    ]);
+    
+    root.innerHTML = '';
+    root.appendChild(app);
+    
+    // 渲染当前页面
+    if (window.Pages && window.Pages[currentPage]) {
+      console.log('[App] Rendering page:', currentPage, 'to container:', contentAreaEl);
+      window.Pages[currentPage](contentAreaEl);
+    } else {
+      console.warn('[App] Page not found:', currentPage, 'Available:', Object.keys(window.Pages || {}));
+    }
+  }
+  
+  function createSidebar() {
+    const { create } = window.DOM;
+    const sidebar = create('div', { className: 'sidebar' });
+    
+    pages.forEach(page => {
+      const btn = create('button', {
+        className: `sidebar-btn ${currentPage === page.id ? 'active' : ''}`,
+        'data-tooltip': page.label,
+        onClick: () => switchPage(page.id)
+      }, [
+        create('span', { className: 'sidebar-btn-icon', text: page.icon })
       ]);
       
-      root.innerHTML = '';
-      root.appendChild(app);
+      // 添加鼠标事件监听器来动态创建tooltip
+      let tooltipElement = null;
       
-      // 渲染当前页面
-      if (window.Pages && window.Pages[currentPage]) {
-        console.log('[App] Rendering page:', currentPage, 'to container:', contentAreaEl);
-        window.Pages[currentPage](contentAreaEl);
-      } else {
-        console.warn('[App] Page not found:', currentPage, 'Available:', Object.keys(window.Pages || {}));
-      }
-    }
-    
-    function createSidebar() {
-      const sidebar = create('div', { className: 'sidebar' });
-      
-      pages.forEach(page => {
-        const btn = create('button', {
-          className: `sidebar-btn ${currentPage === page.id ? 'active' : ''}`,
-          'data-tooltip': page.label,
-          onClick: () => switchPage(page.id)
-        }, [
-          create('span', { className: 'sidebar-btn-icon', text: page.icon })
-        ]);
+      btn.addEventListener('mouseenter', (e) => {
+        // 移除已存在的tooltip
+        if (tooltipElement) {
+          tooltipElement.remove();
+        }
         
-        // 添加鼠标事件监听器来动态创建tooltip
-        let tooltipElement = null;
+        // 创建tooltip元素
+        tooltipElement = document.createElement('div');
+        tooltipElement.className = 'sidebar-tooltip';
+        tooltipElement.textContent = page.label;
+        tooltipElement.style.cssText = `
+          position: fixed;
+          right: 45px;
+          top: ${e.target.getBoundingClientRect().top + e.target.getBoundingClientRect().height / 2}px;
+          transform: translateY(-50%);
+          padding: 6px 10px;
+          background: var(--color-surface);
+          color: var(--color-text);
+          font-size: 12px;
+          font-weight: 500;
+          white-space: nowrap;
+          border-radius: 6px;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+          border: 1px solid var(--color-border);
+          z-index: 999999;
+          pointer-events: none;
+          animation: tooltipFadeIn 0.15s ease;
+        `;
         
-        btn.addEventListener('mouseenter', (e) => {
-          // 移除已存在的tooltip
-          if (tooltipElement) {
-            tooltipElement.remove();
-          }
-          
-          // 创建tooltip元素
-          tooltipElement = document.createElement('div');
-          tooltipElement.className = 'sidebar-tooltip';
-          tooltipElement.textContent = page.label;
-          tooltipElement.style.cssText = `
-            position: fixed;
-            right: 45px;
-            top: ${e.target.getBoundingClientRect().top + e.target.getBoundingClientRect().height / 2}px;
-            transform: translateY(-50%);
-            padding: 6px 10px;
-            background: var(--color-surface);
-            color: var(--color-text);
-            font-size: 12px;
-            font-weight: 500;
-            white-space: nowrap;
-            border-radius: 6px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-            border: 1px solid var(--color-border);
-            z-index: 999999;
-            pointer-events: none;
-            animation: tooltipFadeIn 0.15s ease;
-          `;
-          
-          document.body.appendChild(tooltipElement);
-        });
-        
-        btn.addEventListener('mouseleave', () => {
-          if (tooltipElement) {
-            tooltipElement.remove();
-            tooltipElement = null;
-          }
-        });
-        
-        sidebar.appendChild(btn);
+        document.body.appendChild(tooltipElement);
       });
       
-      return sidebar;
-    }
-    
-    function switchPage(pageId) {
-      console.log('[App] Switching to page:', pageId);
-      console.log('[App] Page function:', window.Pages[pageId]);
+      btn.addEventListener('mouseleave', () => {
+        if (tooltipElement) {
+          tooltipElement.remove();
+          tooltipElement = null;
+        }
+      });
       
-      // 清除所有tooltip
-      const tooltips = document.querySelectorAll('.sidebar-tooltip');
-      tooltips.forEach(tooltip => tooltip.remove());
-      
-      currentPage = pageId;
-      render(document.getElementById('root'));
-    }
+      sidebar.appendChild(btn);
+    });
     
-    // 暴露 navigateTo 方法
-    window.App = {
-      navigateTo: switchPage
-    };
-    
-    render(root);
+    return sidebar;
   }
+  
+  function switchPage(pageId) {
+    console.log('[App] Switching to page:', pageId);
+    console.log('[App] Page function:', window.Pages[pageId]);
+    
+    // 清除所有tooltip
+    const tooltips = document.querySelectorAll('.sidebar-tooltip');
+    tooltips.forEach(tooltip => tooltip.remove());
+    
+    currentPage = pageId;
+    renderPage(document.getElementById('root'));
+  }
+  
+  // 暴露 navigateTo 方法
+  window.App = {
+    navigateTo: switchPage
+  };
   
   window.addEventListener('load', init);
 })();

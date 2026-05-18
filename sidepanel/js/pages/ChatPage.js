@@ -111,25 +111,110 @@ window.Pages.chat = function(container) {
    */
   function createMessageBubble(msg) {
     const isUser = msg.role === 'user';
+    const hasReasoning = msg.reasoning_content && msg.reasoning_content.trim();
+    
+    // 构建消息主体内容
+    const bodyChildren = [
+      create('div', { 
+        className: 'message-role',
+        style: { 
+          fontWeight: 'bold', 
+          marginBottom: '6px',
+          fontSize: '14px'
+        },
+        text: isUser ? '用户' : 'AI 助手'
+      })
+    ];
+    
+    // 如果有思考内容，添加可折叠的思考区域
+    if (!isUser && hasReasoning) {
+      let isExpanded = false;
+      
+      const reasoningContainer = create('div', { 
+        className: 'message-reasoning',
+        style: {
+          marginBottom: '8px',
+          cursor: 'pointer'
+        }
+      });
+      
+      // 思考区域头部（始终显示）
+      const reasoningHeader = create('div', {
+        style: {
+          fontSize: '12px',
+          color: '#888',
+          padding: '8px',
+          background: '#f5f5f5',
+          borderRadius: '6px',
+          borderLeft: '3px solid #667eea',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }
+      }, [
+        create('span', {
+          text: '💭 思考过程'
+        }),
+        create('span', {
+          className: 'reasoning-toggle',
+          text: '▼',
+          style: {
+            fontSize: '10px',
+            transition: 'transform 0.2s'
+          }
+        })
+      ]);
+      
+      // 思考内容（默认隐藏）
+      const reasoningContent = create('div', {
+        className: 'reasoning-content',
+        style: {
+          display: 'none',
+          fontSize: '12px',
+          color: '#666',
+          padding: '8px',
+          background: '#fafafa',
+          borderRadius: '0 0 6px 6px',
+          borderLeft: '3px solid #667eea',
+          marginTop: '-1px',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word'
+        },
+        text: msg.reasoning_content
+      });
+      
+      reasoningContainer.appendChild(reasoningHeader);
+      reasoningContainer.appendChild(reasoningContent);
+      
+      // 点击切换展开/折叠
+      reasoningHeader.addEventListener('click', (e) => {
+        e.stopPropagation();
+        isExpanded = !isExpanded;
+        
+        if (isExpanded) {
+          reasoningContent.style.display = 'block';
+          reasoningHeader.querySelector('.reasoning-toggle').style.transform = 'rotate(180deg)';
+        } else {
+          reasoningContent.style.display = 'none';
+          reasoningHeader.querySelector('.reasoning-toggle').style.transform = 'rotate(0deg)';
+        }
+      });
+      
+      bodyChildren.push(reasoningContainer);
+    }
+    
+    // 添加主要内容区域
+    bodyChildren.push(create('div', { 
+      className: 'message-content',
+      text: msg.content || ''
+    }));
     
     const bubble = create('div', {
       className: `message-bubble message-${msg.role}`,
-      attrs: { 'data-message-id': msg.id }  // 添加消息 ID 用于流式更新
+      attrs: { 'data-message-id': msg.id },  // 添加消息 ID 用于流式更新
+      style: { position: 'relative' }  // 关键：为绝对定位的子元素提供定位上下文
     }, [
-      create('div', { 
-        className: 'message-avatar',
-        text: isUser ? '' : '🤖'
-      }),
-      create('div', { className: 'message-body' }, [
-        create('div', { 
-          className: 'message-role',
-          text: isUser ? '用户' : 'AI 助手'
-        }),
-        create('div', { 
-          className: 'message-content',
-          text: msg.content || ''
-        })
-      ])
+      create('div', { className: 'message-body' }, bodyChildren)
     ]);
 
     // 添加删除按钮（默认隐藏，鼠标悬停显示）
@@ -138,25 +223,48 @@ window.Pages.chat = function(container) {
       text: '×',
       style: {
         position: 'absolute',
-        top: '4px',
-        right: '4px',
-        background: 'transparent',
-        border: 'none',
-        color: '#999',
-        fontSize: '16px',
+        top: '6px',
+        right: '6px',
+        background: 'rgba(255, 255, 255, 0.9)',
+        border: '1px solid #ddd',
+        borderRadius: '50%',
+        width: '20px',
+        height: '20px',
+        color: '#d9534f',
+        fontSize: '14px',
+        fontWeight: 'bold',
         cursor: 'pointer',
         opacity: '0',
-        transition: 'opacity 0.2s',
-        padding: '0 4px',
+        zIndex: '10',
+        transition: 'all 0.2s',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '0',
         lineHeight: '1'
       },
-      onMouseEnter: (e) => e.target.style.opacity = '1',
-      onMouseLeave: (e) => e.target.style.opacity = '0',
-      onClick: () => {
-        if (window.ChatService) {
+      onMouseEnter: (e) => {
+        e.target.style.opacity = '1';
+        e.target.style.background = '#d9534f';
+        e.target.style.color = '#fff';
+        e.target.style.borderColor = '#d9534f';
+      },
+      onMouseLeave: (e) => {
+        e.target.style.opacity = '0';
+        e.target.style.background = 'rgba(255, 255, 255, 0.9)';
+        e.target.style.color = '#d9534f';
+        e.target.style.borderColor = '#ddd';
+      },
+      onClick: (e) => {
+        e.stopPropagation();
+        // 通过 ChatService 实例调用交互接口，保持页面与底层实现的解耦
+        if (window.ChatService && typeof window.ChatService.confirmDeleteMessage === 'function') {
           window.ChatService.confirmDeleteMessage(msg.id, () => {
+            console.log('[ChatPage] Executing delete for:', msg.id);
             sessionController.deleteMessage(msg.id);
           });
+        } else {
+          console.error('[ChatPage] confirmDeleteMessage not found on ChatService');
         }
       }
     });
@@ -293,12 +401,19 @@ window.Pages.chat = function(container) {
     const cachedModels = window.StorageModel.getCacheSync ? 
       window.StorageModel.getCacheSync(cacheKey) : null;
     
-    if (!cachedModels || !Array.isArray(cachedModels)) return false;
+    if (!cachedModels || !Array.isArray(cachedModels)) {
+      // 如果缓存还没加载出来，默认认为支持（因为 Model 原型默认开启）
+      return true;
+    }
     
     const currentModel = cachedModels.find(m => m.id === settings.model);
-    if (!currentModel) return false;
+    if (!currentModel) return true; // 没找到具体模型信息时，也默认支持
     
-    return currentModel.supports_reasoning === true;
+    // 兼容 Model 对象的方法调用和旧版字段
+    if (typeof currentModel.supportsReasoning === 'function') {
+      return currentModel.supportsReasoning();
+    }
+    return currentModel.capabilities?.reasoning !== false && currentModel.supports_reasoning !== false;
   }
 
   /**

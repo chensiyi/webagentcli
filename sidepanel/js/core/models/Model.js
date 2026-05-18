@@ -64,7 +64,7 @@ class Model {
       vision: false,
       toolUse: true,
       streaming: true,
-      reasoning: false,
+      reasoning: true, // 默认开启思考能力
       jsonMode: false,
       ...capabilities
     };
@@ -147,6 +147,13 @@ class Model {
    */
   supportsJsonMode() {
     return this.capabilities.jsonMode;
+  }
+
+  /**
+   * 检查是否支持思考/推理过程
+   */
+  supportsReasoning() {
+    return this.capabilities.reasoning;
   }
 
   /**

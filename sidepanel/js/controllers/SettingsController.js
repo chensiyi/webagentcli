@@ -53,6 +53,11 @@ class SettingsController {
     
     // 重新配置 ChatService
     this._reconfigureChatService();
+    
+    // 如果切换了 API 标准，清除模型缓存
+    if (updates.apiStandard) {
+      this._reconfigureModelManager();
+    }
   }
   
   /**
@@ -110,6 +115,23 @@ class SettingsController {
   }
   
   /**
+   * 重新配置模型管理器
+   */
+  _reconfigureModelManager() {
+    if (!window.ModelManager) {
+      console.warn('[SettingsController] ModelManager not available');
+      return;
+    }
+    
+    const settings = this.settings.toJSON();
+    
+    // 清除旧的模型缓存（因为 API 标准变了）
+    window.ModelManager.clearCache();
+    
+    console.log('[SettingsController] ModelManager cache cleared for new API standard:', settings.apiStandard);
+  }
+  
+  /**
    * 处理 API 标准变更
    */
   _handleApiStandardChange(data) {
@@ -118,11 +140,32 @@ class SettingsController {
     // 自动填充默认端点
     const defaultEndpoint = window.Settings.getDefaultEndpoint(apiStandard);
     
-    // 发布端点变更事件
+    // 保存通用参数（temperature, maxTokens, systemPrompt 等）
+    const preservedParams = {
+      temperature: this.settings.temperature,
+      maxTokens: this.settings.maxTokens,
+      systemPrompt: this.settings.systemPrompt,
+      autoContextTruncation: this.settings.autoContextTruncation
+    };
+    
+    // 更新内部设置对象
+    this.settings.apiStandard = apiStandard;
+    this.settings.apiEndpoint = defaultEndpoint;
+    
+    // 恢复通用参数（确保不被重置）
+    Object.assign(this.settings, preservedParams);
+    
+    // 发布端点变更事件（通知 UI 更新输入框）
     this.eventBus.emit(window.Events.SETTINGS.API_ENDPOINT_CHANGED, {
       apiStandard,
       endpoint: defaultEndpoint,
       isAutoFilled: true
+    });
+    
+    // 同时发布设置更新事件，确保其他模块（如 ChatService）也能感知到变化
+    this.eventBus.emit(window.Events.SETTINGS.UPDATED, {
+      updates: { apiStandard, apiEndpoint: defaultEndpoint, ...preservedParams },
+      newSettings: this.settings.toJSON()
     });
     
     console.log('[SettingsController] API standard changed:', apiStandard, '-> endpoint:', defaultEndpoint);
@@ -219,6 +262,12 @@ class SettingsController {
   updateSettings(updates) {
     const oldSettings = { ...this.settings.toJSON() };
     
+    console.log('[SettingsController] Updating settings:', {
+      apiStandard: updates.apiStandard,
+      apiEndpoint: updates.apiEndpoint,
+      model: updates.model
+    });
+    
     // 更新设置
     Object.assign(this.settings, updates);
     
@@ -232,7 +281,7 @@ class SettingsController {
     // 保存到存储
     this.saveSettings();
     
-    console.log('[SettingsController] Settings updated:', updates);
+    console.log('[SettingsController] Settings updated and save initiated');
   }
   
   /**
@@ -242,11 +291,12 @@ class SettingsController {
     return new Promise((resolve, reject) => {
       chrome.storage.local.set({ [this.storageKey]: this.settings.toJSON() }, () => {
         if (chrome.runtime.lastError) {
+          console.error('[SettingsController] Failed to save settings:', chrome.runtime.lastError);
           reject(chrome.runtime.lastError);
           return;
         }
         
-        console.log('[SettingsController] Settings saved');
+        console.log('[SettingsController] Settings saved successfully to chrome.storage.local');
         
         // 发布保存事件
         this.eventBus.emit(window.Events.SETTINGS.SAVED, {

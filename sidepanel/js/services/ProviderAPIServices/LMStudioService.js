@@ -32,6 +32,15 @@ class LMStudioService {
     const cleanBase = this.config.endpoint.replace(/\/$/, '');
     const cleanPath = path.startsWith('/') ? path : `/${path}`;
     
+    // LM Studio 支持两种 API 模式：
+    // 1. /api/v1/chat - LM Studio 专有格式（简化版）
+    // 2. /v1/chat/completions - OpenAI 兼容格式（推荐用于多轮对话）
+    
+    if (path === '/chat') {
+      // 使用 OpenAI 兼容端点
+      return `${cleanBase}/v1/chat/completions`;
+    }
+    
     if (cleanBase.includes('/api/v1')) {
       return `${cleanBase}${cleanPath}`;
     }
@@ -52,35 +61,21 @@ class LMStudioService {
    * 格式化消息
    */
   formatMessages(messages) {
-    return messages.map(msg => {
-      const formatted = {
-        role: msg.role,
-        content: msg.content
-      };
-      
-      if (msg.tool_calls && msg.tool_calls.length > 0) {
-        formatted.tool_calls = msg.tool_calls;
-      }
-      
-      if (msg.role === 'tool' && msg.tool_call_id) {
-        formatted.tool_call_id = msg.tool_call_id;
-      }
-      
-      if (msg.name) {
-        formatted.name = msg.name;
-      }
-      
-      return formatted;
-    });
+    // 使用 OpenAI 兼容格式：messages 数组，每个元素包含 role 和 content
+    return messages.map(msg => ({
+      role: msg.role,
+      content: msg.content || ''
+    }));
   }
 
   /**
    * 构建请求体
    */
   buildRequestBody(params) {
+    // 使用 OpenAI 兼容格式
     const baseBody = {
       model: params.model || this.config.defaultModel,
-      input: this.formatMessages(params.messages || []),
+      messages: this.formatMessages(params.messages || []),
       stream: params.stream ?? false
     };
     
@@ -89,15 +84,25 @@ class LMStudioService {
     }
     
     if (params.maxTokens) {
-      baseBody.max_output_tokens = params.maxTokens;
+      baseBody.max_tokens = params.maxTokens;
     }
     
     if (params.top_p !== undefined) {
       baseBody.top_p = params.top_p;
     }
     
-    if (params.systemPrompt) {
-      baseBody.system_prompt = params.systemPrompt;
+    // 支持推理/思考模式 - 根据 LM Studio 文档
+    // reasoning 字段可以是: "off" | "low" | "medium" | "high" | "on"
+    if (params.reasoningEnabled !== undefined) {
+      if (params.reasoningEnabled === true) {
+        // 如果启用了推理，优先使用 reasoningEffort，否则默认为 "medium"
+        baseBody.reasoning = params.reasoningEffort || 'medium';
+      } else {
+        baseBody.reasoning = 'off';
+      }
+    } else if (params.reasoningEffort) {
+      // 如果没有明确启用，但设置了 effort，也视为启用
+      baseBody.reasoning = params.reasoningEffort;
     }
     
     return baseBody;
@@ -107,6 +112,7 @@ class LMStudioService {
    * 解析响应
    */
   parseResponse(data) {
+    // LM Studio v1 API 格式：output 数组包含不同类型的输出项
     if (data.output && Array.isArray(data.output)) {
       const messageOutput = data.output.find(item => item.type === 'message');
       const reasoningOutputs = data.output.filter(item => item.type === 'reasoning');
@@ -128,17 +134,20 @@ class LMStudioService {
         usage: data.stats ? {
           prompt_tokens: data.stats.input_tokens,
           completion_tokens: data.stats.total_output_tokens,
-          total_tokens: data.stats.input_tokens + data.stats.total_output_tokens
+          total_tokens: data.stats.input_tokens + data.stats.total_output_tokens,
+          reasoning_tokens: data.stats.reasoning_output_tokens || 0
         } : undefined,
         model: data.model_instance_id,
         response_id: data.response_id
       };
     }
     
+    // OpenAI 兼容格式
     if (data.choices && data.choices.length > 0) {
       const choice = data.choices[0];
       return {
         content: choice.message.content,
+        reasoning_content: choice.message.reasoning_content || '',
         role: choice.message.role,
         toolCalls: choice.message.tool_calls || [],
         finishReason: choice.finish_reason,
@@ -154,6 +163,7 @@ class LMStudioService {
    * 解析流式片段
    */
   parseStreamChunk(data) {
+    // LM Studio v1 API 流式格式
     if (data.type && data.output !== undefined) {
       switch (data.type) {
         case 'chunk':
@@ -165,6 +175,7 @@ class LMStudioService {
             finishReason: data.finish_reason || null
           };
         case 'reasoning_chunk':
+          // 专门的推理内容块
           return {
             content: '',
             reasoning_content: data.output || '',
@@ -186,6 +197,7 @@ class LMStudioService {
       }
     }
     
+    // OpenAI 兼容流式格式
     if (data.choices && data.choices.length > 0) {
       const choice = data.choices[0];
       if (!choice || !choice.delta) return null;

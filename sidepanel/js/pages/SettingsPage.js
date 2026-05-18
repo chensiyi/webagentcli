@@ -16,6 +16,9 @@ window.Pages.settings = function(container) {
   let currentSettings = null; // 从 Controller 加载的设置
   let cachedModels = []; // 缓存的模型列表
   let currentSettingsUI = null; // 当前 Provider 的 SettingsUI 实例
+  
+  // 暴露 currentSettings 给 EventHandler 访问
+  window.Pages.settings.currentSettings = null;
 
   /**
    * 渲染设置页面
@@ -28,6 +31,8 @@ window.Pages.settings = function(container) {
       const settings = window.SettingsController.getSettings();
       if (settings) {
         currentSettings = settings.toJSON ? settings.toJSON() : settings;
+        // 同步到暴露的属性
+        window.Pages.settings.currentSettings = currentSettings;
       }
     }
     
@@ -83,11 +88,14 @@ window.Pages.settings = function(container) {
     
     container.appendChild(page);
     
-    // 填充表单数据
+    // 填充表单数据 - 确保 DOM 元素已经插入
     if (currentSettings) {
-      fillForm(currentSettings);
-      // 渲染 Provider 特定配置
-      renderProviderConfig();
+      // 使用 requestAnimationFrame 确保 DOM 已完全渲染
+      requestAnimationFrame(() => {
+        fillForm(currentSettings);
+        // 渲染 Provider 特定配置
+        renderProviderConfig();
+      });
     }
     
     // 绑定模型下拉列表事件
@@ -138,7 +146,7 @@ window.Pages.settings = function(container) {
       text: `${currentSettingsUI.getProviderName()} 配置`
     }));
     
-    // 渲染配置项
+    // 渲染配置项 - 使用标准 ISettings 接口
     const configGroup = create('div', { className: 'setting-group' });
     currentSettingsUI.render(configGroup, currentSettings, (key, value) => {
       updateSettingField(key, value);
@@ -349,17 +357,30 @@ window.Pages.settings = function(container) {
       currentSettings = {};
     }
     
-    currentSettings.apiStandard = apiStandard;
+    console.log('[SettingsPage] API standard change requested:', apiStandard);
+    console.log('[SettingsPage] Current settings before change:', { 
+      apiStandard: currentSettings.apiStandard,
+      apiEndpoint: currentSettings.apiEndpoint,
+      temperature: currentSettings.temperature,
+      maxTokens: currentSettings.maxTokens
+    });
+    
+    // 注意：这里不直接修改 currentSettings，而是通过事件让 Controller 处理
+    // Controller 会：
+    // 1. 更新内部 settings 对象（包括 apiStandard, apiEndpoint）
+    // 2. 保留通用参数（temperature, maxTokens 等）
+    // 3. 发布 API_ENDPOINT_CHANGED 事件
+    // EventHandler 会监听该事件并：
+    // 1. 更新 window.Pages.settings.currentSettings
+    // 2. 调用 rerenderProviderConfig() 重绘 UI
     
     // 发布 API 标准变更事件
     eventBus.emit(window.Events.SETTINGS.API_STANDARD_CHANGED, {
       apiStandard
     });
     
-    // 重新渲染 Provider 配置
-    setTimeout(() => {
-      renderProviderConfig();
-    }, 0);
+    // 不需要在这里手动重绘，EventHandler 会自动处理
+    console.log('[SettingsPage] API standard change event emitted, waiting for EventHandler to update UI');
   }
 
   /**
@@ -429,7 +450,16 @@ window.Pages.settings = function(container) {
    * 请求加载模型（通过 EventBus）
    */
   function requestLoadModels() {
-    if (!currentSettings) return;
+    if (!currentSettings) {
+      console.error('[SettingsPage] currentSettings is null, cannot load models');
+      return;
+    }
+    
+    console.log('[SettingsPage] requestLoadModels - current settings:', {
+      apiStandard: currentSettings.apiStandard,
+      apiEndpoint: currentSettings.apiEndpoint,
+      windowCurrentSettings: window.Pages.settings.currentSettings
+    });
     
     // 发布模型加载请求事件
     eventBus.emit(window.Events.SETTINGS.MODELS_REQUEST, {
@@ -456,7 +486,19 @@ window.Pages.settings = function(container) {
    * 处理保存设置
    */
   function handleSaveSettings() {
-    if (!currentSettings) return;
+    console.log('[SettingsPage] handleSaveSettings called, currentSettings:', currentSettings);
+    
+    if (!currentSettings) {
+      console.error('[SettingsPage] currentSettings is null, cannot save');
+      window.Toast?.error('设置数据未加载，请稍后重试');
+      return;
+    }
+    
+    console.log('[SettingsPage] Emitting SAVE_REQUEST event with settings:', {
+      apiStandard: currentSettings.apiStandard,
+      apiEndpoint: currentSettings.apiEndpoint,
+      model: currentSettings.model
+    });
     
     // 发布保存请求事件
     eventBus.emit(window.Events.SETTINGS.SAVE_REQUEST, {
@@ -469,6 +511,8 @@ window.Pages.settings = function(container) {
    */
   function fillForm(settings) {
     currentSettings = settings;
+    // 同步到暴露的属性
+    window.Pages.settings.currentSettings = currentSettings;
     
     const apiStandardSelect = document.getElementById('api-standard-select');
     const modelSearch = document.getElementById('model-search');

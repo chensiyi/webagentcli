@@ -38,9 +38,11 @@ class ChatEventHandler {
     // 监听 SessionManager 发出的消息更新事件
     this.eventBus.on('MESSAGE_UPDATED', (data) => {
       console.log('[ChatEventHandler] MESSAGE_UPDATED from SessionManager:', data);
-      // 更新 UI 中的消息内容
       if (data.message) {
         this._updateMessageContent(data.message.id, data.message.content);
+        if (data.message.reasoning_content) {
+          this._updateMessageReasoning(data.message.id, data.message.reasoning_content);
+        }
       }
     });
     
@@ -160,27 +162,93 @@ class ChatEventHandler {
   }
 
   /**
+   * 获取或创建思考容器
+   */
+  _getOrCreateReasoningContainer(messageElement) {
+    let reasoningContainer = messageElement.querySelector('.message-reasoning');
+    if (!reasoningContainer) {
+      const messageBody = messageElement.querySelector('.message-body');
+      const roleEl = messageElement.querySelector('.message-role');
+      if (messageBody && roleEl) {
+        reasoningContainer = document.createElement('div');
+        reasoningContainer.className = 'message-reasoning';
+        reasoningContainer.style.cssText = 'margin-bottom: 8px; cursor: pointer;';
+          
+        const reasoningHeader = document.createElement('div');
+        reasoningHeader.style.cssText = `
+          font-size: 12px; color: #888; padding: 8px; background: #f5f5f5;
+          border-radius: 6px; border-left: 3px solid #667eea;
+          display: flex; justify-content: space-between; align-items: center;
+        `;
+          
+        const titleSpan = document.createElement('span');
+        titleSpan.textContent = '💭 思考过程';
+          
+        const toggleSpan = document.createElement('span');
+        toggleSpan.className = 'reasoning-toggle';
+        toggleSpan.textContent = '▼';
+        toggleSpan.style.cssText = 'font-size: 10px; transition: transform 0.2s;';
+          
+        reasoningHeader.appendChild(titleSpan);
+        reasoningHeader.appendChild(toggleSpan);
+          
+        const reasoningContent = document.createElement('div');
+        reasoningContent.className = 'reasoning-content';
+        reasoningContent.style.cssText = `
+          display: block; font-size: 12px; color: #666; padding: 8px;
+          background: #fafafa; border-radius: 0 0 6px 6px;
+          border-left: 3px solid #667eea; margin-top: -1px;
+          white-space: pre-wrap; word-break: break-word;
+        `;
+          
+        reasoningContainer.appendChild(reasoningHeader);
+        reasoningContainer.appendChild(reasoningContent);
+        messageBody.insertBefore(reasoningContainer, roleEl.nextSibling);
+          
+        let isExpanded = true;
+        reasoningHeader.addEventListener('click', (e) => {
+          e.stopPropagation();
+          isExpanded = !isExpanded;
+          reasoningContent.style.display = isExpanded ? 'block' : 'none';
+          toggleSpan.style.transform = isExpanded ? 'rotate(180deg)' : 'rotate(0deg)';
+        });
+      }
+    }
+    return reasoningContainer;
+  }
+  
+  /**
+   * 更新消息推理内容
+   */
+  _updateMessageReasoning(messageId, content) {
+    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
+    if (!messageElement) return;
+  
+    const container = this._getOrCreateReasoningContainer(messageElement);
+    if (container) {
+      const contentEl = container.querySelector('.reasoning-content');
+      if (contentEl) {
+        contentEl.textContent = content;
+        const messageList = document.getElementById('message-list');
+        if (messageList) messageList.scrollTop = messageList.scrollHeight;
+      }
+    }
+  }
+  
+  /**
    * 处理流式推理内容更新
    */
   _handleStreamReasoning(data) {
     const { messageId, reasoning_content } = data;
-    console.log('[ChatEventHandler] Stream reasoning:', messageId, reasoning_content);
-    
-    // 这里可以扩展：在 UI 中显示“思考中...”或折叠的思考过程
-    // 目前先只记录到模型对象中，后续可以在气泡中增加一个专门的区域来展示
     const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
     if (messageElement) {
-      // 示例：在 role 标签后添加一个思考指示器
-      let thinkingIndicator = messageElement.querySelector('.thinking-indicator');
-      if (!thinkingIndicator) {
-        const roleEl = messageElement.querySelector('.message-role');
-        if (roleEl) {
-          thinkingIndicator = document.createElement('span');
-          thinkingIndicator.className = 'thinking-indicator';
-          thinkingIndicator.textContent = ' 💭 思考中...';
-          thinkingIndicator.style.fontSize = '12px';
-          thinkingIndicator.style.color = '#888';
-          roleEl.appendChild(thinkingIndicator);
+      const container = this._getOrCreateReasoningContainer(messageElement);
+      if (container) {
+        const contentEl = container.querySelector('.reasoning-content');
+        if (contentEl) {
+          contentEl.textContent += reasoning_content;
+          const messageList = document.getElementById('message-list');
+          if (messageList) messageList.scrollTop = messageList.scrollHeight;
         }
       }
     }

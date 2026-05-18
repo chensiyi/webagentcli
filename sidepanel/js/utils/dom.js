@@ -13,6 +13,16 @@ window.DOM = {
     if (options.text) el.textContent = options.text;
     if (options.html) el.innerHTML = options.html;
     
+    // 处理 value 属性（对 input/select 有效）
+    if (options.value !== undefined && options.value !== null) {
+      if (tag === 'textarea') {
+        // textarea 需要设置 textContent
+        el.textContent = options.value;
+      } else {
+        el.value = options.value;
+      }
+    }
+    
     Object.entries(options.attrs || {}).forEach(([k, v]) => {
       if (v !== undefined && v !== null) el.setAttribute(k, v);
     });

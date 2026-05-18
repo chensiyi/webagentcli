@@ -99,9 +99,10 @@ class SettingsPage_Base extends window.ISettings {
         className: 'input',
         attrs: { 
           type: 'password', 
-          placeholder: '输入 API Key' 
+          placeholder: '输入 API Key（保密内容不显示）' 
         },
-        value: settings.apiKey || '',
+        // 注意：不填充已保存的 API Key，保护隐私
+        value: '',
         onInput: (e) => onUpdate('apiKey', e.target.value)
       })
     ]);

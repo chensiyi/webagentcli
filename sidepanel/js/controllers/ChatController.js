@@ -59,10 +59,12 @@ class ChatController {
       throw new Error('Message queue is busy');
     }
     
+    let assistantMsg = null;
+    
     try {
       // 1. & 2. 批量创建用户消息和助手消息，避免触发多次渲染
       const userMsg = new window.Message({ role: 'user', content: content });
-      const assistantMsg = new window.Message({ role: 'assistant', content: '' });
+      assistantMsg = new window.Message({ role: 'assistant', content: '' });
       
       this.sessionController.addMessages([userMsg, assistantMsg]);
       
@@ -143,7 +145,15 @@ class ChatController {
       
       return { success: true, message: assistantMsg };
     } catch (error) {
-      // 异常：从队列移除
+      // 异常：更新助手消息显示错误信息
+      if (assistantMsg) {
+        assistantMsg.content = `❌ 发送失败: ${error.message}`;
+        this.sessionController.updateMessage(assistantMsg.id, (msg) => { 
+          msg.content = assistantMsg.content; 
+        });
+      }
+      
+      // 从队列移除
       this.messageQueue = this.messageQueue.filter(item => item.id !== (assistantMsg?.id));
       
       // 通过 IChatService 接口处理流式错误

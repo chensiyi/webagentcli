@@ -20,36 +20,14 @@ class SettingsPage_LMStudio extends window.SettingsPage_Base {
       model: '',
       temperature: 0.7,
       maxTokens: 4000,
-      systemPrompt: '',
-      contextWindow: 8192
+      systemPrompt: ''
+      // 注意：LM Studio 使用标准的 maxTokens 参数，不需要额外的 contextWindow
     };
   }
 
   renderExtraConfig(container, settings, onUpdate) {
-    const { create } = window.DOM;
-    
-    container.appendChild(create('label', { 
-      className: 'setting-label', 
-      text: '上下文窗口大小' 
-    }));
-    
-    container.appendChild(create('input', {
-      className: 'input',
-      attrs: { 
-        type: 'number', 
-        min: '512', 
-        max: '32768',
-        step: '512'
-      },
-      value: settings.contextWindow || 8192,
-      onInput: (e) => onUpdate('contextWindow', parseInt(e.target.value))
-    }));
-    
-    container.appendChild(create('p', {
-      className: 'setting-hint',
-      style: { fontSize: '12px', color: 'var(--color-text-secondary)', marginTop: '4px' },
-      text: 'LM Studio 本地运行的上下文窗口大小（tokens）'
-    }));
+    // LM Studio 不需要额外配置，所有参数都通过基类提供
+    // 如果需要添加 LM Studio 特有的配置（如 GPU 层数、量化等），可以在这里扩展
   }
 }
 
