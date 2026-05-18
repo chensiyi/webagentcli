@@ -319,3 +319,8 @@ class OpenAIService {
 }
 
 window.OpenAIService = OpenAIService;
+
+// 自注册到 ServiceRegistry
+if (window.ServiceRegistry) {
+  window.ServiceRegistry.registerProvider('openai', OpenAIService);
+}

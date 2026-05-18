@@ -6,38 +6,43 @@
  */
 
 const ServiceRegistry = {
-  // 存储已注册的服务实例
+  // 存储服务类映射: providerId -> ServiceClass
+  _registry: new Map(),
+  // 存储已实例化的服务对象: serviceName -> instance
   _services: {},
 
   /**
-   * 注册并初始化聊天服务
-   * @param {string} provider - 服务提供商标识 (openai, lm-studio, etc.)
-   * @param {Object} config - 服务配置参数
-   * @returns {Object} 装配完成的服务实例
+   * 注册服务提供者（由开发者在各自的服务文件中调用）
+   * @param {string} providerId - 唯一标识 (e.g., 'openai', 'lm-studio')
+   * @param {Function} ServiceClass - 服务构造函数
    */
-  registerChatService(provider, config) {
-    console.log('[ServiceRegistry] Registering chat service:', provider);
-
-    let ServiceClass = null;
-    switch (provider) {
-      case 'openai': ServiceClass = window.OpenAIService; break;
-      case 'openrouter': ServiceClass = window.OpenRouterService; break;
-      case 'lm-studio': ServiceClass = window.LMStudioService; break;
-      default: throw new Error(`Unknown provider: ${provider}`);
+  registerProvider(providerId, ServiceClass) {
+    if (this._registry.has(providerId)) {
+      console.warn(`[ServiceRegistry] Provider '${providerId}' already registered, overwriting.`);
     }
+    this._registry.set(providerId, ServiceClass);
+    console.log(`[ServiceRegistry] Provider registered: ${providerId}`);
+  },
 
+  /**
+   * 注册并初始化聊天服务
+   * @param {string} providerId - 已注册的提供商标识
+   * @param {Object} config - 服务配置参数
+   * @returns {Object} 原始的服务实例（仅包含 API 能力）
+   */
+  registerChatService(providerId, config) {
+    console.log('[ServiceRegistry] Instantiating chat service:', providerId);
+
+    const ServiceClass = this._registry.get(providerId);
     if (!ServiceClass) {
-      throw new Error(`Service class not found for provider: ${provider}`);
+      throw new Error(`Unknown provider: '${providerId}'. Did you call registerProvider?`);
     }
 
     // 1. 实例化具体服务
     const serviceInstance = new ServiceClass();
     serviceInstance.configure(config);
 
-    // 2. 装配标准交互能力 (Mixin IChatService UI Logic)
-    this._mixinStandardCapabilities(serviceInstance);
-
-    // 3. 缓存实例
+    // 2. 缓存实例
     this._services.chat = serviceInstance;
 
     return serviceInstance;
@@ -50,24 +55,6 @@ const ServiceRegistry = {
    */
   getService(name) {
     return this._services[name] || null;
-  },
-
-  /**
-   * 为服务实例混入标准的 UI 交互方法
-   * @param {Object} serviceInstance - 目标服务实例
-   */
-  _mixinStandardCapabilities(serviceInstance) {
-    if (!window.IChatService) return;
-
-    // 将 IChatService 中的通用交互逻辑绑定到当前实例
-    Object.assign(serviceInstance, {
-      handleStreamReasoning: window.IChatService.handleStreamReasoning.bind(window.IChatService),
-      handleStreamStart: window.IChatService.handleStreamStart.bind(window.IChatService),
-      handleStreamUpdate: window.IChatService.handleStreamUpdate.bind(window.IChatService),
-      handleStreamComplete: window.IChatService.handleStreamComplete.bind(window.IChatService),
-      handleStreamError: window.IChatService.handleStreamError.bind(window.IChatService),
-      confirmDeleteMessage: window.IChatService.confirmDeleteMessage.bind(window.IChatService)
-    });
   }
 };
 

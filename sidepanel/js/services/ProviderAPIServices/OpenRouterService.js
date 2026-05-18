@@ -178,3 +178,8 @@ class OpenRouterService extends OpenAIService {
 }
 
 window.OpenRouterService = OpenRouterService;
+
+// 自注册到 ServiceRegistry
+if (window.ServiceRegistry) {
+  window.ServiceRegistry.registerProvider('openrouter', OpenRouterService);
+}

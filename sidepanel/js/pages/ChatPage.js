@@ -130,56 +130,20 @@ window.Pages.chat = function(container) {
     if (!isUser && hasReasoning) {
       let isExpanded = false;
       
-      const reasoningContainer = create('div', { 
-        className: 'message-reasoning',
-        style: {
-          marginBottom: '8px',
-          cursor: 'pointer'
-        }
-      });
+      const reasoningContainer = create('div', { className: 'message-reasoning' });
       
       // 思考区域头部（始终显示）
       const reasoningHeader = create('div', {
-        style: {
-          fontSize: '12px',
-          color: '#888',
-          padding: '8px',
-          background: '#f5f5f5',
-          borderRadius: '6px',
-          borderLeft: '3px solid #667eea',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center'
-        }
+        className: 'reasoning-header'
       }, [
-        create('span', {
-          text: '💭 思考过程'
-        }),
-        create('span', {
-          className: 'reasoning-toggle',
-          text: '▼',
-          style: {
-            fontSize: '10px',
-            transition: 'transform 0.2s'
-          }
-        })
+        create('span', { text: '💭 思考过程' }),
+        create('span', { className: 'reasoning-toggle', text: '▼' })
       ]);
       
       // 思考内容（默认隐藏）
       const reasoningContent = create('div', {
         className: 'reasoning-content',
-        style: {
-          display: 'none',
-          fontSize: '12px',
-          color: '#666',
-          padding: '8px',
-          background: '#fafafa',
-          borderRadius: '0 0 6px 6px',
-          borderLeft: '3px solid #667eea',
-          marginTop: '-1px',
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word'
-        },
+        style: { display: 'none' },
         text: msg.reasoning_content
       });
       
@@ -211,8 +175,7 @@ window.Pages.chat = function(container) {
     
     const bubble = create('div', {
       className: `message-bubble message-${msg.role}`,
-      attrs: { 'data-message-id': msg.id },  // 添加消息 ID 用于流式更新
-      style: { position: 'relative' }  // 关键：为绝对定位的子元素提供定位上下文
+      attrs: { 'data-message-id': msg.id }
     }, [
       create('div', { className: 'message-body' }, bodyChildren)
     ]);
@@ -221,43 +184,10 @@ window.Pages.chat = function(container) {
     const deleteBtn = create('button', {
       className: 'message-delete-btn',
       text: '×',
-      style: {
-        position: 'absolute',
-        top: '6px',
-        right: '6px',
-        background: 'rgba(255, 255, 255, 0.9)',
-        border: '1px solid #ddd',
-        borderRadius: '50%',
-        width: '20px',
-        height: '20px',
-        color: '#d9534f',
-        fontSize: '14px',
-        fontWeight: 'bold',
-        cursor: 'pointer',
-        opacity: '0',
-        zIndex: '10',
-        transition: 'all 0.2s',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '0',
-        lineHeight: '1'
-      },
-      onMouseEnter: (e) => {
-        e.target.style.opacity = '1';
-        e.target.style.background = '#d9534f';
-        e.target.style.color = '#fff';
-        e.target.style.borderColor = '#d9534f';
-      },
-      onMouseLeave: (e) => {
-        e.target.style.opacity = '0';
-        e.target.style.background = 'rgba(255, 255, 255, 0.9)';
-        e.target.style.color = '#d9534f';
-        e.target.style.borderColor = '#ddd';
-      },
+      onMouseEnter: (e) => e.target.style.opacity = '1',
+      onMouseLeave: (e) => e.target.style.opacity = '0',
       onClick: (e) => {
         e.stopPropagation();
-        // 通过 ChatService 实例调用交互接口，保持页面与底层实现的解耦
         if (window.ChatService && typeof window.ChatService.confirmDeleteMessage === 'function') {
           window.ChatService.confirmDeleteMessage(msg.id, () => {
             console.log('[ChatPage] Executing delete for:', msg.id);

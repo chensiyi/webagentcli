@@ -46,15 +46,37 @@
         const settings = window.SettingsController.getSettings();
         if (settings && settings.apiStandard) {
           try {
-            const service = window.ServiceRegistry.registerChatService(settings.apiStandard, {
+            // 获取原始的 API 服务实例
+            const apiService = window.ServiceRegistry.registerChatService(settings.apiStandard, {
               endpoint: settings.apiEndpoint,
               apiKey: settings.apiKey,
               defaultModel: settings.model || 'default'
             });
             
-            window.ChatController.setService(service);
-            window.ChatService = service;
-            console.log('[App] Chat service initialized via Registry:', settings.apiStandard);
+            // 封装：创建一个包含 UI 交互能力的完整 ChatService
+            const chatServiceFacade = {
+              // 转发底层 API 能力
+              configure: apiService.configure.bind(apiService),
+              chat: apiService.chat.bind(apiService),
+              chatStream: apiService.chatStream.bind(apiService),
+              cancel: apiService.cancel.bind(apiService),
+              listModels: apiService.listModels ? apiService.listModels.bind(apiService) : undefined,
+              getModelDetails: apiService.getModelDetails ? apiService.getModelDetails.bind(apiService) : undefined,
+              
+              // 混入标准的 UI 交互逻辑（来自 IChatService）
+              ...(window.IChatService ? {
+                confirmDeleteMessage: window.IChatService.confirmDeleteMessage.bind(window.IChatService),
+                handleStreamStart: window.IChatService.handleStreamStart.bind(window.IChatService),
+                handleStreamUpdate: window.IChatService.handleStreamUpdate.bind(window.IChatService),
+                handleStreamReasoning: window.IChatService.handleStreamReasoning.bind(window.IChatService),
+                handleStreamComplete: window.IChatService.handleStreamComplete.bind(window.IChatService),
+                handleStreamError: window.IChatService.handleStreamError.bind(window.IChatService)
+              } : {})
+            };
+            
+            window.ChatController.setService(chatServiceFacade);
+            window.ChatService = chatServiceFacade;
+            console.log('[App] Chat service facade initialized:', settings.apiStandard);
           } catch (error) {
             console.error('[App] Failed to register chat service:', error);
           }

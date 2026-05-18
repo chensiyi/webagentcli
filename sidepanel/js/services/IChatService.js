@@ -85,16 +85,11 @@ const IChatService = {
         title: '删除确认',
         onConfirm: () => {
           console.log('[IChatService] Delete confirmed for:', messageId);
-          if (typeof onConfirm === 'function') {
-            onConfirm();
-          }
+          if (typeof onConfirm === 'function') onConfirm();
         }
       });
-    } else {
-      // 降级处理：直接使用浏览器原生 confirm
-      if (confirm('确定要删除这条消息吗？')) {
-        onConfirm();
-      }
+    } else if (confirm('确定要删除这条消息吗？')) {
+      onConfirm();
     }
   },
 

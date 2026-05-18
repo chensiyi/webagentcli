@@ -1,5 +1,114 @@
 /* ==================== 聊天相关组件 ==================== */
 
+/* 消息气泡删除按钮（公共组件） */
+.message-delete-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  color: var(--color-danger);
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  opacity: 0;
+  z-index: 10;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
+}
+
+.message-delete-btn:hover {
+  background: var(--color-danger);
+  color: white;
+  border-color: var(--color-danger);
+}
+
+[data-theme="dark"] .message-delete-btn {
+  background: rgba(30, 30, 30, 0.9);
+}
+
+/* 消息气泡容器 */
+.message-bubble {
+  position: relative;
+  margin-bottom: 16px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--color-surface);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  max-width: 85%;
+  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+.message-bubble.message-user {
+  margin-left: auto;
+  background: var(--color-primary-light);
+  border: 1px solid var(--color-primary);
+}
+
+.message-bubble.message-assistant {
+  margin-right: auto;
+}
+
+/* 消息主体内容区域 */
+.message-body {
+  position: relative;
+  padding: 8px 0;
+}
+
+/* 思考过程容器 */
+.message-reasoning {
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+
+/* 思考过程头部（标题栏） */
+.reasoning-header {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  padding: 8px;
+  background: var(--color-surface);
+  border-radius: 6px;
+  border-left: 3px solid var(--color-primary);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.reasoning-header:hover {
+  background: var(--color-border);
+}
+
+/* 思考过程内容区域 */
+.reasoning-content {
+  font-size: 12px;
+  color: var(--color-text);
+  padding: 8px;
+  background: var(--color-bg);
+  border-radius: 0 0 6px 6px;
+  border-left: 3px solid var(--color-primary);
+  margin-top: -1px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+/* 思考过程展开/收起按钮 */
+.reasoning-toggle {
+  font-size: 10px;
+  transition: transform 0.2s;
+}
+
 /* RAG 组件样式 */
 .rag-sources-container,
 .rag-context-container,

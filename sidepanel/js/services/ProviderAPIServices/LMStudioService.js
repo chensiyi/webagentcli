@@ -429,3 +429,8 @@ class LMStudioService {
 }
 
 window.LMStudioService = LMStudioService;
+
+// 自注册到 ServiceRegistry
+if (window.ServiceRegistry) {
+  window.ServiceRegistry.registerProvider('lm-studio', LMStudioService);
+}
