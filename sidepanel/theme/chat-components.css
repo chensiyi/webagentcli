@@ -38,7 +38,7 @@
 .message-bubble {
   position: relative;
   margin-bottom: 16px;
-  padding: 12px;
+  padding: 12px 16px;
   border-radius: 12px;
   background: var(--color-surface);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
@@ -53,10 +53,17 @@
   margin-left: auto;
   background: var(--color-primary-light);
   border: 1px solid var(--color-primary);
+  color: var(--color-text);
+}
+
+.message-bubble.message-user .message-content,
+.message-bubble.message-user .message-role {
+  color: var(--color-text) !important;
 }
 
 .message-bubble.message-assistant {
   margin-right: auto;
+  border: 1px solid var(--color-border);
 }
 
 /* 消息主体内容区域 */
@@ -91,7 +98,7 @@
 /* 思考过程内容区域 */
 .reasoning-content {
   font-size: 12px;
-  color: var(--color-text);
+  color: var(--color-text-secondary);
   padding: 8px;
   background: var(--color-bg);
   border-radius: 0 0 6px 6px;

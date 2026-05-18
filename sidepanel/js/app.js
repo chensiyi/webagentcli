@@ -41,44 +41,22 @@
         console.log('[App] SessionManager initialized');
       }
       
-      // 3. 通过 ServiceRegistry 注册并初始化聊天服务
-      if (window.ChatController && window.SettingsController && window.ServiceRegistry) {
+      // 3. 通过 ServiceCenter 初始化聊天服务
+      if (window.ChatController && window.SettingsController && window.ServiceCenter) {
         const settings = window.SettingsController.getSettings();
         if (settings && settings.apiStandard) {
           try {
-            // 获取原始的 API 服务实例
-            const apiService = window.ServiceRegistry.registerChatService(settings.apiStandard, {
+            const chatService = window.ServiceCenter.createChatService(settings.apiStandard, {
               endpoint: settings.apiEndpoint,
               apiKey: settings.apiKey,
               defaultModel: settings.model || 'default'
             });
             
-            // 封装：创建一个包含 UI 交互能力的完整 ChatService
-            const chatServiceFacade = {
-              // 转发底层 API 能力
-              configure: apiService.configure.bind(apiService),
-              chat: apiService.chat.bind(apiService),
-              chatStream: apiService.chatStream.bind(apiService),
-              cancel: apiService.cancel.bind(apiService),
-              listModels: apiService.listModels ? apiService.listModels.bind(apiService) : undefined,
-              getModelDetails: apiService.getModelDetails ? apiService.getModelDetails.bind(apiService) : undefined,
-              
-              // 混入标准的 UI 交互逻辑（来自 IChatService）
-              ...(window.IChatService ? {
-                confirmDeleteMessage: window.IChatService.confirmDeleteMessage.bind(window.IChatService),
-                handleStreamStart: window.IChatService.handleStreamStart.bind(window.IChatService),
-                handleStreamUpdate: window.IChatService.handleStreamUpdate.bind(window.IChatService),
-                handleStreamReasoning: window.IChatService.handleStreamReasoning.bind(window.IChatService),
-                handleStreamComplete: window.IChatService.handleStreamComplete.bind(window.IChatService),
-                handleStreamError: window.IChatService.handleStreamError.bind(window.IChatService)
-              } : {})
-            };
-            
-            window.ChatController.setService(chatServiceFacade);
-            window.ChatService = chatServiceFacade;
-            console.log('[App] Chat service facade initialized:', settings.apiStandard);
+            window.ChatController.setService(chatService);
+            window.ChatService = chatService;
+            console.log('[App] Chat service initialized via ServiceCenter:', settings.apiStandard);
           } catch (error) {
-            console.error('[App] Failed to register chat service:', error);
+            console.error('[App] Failed to initialize chat service:', error);
           }
         }
       }

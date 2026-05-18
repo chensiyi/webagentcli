@@ -34,7 +34,7 @@ window.Pages.chat = function(container) {
       headerActions.push(create('button', {
         className: `btn ${currentSession.reasoningEnabled ? 'btn-primary' : 'btn-secondary'}`,
         style: { marginRight: '8px' },
-        text: currentSession.reasoningEnabled ? '💭 思考中' : '💭 思考',
+        text: currentSession.reasoningEnabled ? 'thinkOn' : 'thinkOff',
         onClick: () => toggleReasoning()
       }));
     }
@@ -114,17 +114,7 @@ window.Pages.chat = function(container) {
     const hasReasoning = msg.reasoning_content && msg.reasoning_content.trim();
     
     // 构建消息主体内容
-    const bodyChildren = [
-      create('div', { 
-        className: 'message-role',
-        style: { 
-          fontWeight: 'bold', 
-          marginBottom: '6px',
-          fontSize: '14px'
-        },
-        text: isUser ? '用户' : 'AI 助手'
-      })
-    ];
+    const bodyChildren = [];
     
     // 如果有思考内容，添加可折叠的思考区域
     if (!isUser && hasReasoning) {
