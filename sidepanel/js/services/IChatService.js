@@ -99,6 +99,8 @@ const IChatService = {
    */
   handleStreamStart(data) {
     console.log('[IChatService] Stream started:', data.messageId);
+    console.log('[IChatService] window.ChatEventHandler exists:', !!window.ChatEventHandler);
+    console.log('[IChatService] _handleStreamStart method exists:', !!window.ChatEventHandler?._handleStreamStart);
     // 默认实现：触发 UI 状态变更
     if (window.ChatEventHandler) {
       window.ChatEventHandler._handleStreamStart(data);
