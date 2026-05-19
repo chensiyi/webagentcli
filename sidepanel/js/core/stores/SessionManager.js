@@ -341,8 +341,8 @@ class SessionManager {
       return false;
     }
     
-    // 使用 Session 模型中的 deleteMessage 方法
-    const deleted = session.deleteMessage ? session.deleteMessage(messageId) : session.removeMessage(messageId);
+    // 使用 Session 模型中的 removeMessage 方法
+    const deleted = session.removeMessage(messageId);
     if (deleted) {
       console.log('[SessionManager] Message deleted successfully:', messageId);
       this._saveSessions();

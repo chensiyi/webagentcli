@@ -116,7 +116,7 @@ class SessionController {
       console.error('[SessionController] SessionManager not ready');
       return false;
     }
-    const result = this.manager.deleteMessage(messageId);
+    const result = this.manager.removeMessage(messageId);
     console.log('[SessionController] Delete message result:', result, 'for id:', messageId);
     return result;
   }

@@ -113,8 +113,7 @@
 | 方法 | 参数 | 返回 | 说明 |
 |------|------|------|------|
 | `addMessage(msg)` | Message | - | 添加消息 |
-| `deleteMessage(id)` | string | boolean | 删除消息 |
-| `removeMessage(id)` | string | boolean | 删除消息（别名） |
+| `removeMessage(id)` | string | boolean | 删除消息 |
 | `updateMessage(id, updater)` | string, Function | boolean | 更新消息 |
 | `getLastMessage()` | - | Message\|null | 获取最后一条消息 |
 | `clearMessages()` | - | - | 清空所有消息 |
