@@ -13,7 +13,8 @@ const Events = {
     
     // 流式请求
     STREAM_START: 'chat:streamStart',          // 流式请求开始
-    STREAM_UPDATE: 'chat:streamUpdate',        // 流式内容更新
+    STREAM_CHUNK_APPEND: 'chat:streamChunkAppend', // 流式分片追加
+    STREAM_UPDATE: 'chat:streamUpdate',        // 流式内容更新（已废弃）
     STREAM_COMPLETE: 'chat:streamComplete',    // 流式请求完成
     STREAM_ERROR: 'chat:streamError',          // 流式请求出错
     STREAM_STOP: 'chat:streamStop',            // 用户停止生成
@@ -100,6 +101,13 @@ const MessageFormats = {
     message: 'Message对象',
     content: 'string - 新增的文本内容',
     reasoning_content: 'string - 推理内容（可选）'
+  },
+  
+  // 流式分片追加
+  STREAM_CHUNK_APPEND: {
+    messageId: 'string - 消息ID',
+    content: 'string - 分片内容（可能为空）',
+    reasoning_content: 'string - 推理分片内容（可能为空）'
   },
   
   // 流式完成
