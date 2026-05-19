@@ -418,6 +418,18 @@ window.Pages.chat = function(container) {
         if (sendBtnElement) sendBtnElement.style.display = hasActive ? 'none' : 'inline-block';
         if (stopBtnElement) stopBtnElement.style.display = hasActive ? 'inline-block' : 'none';
         console.log('[ChatPage] Buttons updated - sendBtn.display:', sendBtnElement?.style.display, 'stopBtn.display:', stopBtnElement?.style.display);
+        
+        // 额外调试信息
+        if (stopBtnElement) {
+          console.log('[ChatPage] Stop button details:', {
+            element: stopBtnElement,
+            inDOM: document.contains(stopBtnElement),
+            computedDisplay: getComputedStyle(stopBtnElement).display,
+            offsetWidth: stopBtnElement.offsetWidth,
+            offsetHeight: stopBtnElement.offsetHeight,
+            parentElement: stopBtnElement.parentElement
+          });
+        }
       });
     }
       
