@@ -306,18 +306,9 @@ class ChatEventHandler {
     const { message, duration } = data;
     console.log('[ChatEventHandler] Stream completed:', duration ? `${duration}ms` : '');
     
-    // ChatController 已经通知了状态变更
-    // 这里不需要额外处理
-    
-    // 保存最终消息到 SessionManager（流式过程中已增量更新 UI）
-    if (message) {
-      if (window.sessionController) {
-        window.sessionController.updateMessage(message.id, (msg) => {
-          msg.content = message.content;
-          msg.reasoning_content = message.reasoning_content;
-        });
-      }
-    }
+    // ChatController 已经通过 streamChunkMessage 持久化了所有内容
+    // 这里不需要再次保存，只需要通知 UI 更新按钮状态
+    // ChatController 已经通知了 ACTIVITY_STATE_CHANGED
   }
   
   /**

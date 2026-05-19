@@ -95,12 +95,6 @@ class ChatController {
       // 5. 开始流式请求
       queueItem.status = 'streaming';
       
-      console.log('[ChatController] Before handleStreamStart:', {
-        hasCurrentService: !!this.currentService,
-        hasHandleStreamStart: !!this.currentService?.handleStreamStart,
-        messageId: assistantMsg.id
-      });
-      
       // 通过 IChatService 接口触发 UI 交互
       if (this.currentService.handleStreamStart) {
         this.currentService.handleStreamStart({ messageId: assistantMsg.id });
@@ -113,8 +107,7 @@ class ChatController {
           // 更新推理内容
           if (chunk.reasoning_content) {
             assistantMsg.reasoning_content += chunk.reasoning_content;
-            
-            // 流式分片持久化（追加模式）
+            // 流式分片持久化（追加模式，不触发事件通知）
             this.sessionController.streamChunkMessage(assistantMsg.id, {
               reasoning_content: chunk.reasoning_content
             });
@@ -132,7 +125,7 @@ class ChatController {
           if (chunk.content) {
             assistantMsg.content += chunk.content;
             
-            // 流式分片持久化（追加模式）
+            // 流式分片持久化（追加模式，不触发事件通知）
             this.sessionController.streamChunkMessage(assistantMsg.id, {
               content: chunk.content
             });
