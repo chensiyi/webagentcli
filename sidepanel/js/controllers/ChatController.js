@@ -104,37 +104,12 @@ class ChatController {
       await this.currentService.chatStream(
         params,
         (chunk) => {          
-          // 更新推理内容
-          if (chunk.reasoning_content) {
-            // 流式分片持久化（追加模式，不触发事件通知）
-            this.sessionController.streamChunkMessage(assistantMsg.id, {
-              reasoning_content: chunk.reasoning_content
-            });
-            
-            // 通过 IChatService 接口处理流式推理更新（增量追加）
-            if (this.currentService.handleStreamReasoning) {
-              this.currentService.handleStreamReasoning({ 
-                messageId: assistantMsg.id,
-                reasoning_content: chunk.reasoning_content
-              });
-            }
-          }
-
-          // 更新最终回复内容
-          if (chunk.content) {
-            // 流式分片持久化（追加模式，不触发事件通知）
-            this.sessionController.streamChunkMessage(assistantMsg.id, {
-              content: chunk.content
-            });
-            
-            // 通过 IChatService 接口处理流式内容更新
-            if (this.currentService.handleStreamUpdate) {
-              this.currentService.handleStreamUpdate({ 
-                messageId: assistantMsg.id,
-                content: chunk.content
-              });
-            }
-          }
+          // 直接抛出流式分片追加事件
+          this.eventBus.emit(Events.CHAT.STREAM_CHUNK_APPEND, {
+            messageId: assistantMsg.id,
+            content: chunk.content || '',
+            reasoning_content: chunk.reasoning_content || ''
+          });
         },
         () => {
           // 完成：从队列移除

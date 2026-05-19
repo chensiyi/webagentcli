@@ -77,9 +77,14 @@ class ChatEventHandler {
       this._handleStreamStart(data);
     });
     
-    // 监听流式更新（实时文本更新）
-    this.eventBus.on(window.Events.CHAT.STREAM_UPDATE, (data) => {
-      this._handleStreamUpdate(data);
+    // 监听流式更新（实时文本更新）- 已废弃，改用 STREAM_CHUNK_APPEND
+    // this.eventBus.on(window.Events.CHAT.STREAM_UPDATE, (data) => {
+    //   this._handleStreamUpdate(data);
+    // });
+    
+    // 监听流式分片追加事件
+    this.eventBus.on(window.Events.CHAT.STREAM_CHUNK_APPEND, (data) => {
+      this._handleStreamChunkAppend(data);
     });
     
     // 监听流式请求完成
@@ -182,7 +187,32 @@ class ChatEventHandler {
   }
   
   /**
-   * 处理流式更新（实时文本更新）
+   * 处理流式分片追加（统一处理数据持久化和 UI 更新）
+   */
+  _handleStreamChunkAppend(data) {
+    const { messageId, content, reasoning_content } = data;
+    
+    // 1. 持久化到 SessionManager（分片追加模式）
+    if (window.sessionController) {
+      window.sessionController.streamChunkMessage(messageId, {
+        content: content,
+        reasoning_content: reasoning_content
+      });
+    }
+    
+    // 2. 更新 UI - 推理内容
+    if (reasoning_content) {
+      this._handleStreamReasoning({ messageId, reasoning_content });
+    }
+    
+    // 3. 更新 UI - 最终回复内容
+    if (content) {
+      this._updateMessageContent(messageId, content, true); // true 表示追加模式
+    }
+  }
+  
+  /**
+   * 处理流式更新（实时文本更新）- 已废弃，改用 _handleStreamChunkAppend
    */
   _handleStreamUpdate(data) {
     const { messageId, content } = data;
