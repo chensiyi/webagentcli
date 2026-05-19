@@ -32,7 +32,7 @@ window.Pages.chat = function(container) {
     
     // Reasoning 模式切换按钮（仅当模型支持时显示）
     const modelSupportsReasoning = checkModelSupportsReasoning();
-    if (currentSession && modelSupportsReasoning) {
+    if (modelSupportsReasoning) {
       const reasoningButtonContainer = create('div', {
         className: 'reasoning-control',
         style: { position: 'relative', display: 'inline-block' }
@@ -66,14 +66,14 @@ window.Pages.chat = function(container) {
       
       efforts.forEach(effort => {
         const option = create('div', {
-          className: `effort-option ${currentSession.reasoningEffort === effort.value ? 'active' : ''}`,
+          className: `effort-option ${(!currentSession || currentSession.reasoningEffort === effort.value) ? 'active' : ''}`,
           style: {
             padding: '6px 12px',
             cursor: 'pointer',
             borderRadius: '4px',
             marginBottom: '4px',
-            background: currentSession.reasoningEffort === effort.value ? 'var(--primary-color, #4CAF50)' : 'transparent',
-            color: currentSession.reasoningEffort === effort.value ? '#fff' : 'inherit',
+            background: (!currentSession || currentSession.reasoningEffort === effort.value) ? 'var(--primary-color, #4CAF50)' : 'transparent',
+            color: (!currentSession || currentSession.reasoningEffort === effort.value) ? '#fff' : 'inherit',
             textAlign: 'center',
             fontSize: '13px'
           },
@@ -86,12 +86,12 @@ window.Pages.chat = function(container) {
         
         // 悬停效果
         option.addEventListener('mouseenter', () => {
-          if (currentSession.reasoningEffort !== effort.value) {
+          if (!currentSession || currentSession.reasoningEffort !== effort.value) {
             option.style.background = 'rgba(255, 255, 255, 0.1)';
           }
         });
         option.addEventListener('mouseleave', () => {
-          if (currentSession.reasoningEffort !== effort.value) {
+          if (!currentSession || currentSession.reasoningEffort !== effort.value) {
             option.style.background = 'transparent';
           }
         });
@@ -100,10 +100,11 @@ window.Pages.chat = function(container) {
       });
       
       // 主按钮
+      const reasoningEnabled = currentSession ? currentSession.reasoningEnabled : true; // 默认开启
       const reasoningBtn = create('button', {
-        className: `btn ${currentSession.reasoningEnabled ? 'btn-primary' : 'btn-secondary'}`,
+        className: `btn ${reasoningEnabled ? 'btn-primary' : 'btn-secondary'}`,
         style: { marginRight: '8px' },
-        text: currentSession.reasoningEnabled ? 'think💡' : 'think',
+        text: reasoningEnabled ? 'think💡' : 'think',
         onClick: () => toggleReasoning()
       });
       
@@ -131,7 +132,8 @@ window.Pages.chat = function(container) {
         e.preventDefault();
         e.stopPropagation();
         
-        const currentIndex = efforts.findIndex(eff => eff.value === currentSession.reasoningEffort);
+        const currentEffort = currentSession ? currentSession.reasoningEffort : 'medium';
+        const currentIndex = efforts.findIndex(eff => eff.value === currentEffort);
         let newIndex;
         
         if (e.deltaY < 0) {
