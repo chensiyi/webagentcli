@@ -159,15 +159,8 @@ class SessionManager {
    */
   getCurrentSession() {
     if (!this.currentSessionId) {
-      // 如果没有当前会话，尝试获取第一个会话
-      const firstSessionId = Array.from(this.sessions.keys())[0];
-      if (firstSessionId) {
-        this.currentSessionId = firstSessionId;
-        console.log('[SessionManager] Auto-switched to first session:', firstSessionId);
-      } else {
-        // 如果没有任何会话，返回 null，等待第一条消息触发创建
-        return null;
-      }
+      // 如果没有当前会话，返回 null，等待第一条消息触发创建
+      return null;
     }
     
     return this.sessions.get(this.currentSessionId) || null;
