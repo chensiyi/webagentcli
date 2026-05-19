@@ -103,13 +103,6 @@ const IChatService = {
     if (window.ChatEventHandler) {
       window.ChatEventHandler._handleStreamStart(data);
     }
-    
-    // 立即更新按钮状态（确保在 render() 之后也能正确显示）
-    const sendBtn = document.getElementById('send-btn');
-    const stopBtn = document.getElementById('stop-btn');
-    if (sendBtn) sendBtn.style.display = 'none';
-    if (stopBtn) stopBtn.style.display = 'inline-block';
-    console.log('[IChatService] Buttons updated immediately - sendBtn:', sendBtn?.style.display, 'stopBtn:', stopBtn?.style.display);
   },
 
   /**

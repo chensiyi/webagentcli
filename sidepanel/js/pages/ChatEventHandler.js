@@ -148,8 +148,13 @@ class ChatEventHandler {
    */
   _handleStreamStart(data) {
     console.log('[ChatEventHandler] Stream started');
-    // ChatController 已经通知了状态变更
-    // 这里不需要额外处理
+    
+    // 立即更新按钮状态（防止 render() 后按钮状态不正确）
+    const sendBtn = document.getElementById('send-btn');
+    const stopBtn = document.getElementById('stop-btn');
+    if (sendBtn) sendBtn.style.display = 'none';
+    if (stopBtn) stopBtn.style.display = 'inline-block';
+    console.log('[ChatEventHandler] Buttons updated - sendBtn:', sendBtn?.style.display, 'stopBtn:', stopBtn?.style.display);
   }
   
   /**
