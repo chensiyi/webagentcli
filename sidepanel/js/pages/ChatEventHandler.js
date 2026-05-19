@@ -32,6 +32,15 @@ class ChatEventHandler {
       // 业务层如果依赖这个消息，可以订阅处理；如果不依赖，可以不订阅
       if (window.Pages && window.Pages.chat) {
         window.Pages.chat.render();
+        
+        // 渲染后检查是否有活动任务，如果有则恢复按钮状态
+        if (window.ChatController && window.ChatController.hasActiveActivities()) {
+          const sendBtn = document.getElementById('send-btn');
+          const stopBtn = document.getElementById('stop-btn');
+          if (sendBtn) sendBtn.style.display = 'none';
+          if (stopBtn) stopBtn.style.display = 'inline-block';
+          console.log('[ChatEventHandler] Buttons restored after render - hasActive:', true);
+        }
       }
     });
     
