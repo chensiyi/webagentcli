@@ -343,10 +343,9 @@ class SessionManager {
    * 更新消息
    * @param {string} messageId 
    * @param {Function} updater 
-   * @param {boolean} skipEvent - 是否跳过事件通知（流式更新时为 true）
    * @returns {boolean}
    */
-  updateMessage(messageId, updater, skipEvent = false) {
+  updateMessage(messageId, updater) {
     const session = this.getCurrentSession();
     if (!session) return false;
     
@@ -354,14 +353,12 @@ class SessionManager {
     if (updated) {
       this._saveSessions();
       
-      // 如果不是流式更新，才发出事件通知
-      if (!skipEvent) {
-        const updatedMessage = session.messages.find(m => m.id === messageId);
-        this.eventBus.emit('MESSAGE_UPDATED', {
-          sessionId: session.id,
-          message: updatedMessage
-        });
-      }
+      // 发出事件通知
+      const updatedMessage = session.messages.find(m => m.id === messageId);
+      this.eventBus.emit('MESSAGE_UPDATED', {
+        sessionId: session.id,
+        message: updatedMessage
+      });
     }
     
     return updated;
