@@ -203,7 +203,14 @@ window.Pages.chat = function(container) {
       list.appendChild(createEmptyState());
     } else {
       messages.forEach((msg, index) => {
-        console.log('[ChatPage] Rendering message', index + 1, '/', messages.length, '- Role:', msg.role);
+        console.log('[ChatPage] Rendering message', index + 1, '/', messages.length, '- Role:', msg.role, '- ID:', msg.id);
+        console.log('[ChatPage] Message object details:', {
+          id: msg.id,
+          contentLength: msg.content?.length || 0,
+          reasoningLength: msg.reasoning_content?.length || 0,
+          contentPreview: msg.content?.substring(0, 50) || '(empty)',
+          reasoningPreview: msg.reasoning_content?.substring(0, 50) || '(empty)'
+        });
         const bubble = createMessageBubble(msg);
         list.appendChild(bubble);
       });
