@@ -35,16 +35,18 @@ class ChatEventHandler {
       }
     });
     
-    // 监听 SessionManager 发出的消息更新事件
-    this.eventBus.on('MESSAGE_UPDATED', (data) => {
-      console.log('[ChatEventHandler] MESSAGE_UPDATED from SessionManager:', data);
-      if (data.message) {
-        this._updateMessageContent(data.message.id, data.message.content);
-        if (data.message.reasoning_content) {
-          this._updateMessageReasoning(data.message.id, data.message.reasoning_content);
-        }
-      }
-    });
+    // 监听 SessionManager 发出的消息更新事件（已禁用，避免与流式更新冲突）
+    // ChatEventHandler 通过 STREAM_UPDATE 和 STREAM_REASONING 事件处理流式更新
+    // ChatController 通过 sessionController.updateMessage 持久化，但不触发 UI 更新
+    // this.eventBus.on('MESSAGE_UPDATED', (data) => {
+    //   console.log('[ChatEventHandler] MESSAGE_UPDATED from SessionManager:', data);
+    //   if (data.message) {
+    //     this._updateMessageContent(data.message.id, data.message.content);
+    //     if (data.message.reasoning_content) {
+    //       this._updateMessageReasoning(data.message.id, data.message.reasoning_content);
+    //     }
+    //   }
+    // });
     
     // 监听旧的事件（保持兼容）
     this.eventBus.on(window.Events.CHAT.MESSAGE_ADDED, (data) => {
@@ -136,8 +138,9 @@ class ChatEventHandler {
    */
   _handleActivityStateChanged(data) {
     console.log('[ChatEventHandler] Activity state changed:', data);
-    // 动态更新按钮状态
-    this._updateSendButtonState(!data.hasActive);
+    // ChatController 已经通过 EventBus 发送了 ACTIVITY_STATE_CHANGED 事件
+    // ChatPage 会直接监听该事件来更新按钮状态
+    // 这里不需要额外处理
   }
   
   /**
@@ -145,9 +148,8 @@ class ChatEventHandler {
    */
   _handleStreamStart(data) {
     console.log('[ChatEventHandler] Stream started');
-    
-    // 更新发送按钮状态
-    this._updateSendButtonState(false);
+    // ChatController 已经通知了状态变更
+    // 这里不需要额外处理
   }
   
   /**
@@ -300,8 +302,8 @@ class ChatEventHandler {
     const { message, duration } = data;
     console.log('[ChatEventHandler] Stream completed:', duration ? `${duration}ms` : '');
     
-    // 恢复发送按钮状态
-    this._updateSendButtonState(true);
+    // ChatController 已经通知了状态变更
+    // 这里不需要额外处理
     
     // 保存最终消息到 SessionManager（流式过程中已增量更新 UI）
     if (message) {
@@ -324,8 +326,8 @@ class ChatEventHandler {
     // 显示错误提示
     window.Toast?.error(message || '发送消息失败');
     
-    // 恢复发送按钮状态
-    this._updateSendButtonState(true);
+    // ChatController 已经通知了状态变更
+    // 这里不需要额外处理
   }
   
   /**
@@ -400,14 +402,6 @@ class ChatEventHandler {
         messageList.scrollTop = messageList.scrollHeight;
       }
     }
-  }
-  
-  /**
-   * 更新发送按钮状态
-   */
-  _updateSendButtonState(enabled) {
-    // 通过事件总线通知 UI 更新按钮状态
-    this.eventBus.emit('ACTIVITY_STATE_CHANGED', { hasActive: !enabled });
   }
   
   /**

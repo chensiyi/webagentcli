@@ -13,6 +13,10 @@ window.Pages.chat = function(container) {
   // 获取当前会话
   let currentSession = sessionController.getCurrentSession();
   
+  // 缓存按钮引用，避免每次渲染创建新元素导致事件监听器失效
+  let stopBtnElement = null;
+  let sendBtnElement = null;
+  
   /**
    * 渲染聊天页面
    */
@@ -346,6 +350,7 @@ window.Pages.chat = function(container) {
    * 创建输入区 - 使用 theme 中的 page-footer 样式
    */
   function createInputArea() {
+    console.log('[ChatPage] createInputArea called');
     let inputValue = '';
     const chatController = window.ChatController;
       
@@ -386,6 +391,9 @@ window.Pages.chat = function(container) {
       onClick: sendMessage,
       style: { marginLeft: '8px', whiteSpace: 'nowrap' }
     });
+    
+    // 更新缓存的按钮引用
+    sendBtnElement = sendBtn;
       
     const stopBtn = create('button', {
       className: 'btn btn-error',
@@ -397,12 +405,19 @@ window.Pages.chat = function(container) {
       }
     });
     
-    // 监听队列状态变化
-    if (window.EventBus && window.Events) {
+    // 更新缓存的按钮引用
+    stopBtnElement = stopBtn;
+    
+    // 初始化事件监听（只注册一次）
+    if (!window.Pages.chat._activityListenerRegistered && window.EventBus && window.Events) {
+      window.Pages.chat._activityListenerRegistered = true;
       window.EventBus.on(window.Events.CHAT.ACTIVITY_STATE_CHANGED, (data) => {
+        console.log('[ChatPage] ACTIVITY_STATE_CHANGED received:', data);
         const hasActive = data.hasActive || data.messageQueueLength > 0;
-        sendBtn.style.display = hasActive ? 'none' : 'inline-block';
-        stopBtn.style.display = hasActive ? 'inline-block' : 'none';
+        console.log('[ChatPage] Updating buttons - hasActive:', hasActive);
+        if (sendBtnElement) sendBtnElement.style.display = hasActive ? 'none' : 'inline-block';
+        if (stopBtnElement) stopBtnElement.style.display = hasActive ? 'inline-block' : 'none';
+        console.log('[ChatPage] Buttons updated - sendBtn.display:', sendBtnElement?.style.display, 'stopBtn.display:', stopBtnElement?.style.display);
       });
     }
       

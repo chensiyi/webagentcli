@@ -28,6 +28,11 @@ class ChatController {
    */
   notifyActivityState() {
     const hasActive = this.hasActiveActivities();
+    console.log('[ChatController] notifyActivityState:', { 
+      hasActive,
+      messageQueueLength: this.messageQueue.length,
+      taskQueueLength: this.taskQueue.length
+    });
     this.eventBus.emit(Events.CHAT.ACTIVITY_STATE_CHANGED, { 
       hasActive,
       messageQueueLength: this.messageQueue.length,
@@ -111,6 +116,11 @@ class ChatController {
             assistantMsg.reasoning_content += chunk.reasoning_content;
             console.log('[ChatController] Updated reasoning, total length:', assistantMsg.reasoning_content.length);
             
+            // 持久化到存储（不会触发 UI 更新，因为 ChatEventHandler 不监听 MESSAGE_UPDATED）
+            this.sessionController.updateMessage(assistantMsg.id, (msg) => {
+              msg.reasoning_content = assistantMsg.reasoning_content;
+            });
+            
             // 通过 IChatService 接口处理流式推理更新（增量追加）
             if (this.currentService.handleStreamReasoning) {
               this.currentService.handleStreamReasoning({ 
@@ -124,6 +134,11 @@ class ChatController {
           if (chunk.content) {
             assistantMsg.content += chunk.content;
             console.log('[ChatController] Updated content, total length:', assistantMsg.content.length);
+            
+            // 持久化到存储（不会触发 UI 更新，因为 ChatEventHandler 不监听 MESSAGE_UPDATED）
+            this.sessionController.updateMessage(assistantMsg.id, (msg) => {
+              msg.content = assistantMsg.content;
+            });
             
             // 通过 IChatService 接口处理流式内容更新
             if (this.currentService.handleStreamUpdate) {
