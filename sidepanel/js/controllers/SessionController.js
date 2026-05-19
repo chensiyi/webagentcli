@@ -107,7 +107,7 @@ class SessionController {
   }
   
   /**
-   * 流式分片更新消息内容（专为流式交互设计）
+   * 流式分片更新消息内容
    * @param {string} messageId 
    * @param {Object} chunk - { content?: string, reasoning_content?: string }
    * @returns {boolean}
@@ -130,7 +130,7 @@ class SessionController {
       console.error('[SessionController] SessionManager not ready');
       return false;
     }
-    const result = this.manager.removeMessage(messageId);
+    const result = this.manager.deleteMessage(messageId);
     console.log('[SessionController] Delete message result:', result, 'for id:', messageId);
     return result;
   }
