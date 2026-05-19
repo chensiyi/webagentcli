@@ -333,14 +333,18 @@ class ChatEventHandler {
         
         const contentEl = container.querySelector('.reasoning-content');
         if (contentEl) {
-          // 显示内容区域（如果之前是隐藏的）
-          if (contentEl.style.display === 'none') {
-            contentEl.style.display = 'block';
-          }
-          
+          // 安静地追加内容，不改变用户的展开/折叠状态
           contentEl.textContent += reasoning_content;
+          
+          // 滚动到底部（仅在用户未手动滚动时）
           const messageList = document.getElementById('message-list');
-          if (messageList) messageList.scrollTop = messageList.scrollHeight;
+          if (messageList) {
+            // 检查是否在底部附近（50px 内）
+            const isNearBottom = messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight < 50;
+            if (isNearBottom) {
+              messageList.scrollTop = messageList.scrollHeight;
+            }
+          }
         } else {
           console.warn('[ChatEventHandler] Reasoning content element not found in container');
         }
