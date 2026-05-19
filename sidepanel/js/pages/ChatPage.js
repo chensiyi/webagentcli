@@ -399,7 +399,6 @@ window.Pages.chat = function(container) {
       id: 'stop-btn',
       text: '停止',
       style: { 
-        display: 'none', 
         marginLeft: '8px', 
         whiteSpace: 'nowrap',
         flexShrink: '0'  // 防止按钮被压缩
@@ -408,6 +407,12 @@ window.Pages.chat = function(container) {
         chatController.stopGeneration();
       }
     });
+    
+    // 根据当前活动状态初始化按钮显示
+    const hasActive = window.ChatController && window.ChatController.hasActiveActivities();
+    sendBtn.style.display = hasActive ? 'none' : 'inline-block';
+    stopBtn.style.display = hasActive ? 'inline-block' : 'none';
+    console.log('[ChatPage] Input area created - hasActive:', hasActive, 'sendBtn.display:', sendBtn.style.display, 'stopBtn.display:', stopBtn.style.display);
     
     // 初始化事件监听（只注册一次）
     if (!window.Pages.chat._activityListenerRegistered && window.EventBus && window.Events) {
