@@ -202,9 +202,19 @@ class LMStudioService {
       const choice = data.choices[0];
       if (!choice || !choice.delta) return null;
       
+      // 支持多种 reasoning 字段名称
+      const reasoningContent = choice.delta.reasoning || 
+                               choice.delta.reasoning_content || 
+                               choice.delta.thinking || '';
+      
+      // 调试日志
+      if (reasoningContent) {
+        console.log('[LMStudioService] Parsed reasoning chunk:', reasoningContent.substring(0, 50));
+      }
+      
       return {
         content: choice.delta.content || '',
-        reasoning_content: choice.delta.reasoning_content || choice.delta.thinking || '',
+        reasoning_content: reasoningContent,
         role: choice.delta.role,
         toolCalls: choice.delta.tool_calls || [],
         finishReason: choice.finish_reason
