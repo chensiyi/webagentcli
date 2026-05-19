@@ -76,16 +76,31 @@ Web Agent Client 是一个基于 **Manifest V3** 的 Chrome Extension，为 AI A
 ┌──────────────────────────────────────────────────────────────────┐
 │                      Core Layer (基础设施)                         │
 │  ┌─────────────────────────────────────────────────────────┐    │
-│  │                  Stores (状态管理)                         │    │
-│  │  • SessionManager: 会话 CRUD + 持久化                     │    │
-│  │  • ToolRegistry: 工具注册与启用/禁用                      │    │
-│  └─────────────────────────────────────────────────────────┘    │
-│  ┌─────────────────────────────────────────────────────────┐    │
 │  │                  Models (数据结构)                         │    │
 │  │  Message | Session | Settings | Model | ...              │    │
 │  └─────────────────────────────────────────────────────────┘    │
 │  ┌─────────────────────────────────────────────────────────┐    │
 │  │              EventBus (全局事件总线)                       │    │
+│  └─────────────────────────────────────────────────────────┘    │
+└──────────────────────────────────────────────────────────────────┘
+                              ▲
+                              │ 读写数据 & 发布事件
+                              ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                    Service Layer (服务层)                          │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │               Services (业务服务)                          │    │
+│  │  • ISessionManager: 会话 CRUD + 持久化                     │    │
+│  │  • IChatService: UI 交互回调接口                           │    │
+│  │  • IProviderAPIService: Provider API 抽象基类              │    │
+│  │  ├─ OpenAIService                                      │    │
+│  │  ├─ LMStudioService                                    │    │
+│  │  └─ OpenRouterService                                  │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │          ServiceRegistry (去中心化注册)                    │    │
+│  │  • Provider 自注册: registerProvider()                   │    │
+│  │  • 按需实例化: registerChatService()                     │    │
 │  └─────────────────────────────────────────────────────────┘    │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -151,23 +166,21 @@ webagentcli/
 │   │   │   ├── events/        # 事件系统
 │   │   │   │   ├── EventBus.js       # 全局事件总线单例
 │   │   │   │   └── Events.js         # 事件常量定义
-│   │   │   ├── models/        # 数据模型
-│   │   │   │   ├── index.js          # 模型统一导出
-│   │   │   │   ├── Message.js        # 消息模型
-│   │   │   │   ├── Session.js        # 会话模型
-│   │   │   │   ├── Settings.js       # 设置模型
-│   │   │   │   ├── Model.js          # AI 模型元数据
-│   │   │   │   ├── ModelManager.js   # 模型管理器
-│   │   │   │   ├── ModelCache.js     # 模型缓存
-│   │   │   │   ├── MediaContent.js   # 多媒体内容模型
-│   │   │   │   ├── ToolIntention.js  # 工具意图识别
-│   │   │   │   ├── Scripts.js        # 脚本模型
-│   │   │   │   ├── Storage.js        # 存储模型
-│   │   │   │   └── MessageModels.js  # 消息类型扩展
-│   │   │   └── stores/        # 状态存储管理
-│   │   │       ├── SessionManager.js # 会话管理器（CRUD + 持久化）
-│   │   │       └── ToolRegistry.js   # 工具注册表
-│   │   ├── services/          # 服务层
+│   │   │   └── models/        # 数据模型
+│   │   │       ├── index.js          # 模型统一导出
+│   │   │       ├── Message.js        # 消息模型
+│   │   │       ├── Session.js        # 会话模型
+│   │   │       ├── Settings.js       # 设置模型
+│   │   │       ├── Model.js          # AI 模型元数据
+│   │   │       ├── ModelManager.js   # 模型管理器
+│   │   │       ├── ModelCache.js     # 模型缓存
+│   │   │       ├── MediaContent.js   # 多媒体内容模型
+│   │   │       ├── ToolIntention.js  # 工具意图识别
+│   │   │       ├── Scripts.js        # 脚本模型
+│   │   │       ├── Storage.js        # 存储模型
+│   │   │       └── MessageModels.js  # 消息类型扩展
+│   │   ├── services/          # 服务层 ⭐
+│   │   │   ├── ISessionManager.js      # 会话管理器（CRUD + 持久化）⭐
 │   │   │   ├── IProviderAPIService.js    # Provider API 抽象基类
 │   │   │   ├── IChatService.js           # UI 交互回调接口
 │   │   │   ├── ISettings.js              # 设置接口定义
@@ -521,15 +534,16 @@ const chatService = window.ServiceCenter.createChatService('openai', {
   - 捕获未处理的 Promise Rejection
   - 统一错误日志格式
 
-### 8. 状态存储 (Stores)
+### 8. 服务层 (Services)
 
-**位置**: `js/core/stores/`
+**位置**: `js/services/`
 
-#### SessionManager
+#### ISessionManager
 会话管理器（纯数据管理，无 UI 依赖）：
 
 - **CRUD 操作**: `createSession()`, `loadSession()`, `deleteSession()`, `updateSession()`
 - **消息管理**: `addMessage()`, `addMessages()`, `updateMessage()`, `deleteMessage()`
+- **流式分片**: `streamChunkMessage()` - 专为流式交互设计的分片追加方法
 - **持久化**: 自动同步到 `chrome.storage.local`
 - **环境同步**: `_syncSessionEnvironment()` - 确保会话功能开关与模型能力匹配
 - **事件发布**: 所有操作均通过 EventBus 通知其他模块
@@ -538,14 +552,23 @@ const chatService = window.ServiceCenter.createChatService('openai', {
 - ✅ **懒加载**: 第一条消息触发时才真正创建会话
 - ✅ **自动评估**: 切换会话时自动检测模型是否支持 Reasoning
 - ✅ **异步加载**: `loadSessionsFromStorage()` 返回 Promise，确保数据就绪后再渲染 UI
+- ✅ **ServiceCenter 集成**: 通过 `ServiceCenter.getSessionManager()` 统一获取实例
 
-#### ToolRegistry
-工具注册表（纯数据管理）：
+#### IProviderAPIService
+Provider API 服务的抽象基类，定义所有 AI Provider 必须实现的接口：
 
-- **工具注册**: `registerTool(toolDefinition)`
-- **启用/禁用**: `enableTool(toolId)` / `disableTool(toolId)`
-- **参数验证**: `validateArgs(toolId, args)` - JSON Schema 格式验证
-- **OpenAI 格式转换**: `getOpenAIToolsDefinition()` - 转换为 API 标准格式
+- `configure(config)`: 配置服务（endpoint, apiKey, model）
+- `buildUrl(path)`: 构建 API URL
+- `buildHeaders()`: 构建请求头（含 Authorization）
+- `formatMessages(messages)`: 格式化消息为 API 标准格式
+- `buildRequestBody(params)`: 构建请求体
+- `parseResponse(data)`: 解析非流式响应
+- `parseStreamChunk(data)`: 解析流式数据块
+- `chat(params)`: 非流式请求
+- `chatStream(params, onChunk, onComplete)`: 流式请求
+- `listModels()`: 获取模型列表
+- `getModelDetails(modelId)`: 获取模型详情
+- `cancel()`: 取消正在进行的请求
 
 ## 核心设计原则
 
@@ -587,7 +610,7 @@ const chatService = window.ServiceCenter.createChatService('openai', {
 - ToolRegistry: 仅负责工具注册，无执行逻辑
 - ServiceCenter: 仅负责服务装配，无业务逻辑
 
-## 全局对象
+### 全局对象
 
 应用初始化后，以下对象挂载到 `window` 上，可在控制台直接访问：
 
@@ -597,13 +620,12 @@ const chatService = window.ServiceCenter.createChatService('openai', {
 |------|------|------|
 | `EventBus` | EventBus | 全局事件总线单例 |
 | `Events` | Object | 事件常量定义 |
-| `SessionManager` | SessionManager | 会话管理器实例（由 app.js 创建） |
-| `ToolRegistry` | ToolRegistry | 工具注册表类 |
 
 ### 服务层
 
 | 对象 | 类型 | 说明 |
 |------|------|------|
+| `ISessionManager` | Class | 会话管理器类（由 ServiceCenter 实例化）⭐ |
 | `ServiceRegistry` | ServiceRegistry | 服务注册中心 |
 | `ServiceCenter` | ServiceCenter | 服务管理中心（Facade 装配） |
 | `IChatService` | Object | UI 交互回调接口实现 |
@@ -767,13 +789,23 @@ const chatService = window.ServiceCenter.createChatService('openai', {
 
 ### 6. 单一职责
 
-- SessionManager: 仅负责会话数据管理，无 UI 依赖
-- ToolRegistry: 仅负责工具注册，无执行逻辑
+- ISessionManager: 仅负责会话数据管理，无 UI 依赖
 - ServiceCenter: 仅负责服务装配，无业务逻辑
+- IProviderAPIService: 仅定义 API 接口规范，具体实现由子类完成
 
 ## 版本信息
 
-- **扩展版本**: 0.3.3
+- **扩展版本**: 0.3.4
 - **Manifest 版本**: 3
-- **架构版本**: MVC v0.0.1
+- **架构版本**: MVC v0.1.0 (Services Refactor)
 - **最后更新**: 2026-05-19
+
+### 主要变更
+
+#### v0.3.4 (2026-05-19) - Services 重构
+- ✅ SessionManager 移至 `services/` 目录并重命名为 `ISessionManager`
+- ✅ ServiceCenter 集成：通过 `getSessionManager()` 统一管理会话服务
+- ✅ 流式分片持久化：新增 `streamChunkMessage()` 方法
+- ✅ 思考气泡样式移至主题文件，移除 JS 硬编码
+- ✅ 流式推理内容静默更新，不自动展开折叠状态
+- ✅ 页面切换时按钮状态恢复机制
