@@ -136,6 +136,11 @@ class ChatController {
       
       this.sessionController.addMessages([userMsg, assistantMsg]);
       
+      // 立即渲染消息气泡（因为 MESSAGES_ADDED 事件监听器已禁用）
+      if (window.Pages && window.Pages.chat) {
+        window.Pages.chat.render();
+      }
+      
       // 3. 加入消息队列
       const queueItem = { id: assistantMsg.id, status: 'pending' };
       this.messageQueue.push(queueItem);
