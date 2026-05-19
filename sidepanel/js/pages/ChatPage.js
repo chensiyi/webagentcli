@@ -360,6 +360,7 @@ window.Pages.chat = function(container) {
       style: { 
         flex: '1 1 auto',  // 允许收缩和扩展
         minWidth: '0',     // 防止 flex 子项溢出
+        width: 'auto',     // 覆盖 CSS 中的 width: 100%
         resize: 'none',
         overflow: 'hidden',
         minHeight: '36px',
