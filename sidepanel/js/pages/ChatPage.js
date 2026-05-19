@@ -368,8 +368,8 @@ window.Pages.chat = function(container) {
     });
     
     // 监听队列状态变化
-    if (window.EventBus) {
-      window.EventBus.on('ACTIVITY_STATE_CHANGED', (data) => {
+    if (window.EventBus && window.Events) {
+      window.EventBus.on(window.Events.CHAT.ACTIVITY_STATE_CHANGED, (data) => {
         const hasActive = data.hasActive || data.messageQueueLength > 0;
         sendBtn.style.display = hasActive ? 'none' : 'inline-block';
         stopBtn.style.display = hasActive ? 'inline-block' : 'none';
