@@ -106,7 +106,6 @@ class ChatController {
         (chunk) => {          
           // 更新推理内容
           if (chunk.reasoning_content) {
-            assistantMsg.reasoning_content += chunk.reasoning_content;
             // 流式分片持久化（追加模式，不触发事件通知）
             this.sessionController.streamChunkMessage(assistantMsg.id, {
               reasoning_content: chunk.reasoning_content
@@ -123,8 +122,6 @@ class ChatController {
 
           // 更新最终回复内容
           if (chunk.content) {
-            assistantMsg.content += chunk.content;
-            
             // 流式分片持久化（追加模式，不触发事件通知）
             this.sessionController.streamChunkMessage(assistantMsg.id, {
               content: chunk.content
