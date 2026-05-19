@@ -26,14 +26,15 @@ class ChatEventHandler {
       }
     });
 
-    // 监听批量消息添加事件（用于流式交互初始化）
-    this.eventBus.on('MESSAGES_ADDED', (data) => {
-      console.log('[ChatEventHandler] MESSAGES_ADDED from SessionManager:', data);
-      // 仅渲染一次，包含用户消息和空的助手气泡
-      if (window.Pages && window.Pages.chat) {
-        window.Pages.chat.render();
-      }
-    });
+    // 监听批量消息添加事件（已禁用，避免与 ACTIVITY_STATE_CHANGED 冲突）
+    // MESSAGES_ADDED 会触发 render() 重新创建输入区，导致按钮状态被重置
+    // 现在由 ChatController 通过 ACTIVITY_STATE_CHANGED 统一管理按钮状态
+    // this.eventBus.on('MESSAGES_ADDED', (data) => {
+    //   console.log('[ChatEventHandler] MESSAGES_ADDED from SessionManager:', data);
+    //   if (window.Pages && window.Pages.chat) {
+    //     window.Pages.chat.render();
+    //   }
+    // });
     
     // 监听 SessionManager 发出的消息更新事件（已禁用，避免与流式更新冲突）
     // ChatEventHandler 通过 STREAM_UPDATE 和 STREAM_REASONING 事件处理流式更新
@@ -48,10 +49,11 @@ class ChatEventHandler {
     //   }
     // });
     
-    // 监听旧的事件（保持兼容）
-    this.eventBus.on(window.Events.CHAT.MESSAGE_ADDED, (data) => {
-      this._handleMessageAdded(data);
-    });
+    // 监听旧的事件（已禁用，避免与 MESSAGES_ADDED 重复）
+    // 现在统一使用 MESSAGES_ADDED 批量处理，或通过 ACTIVITY_STATE_CHANGED 管理状态
+    // this.eventBus.on(window.Events.CHAT.MESSAGE_ADDED, (data) => {
+    //   this._handleMessageAdded(data);
+    // });
     
     this.eventBus.on(window.Events.CHAT.MESSAGE_UPDATED, (data) => {
       this._handleMessageUpdated(data);
