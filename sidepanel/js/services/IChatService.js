@@ -44,7 +44,7 @@ const IChatService = {
   },
 
   /**
-   * 处理流式更新中的推理内容（UI 交互逻辑）
+   * 处理流式更新中的推理内容
    * @param {Object} data - 包含 messageId, reasoning_content 等
    */
   handleStreamReasoning(data) {
@@ -94,21 +94,21 @@ const IChatService = {
   },
 
   /**
-   * 处理流式请求开始（UI 交互逻辑）
+   * 处理流式请求开始
    * @param {Object} data - 包含 messageId 等信息
    */
   handleStreamStart(data) {
     console.log('[IChatService] Stream started:', data.messageId);
     console.log('[IChatService] window.ChatEventHandler exists:', !!window.ChatEventHandler);
     console.log('[IChatService] _handleStreamStart method exists:', !!window.ChatEventHandler?._handleStreamStart);
-    // 默认实现：触发 UI 状态变更
+
     if (window.ChatEventHandler) {
       window.ChatEventHandler._handleStreamStart(data);
     }
   },
 
   /**
-   * 处理流式更新（UI 交互逻辑）
+   * 处理流式更新
    * @param {Object} data - 包含 messageId, content 等
    */
   handleStreamUpdate(data) {
@@ -119,7 +119,7 @@ const IChatService = {
   },
 
   /**
-   * 处理流式完成（UI 交互逻辑）
+   * 处理流式完成
    * @param {Object} data - 包含 message, duration 等
    */
   handleStreamComplete(data) {
@@ -130,7 +130,7 @@ const IChatService = {
   },
 
   /**
-   * 处理流式错误（UI 交互逻辑）
+   * 处理流式错误
    * @param {Object} data - 包含 error, message 等
    */
   handleStreamError(data) {

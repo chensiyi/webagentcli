@@ -795,17 +795,19 @@ Provider API 服务的抽象基类，定义所有 AI Provider 必须实现的接
 
 ## 版本信息
 
-- **扩展版本**: 0.3.4
+- **扩展版本**: 0.5.0
 - **Manifest 版本**: 3
-- **架构版本**: MVC v0.1.0 (Services Refactor)
+- **架构版本**: MVC v1.0.0 (Stable)
 - **最后更新**: 2026-05-19
 
 ### 主要变更
 
-#### v0.3.4 (2026-05-19) - Services 重构
+#### v0.5.0 (2026-05-19) - Architecture Stabilization
 - ✅ SessionManager 移至 `services/` 目录并重命名为 `ISessionManager`
 - ✅ ServiceCenter 集成：通过 `getSessionManager()` 统一管理会话服务
 - ✅ 流式分片持久化：新增 `streamChunkMessage()` 方法
 - ✅ 思考气泡样式移至主题文件，移除 JS 硬编码
 - ✅ 流式推理内容静默更新，不自动展开折叠状态
 - ✅ 页面切换时按钮状态恢复机制
+- ✅ IChatService: 聊天服务标准接口（API + UI 回调）
+- ✅ IProviderAPIService: Provider API 抽象基类（纯 API 层）

@@ -52,15 +52,15 @@ class ServiceCenter {
       cancel: apiService.cancel.bind(apiService),
       listModels: apiService.listModels ? apiService.listModels.bind(apiService) : undefined,
       getModelDetails: apiService.getModelDetails ? apiService.getModelDetails.bind(apiService) : undefined,
-      
-      // 混入标准的 UI 交互逻辑（来自 IChatService）
-      ...(window.IChatService ? {
-        confirmDeleteMessage: window.IChatService.confirmDeleteMessage.bind(window.IChatService),
-        handleStreamStart: window.IChatService.handleStreamStart.bind(window.IChatService),
-        handleStreamUpdate: window.IChatService.handleStreamUpdate.bind(window.IChatService),
-        handleStreamReasoning: window.IChatService.handleStreamReasoning.bind(window.IChatService),
-        handleStreamComplete: window.IChatService.handleStreamComplete.bind(window.IChatService),
-        handleStreamError: window.IChatService.handleStreamError.bind(window.IChatService)
+            
+      // 混入标准的 UI 交互逻辑（来自 IChatUIHandler）
+      ...(window.IChatUIHandler ? {
+        confirmDeleteMessage: window.IChatUIHandler.confirmDeleteMessage.bind(window.IChatUIHandler),
+        handleStreamStart: window.IChatUIHandler.handleStreamStart.bind(window.IChatUIHandler),
+        handleStreamUpdate: window.IChatUIHandler.handleStreamUpdate.bind(window.IChatUIHandler),
+        handleStreamReasoning: window.IChatUIHandler.handleStreamReasoning.bind(window.IChatUIHandler),
+        handleStreamComplete: window.IChatUIHandler.handleStreamComplete.bind(window.IChatUIHandler),
+        handleStreamError: window.IChatUIHandler.handleStreamError.bind(window.IChatUIHandler)
       } : {})
     };
 
