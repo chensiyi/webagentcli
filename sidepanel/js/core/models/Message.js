@@ -46,28 +46,16 @@ class Message {
    * 转换为纯对象（用于序列化）
    */
   toJSON() {
-    const result = {
+    return {
       id: this.id,
       role: this.role,
       content: this.content,
-      timestamp: this.timestamp
+      timestamp: this.timestamp,
+      tool_calls: this.tool_calls,
+      tool_call_id: this.tool_call_id,
+      reasoning_content: this.reasoning_content,
+      metadata: this.metadata
     };
-    
-    // 只添加非 null/undefined 的字段
-    if (this.tool_calls && this.tool_calls.length > 0) {
-      result.tool_calls = this.tool_calls;
-    }
-    if (this.tool_call_id) {
-      result.tool_call_id = this.tool_call_id;
-    }
-    if (this.reasoning_content) {
-      result.reasoning_content = this.reasoning_content;
-    }
-    if (this.metadata && Object.keys(this.metadata).length > 0) {
-      result.metadata = this.metadata;
-    }
-    
-    return result;
   }
   
   /**
