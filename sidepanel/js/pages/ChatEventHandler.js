@@ -193,8 +193,8 @@ class ChatEventHandler {
     const { messageId, content, reasoning_content } = data;
     
     // 1. 持久化到 SessionManager（分片追加模式）
-    if (window.sessionController) {
-      window.sessionController.streamChunkMessage(messageId, {
+    if (window.SessionController) {
+      window.SessionController.streamChunkMessage(messageId, {
         content: content,
         reasoning_content: reasoning_content
       });
