@@ -238,15 +238,9 @@ class ChatEventHandler {
       // 直接在 message-body 的开头插入思考容器
       reasoningContainer = document.createElement('div');
       reasoningContainer.className = 'message-reasoning';
-      reasoningContainer.style.cssText = 'margin-bottom: 8px; padding: 8px; background: #f8f9fa; border-radius: 6px; border-left: 3px solid #667eea;';
         
       const reasoningHeader = document.createElement('div');
       reasoningHeader.className = 'reasoning-header';
-      reasoningHeader.style.cssText = `
-        font-size: 12px; color: #666; font-weight: 500; cursor: pointer;
-        display: flex; justify-content: space-between; align-items: center;
-        margin-bottom: 6px;
-      `;
         
       const titleSpan = document.createElement('span');
       titleSpan.textContent = '💭 思考过程';
@@ -254,17 +248,12 @@ class ChatEventHandler {
       const toggleSpan = document.createElement('span');
       toggleSpan.className = 'reasoning-toggle';
       toggleSpan.textContent = '▼';
-      toggleSpan.style.cssText = 'font-size: 10px; transition: transform 0.2s;';
         
       reasoningHeader.appendChild(titleSpan);
       reasoningHeader.appendChild(toggleSpan);
         
       const reasoningContent = document.createElement('div');
       reasoningContent.className = 'reasoning-content';
-      reasoningContent.style.cssText = `
-        font-size: 12px; color: #555; padding: 4px 0;
-        white-space: pre-wrap; word-break: break-word; line-height: 1.6;
-      `;
         
       reasoningContainer.appendChild(reasoningHeader);
       reasoningContainer.appendChild(reasoningContent);
