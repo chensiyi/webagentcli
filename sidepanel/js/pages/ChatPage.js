@@ -319,13 +319,10 @@ window.Pages.chat = function(container) {
       onMouseLeave: (e) => e.target.style.opacity = '0',
       onClick: (e) => {
         e.stopPropagation();
-        if (window.ChatService && typeof window.ChatService.confirmDeleteMessage === 'function') {
-          window.ChatService.confirmDeleteMessage(msg.id, () => {
-            console.log('[ChatPage] Executing delete for:', msg.id);
-            sessionController.deleteMessage(msg.id);
-          });
+        if (window.ChatController && typeof window.ChatController.deleteMessage === 'function') {
+          window.ChatController.deleteMessage(msg.id);
         } else {
-          console.error('[ChatPage] confirmDeleteMessage not found on ChatService');
+          console.error('[ChatPage] deleteMessage not found on ChatController');
         }
       }
     });

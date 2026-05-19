@@ -19,14 +19,15 @@ class ServiceCenter {
    * @returns {SessionManager} SessionManager 实例
    */
   getSessionManager() {
-    if (!this.sessionManager) {
+    // 使用全局单例
+    if (!window.sessionManagerInstance) {
       if (!window.SessionManager || !this.eventBus) {
         throw new Error('SessionManager or EventBus not initialized');
       }
-      this.sessionManager = new window.SessionManager(this.eventBus);
+      window.sessionManagerInstance = new window.SessionManager(this.eventBus);
       console.log('[ServiceCenter] SessionManager initialized');
     }
-    return this.sessionManager;
+    return window.sessionManagerInstance;
   }
 
   /**

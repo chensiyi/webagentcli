@@ -1,15 +1,25 @@
 /**
- * Chat Service 接口规范
+ * IChatService - 聊天服务接口基类
  * 
- * 定义所有聊天服务必须实现的标准接口
- * 这是业务逻辑框架的核心抽象层
+ * 定义所有聊天服务必须实现的标准接口。
+ * 
+ * 设计原则：
+ * 1. 纯业务接口，不涉及 UI 层
+ * 2. 支持高度拓展和自制（使用者可实现自己的 Service）
+ * 3. 通过回调函数与上层通信，而非直接调用 UI
+ * 
+ * 使用示例：
+ * ```javascript
+ * class MyCustomService {
+ *   configure(config) { ... }
+ *   async chatStream(params, onChunk, onComplete) { ... }
+ * }
+ * 
+ * // 继承基类确保接口完整
+ * Object.setPrototypeOf(MyCustomService.prototype, IChatService);
+ * ```
  */
 
-/**
- * IChatService 接口定义
- * 
- * 所有具体的聊天服务实现都必须遵循此接口
- */
 const IChatService = {
   /**
    * 配置服务
@@ -35,7 +45,7 @@ const IChatService = {
   /**
    * 发送流式聊天请求
    * @param {Object} params - 请求参数
-   * @param {Function} onChunk - 数据块回调
+   * @param {Function} onChunk - 数据块回调 (chunk: { content, reasoning_content })
    * @param {Function} onComplete - 完成回调
    * @returns {Promise<void>}
    */
@@ -50,83 +60,13 @@ const IChatService = {
   cancel() {
     throw new Error('Method not implemented');
   },
-
+  
   /**
-   * 删除消息（标准交互操作）
-   * @param {string} messageId - 消息 ID
-   * @returns {Promise<void>}
+   * 获取模型列表（可选）
+   * @returns {Promise<Array>} 模型列表
    */
-  async deleteMessage(messageId) {
+  async listModels() {
     throw new Error('Method not implemented');
-  },
-
-  /**
-   * 确认并删除消息（标准交互操作）
-   * @param {string} messageId - 消息 ID
-   * @param {Function} onConfirm - 确认后的回调
-   * @returns {void}
-   */
-  confirmDeleteMessage(messageId, onConfirm) {
-    // 默认实现：使用 Toast 进行确认
-    if (window.Toast && window.Toast.confirm) {
-      window.Toast.confirm({
-        message: '确定要删除这条消息吗？',
-        title: '删除确认',
-        onConfirm: () => {
-          console.log('[IChatService] Delete confirmed for:', messageId);
-          if (typeof onConfirm === 'function') onConfirm();
-        }
-      });
-    } else if (confirm('确定要删除这条消息吗？')) {
-      onConfirm();
-    }
-  },
-
-  /**
-   * 处理流式请求开始
-   * @param {Object} data - 包含 messageId 等信息
-   */
-  handleStreamStart(data) {
-    console.log('[IChatService] Stream started:', data.messageId);
-    console.log('[IChatService] window.ChatEventHandler exists:', !!window.ChatEventHandler);
-    console.log('[IChatService] _handleStreamStart method exists:', !!window.ChatEventHandler?._handleStreamStart);
-
-    if (window.ChatEventHandler) {
-      window.ChatEventHandler._handleStreamStart(data);
-    }
-  },
-
-  /**
-   * 处理流式更新
-   * @param {Object} data - 包含 messageId, content 等
-   */
-  handleStreamUpdate(data) {
-    // console.log('[IChatService] Stream update:', data.messageId, data.content);
-    if (window.ChatEventHandler) {
-      window.ChatEventHandler._handleStreamUpdate(data);
-    }
-  },
-
-  /**
-   * 处理流式完成
-   * @param {Object} data - 包含 message, duration 等
-   */
-  handleStreamComplete(data) {
-    console.log('[IChatService] Stream completed');
-    if (window.ChatEventHandler) {
-      window.ChatEventHandler._handleStreamComplete(data);
-    }
-  },
-
-  /**
-   * 处理流式错误
-   * @param {Object} data - 包含 error, message 等
-   */
-  handleStreamError(data) {
-    console.error('[IChatService] Stream error:', data.error);
-    if (window.ChatEventHandler) {
-      window.ChatEventHandler._handleStreamError(data);
-    }
   }
 };
 

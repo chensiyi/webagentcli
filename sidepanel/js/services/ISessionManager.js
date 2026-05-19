@@ -20,6 +20,9 @@ class SessionManager {
     this.sessions = new Map(); // sessionId -> Session
     this.currentSessionId = null;
     
+    // Chat 实例缓存：sessionId -> Chat
+    this.chatCache = new Map();
+    
     // 初始化
     this._loadSessions();
   }
@@ -93,6 +96,72 @@ class SessionManager {
     
     this.eventBus.emit(window.Events.CHAT.SESSION_LOADED, { session });
     return session;
+  }
+  
+  /**
+   * 获取或创建 Chat 实例
+   * @param {string} sessionId - 会话 ID
+   * @param {IChatService} chatService - 聊天服务实例
+   * @returns {Chat} Chat 实例
+   */
+  getOrCreateChat(sessionId, chatService) {
+    if (!chatService) {
+      throw new Error('ChatService is required');
+    }
+    
+    // 检查缓存
+    if (this.chatCache.has(sessionId)) {
+      const cachedChat = this.chatCache.get(sessionId);
+      // 如果服务已变更，更新服务
+      if (cachedChat.getService() !== chatService) {
+        cachedChat.setService(chatService);
+      }
+      return cachedChat;
+    }
+    
+    // 获取 Session
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+    
+    // 创建新的 Chat 实例
+    const chat = new window.Chat(session, chatService, this, this.eventBus);
+    this.chatCache.set(sessionId, chat);
+    
+    console.log('[SessionManager] Created Chat for session:', sessionId);
+    return chat;
+  }
+  
+  /**
+   * 获取当前会话的 Chat 实例
+   * @param {IChatService} chatService - 聊天服务实例
+   * @returns {Chat|null} Chat 实例或 null
+   */
+  getCurrentChat(chatService) {
+    if (!this.currentSessionId) {
+      return null;
+    }
+    
+    if (!chatService) {
+      throw new Error('ChatService is required');
+    }
+    
+    return this.getOrCreateChat(this.currentSessionId, chatService);
+  }
+  
+  /**
+   * 清除 Chat 实例缓存
+   * @param {string} [sessionId] - 可选，指定清除某个会话的 Chat，否则清除所有
+   */
+  clearChatCache(sessionId = null) {
+    if (sessionId) {
+      this.chatCache.delete(sessionId);
+      console.log('[SessionManager] Cleared Chat cache for session:', sessionId);
+    } else {
+      this.chatCache.clear();
+      console.log('[SessionManager] Cleared all Chat caches');
+    }
   }
 
   /**

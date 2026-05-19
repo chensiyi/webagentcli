@@ -20,59 +20,44 @@ class ChatEventHandler {
       this._handleUserMessageSent(data);
     });
     
-    // 监听 SessionManager 发出的消息添加事件
+    // 监听消息添加事件（触发 UI 渲染）
     this.eventBus.on(window.Events.CHAT.MESSAGE_ADDED, (data) => {
-      console.log('[ChatEventHandler] MESSAGE_ADDED from SessionManager:', data);
-      // 通知页面重新渲染（用于非流式场景，如历史加载）
+      console.log('[ChatEventHandler] MESSAGE_ADDED:', data.message?.id);
+      // 通知页面重新渲染
       if (window.Pages && window.Pages.chat) {
         window.Pages.chat.render();
       }
     });
     
-    // 监听消息更新事件
+    // 监听消息更新事件（错误更新等）
     this.eventBus.on(window.Events.CHAT.MESSAGE_UPDATED, (data) => {
       const { messageId, updater } = data;
-      if (window.SessionController && window.SessionController.manager && messageId && updater) {
-        window.SessionController.manager.updateMessage(messageId, updater);
+      console.log('[ChatEventHandler] MESSAGE_UPDATED:', messageId);
+      
+      // 获取当前会话中的消息并应用 updater
+      const session = window.SessionController ? window.SessionController.getCurrentSession() : null;
+      if (!session) return;
+      
+      const message = session.messages.find(m => m.id === messageId);
+      if (!message) return;
+      
+      if (typeof updater === 'function') {
+        updater(message);
+      }
+      
+      // 更新 UI
+      this._updateMessageContent(messageId, message.content);
+      if (message.reasoning_content) {
+        this._updateMessageReasoning(messageId, message.reasoning_content);
       }
     });
     
-    // 监听流式分片追加事件
+    // 监听流式分片追加事件（UI 更新）
     this.eventBus.on(window.Events.CHAT.STREAM_CHUNK_APPEND, (data) => {
-      const { messageId, content, reasoning_content } = data;
-      if (window.SessionController && window.SessionController.manager) {
-        window.SessionController.manager.streamChunkMessage(messageId, {
-          content: content || '',
-          reasoning_content: reasoning_content || ''
-        });
-      }
-    });
-    
-    // 监听清空会话请求
-    this.eventBus.on(window.Events.CHAT.SESSION_CLEAR_REQUEST, () => {
-      if (window.SessionController && window.SessionController.manager) {
-        window.SessionController.manager.clearCurrentSession();
-      }
+      this._handleStreamChunkAppend(data);
     });
     
     // 监听 SessionManager 发出的消息更新事件（已禁用，避免与流式更新冲突）
-    // ChatEventHandler 通过 STREAM_UPDATE 和 STREAM_REASONING 事件处理流式更新
-    // ChatController 通过 sessionController.updateMessage 持久化，但不触发 UI 更新
-    // this.eventBus.on('MESSAGE_UPDATED', (data) => {
-    //   console.log('[ChatEventHandler] MESSAGE_UPDATED from SessionManager:', data);
-    //   if (data.message) {
-    //     this._updateMessageContent(data.message.id, data.message.content);
-    //     if (data.message.reasoning_content) {
-    //       this._updateMessageReasoning(data.message.id, data.message.reasoning_content);
-    //     }
-    //   }
-    // });
-    
-    // 监听旧的事件（已禁用，避免与 MESSAGES_ADDED 重复）
-    // 现在统一使用 MESSAGES_ADDED 批量处理，或通过 ACTIVITY_STATE_CHANGED 管理状态
-    // this.eventBus.on(window.Events.CHAT.MESSAGE_ADDED, (data) => {
-    //   this._handleMessageAdded(data);
-    // });
     
     // 监听活动状态变更（控制按钮显示）
     this.eventBus.on(window.Events.CHAT.ACTIVITY_STATE_CHANGED, (data) => {
@@ -82,16 +67,6 @@ class ChatEventHandler {
     // 监听流式请求开始
     this.eventBus.on(window.Events.CHAT.STREAM_START, (data) => {
       this._handleStreamStart(data);
-    });
-    
-    // 监听流式更新（实时文本更新）- 已废弃，改用 STREAM_CHUNK_APPEND
-    // this.eventBus.on(window.Events.CHAT.STREAM_UPDATE, (data) => {
-    //   this._handleStreamUpdate(data);
-    // });
-    
-    // 监听流式分片追加事件
-    this.eventBus.on(window.Events.CHAT.STREAM_CHUNK_APPEND, (data) => {
-      this._handleStreamChunkAppend(data);
     });
     
     // 监听流式请求完成
@@ -188,16 +163,10 @@ class ChatEventHandler {
   _handleUserMessageSent(data) {
     const { content } = data;
     
-    // 获取当前会话信息
-    const session = window.SessionController ? window.SessionController.getCurrentSession() : null;
-    
     // 调用 ChatController 执行业务逻辑
     if (window.ChatController) {
       window.ChatController.sendMessage({
-        content,
-        messages: session ? session.messages : [],
-        reasoningEnabled: session ? session.reasoningEnabled : false,
-        reasoningEffort: session ? session.reasoningEffort : 'medium'
+        content
       }).catch(error => {
         console.error('[ChatEventHandler] Send message failed:', error);
       });
