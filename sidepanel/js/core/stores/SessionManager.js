@@ -331,6 +331,10 @@ class SessionManager {
     
     // 持久化（但不发出事件通知，避免触发 UI 重绘）
     this._saveSessions();
+    console.log('[SessionManager] streamChunkMessage persisted:', messageId, {
+      contentLength: message.content.length,
+      reasoningLength: message.reasoning_content?.length || 0
+    });
     
     return true;
   }
