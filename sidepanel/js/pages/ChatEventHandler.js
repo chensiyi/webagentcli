@@ -263,13 +263,31 @@ class ChatEventHandler {
     if (messageElement) {
       const container = this._getOrCreateReasoningContainer(messageElement);
       if (container) {
+        // 显示容器（只在首次收到内容时显示）
+        if (container.style.display === 'none') {
+          container.style.display = 'block';
+        }
+        
         const contentEl = container.querySelector('.reasoning-content');
         if (contentEl) {
+          // 显示内容区域（如果之前是隐藏的）
+          if (contentEl.style.display === 'none') {
+            contentEl.style.display = 'block';
+          }
+          
           contentEl.textContent += reasoning_content;
+          console.log('[ChatEventHandler] Stream reasoning chunk:', reasoning_content.substring(0, 50));
+          
           const messageList = document.getElementById('message-list');
           if (messageList) messageList.scrollTop = messageList.scrollHeight;
+        } else {
+          console.warn('[ChatEventHandler] Reasoning content element not found in container');
         }
+      } else {
+        console.warn('[ChatEventHandler] Reasoning container not created for message:', messageId);
       }
+    } else {
+      console.warn('[ChatEventHandler] Message element not found for stream reasoning:', messageId);
     }
   }
   
