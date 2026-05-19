@@ -362,7 +362,8 @@ window.Pages.chat = function(container) {
         rows: 1
       },
       style: { 
-        flex: 1, 
+        flex: '1 1 auto',  // 允许收缩和扩展
+        minWidth: '0',     // 防止 flex 子项溢出
         resize: 'none',
         overflow: 'hidden',
         minHeight: '36px',
@@ -389,7 +390,11 @@ window.Pages.chat = function(container) {
       id: 'send-btn',
       text: '发送',
       onClick: sendMessage,
-      style: { marginLeft: '8px', whiteSpace: 'nowrap' }
+      style: { 
+        marginLeft: '8px', 
+        whiteSpace: 'nowrap',
+        flexShrink: '0'  // 防止按钮被压缩
+      }
     });
     
     // 更新缓存的按钮引用
@@ -399,7 +404,12 @@ window.Pages.chat = function(container) {
       className: 'btn btn-error',
       id: 'stop-btn',
       text: '停止',
-      style: { display: 'none', marginLeft: '8px', whiteSpace: 'nowrap' },
+      style: { 
+        display: 'none', 
+        marginLeft: '8px', 
+        whiteSpace: 'nowrap',
+        flexShrink: '0'  // 防止按钮被压缩
+      },
       onClick: () => {
         chatController.stopGeneration();
       }
