@@ -127,16 +127,10 @@ webagentcli/
 │   │   └── utils/             # 工具函数
 │   │       ├── dom.js                  # DOM 创建工具
 │   │       ├── time.js                 # 时间格式化
-│   │       ├── markdown.js             # Markdown 渲染（marked.js 封装）
 │   │       ├── marked.min.js           # Markdown 解析库
 │   │       ├── toast.js                # Toast 通知
-│   │       ├── tooltip.js              # 工具提示
 │   │       ├── confirm.js              # 确认对话框
-│   │       ├── error-handler.js        # 全局错误处理
-│   │       ├── messageTypes.js         # 消息类型渲染
-│   │       ├── media.js                # 媒体处理（图片/音频预览）
-│   │       ├── thinkingMode.js         # 思考模式控制
-│   │       └── ragCodeExtension.js     # RAG 代码扩展
+│   │       └── error-handler.js        # 全局错误处理
 │   └── theme/                 # CSS 主题样式（模块化）
 │       ├── variables.css      # CSS 变量定义（深色/浅色主题）
 │       ├── layout.css         # 布局样式
@@ -439,39 +433,20 @@ const chatService = window.ServiceCenter.createChatService('openai', {
 - **time.js**: 时间格式化
   - `formatTime(timestamp)`: 将时间戳格式化为可读字符串
   
-- **markdown.js**: Markdown 渲染封装
-  - 基于 `marked.min.js` 库
-  - 支持代码高亮、表格、列表等语法
+- **marked.min.js**: Markdown 解析库
+  - 第三方库，用于渲染 Markdown 内容
   
 - **toast.js**: Toast 通知
   - `show(message, type, duration)`: 显示临时提示
   - 支持 success / error / warning / info 类型
   
-- **tooltip.js**: 工具提示
-  - 动态创建 Tooltip 元素
-  - 自动定位与消失
-  
 - **confirm.js**: 确认对话框
-  - `confirm(message, onConfirm, onCancel)`: 异步确认框
+  - `ConfirmDialog.show({ title, message, onConfirm, onCancel })`: 异步确认框
+  - 支持 ESC 键和点击遮罩层关闭
   
 - **error-handler.js**: 全局错误处理
   - 捕获未处理的 Promise Rejection
   - 统一错误日志格式
-  
-- **messageTypes.js**: 消息类型渲染
-  - 根据 Message.role 渲染不同样式
-  - 支持 tool_call、reasoning 等特殊类型
-  
-- **media.js**: 媒体处理
-  - 图片预览、音频播放
-  - 文件拖拽上传
-  
-- **thinkingMode.js**: 思考模式控制
-  - Reasoning 开关管理
-  - 思考过程展示/隐藏
-  
-- **ragCodeExtension.js**: RAG 代码扩展
-  - 代码片段检索与增强
 
 ### 8. 状态存储 (Stores)
 
