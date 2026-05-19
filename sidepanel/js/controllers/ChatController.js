@@ -99,9 +99,17 @@ class ChatController {
       await this.currentService.chatStream(
         params,
         (chunk) => {
+          console.log('[ChatController] Received chunk:', {
+            contentLength: chunk.content?.length || 0,
+            reasoningLength: chunk.reasoning_content?.length || 0,
+            hasContent: !!chunk.content,
+            hasReasoning: !!chunk.reasoning_content
+          });
+          
           // 更新推理内容
           if (chunk.reasoning_content) {
             assistantMsg.reasoning_content += chunk.reasoning_content;
+            console.log('[ChatController] Updated reasoning, total length:', assistantMsg.reasoning_content.length);
             
             // 通过 IChatService 接口处理流式推理更新（增量追加）
             if (this.currentService.handleStreamReasoning) {
@@ -115,6 +123,7 @@ class ChatController {
           // 更新最终回复内容
           if (chunk.content) {
             assistantMsg.content += chunk.content;
+            console.log('[ChatController] Updated content, total length:', assistantMsg.content.length);
             
             // 通过 IChatService 接口处理流式内容更新
             if (this.currentService.handleStreamUpdate) {
