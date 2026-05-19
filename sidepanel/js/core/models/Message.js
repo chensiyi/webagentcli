@@ -74,6 +74,13 @@ class Message {
    * 从纯对象创建
    */
   static fromJSON(data) {
+    console.log('[Message] fromJSON called:', {
+      id: data.id,
+      role: data.role,
+      contentLength: data.content?.length || 0,
+      reasoningLength: data.reasoning_content?.length || 0,
+      hasReasoningField: 'reasoning_content' in data
+    });
     return new Message(data);
   }
 }
