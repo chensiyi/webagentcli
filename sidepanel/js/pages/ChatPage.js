@@ -10,7 +10,7 @@ window.Pages.chat = function(container) {
   const sessionController = window.SessionController;
   const chatController = window.ChatController;
   
-  // 获取当前会话
+  // 获取当前会话（页面加载时绑定）
   let currentSession = sessionController.getCurrentSession();
   
   /**
@@ -457,17 +457,8 @@ window.Pages.chat = function(container) {
       textarea.value = '';
       textarea.style.height = 'auto';
       
-      console.log('[ChatPage] Sending message:', content);
-      
-      // 调用 ChatController 发送消息（会自动触发 ACTIVITY_STATE_CHANGED）
-      chatController.sendMessage(content)
-        .then(() => {
-          console.log('[ChatPage] Message sent successfully');
-        })
-        .catch((error) => {
-          console.error('[ChatPage] Send message failed:', error);
-          window.Toast?.error('发送失败: ' + error.message);
-        });
+      // 通过 EventBus 发出用户消息事件（ChatEventHandler 监听并处理）
+      window.EventBus.emit(window.Events.CHAT.USER_MESSAGE_SENT, { content });
     }
       
     return create('div', { 

@@ -44,17 +44,6 @@ const IChatService = {
   },
 
   /**
-   * 处理流式更新中的推理内容
-   * @param {Object} data - 包含 messageId, reasoning_content 等
-   */
-  handleStreamReasoning(data) {
-    // console.log('[IChatService] Stream reasoning:', data.messageId, data.reasoning_content);
-    if (window.ChatEventHandler) {
-      window.ChatEventHandler._handleStreamReasoning(data);
-    }
-  },
-  
-  /**
    * 取消正在进行的请求
    * @returns {void}
    */

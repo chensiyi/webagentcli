@@ -8,7 +8,7 @@ window.Pages.history = function(container) {
   const { create, clear } = window.DOM;
   
   // 确保 SessionManager 已初始化
-  if (!window.sessionManagerInstance && !window.ISessionManager) {
+  if (!window.sessionManagerInstance && !window.SessionManager) {
     console.error('[HistoryPage] SessionManager not initialized');
     container.innerHTML = '<div class="empty-state">会话管理器未初始化，请刷新页面重试</div>';
     return;

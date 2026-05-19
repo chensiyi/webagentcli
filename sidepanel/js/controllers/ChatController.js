@@ -6,7 +6,6 @@
 
 class ChatController {
   constructor() {
-    this.sessionController = window.SessionController;
     this.eventBus = window.EventBus;
     this.currentService = null;
     
@@ -51,10 +50,16 @@ class ChatController {
   
   /**
    * 发送消息
-   * @param {string} content - 消息内容
+   * @param {Object} params - 发送参数
+   * @param {string} params.content - 消息内容
+   * @param {Array} params.messages - 历史消息数组
+   * @param {boolean} [params.reasoningEnabled] - 是否启用 reasoning
+   * @param {string} [params.reasoningEffort] - reasoning 强度 ('low' | 'medium' | 'high')
    * @returns {Promise<Object>} 结果
    */
-  async sendMessage(content) {
+  async sendMessage(params) {
+    const { content, messages, reasoningEnabled = false, reasoningEffort = 'medium' } = params;
+    
     if (!this.currentService) {
       throw new Error('No chat service configured');
     }
@@ -67,11 +72,17 @@ class ChatController {
     let assistantMsg = null;
     
     try {
-      // 1. & 2. 批量创建用户消息和助手消息，避免触发多次渲染
+      // 1. 创建用户消息并持久化
       const userMsg = new window.Message({ role: 'user', content: content });
-      assistantMsg = new window.Message({ role: 'assistant', content: '' });
+      if (window.SessionController && window.SessionController.manager) {
+        await window.SessionController.manager.addMessage(userMsg);
+      }
       
-      this.sessionController.addMessages([userMsg, assistantMsg]);
+      // 2. 创建助手消息并持久化（空内容，等待流式填充）
+      assistantMsg = new window.Message({ role: 'assistant', content: '' });
+      if (window.SessionController && window.SessionController.manager) {
+        await window.SessionController.manager.addMessage(assistantMsg);
+      }
       
       // 3. 加入消息队列
       const queueItem = { id: assistantMsg.id, status: 'pending' };
@@ -79,14 +90,8 @@ class ChatController {
       this.notifyActivityState();
       
       // 4. 准备请求参数
-      const session = this.sessionController.getCurrentSession();
-      
-      // 从会话中读取 Reasoning 配置
-      const reasoningEnabled = session.reasoningEnabled || false;
-      const reasoningEffort = session.reasoningEffort || 'medium';
-      
-      const params = {
-        messages: session.messages.map(m => ({ role: m.role, content: m.content })),
+      const requestParams = {
+        messages: messages.map(m => ({ role: m.role, content: m.content })),
         stream: true,
         reasoningEnabled: reasoningEnabled,
         reasoningEffort: reasoningEffort
@@ -102,9 +107,9 @@ class ChatController {
       this.notifyActivityState();
       
       await this.currentService.chatStream(
-        params,
+        requestParams,
         (chunk) => {          
-          // 直接抛出流式分片追加事件
+          // 抛出流式分片追加事件（SessionController 监听并持久化，ChatEventHandler 监听并更新 UI）
           this.eventBus.emit(Events.CHAT.STREAM_CHUNK_APPEND, {
             messageId: assistantMsg.id,
             content: chunk.content || '',
@@ -129,9 +134,10 @@ class ChatController {
       if (assistantMsg) {
         assistantMsg.content = `❌ 发送失败: ${error.message}`;
         
-        // 保存错误信息
-        this.sessionController.updateMessage(assistantMsg.id, (msg) => { 
-          msg.content = assistantMsg.content; 
+        // 通过 EventBus 发出消息更新事件（SessionController 监听并持久化）
+        this.eventBus.emit(window.Events.CHAT.MESSAGE_UPDATED, {
+          messageId: assistantMsg.id,
+          updater: (msg) => { msg.content = assistantMsg.content; }
         });
       }
       
@@ -184,7 +190,8 @@ class ChatController {
    * 清空当前会话
    */
   clearSession() {
-    this.sessionController.clearCurrentSession();
+    // 通过 EventBus 发出清空会话事件（SessionController 监听并处理）
+    this.eventBus.emit(window.Events.CHAT.SESSION_CLEAR_REQUEST, {});
     this.eventBus.emit(Events.CHAT.SESSION_CLEARED, {});
     console.log('[ChatController] Session cleared');
   }

@@ -1,5 +1,5 @@
 /**
- * ISessionManager - 会话管理器（纯数据管理，无 UI/协议依赖）
+ * SessionManager - 会话管理器（纯数据管理，无 UI/协议依赖）
  * 
  * 职责：
  * - 会话 CRUD 操作
@@ -7,7 +7,7 @@
  * - 通过 EventBus 通知状态变化
  */
 
-class ISessionManager {
+class SessionManager {
   /**
    * @param {EventBus} eventBus - 事件总线实例
    * @param {Object} storage - 存储接口（默认使用 chrome.storage.local）
@@ -38,32 +38,8 @@ class ISessionManager {
     // 自动检测当前模型是否支持 reasoning
     let reasoningEnabled = options.reasoningEnabled;
     if (reasoningEnabled === undefined) {
-      const settings = window.SettingsController ? window.SettingsController.getSettings() : null;
-      if (settings && settings.model) {
-        const cacheKey = `models:${settings.apiEndpoint}`;
-        const cachedModels = window.StorageModel && window.StorageModel.getCacheSync ? 
-          window.StorageModel.getCacheSync(cacheKey) : null;
-        
-        if (cachedModels && Array.isArray(cachedModels)) {
-          const currentModel = cachedModels.find(m => m.id === settings.model);
-          // 使用 Model 对象的方法或 capabilities 字段进行检查
-          if (currentModel) {
-            const supportsReasoning = typeof currentModel.supportsReasoning === 'function' 
-              ? currentModel.supportsReasoning() 
-              : (currentModel.capabilities?.reasoning || currentModel.supports_reasoning);
-            
-            if (supportsReasoning) {
-              reasoningEnabled = true;
-            }
-          }
-        } else {
-          // 如果缓存中没有模型列表，但用户已选择模型，默认认为其支持 Reasoning（符合“默认开启”的设计）
-          reasoningEnabled = true;
-        }
-      } else {
-        // 如果没有设置任何模型，也默认开启
-        reasoningEnabled = true;
-      }
+      // 默认开启 reasoning，由调用方根据需要覆盖
+      reasoningEnabled = true;
     }
 
     const session = new Session({
@@ -82,8 +58,8 @@ class ISessionManager {
     }
       
     // 发布事件
-    this.eventBus.emit('SESSION_CREATED', { session });
-    this.eventBus.emit('CURRENT_SESSION_CHANGED', { sessionId: session.id });
+    this.eventBus.emit(window.Events.CHAT.SESSION_CREATED, { session });
+    this.eventBus.emit(window.Events.CHAT.CURRENT_SESSION_CHANGED, { sessionId: session.id });
       
     console.log('[SessionManager] Created session:', session.id, 'Reasoning:', reasoningEnabled);
     return session;
@@ -108,14 +84,14 @@ class ISessionManager {
     this._syncSessionEnvironment(session);
     
     if (previousId !== sessionId) {
-      this.eventBus.emit('CURRENT_SESSION_CHANGED', { 
+      this.eventBus.emit(window.Events.CHAT.CURRENT_SESSION_CHANGED, { 
         sessionId, 
         previousId,
         session: session // 携带会话信息，方便 UI 层直接更新状态
       });
     }
     
-    this.eventBus.emit('SESSION_LOADED', { session });
+    this.eventBus.emit(window.Events.CHAT.SESSION_LOADED, { session });
     return session;
   }
 
@@ -182,7 +158,7 @@ class ISessionManager {
     if (this.currentSessionId === sessionId) {
       this.currentSessionId = null;
       
-      this.eventBus.emit('CURRENT_SESSION_CHANGED', { 
+      this.eventBus.emit(window.Events.CHAT.CURRENT_SESSION_CHANGED, { 
         sessionId: null,
         previousId: sessionId
       });
@@ -192,7 +168,7 @@ class ISessionManager {
     this._saveSessions();
     
     // 发布事件
-    this.eventBus.emit('SESSION_DELETED', { sessionId });
+    this.eventBus.emit(window.Events.CHAT.SESSION_DELETED, { sessionId });
     
     console.log('[SessionManager] Deleted session:', sessionId);
     return true;
@@ -222,7 +198,7 @@ class ISessionManager {
     session.updated_at = Date.now();
     
     this._saveSessions();
-    this.eventBus.emit('SESSION_UPDATED', { session });
+    this.eventBus.emit(window.Events.CHAT.SESSION_UPDATED, { session });
     
     return true;
   }
@@ -245,7 +221,7 @@ class ISessionManager {
     session.updated_at = session.updatedAt;
     
     this._saveSessions();
-    this.eventBus.emit('SESSION_UPDATED', { session });
+    this.eventBus.emit(window.Events.CHAT.SESSION_UPDATED, { session });
     return true;
   }
 
@@ -270,9 +246,9 @@ class ISessionManager {
     await this._saveSessions();
     
     // 发布事件
-    this.eventBus.emit('MESSAGE_ADDED', { 
+    this.eventBus.emit(window.Events.CHAT.MESSAGE_ADDED, {
       sessionId: session.id,
-      message 
+      message
     });
     
     return true;
@@ -297,7 +273,7 @@ class ISessionManager {
     await this._saveSessions();
     
     // 仅在所有消息添加完成后发布一次事件
-    this.eventBus.emit('MESSAGES_ADDED', { 
+    this.eventBus.emit(window.Events.CHAT.MESSAGES_ADDED, { 
       sessionId: session.id,
       messages 
     });
@@ -350,7 +326,7 @@ class ISessionManager {
       
       // 发出事件通知
       const updatedMessage = session.messages.find(m => m.id === messageId);
-      this.eventBus.emit('MESSAGE_UPDATED', {
+      this.eventBus.emit(window.Events.CHAT.MESSAGE_UPDATED, {
         sessionId: session.id,
         message: updatedMessage
       });
@@ -376,7 +352,7 @@ class ISessionManager {
     if (deleted) {
       console.log('[SessionManager] Message deleted successfully:', messageId);
       this._saveSessions();
-      this.eventBus.emit('MESSAGE_DELETED', {
+      this.eventBus.emit(window.Events.CHAT.MESSAGE_DELETED, {
         sessionId: session.id,
         messageId
       });
@@ -460,7 +436,7 @@ class ISessionManager {
     
     this.storage.remove(['sessions', 'currentSessionId']);
     
-    this.eventBus.emit('ALL_SESSIONS_CLEARED');
+    this.eventBus.emit(window.Events.CHAT.ALL_SESSIONS_CLEARED);
     
     console.log('[SessionManager] Cleared all sessions');
   }
@@ -468,8 +444,8 @@ class ISessionManager {
 
 // 导出
 if (typeof window !== 'undefined') {
-  window.ISessionManager = ISessionManager;
+  window.SessionManager = SessionManager;
 }
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = ISessionManager;
+  module.exports = SessionManager;
 }

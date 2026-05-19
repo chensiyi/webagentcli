@@ -32,6 +32,21 @@ class SettingsEventHandler {
    * 注册事件监听器
    */
   _registerEventListeners() {
+    // 监听 API 标准变更
+    this.eventBus.on(window.Events.SETTINGS.API_STANDARD_CHANGED, (data) => {
+      this._handleApiStandardChanged(data);
+    });
+    
+    // 监听模型加载请求
+    this.eventBus.on(window.Events.SETTINGS.MODELS_REQUEST, (data) => {
+      this._handleModelsRequest(data);
+    });
+    
+    // 监听设置更新，动态重新配置 Service
+    this.eventBus.on(window.Events.SETTINGS.UPDATED, (data) => {
+      this._handleSettingsUpdate(data);
+    });
+    
     // 监听 API 端点变更（自动填充）
     this.eventBus.on(window.Events.SETTINGS.API_ENDPOINT_CHANGED, (data) => {
       this._handleApiEndpointChanged(data);
@@ -66,6 +81,33 @@ class SettingsEventHandler {
     this.eventBus.on('settings:confirmReloadModels', (data) => {
       this._handleConfirmReloadModels(data);
     });
+  }
+  
+  /**
+   * 处理 API 标准变更
+   */
+  _handleApiStandardChanged(data) {
+    if (this.settingsController) {
+      this.settingsController._handleApiStandardChange(data);
+    }
+  }
+  
+  /**
+   * 处理模型加载请求
+   */
+  async _handleModelsRequest(data) {
+    if (this.settingsController) {
+      await this.settingsController._handleModelsRequest(data);
+    }
+  }
+  
+  /**
+   * 处理设置更新（重新配置服务）
+   */
+  _handleSettingsUpdate(data) {
+    if (this.settingsController) {
+      this.settingsController._handleSettingsUpdate(data);
+    }
   }
   
   /**

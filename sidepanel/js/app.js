@@ -39,6 +39,7 @@
           if (window.SessionController && window.SessionController.init) {
             window.SessionController.init();
           }
+          
           console.log('[App] SessionManager initialized via ServiceCenter');
         } catch (error) {
           console.error('[App] Failed to initialize SessionManager:', error);
@@ -63,6 +64,17 @@
             console.error('[App] Failed to initialize chat service:', error);
           }
         }
+      }
+      
+      // 注册全局事件监听（只注册一次）
+      if (window.EventBus && window.Events && !window.App._globalListenersRegistered) {
+        window.App._globalListenersRegistered = true;
+        
+        // 监听会话切换事件，更新 ChatPage 的内部引用
+        window.EventBus.on(window.Events.CHAT.SESSION_SWITCHED, (data) => {
+          // ChatPage 会在下次渲染时自动获取最新会话
+          console.log('[App] Session switched event received');
+        });
       }
       
       // 4. 所有数据就绪后，渲染页面

@@ -6,8 +6,6 @@
 class ChatEventHandler {
   constructor() {
     this.eventBus = window.EventBus;
-    this.chatController = window.ChatController;
-    this.sessionController = window.SessionController;
     
     // 注册事件监听
     this._registerEventListeners();
@@ -17,30 +15,43 @@ class ChatEventHandler {
    * 注册事件监听器
    */
   _registerEventListeners() {
+    // 监听用户发送消息事件，收集上下文并调用 ChatController
+    this.eventBus.on(window.Events.CHAT.USER_MESSAGE_SENT, (data) => {
+      this._handleUserMessageSent(data);
+    });
+    
     // 监听 SessionManager 发出的消息添加事件
-    this.eventBus.on('MESSAGE_ADDED', (data) => {
+    this.eventBus.on(window.Events.CHAT.MESSAGE_ADDED, (data) => {
       console.log('[ChatEventHandler] MESSAGE_ADDED from SessionManager:', data);
       // 通知页面重新渲染（用于非流式场景，如历史加载）
       if (window.Pages && window.Pages.chat) {
         window.Pages.chat.render();
       }
     });
-
-    // 监听批量消息添加事件
-    this.eventBus.on('MESSAGES_ADDED', (data) => {
-      console.log('[ChatEventHandler] MESSAGES_ADDED from SessionManager:', data);
-      // 业务层如果依赖这个消息，可以订阅处理；如果不依赖，可以不订阅
-      if (window.Pages && window.Pages.chat) {
-        window.Pages.chat.render();
-        
-        // 渲染后检查是否有活动任务，如果有则恢复按钮状态
-        if (window.ChatController && window.ChatController.hasActiveActivities()) {
-          const sendBtn = document.getElementById('send-btn');
-          const stopBtn = document.getElementById('stop-btn');
-          if (sendBtn) sendBtn.style.display = 'none';
-          if (stopBtn) stopBtn.style.display = 'inline-block';
-          console.log('[ChatEventHandler] Buttons restored after render - hasActive:', true);
-        }
+    
+    // 监听消息更新事件
+    this.eventBus.on(window.Events.CHAT.MESSAGE_UPDATED, (data) => {
+      const { messageId, updater } = data;
+      if (window.SessionController && window.SessionController.manager && messageId && updater) {
+        window.SessionController.manager.updateMessage(messageId, updater);
+      }
+    });
+    
+    // 监听流式分片追加事件
+    this.eventBus.on(window.Events.CHAT.STREAM_CHUNK_APPEND, (data) => {
+      const { messageId, content, reasoning_content } = data;
+      if (window.SessionController && window.SessionController.manager) {
+        window.SessionController.manager.streamChunkMessage(messageId, {
+          content: content || '',
+          reasoning_content: reasoning_content || ''
+        });
+      }
+    });
+    
+    // 监听清空会话请求
+    this.eventBus.on(window.Events.CHAT.SESSION_CLEAR_REQUEST, () => {
+      if (window.SessionController && window.SessionController.manager) {
+        window.SessionController.manager.clearCurrentSession();
       }
     });
     
@@ -62,10 +73,6 @@ class ChatEventHandler {
     // this.eventBus.on(window.Events.CHAT.MESSAGE_ADDED, (data) => {
     //   this._handleMessageAdded(data);
     // });
-    
-    this.eventBus.on(window.Events.CHAT.MESSAGE_UPDATED, (data) => {
-      this._handleMessageUpdated(data);
-    });
     
     // 监听活动状态变更（控制按钮显示）
     this.eventBus.on(window.Events.CHAT.ACTIVITY_STATE_CHANGED, (data) => {
@@ -138,14 +145,31 @@ class ChatEventHandler {
   }
   
   /**
-   * 处理消息更新（流式更新）
+   * 处理消息更新（流式更新或错误更新）
    */
   _handleMessageUpdated(data) {
-    const { message, content } = data;
-    console.log('[ChatEventHandler] Message updated:', message.id, content);
+    const { messageId, updater } = data;
+    console.log('[ChatEventHandler] Message updated:', messageId);
+    
+    // 获取当前会话中的消息
+    const session = window.SessionController ? window.SessionController.getCurrentSession() : null;
+    if (!session) return;
+    
+    const message = session.messages.find(m => m.id === messageId);
+    if (!message) return;
+    
+    // 应用 updater 函数
+    if (typeof updater === 'function') {
+      updater(message);
+    }
     
     // 更新 UI 中的消息内容
-    this._updateMessageContent(message.id, content);
+    this._updateMessageContent(messageId, message.content);
+    
+    // 如果有推理内容，也更新
+    if (message.reasoning_content) {
+      this._updateMessageReasoning(messageId, message.reasoning_content);
+    }
   }
   
   /**
@@ -156,6 +180,28 @@ class ChatEventHandler {
     // ChatController 已经通过 EventBus 发送了 ACTIVITY_STATE_CHANGED 事件
     // ChatPage 会直接监听该事件来更新按钮状态
     // 这里不需要额外处理
+  }
+  
+  /**
+   * 处理用户发送消息事件（收集上下文并调用 Controller）
+   */
+  _handleUserMessageSent(data) {
+    const { content } = data;
+    
+    // 获取当前会话信息
+    const session = window.SessionController ? window.SessionController.getCurrentSession() : null;
+    
+    // 调用 ChatController 执行业务逻辑
+    if (window.ChatController) {
+      window.ChatController.sendMessage({
+        content,
+        messages: session ? session.messages : [],
+        reasoningEnabled: session ? session.reasoningEnabled : false,
+        reasoningEffort: session ? session.reasoningEffort : 'medium'
+      }).catch(error => {
+        console.error('[ChatEventHandler] Send message failed:', error);
+      });
+    }
   }
   
   /**
@@ -192,20 +238,12 @@ class ChatEventHandler {
   _handleStreamChunkAppend(data) {
     const { messageId, content, reasoning_content } = data;
     
-    // 1. 持久化到 SessionManager（分片追加模式）
-    if (window.SessionController) {
-      window.SessionController.streamChunkMessage(messageId, {
-        content: content,
-        reasoning_content: reasoning_content
-      });
-    }
-    
-    // 2. 更新 UI - 推理内容
+    // UI 更新 - 推理内容
     if (reasoning_content) {
       this._handleStreamReasoning({ messageId, reasoning_content });
     }
     
-    // 3. 更新 UI - 最终回复内容
+    // UI 更新 - 最终回复内容
     if (content) {
       this._updateMessageContent(messageId, content, true); // true 表示追加模式
     }

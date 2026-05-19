@@ -16,14 +16,14 @@ class ServiceCenter {
 
   /**
    * 初始化并获取 SessionManager 实例
-   * @returns {ISessionManager} SessionManager 实例
+   * @returns {SessionManager} SessionManager 实例
    */
   getSessionManager() {
     if (!this.sessionManager) {
-      if (!window.ISessionManager || !this.eventBus) {
-        throw new Error('ISessionManager or EventBus not initialized');
+      if (!window.SessionManager || !this.eventBus) {
+        throw new Error('SessionManager or EventBus not initialized');
       }
-      this.sessionManager = new window.ISessionManager(this.eventBus);
+      this.sessionManager = new window.SessionManager(this.eventBus);
       console.log('[ServiceCenter] SessionManager initialized');
     }
     return this.sessionManager;
@@ -40,32 +40,11 @@ class ServiceCenter {
       throw new Error('ServiceRegistry not initialized');
     }
 
-    // 1. 获取原始 API 服务实例
+    // 获取原始 API 服务实例
     const apiService = this.serviceRegistry.registerChatService(providerId, config);
 
-    // 2. 封装：组合底层 API 能力与标准 UI 交互逻辑
-    const chatServiceFacade = {
-      // 转发底层 API 能力
-      configure: apiService.configure.bind(apiService),
-      chat: apiService.chat.bind(apiService),
-      chatStream: apiService.chatStream.bind(apiService),
-      cancel: apiService.cancel.bind(apiService),
-      listModels: apiService.listModels ? apiService.listModels.bind(apiService) : undefined,
-      getModelDetails: apiService.getModelDetails ? apiService.getModelDetails.bind(apiService) : undefined,
-            
-      // 混入标准的 UI 交互逻辑（来自 IChatUIHandler）
-      ...(window.IChatUIHandler ? {
-        confirmDeleteMessage: window.IChatUIHandler.confirmDeleteMessage.bind(window.IChatUIHandler),
-        handleStreamStart: window.IChatUIHandler.handleStreamStart.bind(window.IChatUIHandler),
-        handleStreamUpdate: window.IChatUIHandler.handleStreamUpdate.bind(window.IChatUIHandler),
-        handleStreamReasoning: window.IChatUIHandler.handleStreamReasoning.bind(window.IChatUIHandler),
-        handleStreamComplete: window.IChatUIHandler.handleStreamComplete.bind(window.IChatUIHandler),
-        handleStreamError: window.IChatUIHandler.handleStreamError.bind(window.IChatUIHandler)
-      } : {})
-    };
-
-    console.log('[ServiceCenter] Chat service facade created for:', providerId);
-    return chatServiceFacade;
+    console.log('[ServiceCenter] Chat service created for:', providerId);
+    return apiService;
   }
 
   /**

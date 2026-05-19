@@ -10,10 +10,14 @@ const Events = {
     MESSAGE_ADDED: 'chat:messageAdded',        // 消息已添加
     MESSAGE_UPDATED: 'chat:messageUpdated',    // 消息已更新
     MESSAGE_DELETED: 'chat:messageDeleted',    // 消息已删除
+    MESSAGES_ADDED: 'chat:messagesAdded',      // 批量消息添加
+    
+    // 用户交互
+    USER_MESSAGE_SENT: 'chat:userMessageSent', // 用户发送消息
     
     // 流式请求
     STREAM_START: 'chat:streamStart',          // 流式请求开始
-    STREAM_CHUNK_APPEND: 'chat:streamChunkAppend', // 流式分片追加
+    STREAM_CHUNK_APPEND: 'chat:streamChunkAppend', // 流式分片追加（包含 content 和 reasoning_content）
     STREAM_UPDATE: 'chat:streamUpdate',        // 流式内容更新（已废弃）
     STREAM_COMPLETE: 'chat:streamComplete',    // 流式请求完成
     STREAM_ERROR: 'chat:streamError',          // 流式请求出错
@@ -25,6 +29,11 @@ const Events = {
     SESSION_SWITCHED: 'chat:sessionSwitched',  // 会话切换
     SESSION_CLEARED: 'chat:sessionCleared',    // 会话清空
     SESSION_DELETED: 'chat:sessionDeleted',    // 会话删除
+    SESSION_CLEAR_REQUEST: 'chat:sessionClearRequest', // 清空会话请求
+    SESSION_LOADED: 'chat:sessionLoaded',      // 会话加载
+    SESSION_UPDATED: 'chat:sessionUpdated',    // 会话更新
+    CURRENT_SESSION_CHANGED: 'chat:currentSessionChanged', // 当前会话变更
+    ALL_SESSIONS_CLEARED: 'chat:allSessionsCleared', // 所有会话清空
   },
   
   // ==================== Settings 相关事件 ====================
