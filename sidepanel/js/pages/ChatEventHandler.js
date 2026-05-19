@@ -165,6 +165,20 @@ class ChatEventHandler {
     if (sendBtn) sendBtn.style.display = 'none';
     if (stopBtn) stopBtn.style.display = 'inline-block';
     console.log('[ChatEventHandler] Buttons updated - sendBtn:', sendBtn?.style.display, 'stopBtn:', stopBtn?.style.display);
+    
+    // 延迟再次检查，确保没有其他代码重置按钮状态
+    setTimeout(() => {
+      const sendBtn2 = document.getElementById('send-btn');
+      const stopBtn2 = document.getElementById('stop-btn');
+      console.log('[ChatEventHandler] Buttons check after 100ms - sendBtn:', sendBtn2?.style.display, 'stopBtn:', stopBtn2?.style.display);
+      
+      // 如果按钮状态不正确，再次修复
+      if (window.ChatController && window.ChatController.hasActiveActivities()) {
+        if (sendBtn2) sendBtn2.style.display = 'none';
+        if (stopBtn2) stopBtn2.style.display = 'inline-block';
+        console.log('[ChatEventHandler] Buttons restored after delay');
+      }
+    }, 100);
   }
   
   /**
