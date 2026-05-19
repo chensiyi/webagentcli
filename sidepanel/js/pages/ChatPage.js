@@ -428,13 +428,17 @@ window.Pages.chat = function(container) {
         
         // 额外调试信息
         if (currentStopBtn) {
+          const rect = currentStopBtn.getBoundingClientRect();
           console.log('[ChatPage] Stop button details:', {
             element: currentStopBtn,
             inDOM: document.contains(currentStopBtn),
             computedDisplay: getComputedStyle(currentStopBtn).display,
             offsetWidth: currentStopBtn.offsetWidth,
             offsetHeight: currentStopBtn.offsetHeight,
-            parentElement: currentStopBtn.parentElement
+            parentElement: currentStopBtn.parentElement,
+            boundingRect: rect,
+            isVisible: rect.width > 0 && rect.height > 0,
+            zIndex: getComputedStyle(currentStopBtn).zIndex
           });
         }
       });
