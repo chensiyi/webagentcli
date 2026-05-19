@@ -13,10 +13,6 @@ window.Pages.chat = function(container) {
   // 获取当前会话
   let currentSession = sessionController.getCurrentSession();
   
-  // 缓存按钮引用，避免每次渲染创建新元素导致事件监听器失效
-  let stopBtnElement = null;
-  let sendBtnElement = null;
-  
   /**
    * 渲染聊天页面
    */
@@ -396,9 +392,6 @@ window.Pages.chat = function(container) {
         flexShrink: '0'  // 防止按钮被压缩
       }
     });
-    
-    // 更新缓存的按钮引用
-    sendBtnElement = sendBtn;
       
     const stopBtn = create('button', {
       className: 'btn btn-error',
@@ -415,9 +408,6 @@ window.Pages.chat = function(container) {
       }
     });
     
-    // 更新缓存的按钮引用
-    stopBtnElement = stopBtn;
-    
     // 初始化事件监听（只注册一次）
     if (!window.Pages.chat._activityListenerRegistered && window.EventBus && window.Events) {
       window.Pages.chat._activityListenerRegistered = true;
@@ -425,19 +415,25 @@ window.Pages.chat = function(container) {
         console.log('[ChatPage] ACTIVITY_STATE_CHANGED received:', data);
         const hasActive = data.hasActive || data.messageQueueLength > 0;
         console.log('[ChatPage] Updating buttons - hasActive:', hasActive);
-        if (sendBtnElement) sendBtnElement.style.display = hasActive ? 'none' : 'inline-block';
-        if (stopBtnElement) stopBtnElement.style.display = hasActive ? 'inline-block' : 'none';
-        console.log('[ChatPage] Buttons updated - sendBtn.display:', sendBtnElement?.style.display, 'stopBtn.display:', stopBtnElement?.style.display);
+        
+        // 每次都通过 ID 获取最新的按钮元素
+        const currentSendBtn = document.getElementById('send-btn');
+        const currentStopBtn = document.getElementById('stop-btn');
+        
+        if (currentSendBtn) currentSendBtn.style.display = hasActive ? 'none' : 'inline-block';
+        if (currentStopBtn) currentStopBtn.style.display = hasActive ? 'inline-block' : 'none';
+        
+        console.log('[ChatPage] Buttons updated - sendBtn.display:', currentSendBtn?.style.display, 'stopBtn.display:', currentStopBtn?.style.display);
         
         // 额外调试信息
-        if (stopBtnElement) {
+        if (currentStopBtn) {
           console.log('[ChatPage] Stop button details:', {
-            element: stopBtnElement,
-            inDOM: document.contains(stopBtnElement),
-            computedDisplay: getComputedStyle(stopBtnElement).display,
-            offsetWidth: stopBtnElement.offsetWidth,
-            offsetHeight: stopBtnElement.offsetHeight,
-            parentElement: stopBtnElement.parentElement
+            element: currentStopBtn,
+            inDOM: document.contains(currentStopBtn),
+            computedDisplay: getComputedStyle(currentStopBtn).display,
+            offsetWidth: currentStopBtn.offsetWidth,
+            offsetHeight: currentStopBtn.offsetHeight,
+            parentElement: currentStopBtn.parentElement
           });
         }
       });
