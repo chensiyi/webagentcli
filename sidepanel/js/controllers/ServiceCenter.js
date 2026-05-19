@@ -11,6 +11,22 @@ class ServiceCenter {
   constructor() {
     this.serviceRegistry = window.ServiceRegistry;
     this.eventBus = window.EventBus;
+    this.sessionManager = null;
+  }
+
+  /**
+   * 初始化并获取 SessionManager 实例
+   * @returns {ISessionManager} SessionManager 实例
+   */
+  getSessionManager() {
+    if (!this.sessionManager) {
+      if (!window.ISessionManager || !this.eventBus) {
+        throw new Error('ISessionManager or EventBus not initialized');
+      }
+      this.sessionManager = new window.ISessionManager(this.eventBus);
+      console.log('[ServiceCenter] SessionManager initialized');
+    }
+    return this.sessionManager;
   }
 
   /**

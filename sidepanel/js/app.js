@@ -28,17 +28,21 @@
         console.log('[App] Settings loaded');
       }
       
-      // 2. 初始化会话管理器并同步加载数据
-      if (window.SessionManager && window.EventBus) {
-        window.sessionManagerInstance = new window.SessionManager(window.EventBus);
-        
-        // 关键：显式等待会话从存储加载完成
-        await window.sessionManagerInstance.loadSessionsFromStorage();
-        
-        if (window.SessionController && window.SessionController.init) {
-          window.SessionController.init();
+      // 2. 通过 ServiceCenter 初始化会话管理器并同步加载数据
+      if (window.ServiceCenter) {
+        try {
+          window.sessionManagerInstance = window.ServiceCenter.getSessionManager();
+          
+          // 关键：显式等待会话从存储加载完成
+          await window.sessionManagerInstance.loadSessionsFromStorage();
+          
+          if (window.SessionController && window.SessionController.init) {
+            window.SessionController.init();
+          }
+          console.log('[App] SessionManager initialized via ServiceCenter');
+        } catch (error) {
+          console.error('[App] Failed to initialize SessionManager:', error);
         }
-        console.log('[App] SessionManager initialized');
       }
       
       // 3. 通过 ServiceCenter 初始化聊天服务

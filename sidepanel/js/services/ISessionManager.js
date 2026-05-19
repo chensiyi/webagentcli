@@ -1,5 +1,5 @@
 /**
- * SessionManager - 会话管理器（纯数据管理，无 UI/协议依赖）
+ * ISessionManager - 会话管理器（纯数据管理，无 UI/协议依赖）
  * 
  * 职责：
  * - 会话 CRUD 操作
@@ -7,7 +7,7 @@
  * - 通过 EventBus 通知状态变化
  */
 
-class SessionManager {
+class ISessionManager {
   /**
    * @param {EventBus} eventBus - 事件总线实例
    * @param {Object} storage - 存储接口（默认使用 chrome.storage.local）
@@ -468,8 +468,8 @@ class SessionManager {
 
 // 导出
 if (typeof window !== 'undefined') {
-  window.SessionManager = SessionManager;
+  window.ISessionManager = ISessionManager;
 }
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = SessionManager;
+  module.exports = ISessionManager;
 }

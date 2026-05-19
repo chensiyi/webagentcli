@@ -8,13 +8,13 @@ window.Pages.history = function(container) {
   const { create, clear } = window.DOM;
   
   // 确保 SessionManager 已初始化
-  if (!window.sessionManagerInstance && !window.SessionManager) {
+  if (!window.sessionManagerInstance && !window.ISessionManager) {
     console.error('[HistoryPage] SessionManager not initialized');
     container.innerHTML = '<div class="empty-state">会话管理器未初始化，请刷新页面重试</div>';
     return;
   }
   
-  const sessionManager = window.sessionManagerInstance || window.SessionManager;
+  const sessionManager = window.sessionManagerInstance || (window.ServiceCenter ? window.ServiceCenter.getSessionManager() : null);
   
   let searchKeyword = '';
   let searchTimer = null;
