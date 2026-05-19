@@ -474,90 +474,45 @@ const chatService = window.ServiceCenter.createChatService('openai', {
 - **参数验证**: `validateArgs(toolId, args)` - JSON Schema 格式验证
 - **OpenAI 格式转换**: `getOpenAIToolsDefinition()` - 转换为 API 标准格式
 
-## 数据流
+## 核心设计原则
 
-### 发送消息流程
+### 1. MVC 分层
 
-```
-用户输入 
-  ↓
-ChatEventHandler.sendMessage()
-  ↓
-ChatController.sendMessage()
-  ↓
-创建 Message 对象
-  ↓
-SessionManager.addMessage(message)
-  ├→ 如果无当前会话，自动创建
-  ├→ 添加到 Session.messages[]
-  ├→ 持久化到 chrome.storage.local
-  └→ EventBus.emit('MESSAGE_ADDED')
-  ↓
-ChatService.chatStream(params, onChunk, onComplete)
-  ↓
-┌──────────────────────────────────────┐
-│  流式响应处理                         │
-│  ↓                                  │
-│  onChunk(chunk)                     │
-│  ↓                                  │
-│  解析 chunk → 提取 content/reasoning│
-│  ↓                                  │
-│  SessionManager.updateMessage()     │
-│  ↓                                  │
-│  IChatService.handleStreamUpdate()  │
-│  ↓                                  │
-│  ChatEventHandler 更新 UI            │
-└──────────────────────────────────────┘
-  ↓
-onComplete(data)
-  ↓
-IChatService.handleStreamComplete()
-  ↓
-EventBus.emit('CHAT.STREAM_COMPLETE')
-```
+- **Model**: 数据模型与状态管理（`core/models`, `core/stores`）
+- **View**: UI 渲染与用户交互（`pages/`）
+- **Controller**: 业务逻辑协调（`controllers/`）
 
-### 设置变更流程
+各层之间通过 **EventBus** 通信，避免直接依赖。
 
-```
-用户修改设置
-  ↓
-SettingsEventHandler
-  ↓
-SettingsController.updateSettings(newSettings)
-  ↓
-更新 Settings 模型
-  ↓
-保存到 chrome.storage.local
-  ↓
-EventBus.emit('SETTINGS.UPDATED', { settings })
-  ↓
-各 Controller 响应变更:
-  ├→ ChatController: 重新配置 ChatService
-  ├→ SessionController: 同步会话环境
-  └→ SettingsPage: 更新 UI 显示
-```
+### 2. 去中心化服务管理
 
-### 会话切换流程
+- Provider **自注册**到 ServiceRegistry，而非由中央管理器统一管理
+- 符合**开闭原则**，新增 Provider 无需修改现有代码
+- ServiceCenter 仅负责 Facade 装配，不涉及具体实现
 
-```
-用户点击历史会话
-  ↓
-HistoryPage / ChatEventHandler
-  ↓
-SessionController.loadSession(sessionId)
-  ↓
-SessionManager.loadSession(sessionId)
-  ├→ 从内存缓存获取 Session
-  ├→ _syncSessionEnvironment(session)
-  │   └→ 检测模型是否支持 Reasoning
-  │       └→ 如不支持，强制关闭 reasoningEnabled
-  ├→ 更新 currentSessionId
-  └→ EventBus.emit('CURRENT_SESSION_CHANGED')
-  ↓
-ChatEventHandler 监听事件
-  ↓
-重新渲染 ChatPage
-```
+### 3. 内核与业务隔离
+
+- Controller 层不直接依赖具体 Provider 实现
+- 通过 ServiceCenter 的 Facade 模式统一接口
+- 便于单元测试与 Mock 替换
+
+### 4. 事件驱动
+
+- 所有跨模块通信均通过 EventBus
+- 避免循环依赖与紧耦合
+- 支持异步操作与消息历史
+
+### 5. 主题化 UI
+
+- 所有样式使用 CSS 变量
+- 模块化 CSS 文件，按功能分区
+- 支持深色/浅色模式自动切换
+
+### 6. 单一职责
+
+- SessionManager: 仅负责会话数据管理，无 UI 依赖
+- ToolRegistry: 仅负责工具注册，无执行逻辑
+- ServiceCenter: 仅负责服务装配，无业务逻辑
 
 ## 全局对象
 
