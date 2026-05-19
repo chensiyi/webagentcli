@@ -17,10 +17,13 @@ window.Pages.chat = function(container) {
    * 渲染聊天页面
    */
   function render() {
+    console.log('[ChatPage] Render called');
     clear(container);
     
     currentSession = sessionController.getCurrentSession();
     const messages = currentSession ? currentSession.messages : [];
+    
+    console.log('[ChatPage] Current session:', currentSession?.id, 'Messages count:', messages.length);
     
     const page = create('div', { className: 'page' });
     
@@ -168,6 +171,7 @@ window.Pages.chat = function(container) {
     page.appendChild(header);
     
     // 消息列表 - 使用 theme 中的 page-content 样式
+    console.log('[ChatPage] Creating message list with', messages.length, 'messages');
     const messageList = createMessageList(messages);
     page.appendChild(messageList);
     
@@ -188,15 +192,18 @@ window.Pages.chat = function(container) {
    * 创建消息列表
    */
   function createMessageList(messages) {
+    console.log('[ChatPage] createMessageList called with', messages.length, 'messages');
     const list = create('div', { 
       className: 'page-content',
       id: 'message-list'
     });
     
     if (messages.length === 0) {
+      console.log('[ChatPage] No messages, showing empty state');
       list.appendChild(createEmptyState());
     } else {
-      messages.forEach(msg => {
+      messages.forEach((msg, index) => {
+        console.log('[ChatPage] Rendering message', index + 1, '/', messages.length, '- Role:', msg.role);
         const bubble = createMessageBubble(msg);
         list.appendChild(bubble);
       });
@@ -220,6 +227,15 @@ window.Pages.chat = function(container) {
    * 创建消息气泡 - 复用 theme 中的 message 样式
    */
   function createMessageBubble(msg) {
+    console.log('[ChatPage] Creating message bubble:', {
+      id: msg.id,
+      role: msg.role,
+      contentLength: msg.content?.length || 0,
+      reasoningLength: msg.reasoning_content?.length || 0,
+      hasContent: !!msg.content,
+      hasReasoning: !!msg.reasoning_content
+    });
+    
     const isUser = msg.role === 'user';
     const hasReasoning = msg.reasoning_content && msg.reasoning_content.trim();
     
@@ -228,6 +244,7 @@ window.Pages.chat = function(container) {
     
     // assistant 消息始终预留思考容器（初始隐藏，收到 reasoning 时显示）
     if (!isUser) {
+      console.log('[ChatPage] Creating reasoning container for assistant message:', msg.id);
       const reasoningContainer = create('div', { 
         className: 'message-reasoning',
         style: { display: hasReasoning ? 'block' : 'none' }
@@ -247,6 +264,8 @@ window.Pages.chat = function(container) {
         text: msg.reasoning_content || '',
         style: { display: 'none' }
       });
+      
+      console.log('[ChatPage] Reasoning content element created, initial text length:', (msg.reasoning_content || '').length);
       
       reasoningContainer.appendChild(reasoningHeader);
       reasoningContainer.appendChild(reasoningContent);
@@ -271,12 +290,16 @@ window.Pages.chat = function(container) {
     contentDiv.dataset.fullContent = msg.content || '';
     bodyChildren.push(contentDiv);
     
+    console.log('[ChatPage] Content div created, fullContent length:', (msg.content || '').length);
+    
     const bubble = create('div', {
       className: `message-bubble message-${msg.role}`,
       attrs: { 'data-message-id': msg.id }
     }, [
       create('div', { className: 'message-body' }, bodyChildren)
     ]);
+
+    console.log('[ChatPage] Message bubble created successfully');
 
     // 添加删除按钮（默认隐藏，鼠标悬停显示）
     const deleteBtn = create('button', {
