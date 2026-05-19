@@ -185,6 +185,15 @@ window.Pages.chat = function(container) {
     
     // 滚动到底部
     scrollToBottom(messageList);
+    
+    // 渲染后检查是否有活动任务，恢复按钮状态（解决切换页面后按钮丢失的问题）
+    if (window.ChatController && window.ChatController.hasActiveActivities()) {
+      const sendBtn = document.getElementById('send-btn');
+      const stopBtn = document.getElementById('stop-btn');
+      if (sendBtn) sendBtn.style.display = 'none';
+      if (stopBtn) stopBtn.style.display = 'inline-block';
+      console.log('[ChatPage] Buttons restored after render - hasActive:', true);
+    }
   }
   
   // 将 render 方法暴露出去，供 EventHandler 调用
