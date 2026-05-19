@@ -13,10 +13,6 @@ class ChatController {
     // 维护消息队列和任务队列状态
     this.messageQueue = [];
     this.taskQueue = [];
-    
-    // 流式持久化节流控制
-    this._streamPersistTimers = new Map(); // messageId -> timer
-    this._streamPendingUpdates = new Map(); // messageId -> { content, reasoning_content }
   }
   
   /**
@@ -42,65 +38,6 @@ class ChatController {
       messageQueueLength: this.messageQueue.length,
       taskQueueLength: this.taskQueue.length
     });
-  }
-  
-  /**
-   * 流式更新节流持久化（最多 1 次/秒）
-   * @param {string} messageId - 消息 ID
-   * @param {Object} updates - { content, reasoning_content }
-   */
-  _throttledStreamPersist(messageId, updates) {
-    // 合并待处理的更新
-    if (!this._streamPendingUpdates.has(messageId)) {
-      this._streamPendingUpdates.set(messageId, {});
-    }
-    const pending = this._streamPendingUpdates.get(messageId);
-    if (updates.content !== undefined) pending.content = updates.content;
-    if (updates.reasoning_content !== undefined) pending.reasoning_content = updates.reasoning_content;
-    
-    // 如果已经有定时器，不重复创建
-    if (this._streamPersistTimers.has(messageId)) {
-      return;
-    }
-    
-    // 创建 1 秒后执行的定时器
-    const timer = setTimeout(() => {
-      const pendingUpdates = this._streamPendingUpdates.get(messageId);
-      if (pendingUpdates) {
-        this.sessionController.updateMessage(messageId, (msg) => {
-          if (pendingUpdates.content !== undefined) msg.content = pendingUpdates.content;
-          if (pendingUpdates.reasoning_content !== undefined) msg.reasoning_content = pendingUpdates.reasoning_content;
-        });
-        console.log('[ChatController] Throttled persist for message:', messageId, pendingUpdates);
-      }
-      this._streamPersistTimers.delete(messageId);
-      this._streamPendingUpdates.delete(messageId);
-    }, 1000);
-    
-    this._streamPersistTimers.set(messageId, timer);
-  }
-  
-  /**
-   * 清除流式持久化节流器（用于完成或错误时立即保存）
-   * @param {string} messageId - 消息 ID
-   */
-  _clearStreamPersistTimer(messageId) {
-    const timer = this._streamPersistTimers.get(messageId);
-    if (timer) {
-      clearTimeout(timer);
-      this._streamPersistTimers.delete(messageId);
-      
-      // 立即保存待处理的更新
-      const pendingUpdates = this._streamPendingUpdates.get(messageId);
-      if (pendingUpdates) {
-        this.sessionController.updateMessage(messageId, (msg) => {
-          if (pendingUpdates.content !== undefined) msg.content = pendingUpdates.content;
-          if (pendingUpdates.reasoning_content !== undefined) msg.reasoning_content = pendingUpdates.reasoning_content;
-        });
-        console.log('[ChatController] Immediate persist on clear for message:', messageId, pendingUpdates);
-      }
-      this._streamPendingUpdates.delete(messageId);
-    }
   }
   
   /**
@@ -179,9 +116,9 @@ class ChatController {
             assistantMsg.reasoning_content += chunk.reasoning_content;
             console.log('[ChatController] Updated reasoning, total length:', assistantMsg.reasoning_content.length);
             
-            // 使用节流机制持久化到存储
-            this._throttledStreamPersist(assistantMsg.id, {
-              reasoning_content: assistantMsg.reasoning_content
+            // 流式分片持久化（追加模式，不触发事件通知）
+            this.sessionController.streamChunkMessage(assistantMsg.id, {
+              reasoning_content: chunk.reasoning_content
             });
             
             // 通过 IChatService 接口处理流式推理更新（增量追加）
@@ -198,9 +135,9 @@ class ChatController {
             assistantMsg.content += chunk.content;
             console.log('[ChatController] Updated content, total length:', assistantMsg.content.length);
             
-            // 使用节流机制持久化到存储
-            this._throttledStreamPersist(assistantMsg.id, {
-              content: assistantMsg.content
+            // 流式分片持久化（追加模式，不触发事件通知）
+            this.sessionController.streamChunkMessage(assistantMsg.id, {
+              content: chunk.content
             });
             
             // 通过 IChatService 接口处理流式内容更新
@@ -216,9 +153,6 @@ class ChatController {
           // 完成：从队列移除
           this.messageQueue = this.messageQueue.filter(item => item.id !== assistantMsg.id);
           
-          // 立即保存所有待处理的更新
-          this._clearStreamPersistTimer(assistantMsg.id);
-          
           // 通过 IChatService 接口处理流式完成
           if (this.currentService.handleStreamComplete) {
             this.currentService.handleStreamComplete({ messageId: assistantMsg.id, message: assistantMsg });
@@ -233,8 +167,7 @@ class ChatController {
       if (assistantMsg) {
         assistantMsg.content = `❌ 发送失败: ${error.message}`;
         
-        // 立即保存错误信息
-        this._clearStreamPersistTimer(assistantMsg.id);
+        // 保存错误信息
         this.sessionController.updateMessage(assistantMsg.id, (msg) => { 
           msg.content = assistantMsg.content; 
         });

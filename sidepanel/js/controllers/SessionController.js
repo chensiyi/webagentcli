@@ -107,6 +107,20 @@ class SessionController {
   }
   
   /**
+   * 流式分片更新消息内容（专为流式交互设计）
+   * @param {string} messageId 
+   * @param {Object} chunk - { content?: string, reasoning_content?: string }
+   * @returns {boolean}
+   */
+  streamChunkMessage(messageId, chunk) {
+    if (!this.manager) {
+      console.error('[SessionController] SessionManager not ready');
+      return false;
+    }
+    return this.manager.streamChunkMessage(messageId, chunk);
+  }
+  
+  /**
    * 删除消息
    * @param {string} messageId 
    * @returns {boolean}

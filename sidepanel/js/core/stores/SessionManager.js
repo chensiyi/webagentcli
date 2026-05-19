@@ -306,12 +306,43 @@ class SessionManager {
   }
 
   /**
+   * 流式分片更新消息内容（专为流式交互设计，不触发事件通知）
+   * @param {string} messageId 
+   * @param {Object} chunk - { content?: string, reasoning_content?: string } - 流式分片数据
+   * @returns {boolean}
+   */
+  streamChunkMessage(messageId, chunk) {
+    const session = this.getCurrentSession();
+    if (!session) return false;
+    
+    const message = session.messages.find(m => m.id === messageId);
+    if (!message) return false;
+    
+    // 追加流式分片内容到消息末尾
+    if (chunk.content !== undefined) {
+      message.content += chunk.content;
+    }
+    if (chunk.reasoning_content !== undefined) {
+      message.reasoning_content += chunk.reasoning_content;
+    }
+    
+    session.updatedAt = Date.now();
+    session.updated_at = session.updatedAt;
+    
+    // 持久化（但不发出事件通知，避免触发 UI 重绘）
+    this._saveSessions();
+    
+    return true;
+  }
+
+  /**
    * 更新消息
    * @param {string} messageId 
    * @param {Function} updater 
+   * @param {boolean} skipEvent - 是否跳过事件通知（流式更新时为 true）
    * @returns {boolean}
    */
-  updateMessage(messageId, updater) {
+  updateMessage(messageId, updater, skipEvent = false) {
     const session = this.getCurrentSession();
     if (!session) return false;
     
@@ -319,11 +350,14 @@ class SessionManager {
     if (updated) {
       this._saveSessions();
       
-      const updatedMessage = session.messages.find(m => m.id === messageId);
-      this.eventBus.emit('MESSAGE_UPDATED', {
-        sessionId: session.id,
-        message: updatedMessage
-      });
+      // 如果不是流式更新，才发出事件通知
+      if (!skipEvent) {
+        const updatedMessage = session.messages.find(m => m.id === messageId);
+        this.eventBus.emit('MESSAGE_UPDATED', {
+          sessionId: session.id,
+          message: updatedMessage
+        });
+      }
     }
     
     return updated;
