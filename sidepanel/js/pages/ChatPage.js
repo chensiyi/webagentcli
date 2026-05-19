@@ -477,8 +477,6 @@ window.Pages.chat = function(container) {
    * 检查当前模型是否支持 reasoning（同步，从缓存读取）
    */
   function checkModelSupportsReasoning() {
-    if (!currentSession) return false;
-    
     // 从 Settings 获取当前模型
     const settings = window.SettingsController ? window.SettingsController.getSettings() : null;
     if (!settings || !settings.apiEndpoint || !settings.model) return false;
