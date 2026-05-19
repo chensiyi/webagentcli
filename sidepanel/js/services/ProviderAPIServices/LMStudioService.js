@@ -207,11 +207,6 @@ class LMStudioService {
                                choice.delta.reasoning_content || 
                                choice.delta.thinking || '';
       
-      // 调试日志
-      if (reasoningContent) {
-        console.log('[LMStudioService] Parsed reasoning chunk:', reasoningContent.substring(0, 50));
-      }
-      
       return {
         content: choice.delta.content || '',
         reasoning_content: reasoningContent,

@@ -286,8 +286,6 @@ class ChatEventHandler {
           }
           
           contentEl.textContent += reasoning_content;
-          console.log('[ChatEventHandler] Stream reasoning chunk:', reasoning_content.substring(0, 50));
-          
           const messageList = document.getElementById('message-list');
           if (messageList) messageList.scrollTop = messageList.scrollHeight;
         } else {
