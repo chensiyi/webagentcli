@@ -342,7 +342,13 @@ window.Pages.chat = function(container, serviceCenter) {
       onMouseLeave: (e) => e.target.style.opacity = '0',
       onClick: (e) => {
         e.stopPropagation();
-        // 通过 serviceCenter 获取服务
+        
+        // 确认删除
+        if (!confirm('确定要删除这条消息吗？')) {
+          return;
+        }
+        
+        // 通过 SessionManager 删除消息
         const sessionManager = serviceCenter.getSessionManager();
         
         if (!sessionManager.currentSessionId) {
@@ -350,23 +356,14 @@ window.Pages.chat = function(container, serviceCenter) {
           return;
         }
         
-        // 获取 Settings 和 ChatService
-        const settingsController = serviceCenter.getSettingsController();
-        const settings = settingsController.getSettings();
+        // 直接调用 SessionManager 的 deleteMessage 方法
+        const deleted = sessionManager.deleteMessage(msg.id);
         
-        if (!settings || !settings.apiStandard) {
-          console.error('[ChatPage] Cannot delete message: chat service not configured');
-          return;
+        if (deleted) {
+          console.log('[ChatPage] Message deleted:', msg.id);
+        } else {
+          console.warn('[ChatPage] Failed to delete message:', msg.id);
         }
-        
-        const chatService = serviceCenter.createChatService(settings.apiStandard, {
-          endpoint: settings.apiEndpoint,
-          apiKey: settings.apiKey,
-          defaultModel: settings.model || 'default'
-        });
-        
-        const chat = sessionManager.getOrCreateChat(sessionManager.currentSessionId, chatService);
-        chat.deleteMessage(msg.id);
       }
     });
 
