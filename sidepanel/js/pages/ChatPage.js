@@ -18,6 +18,22 @@ window.Pages.chat = function(container, serviceCenter) {
   
   console.log('[ChatPage] Initialized, current chat:', currentChat?.id || 'none');
   
+  // 注册事件监听器
+  const eventBus = serviceCenter.getEventBus();
+  
+  // 监听消息添加事件，自动重新渲染
+  eventBus.on(window.Events.CHAT.MESSAGE_ADDED, () => {
+    console.log('[ChatPage] MESSAGE_ADDED event received, re-rendering...');
+    render();
+  });
+  
+  // 监听会话切换事件，更新 currentChat 并重新渲染
+  eventBus.on(window.Events.CHAT.CURRENT_SESSION_CHANGED, (data) => {
+    console.log('[ChatPage] CURRENT_SESSION_CHANGED event received:', data);
+    currentChat = serviceCenter.getCurrentChat();
+    render();
+  });
+  
   /**
    * 渲染聊天页面
    */
