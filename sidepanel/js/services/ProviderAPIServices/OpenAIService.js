@@ -73,8 +73,11 @@ class OpenAIService {
       ...(params.tools && { tools: params.tools }),
       ...(params.toolChoice && { tool_choice: params.toolChoice }),
       // Reasoning 参数（OpenAI o系列模型）- reasoning_effort 是顶层参数
-      ...(params.reasoningEnabled && params.reasoningEffort && { 
-        reasoning_effort: params.reasoningEffort
+      // 可选值: "low" | "medium" | "high" | "minimal" | "none"
+      ...(params.reasoningEnabled === true ? {
+        reasoning_effort: params.reasoningEffort || 'medium'
+      } : {
+        reasoning_effort: 'none'
       })
     };
   }

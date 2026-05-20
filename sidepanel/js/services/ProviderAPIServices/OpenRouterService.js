@@ -67,10 +67,11 @@ class OpenRouterService extends OpenAIService {
     }
     
     // OpenRouter reasoning 参数（统一格式）
+    // OpenRouter 使用对象格式: { enabled: boolean, effort?: string }
     if (params.reasoningEnabled !== undefined) {
       body.reasoning = {
         enabled: params.reasoningEnabled,
-        ...(params.reasoningEffort && { effort: params.reasoningEffort })
+        ...(params.reasoningEnabled && params.reasoningEffort && { effort: params.reasoningEffort })
       };
     }
     
@@ -239,8 +240,3 @@ class OpenRouterService extends OpenAIService {
 }
 
 window.OpenRouterService = OpenRouterService;
-
-// 自注册到 ServiceRegistry
-if (window.ServiceRegistry) {
-  window.ServiceRegistry.registerProvider('openrouter', OpenRouterService);
-}
