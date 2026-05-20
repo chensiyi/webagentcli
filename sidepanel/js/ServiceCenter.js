@@ -16,6 +16,7 @@ class ServiceCenter {
     this.storageController = null;
     this.scriptsController = null;
     this.currentProviderService = null; // 当前活跃的 Provider API 服务
+    this.currentProviderId = null;
     this.chatController = null; // ChatController 单例
   }
 
@@ -108,12 +109,6 @@ class ServiceCenter {
    * @returns {IProviderAPIService} Provider API 服务实例
    */
   getCurrentProviderService() {
-    // 如果已经有缓存的当前服务，直接返回
-    if (this.currentProviderService) {
-      return this.currentProviderService;
-    }
-    
-    // 否则从 Settings 读取配置并创建
     const settingsController = this.getSettingsController();
     const settings = settingsController.getSettings();
     
@@ -121,25 +116,50 @@ class ServiceCenter {
       throw new Error('Chat service not configured');
     }
     
-    this.currentProviderService = this.createProviderService(settings.apiStandard, {
+    const providerId = settings.apiStandard;
+    const config = {
       endpoint: settings.apiEndpoint,
       apiKey: settings.apiKey,
       defaultModel: settings.model || 'default'
-    });
+    };
+
+    if (!this.currentProviderService || this.currentProviderId !== providerId) {
+      this.currentProviderService = this.createProviderService(providerId, config);
+      this.currentProviderId = providerId;
+      return this.currentProviderService;
+    }
+
+    this.currentProviderService.configure(config);
     
     return this.currentProviderService;
   }
 
   /**
-   * 获取当前 Chat 实例（单例）
+   * 获取当前 Provider API 服务（兼容旧命名）
+   * @returns {IProviderAPIService} Provider API 服务实例
+   */
+  getChatService() {
+    return this.getCurrentProviderService();
+  }
+
+  /**
+   * 获取 ChatController 实例（单例）
    * @returns {ChatController} ChatController 实例
    */
-  getCurrentChat() {
+  getChatController() {
     if (!this.chatController) {
       this.chatController = new window.ChatController(this);
       console.log('[ServiceCenter] ChatController initialized');
     }
     return this.chatController;
+  }
+
+  /**
+   * 获取当前 ChatController 实例（兼容旧命名）
+   * @returns {ChatController} ChatController 实例
+   */
+  getCurrentChat() {
+    return this.getChatController();
   }
 
   /**

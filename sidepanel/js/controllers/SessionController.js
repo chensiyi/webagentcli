@@ -3,13 +3,13 @@
  * 
  * 职责：
  * 1. 实现 ISessionManager 接口定义的所有方法
- * 2. 处理会话管理业务逻辑（CRUD、持久化、Chat 缓存）
+ * 2. 处理会话管理业务逻辑（CRUD、持久化、消息存储）
  * 3. 通过 EventBus 与 UI 层通信
  * 
  * 设计原则：
  * - 继承 ISessionManager 基类
  * - 包含完整的业务逻辑实现
- * - 管理运行时状态（sessions、currentSessionId、chatCache）
+ * - 仅管理会话与消息数据，不承担 chat 运行时职责
  */
 
 class SessionController extends window.ISessionManager {
@@ -23,9 +23,6 @@ class SessionController extends window.ISessionManager {
     // 内存中的会话缓存
     this.sessions = new Map(); // sessionId -> Session
     this.currentSessionId = null;
-    
-    // Chat 实例缓存：sessionId -> Chat
-    this.chatCache = new Map();
     
     console.log('[SessionController] yinggaishiialized');
   }
@@ -114,10 +111,6 @@ class SessionController extends window.ISessionManager {
       return false;
     }
     
-    // 清理 ChatController 缓存
-    this.chatCache.delete(sessionId);
-    console.log('[SessionController] Cleaned up Chat cache for deleted session:', sessionId);
-    
     // 如果删除的是当前会话，清空指向
     if (this.currentSessionId === sessionId) {
       this.currentSessionId = null;
@@ -148,6 +141,45 @@ class SessionController extends window.ISessionManager {
     }
     
     return this.sessions.get(this.currentSessionId) || null;
+  }
+
+  /**
+   * 获取指定会话
+   * @param {string} sessionId
+   * @returns {Session|null}
+   */
+  getSession(sessionId) {
+    if (!sessionId) {
+      return null;
+    }
+
+    return this.sessions.get(sessionId) || null;
+  }
+
+  /**
+   * 设置当前会话
+   * @param {string|null} sessionId
+   * @returns {Session|null}
+   */
+  setCurrentSession(sessionId) {
+    if (sessionId !== null && !this.sessions.has(sessionId)) {
+      console.warn('[SessionController] Session not found:', sessionId);
+      return null;
+    }
+
+    const previousId = this.currentSessionId;
+    this.currentSessionId = sessionId;
+
+    if (previousId !== sessionId) {
+      this._saveSessions();
+      this.eventBus.emit(window.Events.CHAT.CURRENT_SESSION_CHANGED, {
+        sessionId,
+        previousId,
+        session: sessionId ? this.sessions.get(sessionId) : null
+      });
+    }
+
+    return this.getCurrentSession();
   }
 
   /**
@@ -202,89 +234,23 @@ class SessionController extends window.ISessionManager {
     return true;
   }
 
-  // ==================== Chat 实例管理 ====================
-
-  /**
-   * 获取或创建 Chat 实例
-   * @param {string} sessionId - 会话 ID
-   * @param {IProviderAPIService} chatService - Provider API 服务实例
-   * @returns {IChat} Chat 实例
-   */
-  getOrCreateChat(sessionId, chatService) {
-    if (!chatService) {
-      throw new Error('ChatService is required');
-    }
-    
-    // 检查缓存
-    if (this.chatCache.has(sessionId)) {
-      const cachedChat = this.chatCache.get(sessionId);
-      // 如果服务已变更，更新服务
-      if (cachedChat.getService() !== chatService) {
-        cachedChat.setService(chatService);
-      }
-      return cachedChat;
-    }
-    
-    // 获取 Session
-    const session = this.sessions.get(sessionId);
-    if (!session) {
-      throw new Error(`Session not found: ${sessionId}`);
-    }
-    
-    // 创建新的 ChatController 实例（IChat 的实现）
-    const chat = new window.ChatController(session, chatService, this, this.eventBus);
-    this.chatCache.set(sessionId, chat);
-    
-    console.log('[SessionController] Created Chat for session:', sessionId);
-    return chat;
-  }
-  
-  /**
-   * ⚠️ TODO: 待清理 - 此方法已被 ServiceCenter.getCurrentChat() 取代
-   * 
-   * 获取当前会话的 Chat 实例
-   * @param {IProviderAPIService} chatService - Provider API 服务实例
-   * @returns {IChat|EphemeralChat} Chat 实例
-   */
-  getCurrentChat(chatService) {
-    if (!chatService) {
-      throw new Error('ChatService is required');
-    }
-    
-    // 如果没有当前会话，返回临时 Chat 占位符
-    if (!this.currentSessionId) {
-      return new window.EphemeralChat(this, chatService, this.eventBus);
-    }
-    
-    return this.getOrCreateChat(this.currentSessionId, chatService);
-  }
-  
-  /**
-   * 清除 Chat 实例缓存
-   * @param {string} [sessionId] - 可选，指定清除某个会话的 Chat
-   */
-  clearChatCache(sessionId = null) {
-    if (sessionId) {
-      this.chatCache.delete(sessionId);
-      console.log('[SessionController] Cleared Chat cache for session:', sessionId);
-    } else {
-      this.chatCache.clear();
-      console.log('[SessionController] Cleared all Chat caches');
-    }
-  }
-
   // ==================== 消息管理 ====================
 
   /**
-   * 添加消息到当前会话
+   * 添加消息到目标会话
    * @param {Message} message 
+   * @param {string|null} [sessionId]
    * @returns {Promise<boolean>}
    */
-  async addMessage(message) {
-    let session = this.getCurrentSession();
+  async addMessage(message, sessionId = null) {
+    let session = sessionId ? this.getSession(sessionId) : this.getCurrentSession();
     
     // 如果当前没有会话，则自动创建一个新会话
     if (!session) {
+      if (sessionId) {
+        console.warn('[SessionController] Session not found:', sessionId);
+        return false;
+      }
       session = this.createSession({ title: '新对话', persist: false });
     }
     
@@ -303,14 +269,19 @@ class SessionController extends window.ISessionManager {
   }
 
   /**
-   * 批量添加消息
+   * 批量添加消息到目标会话
    * @param {Array<Message>} messages 
+   * @param {string|null} [sessionId]
    * @returns {Promise<boolean>}
    */
-  async addMessages(messages) {
-    let session = this.getCurrentSession();
+  async addMessages(messages, sessionId = null) {
+    let session = sessionId ? this.getSession(sessionId) : this.getCurrentSession();
     
     if (!session) {
+      if (sessionId) {
+        console.warn('[SessionController] Session not found:', sessionId);
+        return false;
+      }
       session = this.createSession({ title: '新对话', persist: false });
     }
     
@@ -327,15 +298,16 @@ class SessionController extends window.ISessionManager {
   }
 
   /**
-   * 更新消息
+   * 更新目标会话中的消息
    * @param {string} messageId 
    * @param {Function} updater 
+   * @param {string|null} [sessionId]
    * @returns {boolean}
    */
-  updateMessage(messageId, updater) {
-    const session = this.getCurrentSession();
+  updateMessage(messageId, updater, sessionId = null) {
+    const session = sessionId ? this.getSession(sessionId) : this.getCurrentSession();
     if (!session) {
-      console.warn('[SessionController] No current session');
+      console.warn('[SessionController] No target session');
       return false;
     }
     
@@ -352,15 +324,16 @@ class SessionController extends window.ISessionManager {
   }
 
   /**
-   * 流式分片更新消息内容
+   * 流式分片更新目标会话中的消息内容
    * @param {string} messageId 
    * @param {Object} chunk - { content?: string, reasoning_content?: string }
+   * @param {string|null} [sessionId]
    * @returns {boolean}
    */
-  streamChunkMessage(messageId, chunk) {
-    const session = this.getCurrentSession();
+  streamChunkMessage(messageId, chunk, sessionId = null) {
+    const session = sessionId ? this.getSession(sessionId) : this.getCurrentSession();
     if (!session) {
-      console.warn('[SessionController] No current session');
+      console.warn('[SessionController] No target session');
       return false;
     }
     
@@ -383,14 +356,36 @@ class SessionController extends window.ISessionManager {
   }
 
   /**
-   * 删除消息
-   * @param {string} messageId 
+   * 清空目标会话中的所有消息
+   * @param {string|null} [sessionId]
    * @returns {boolean}
    */
-  deleteMessage(messageId) {
-    const session = this.getCurrentSession();
+  clearMessages(sessionId = null) {
+    const session = sessionId ? this.getSession(sessionId) : this.getCurrentSession();
     if (!session) {
-      console.warn('[SessionController] No current session');
+      console.warn('[SessionController] No target session');
+      return false;
+    }
+
+    session.clearMessages();
+    this._saveSessions();
+    this.eventBus.emit(window.Events.CHAT.SESSION_CLEARED, {
+      sessionId: session.id,
+      session
+    });
+    return true;
+  }
+
+  /**
+   * 删除目标会话中的消息
+   * @param {string} messageId 
+   * @param {string|null} [sessionId]
+   * @returns {boolean}
+   */
+  deleteMessage(messageId, sessionId = null) {
+    const session = sessionId ? this.getSession(sessionId) : this.getCurrentSession();
+    if (!session) {
+      console.warn('[SessionController] No target session');
       return false;
     }
     
@@ -398,7 +393,10 @@ class SessionController extends window.ISessionManager {
     const result = session.removeMessage(messageId);
     if (result) {
       this._saveSessions();
-      this.eventBus.emit(window.Events.CHAT.MESSAGE_DELETED, { messageId });
+      this.eventBus.emit(window.Events.CHAT.MESSAGE_DELETED, {
+        messageId,
+        sessionId: session.id
+      });
     }
     return result;
   }
@@ -464,7 +462,9 @@ class SessionController extends window.ISessionManager {
             this.sessions.clear();
             
             Object.values(sessionsData).forEach(sessionData => {
-              const session = new window.Session(sessionData);
+              const session = typeof window.Session.fromJSON === 'function'
+                ? window.Session.fromJSON(sessionData)
+                : new window.Session(sessionData);
               this.sessions.set(session.id, session);
             });
             

@@ -2,8 +2,8 @@
  * ChatController - 聊天控制器（简化版）
  * 
  * 职责：
- * 1. 管理运行时状态（消息队列、流式状态）
- * 2. 协调 SessionManager 和 ChatService
+ * 1. 管理最小运行时状态（当前请求、流式状态）
+ * 2. 协调 SessionManager 和 ProviderService
  * 3. 通过 EventBus 与 UI 层通信
  * 
  * 设计原则：
@@ -21,7 +21,7 @@ class ChatController {
     this.eventBus = serviceCenter.getEventBus();
     
     // 运行时状态（不持久化）
-    this.messageQueue = [];
+    this.currentRequest = null;
     
     console.log('[ChatController] Initialized');
   }
@@ -32,21 +32,21 @@ class ChatController {
    * @param {string} params.content - 消息内容
    * @returns {Promise<void>}
    */
-  async sendMessage({ content }) {
+  async sendMessage({ content, sessionId = null }) {
     if (!content || !content.trim()) {
       throw new Error('Message content is required');
     }
     
     // 检查队列状态
-    if (this.messageQueue.length > 0) {
-      throw new Error('Message queue is busy');
+    if (this.currentRequest) {
+      throw new Error('A message is already being generated');
     }
     
     const sessionManager = this.serviceCenter.getSessionManager();
     const chatService = this.serviceCenter.getChatService();
     
     // 获取或创建当前会话（懒加载）
-    let session = sessionManager.getCurrentSession();
+    let session = sessionId ? sessionManager.getSession(sessionId) : sessionManager.getCurrentSession();
     if (!session) {
       console.log('[ChatController] No active session, creating new one...');
       session = sessionManager.createSession({ title: '新对话' });
@@ -61,21 +61,12 @@ class ChatController {
     try {
       // 1. 创建并持久化用户消息
       const userMsg = new window.Message({ role: 'user', content: content.trim() });
-      await sessionManager.addMessage(userMsg);
-      
-      // 2. 创建并持久化助手消息（空内容，等待流式填充）
-      const assistantMsg = new window.Message({ role: 'assistant', content: '' });
-      await sessionManager.addMessage(assistantMsg);
-      assistantMsgId = assistantMsg.id;
-      
-      // 3. 加入消息队列
-      this.messageQueue.push(assistantMsgId);
-      this._notifyActivityState();
-      
-      // 4. 准备请求参数
+      await sessionManager.addMessage(userMsg, session.id);
+
+      // 2. 基于用户消息追加后的会话准备请求参数
       const requestParams = {
-        messages: session.messages.map(m => ({ 
-          role: m.role, 
+        messages: session.messages.map(m => ({
+          role: m.role,
           content: m.content,
           tool_calls: m.tool_calls
         })),
@@ -83,6 +74,23 @@ class ChatController {
         reasoningEnabled,
         reasoningEffort
       };
+      
+      // 3. 创建并持久化助手消息（空内容，等待流式填充）
+      const assistantMsg = new window.Message({ role: 'assistant', content: '' });
+      await sessionManager.addMessage(assistantMsg, session.id);
+      assistantMsgId = assistantMsg.id;
+      
+      // 4. 标记当前请求
+      this.currentRequest = {
+        sessionId: session.id,
+        assistantMessageId: assistantMsgId,
+        startedAt: Date.now()
+      };
+      this._notifyActivityState();
+      this.eventBus.emit(window.Events.CHAT.STREAM_START, {
+        sessionId: session.id,
+        messageId: assistantMsgId
+      });
       
       // 5. 开始流式请求
       await chatService.chatStream(
@@ -92,10 +100,11 @@ class ChatController {
           sessionManager.streamChunkMessage(assistantMsgId, {
             content: chunk.content || '',
             reasoning_content: chunk.reasoning_content || ''
-          });
+          }, session.id);
           
           // 发出事件通知 UI 更新
           this.eventBus.emit(window.Events.CHAT.STREAM_CHUNK_APPEND, {
+            sessionId: session.id,
             messageId: assistantMsgId,
             content: chunk.content || '',
             reasoning_content: chunk.reasoning_content || ''
@@ -103,8 +112,14 @@ class ChatController {
         },
         () => {
           // 流式完成：清理状态
-          this.messageQueue = this.messageQueue.filter(id => id !== assistantMsgId);
+          const duration = this.currentRequest ? Date.now() - this.currentRequest.startedAt : null;
+          this.currentRequest = null;
           this._notifyActivityState();
+          this.eventBus.emit(window.Events.CHAT.STREAM_COMPLETE, {
+            sessionId: session.id,
+            messageId: assistantMsgId,
+            duration
+          });
         }
       );
     } catch (error) {
@@ -112,16 +127,22 @@ class ChatController {
       if (assistantMsgId) {
         sessionManager.updateMessage(assistantMsgId, (msg) => {
           msg.content = `❌ 发送失败: ${error.message}`;
-        });
+        }, session.id);
         
         this.eventBus.emit(window.Events.CHAT.MESSAGE_UPDATED, {
-          message: sessionManager.getCurrentSession().messages.find(m => m.id === assistantMsgId)
+          message: sessionManager.getSession(session.id)?.messages.find(m => m.id === assistantMsgId)
         });
       }
       
-      // 清理队列
-      this.messageQueue = this.messageQueue.filter(id => id !== assistantMsgId);
+      // 清理状态
+      this.currentRequest = null;
       this._notifyActivityState();
+      this.eventBus.emit(window.Events.CHAT.STREAM_ERROR, {
+        error,
+        message: error.message,
+        sessionId: session.id,
+        messageId: assistantMsgId
+      });
       
       throw error;
     }
@@ -131,7 +152,7 @@ class ChatController {
    * 停止生成
    */
   stopGeneration() {
-    if (this.messageQueue.length === 0) {
+    if (!this.currentRequest) {
       console.warn('[ChatController] No active stream to stop');
       return;
     }
@@ -141,8 +162,13 @@ class ChatController {
       chatService.cancel();
     }
     
-    this.messageQueue = [];
+    const stoppedRequest = this.currentRequest;
+    this.currentRequest = null;
     this._notifyActivityState();
+    this.eventBus.emit(window.Events.CHAT.STREAM_STOP, {
+      sessionId: stoppedRequest.sessionId,
+      messageId: stoppedRequest.assistantMessageId
+    });
   }
   
   /**
@@ -150,11 +176,16 @@ class ChatController {
    */
   clearMessages() {
     const sessionManager = this.serviceCenter.getSessionManager();
-    sessionManager.clearCurrentSession();
+    const session = sessionManager.getCurrentSession();
+    if (!session) {
+      return false;
+    }
+    sessionManager.clearMessages(session.id);
     
     // 清理运行时状态
-    this.messageQueue = [];
+    this.currentRequest = null;
     this._notifyActivityState();
+    return true;
   }
   
   /**
@@ -164,11 +195,15 @@ class ChatController {
    */
   deleteMessage(messageId) {
     const sessionManager = this.serviceCenter.getSessionManager();
-    const result = sessionManager.deleteMessage(messageId);
+    const session = sessionManager.getCurrentSession();
+    const result = session ? sessionManager.deleteMessage(messageId, session.id) : false;
     
     if (result) {
       // 发出删除事件
-      this.eventBus.emit(window.Events.CHAT.MESSAGE_DELETED, { messageId });
+      this.eventBus.emit(window.Events.CHAT.MESSAGE_DELETED, {
+        messageId,
+        sessionId: session.id
+      });
     }
     
     return result;
@@ -179,8 +214,7 @@ class ChatController {
    * @returns {boolean}
    */
   hasActiveActivities() {
-    // TODO: 后续可能添加 taskQueue 等其他活动状态检查
-    return this.messageQueue.length > 0;
+    return !!this.currentRequest;
   }
   
   /**
@@ -189,7 +223,8 @@ class ChatController {
    */
   getQueueStatus() {
     return {
-      messageQueueLength: this.messageQueue.length,
+      messageQueueLength: this.currentRequest ? 1 : 0,
+      sessionId: this.currentRequest?.sessionId || null,
       hasActive: this.hasActiveActivities()
     };
   }

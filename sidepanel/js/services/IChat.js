@@ -1,5 +1,6 @@
 /**
- * ⚠️ TODO: 待清理 - IChat 业务逻辑应移至 controllers/ 或新建 business/ 目录
+ * ⚠️ 已废弃：当前架构中 Session 负责会话数据，ChatController 负责聊天动作协调。
+ * 此接口仅作为过渡兼容保留，后续应移除。
  * 
  * IChat - 聊天交互接口（抽象基类）
  * 

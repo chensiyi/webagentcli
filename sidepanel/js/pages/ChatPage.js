@@ -13,10 +13,14 @@ window.Pages.chat = function(container, serviceCenter) {
     return;
   }
   
-  // 获取当前 Chat 实例（IChat 接口）
-  let currentChat = serviceCenter.getCurrentChat();
+  const sessionManager = serviceCenter.getSessionManager();
+  const chatController = serviceCenter.getChatController();
+
+  function getCurrentSession() {
+    return sessionManager.getCurrentSession();
+  }
   
-  console.log('[ChatPage] Initialized, current chat:', currentChat?.id || 'none');
+  console.log('[ChatPage] Initialized, current session:', getCurrentSession()?.id || 'none');
   
   // 注册事件监听器
   const eventBus = serviceCenter.getEventBus();
@@ -27,10 +31,9 @@ window.Pages.chat = function(container, serviceCenter) {
     render();
   });
   
-  // 监听会话切换事件，更新 currentChat 并重新渲染
+  // 监听会话切换事件，重新渲染当前 session
   eventBus.on(window.Events.CHAT.CURRENT_SESSION_CHANGED, (data) => {
     console.log('[ChatPage] CURRENT_SESSION_CHANGED event received:', data);
-    currentChat = serviceCenter.getCurrentChat();
     render();
   });
   
@@ -41,9 +44,10 @@ window.Pages.chat = function(container, serviceCenter) {
     console.log('[ChatPage] Render called');
     clear(container);
     
-    const messages = currentChat ? currentChat.messages : [];
+    const session = getCurrentSession();
+    const messages = session ? session.messages : [];
     
-    console.log('[ChatPage] Current session:', currentChat?.id, 'Messages count:', messages.length);
+    console.log('[ChatPage] Current session:', session?.id, 'Messages count:', messages.length);
     
     const page = create('div', { className: 'page' });
     
@@ -51,8 +55,8 @@ window.Pages.chat = function(container, serviceCenter) {
     const headerActions = [];
     
     // Reasoning 模式切换按钮（仅当模型支持且有会话时显示）
-    if (currentChat) {
-      console.log('[ChatPage] Checking reasoning support, currentChat:', currentChat.id);
+    if (session) {
+      console.log('[ChatPage] Checking reasoning support, currentSession:', session.id);
       const modelSupportsReasoning = checkModelSupportsReasoning();
       console.log('[ChatPage] Model supports reasoning:', modelSupportsReasoning);
       
@@ -91,14 +95,14 @@ window.Pages.chat = function(container, serviceCenter) {
       
       efforts.forEach(effort => {
         const option = create('div', {
-          className: `effort-option ${(!currentChat || currentChat.session.reasoningEffort === effort.value) ? 'active' : ''}`,
+          className: `effort-option ${(!session || session.reasoningEffort === effort.value) ? 'active' : ''}`,
           style: {
             padding: '6px 12px',
             cursor: 'pointer',
             borderRadius: '4px',
             marginBottom: '4px',
-            background: (!currentChat || currentChat.session.reasoningEffort === effort.value) ? 'var(--primary-color, #4CAF50)' : 'transparent',
-            color: (!currentChat || currentChat.session.reasoningEffort === effort.value) ? '#fff' : 'inherit',
+            background: (!session || session.reasoningEffort === effort.value) ? 'var(--primary-color, #4CAF50)' : 'transparent',
+            color: (!session || session.reasoningEffort === effort.value) ? '#fff' : 'inherit',
             textAlign: 'center',
             fontSize: '13px'
           },
@@ -111,12 +115,12 @@ window.Pages.chat = function(container, serviceCenter) {
         
         // 悬停效果
         option.addEventListener('mouseenter', () => {
-          if (!currentChat || currentChat.session.reasoningEffort !== effort.value) {
+          if (!session || session.reasoningEffort !== effort.value) {
             option.style.background = 'rgba(255, 255, 255, 0.1)';
           }
         });
         option.addEventListener('mouseleave', () => {
-          if (!currentChat || currentChat.session.reasoningEffort !== effort.value) {
+          if (!session || session.reasoningEffort !== effort.value) {
             option.style.background = 'transparent';
           }
         });
@@ -125,7 +129,7 @@ window.Pages.chat = function(container, serviceCenter) {
       });
       
       // 主按钮
-      const reasoningEnabled = currentChat ? currentChat.session.reasoningEnabled : true; // 默认开启
+      const reasoningEnabled = session ? session.reasoningEnabled : true; // 默认开启
       const reasoningBtn = create('button', {
         className: `btn ${reasoningEnabled ? 'btn-primary' : 'btn-secondary'}`,
         style: { marginRight: '8px' },
@@ -157,7 +161,7 @@ window.Pages.chat = function(container, serviceCenter) {
         e.preventDefault();
         e.stopPropagation();
         
-        const currentEffort = currentChat ? currentChat.session.reasoningEffort : 'medium';
+        const currentEffort = session ? session.reasoningEffort : 'medium';
         const currentIndex = efforts.findIndex(eff => eff.value === currentEffort);
         let newIndex;
         
@@ -186,25 +190,12 @@ window.Pages.chat = function(container, serviceCenter) {
       onClick: () => {
         console.log('[ChatPage] Creating new session...');
         
-        const sessionManager = serviceCenter.getSessionManager();
-        
         // 清空当前会话 ID
         if (sessionManager.currentSessionId) {
           console.log('[ChatPage] Clearing current session');
-          sessionManager.currentSessionId = null;
-          
-          // 触发事件，通知其他组件
-          serviceCenter.getEventBus().emit(window.Events.CHAT.CURRENT_SESSION_CHANGED, { 
-            sessionId: null,
-            previousId: sessionManager.currentSessionId
-          });
+          sessionManager.setCurrentSession(null);
         }
-        
-        // ChatController 会在第一次 sendMessage 时自动创建新会话
-        currentChat = serviceCenter.getCurrentChat();
-        
-        console.log('[ChatPage] Updated currentChat:', currentChat.id);
-        
+
         render();
       }
     }));
@@ -212,7 +203,7 @@ window.Pages.chat = function(container, serviceCenter) {
     const header = create('div', { className: 'page-header' }, [
       create('h2', { 
         className: 'page-title',
-        text: currentChat ? currentChat.title : '新对话'
+        text: session ? session.title : '新对话'
       }),
       ...headerActions
     ]);
@@ -233,7 +224,7 @@ window.Pages.chat = function(container, serviceCenter) {
     scrollToBottom(messageList);
     
     // 渲染后检查是否有活动任务，恢复按钮状态（解决切换页面后按钮丢失的问题）
-    if (currentChat && currentChat.hasActiveActivities()) {
+    if (chatController.hasActiveActivities()) {
       const sendBtn = document.getElementById('send-btn');
       const stopBtn = document.getElementById('stop-btn');
       if (sendBtn) sendBtn.style.display = 'none';
@@ -376,7 +367,7 @@ window.Pages.chat = function(container, serviceCenter) {
           return;
         }
         
-        const deleted = currentChat.deleteMessage(msg.id);
+        const deleted = chatController.deleteMessage(msg.id);
         
         if (deleted) {
           window.Toast.success('消息已删除');
@@ -465,9 +456,7 @@ window.Pages.chat = function(container, serviceCenter) {
         flexShrink: '0'  // 防止按钮被压缩
       },
       onClick: () => {
-        if (currentChat) {
-          currentChat.stopGeneration();
-        }
+        chatController.stopGeneration();
       }
     });
     
@@ -537,7 +526,13 @@ window.Pages.chat = function(container, serviceCenter) {
    */
   function checkModelSupportsReasoning() {
     // 从 Provider Service 获取配置
-    const providerService = currentChat?.getService();
+    let providerService = null;
+    try {
+      providerService = serviceCenter.getCurrentProviderService();
+    } catch (error) {
+      console.log('[ChatPage] Provider service unavailable:', error.message);
+    }
+
     if (!providerService) {
       console.log('[ChatPage] No provider service');
       return false;
@@ -589,33 +584,23 @@ window.Pages.chat = function(container, serviceCenter) {
    * 切换 Reasoning 模式
    */
   function toggleReasoning() {
-    if (!currentChat) return;
-    
-    // 切换 reasoningEnabled 状态
-    currentChat.session.reasoningEnabled = !currentChat.session.reasoningEnabled;
-    
-    // 协调 reasoningEffort：关闭时设为 'off'，开启时从 'off' 恢复为 'medium'
-    if (currentChat.session.reasoningEnabled) {
-      // 开启 reasoning，如果当前是 'off'，恢复为 'medium'
-      if (currentChat.session.reasoningEffort === 'off') {
-        currentChat.session.reasoningEffort = 'medium';
-      }
-    } else {
-      // 关闭 reasoning，设为 'off'
-      currentChat.session.reasoningEffort = 'off';
-    }
-    
-    // 通过 sessionManager 保存会话
-    const sessionManager = serviceCenter.getSessionManager();
-    sessionManager.updateSession(currentChat.id, (session) => {
-      session.reasoningEnabled = currentChat.session.reasoningEnabled;
-      session.reasoningEffort = currentChat.session.reasoningEffort;
+    const session = getCurrentSession();
+    if (!session) return;
+
+    const nextReasoningEnabled = !session.reasoningEnabled;
+    const nextReasoningEffort = nextReasoningEnabled
+      ? (session.reasoningEffort === 'off' ? 'medium' : session.reasoningEffort)
+      : 'off';
+
+    sessionManager.updateSession(session.id, (targetSession) => {
+      targetSession.reasoningEnabled = nextReasoningEnabled;
+      targetSession.reasoningEffort = nextReasoningEffort;
     });
     
     // 重新渲染页面以更新按钮状态
     render();
     
-    console.log('[ChatPage] Reasoning mode:', currentChat.session.reasoningEnabled ? 'enabled' : 'disabled', ', effort:', currentChat.session.reasoningEffort);
+    console.log('[ChatPage] Reasoning mode:', nextReasoningEnabled ? 'enabled' : 'disabled', ', effort:', nextReasoningEffort);
   }
 
   /**
@@ -624,7 +609,8 @@ window.Pages.chat = function(container, serviceCenter) {
    * @param {boolean} shouldRerender - 是否重新渲染整个页面（默认 true）
    */
   function updateReasoningEffort(effort, shouldRerender = true) {
-    if (!currentChat) return;
+    const session = getCurrentSession();
+    if (!session) return;
     
     // 验证强度值（包括 'off'）
     const validEfforts = ['low', 'medium', 'high', 'off'];
@@ -633,21 +619,11 @@ window.Pages.chat = function(container, serviceCenter) {
       return;
     }
     
-    // 更新强度
-    currentChat.session.reasoningEffort = effort;
-    
-    // 如果选择 'off'，自动关闭 reasoningEnabled
-    if (effort === 'off') {
-      currentChat.session.reasoningEnabled = false;
-    } else if (!currentChat.session.reasoningEnabled) {
-      // 如果从 'off' 切换到其他强度，自动开启 reasoningEnabled
-      currentChat.session.reasoningEnabled = true;
-    }
-    
-    // 通过 sessionManager 保存会话
-    currentChat.sessionManager.updateSession(currentChat.id, (session) => {
-      session.reasoningEffort = effort;
-      session.reasoningEnabled = currentChat.session.reasoningEnabled;
+    const nextReasoningEnabled = effort === 'off' ? false : true;
+
+    sessionManager.updateSession(session.id, (targetSession) => {
+      targetSession.reasoningEffort = effort;
+      targetSession.reasoningEnabled = nextReasoningEnabled;
     });
     
     // 如果需要，重新渲染页面以更新选择器状态
@@ -658,7 +634,7 @@ window.Pages.chat = function(container, serviceCenter) {
       updateEffortSelectorUI();
     }
     
-    console.log('[ChatPage] Reasoning effort updated to:', effort, ', enabled:', currentChat.session.reasoningEnabled);
+    console.log('[ChatPage] Reasoning effort updated to:', effort, ', enabled:', nextReasoningEnabled);
   }
 
   /**
@@ -675,7 +651,7 @@ window.Pages.chat = function(container, serviceCenter) {
                           optionText.includes('中') ? 'medium' :
                           optionText.includes('低') ? 'low' : 'off';
       
-      if (optionEffort === currentChat.session.reasoningEffort) {
+      if (optionEffort === getCurrentSession()?.reasoningEffort) {
         option.style.background = 'var(--primary-color, #4CAF50)';
         option.style.color = '#fff';
       } else {

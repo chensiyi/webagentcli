@@ -150,8 +150,8 @@ class ChatEventHandler {
       return;
     }
     
-    // 获取当前 Chat 实例（会自动创建 Provider Service 和 ChatController）
-    const chat = this.serviceCenter.getCurrentChat();
+    // 获取当前聊天控制器单例
+    const chat = this.serviceCenter.getChatController();
     
     // 调用 ChatController 执行业务逻辑
     chat.sendMessage({
@@ -181,7 +181,7 @@ class ChatEventHandler {
       console.log('[ChatEventHandler] Buttons check after 100ms - sendBtn:', sendBtn2?.style.display, 'stopBtn:', stopBtn2?.style.display);
       
       // 如果按钮状态不正确，再次修复
-      const chat = this.serviceCenter.getCurrentChat();
+      const chat = this.serviceCenter.getChatController();
       if (chat && chat.hasActiveActivities()) {
         if (sendBtn2) sendBtn2.style.display = 'none';
         if (stopBtn2) stopBtn2.style.display = 'inline-block';

@@ -1,10 +1,10 @@
 /**
- * ISessionManager - 会话管理器接口（抽象基类）
+ * ISessionManager - 会话存储接口（抽象基类）
  * 
  * 定义会话管理的标准接口，所有具体实现必须继承此基类。
  * 
  * 职责：
- * - 定义会话管理的标准方法签名
+ * - 定义会话存储与消息持久化的标准方法签名
  * - 提供默认的空实现（便于子类继承）
  * - 不包含具体业务逻辑
  * 
@@ -69,11 +69,29 @@ class ISessionManager {
   }
 
   /**
+   * 获取指定会话
+   * @param {string} sessionId
+   * @returns {Session|null}
+   */
+  getSession(sessionId) {
+    throw new Error('Method not implemented: getSession');
+  }
+
+  /**
    * 获取当前会话
    * @returns {Session|null}
    */
   getCurrentSession() {
     throw new Error('Method not implemented: getCurrentSession');
+  }
+
+  /**
+   * 设置当前会话
+   * @param {string|null} sessionId
+   * @returns {Session|null}
+   */
+  setCurrentSession(sessionId) {
+    throw new Error('Method not implemented: setCurrentSession');
   }
 
   /**
@@ -104,85 +122,66 @@ class ISessionManager {
     throw new Error('Method not implemented: updateSession');
   }
 
-  // ==================== Chat 实例管理 ====================
-
-  /**
-   * ⚠️ TODO: 待清理 - Chat 管理已移至 ServiceCenter
-   * 
-   * 获取或创建 Chat 实例
-   * @param {string} sessionId - 会话 ID
-   * @param {IProviderAPIService} chatService - Provider API 服务实例
-   * @returns {IChat} Chat 实例
-   */
-  getOrCreateChat(sessionId, chatService) {
-    throw new Error('Method not implemented: getOrCreateChat');
-  }
-
-  /**
-   * ⚠️ TODO: 待清理 - Chat 管理已移至 ServiceCenter
-   * 
-   * 获取当前会话的 Chat 实例
-   * @param {IProviderAPIService} chatService - Provider API 服务实例
-   * @returns {IChat} Chat 实例
-   */
-  getCurrentChat(chatService) {
-    throw new Error('Method not implemented: getCurrentChat');
-  }
-
-  /**
-   * 清除 Chat 实例缓存
-   * @param {string} [sessionId] - 可选，指定清除某个会话的 Chat
-   */
-  clearChatCache(sessionId = null) {
-    throw new Error('Method not implemented: clearChatCache');
-  }
-
   // ==================== 消息管理 ====================
 
   /**
-   * 添加消息到当前会话
+   * 添加消息到目标会话
    * @param {Message} message 
+   * @param {string|null} [sessionId]
    * @returns {Promise<boolean>}
    */
-  async addMessage(message) {
+  async addMessage(message, sessionId = null) {
     throw new Error('Method not implemented: addMessage');
   }
 
   /**
-   * 批量添加消息
+   * 批量添加消息到目标会话
    * @param {Array<Message>} messages 
+   * @param {string|null} [sessionId]
    * @returns {Promise<boolean>}
    */
-  async addMessages(messages) {
+  async addMessages(messages, sessionId = null) {
     throw new Error('Method not implemented: addMessages');
   }
 
   /**
-   * 更新消息
+   * 更新目标会话中的消息
    * @param {string} messageId 
    * @param {Function} updater 
+   * @param {string|null} [sessionId]
    * @returns {boolean}
    */
-  updateMessage(messageId, updater) {
+  updateMessage(messageId, updater, sessionId = null) {
     throw new Error('Method not implemented: updateMessage');
   }
 
   /**
-   * 流式分片更新消息内容
+   * 流式分片更新目标会话中的消息内容
    * @param {string} messageId 
    * @param {Object} chunk - { content?: string, reasoning_content?: string }
+   * @param {string|null} [sessionId]
    * @returns {boolean}
    */
-  streamChunkMessage(messageId, chunk) {
+  streamChunkMessage(messageId, chunk, sessionId = null) {
     throw new Error('Method not implemented: streamChunkMessage');
   }
 
   /**
-   * 删除消息
-   * @param {string} messageId 
+   * 清空目标会话中的所有消息
+   * @param {string|null} [sessionId]
    * @returns {boolean}
    */
-  deleteMessage(messageId) {
+  clearMessages(sessionId = null) {
+    throw new Error('Method not implemented: clearMessages');
+  }
+
+  /**
+   * 删除目标会话中的消息
+   * @param {string} messageId 
+   * @param {string|null} [sessionId]
+   * @returns {boolean}
+   */
+  deleteMessage(messageId, sessionId = null) {
     throw new Error('Method not implemented: deleteMessage');
   }
 }

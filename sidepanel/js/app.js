@@ -37,7 +37,7 @@
       
       console.log('[App] SessionManager initialized and loaded via ServiceCenter');
       
-      // 3. Provider Service 会在 ChatPage 初始化时自动创建（通过 getCurrentChat()）
+      // 3. Provider Service 会在聊天控制器首次发送消息时按当前设置动态装配
       console.log('[App] Chat service will be initialized on first chat page render');
       
       // 注册全局事件监听（只注册一次）
