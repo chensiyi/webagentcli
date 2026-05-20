@@ -37,25 +37,8 @@
       
       console.log('[App] SessionManager initialized and loaded via ServiceCenter');
       
-      // 3. 通过 ServiceCenter 初始化聊天服务
-      const settings = settingsController.getSettings();
-      
-      if (settings && settings.apiStandard) {
-        try {
-          const chatService = serviceCenter.createChatService(settings.apiStandard, {
-            endpoint: settings.apiEndpoint,
-            apiKey: settings.apiKey,
-            defaultModel: settings.model || 'default'
-          });
-          
-          // 通过 ServiceCenter 获取 ChatController 并设置服务
-          const chatController = serviceCenter.getChatController(chatService);
-          
-          console.log('[App] Chat service initialized via ServiceCenter:', settings.apiStandard);
-        } catch (error) {
-          console.error('[App] Failed to initialize chat service:', error);
-        }
-      }
+      // 3. Provider Service 会在 ChatPage 初始化时自动创建（通过 getCurrentChat()）
+      console.log('[App] Chat service will be initialized on first chat page render');
       
       // 注册全局事件监听（只注册一次）
       const eventBus = serviceCenter.getEventBus();
