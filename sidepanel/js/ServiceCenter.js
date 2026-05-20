@@ -2,9 +2,8 @@
  * ServiceCenter - 框架核心服务管理中心
  * 
  * 职责：
- * - 管理 ServiceRegistry（服务注册中心）
  * - 管理 EventBus（事件总线）
- * - 提供全局框架服务的统一访问入口与装配逻辑
+ * - 提供全局框架服务的统一访问入口
  */
 
 class ServiceCenter {

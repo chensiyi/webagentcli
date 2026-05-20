@@ -22,7 +22,6 @@ class ChatController {
     
     // 运行时状态（不持久化）
     this.messageQueue = [];
-    this.isStreaming = false;
     
     console.log('[ChatController] Initialized');
   }
@@ -70,7 +69,6 @@ class ChatController {
       
       // 3. 加入消息队列
       this.messageQueue.push(assistantMsgId);
-      this.isStreaming = true;
       this._notifyActivityState();
       
       // 4. 准备请求参数
@@ -105,7 +103,6 @@ class ChatController {
         () => {
           // 流式完成：清理状态
           this.messageQueue = this.messageQueue.filter(id => id !== assistantMsgId);
-          this.isStreaming = false;
           this._notifyActivityState();
         }
       );
@@ -123,7 +120,6 @@ class ChatController {
       
       // 清理队列
       this.messageQueue = this.messageQueue.filter(id => id !== assistantMsgId);
-      this.isStreaming = false;
       this._notifyActivityState();
       
       throw error;
@@ -134,7 +130,7 @@ class ChatController {
    * 停止生成
    */
   stopGeneration() {
-    if (!this.isStreaming) {
+    if (this.messageQueue.length === 0) {
       console.warn('[ChatController] No active stream to stop');
       return;
     }
@@ -144,7 +140,6 @@ class ChatController {
       chatService.cancel();
     }
     
-    this.isStreaming = false;
     this.messageQueue = [];
     this._notifyActivityState();
   }
@@ -158,7 +153,6 @@ class ChatController {
     
     // 清理运行时状态
     this.messageQueue = [];
-    this.isStreaming = false;
     this._notifyActivityState();
   }
   
@@ -184,7 +178,7 @@ class ChatController {
    * @returns {boolean}
    */
   hasActiveActivities() {
-    return this.isStreaming || this.messageQueue.length > 0;
+    return this.messageQueue.length > 0;
   }
   
   /**
@@ -193,7 +187,6 @@ class ChatController {
    */
   getQueueStatus() {
     return {
-      isStreaming: this.isStreaming,
       messageQueueLength: this.messageQueue.length,
       hasActive: this.hasActiveActivities()
     };
