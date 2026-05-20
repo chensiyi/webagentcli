@@ -170,17 +170,24 @@ window.Pages.chat = function(container, serviceCenter) {
       onClick: () => {
         console.log('[ChatPage] Creating new session...');
         
-        // 创建临时会话（不立即持久化）
         const sessionManager = serviceCenter.getSessionManager();
-        const newSession = sessionManager.createSession({ persist: false });
         
-        console.log('[ChatPage] New session created:', newSession.id, 'Title:', newSession.title);
-        console.log('[ChatPage] Current sessionId:', sessionManager.currentSessionId);
+        // 清空当前会话 ID，切换到 EphemeralChat 状态
+        if (sessionManager.currentSessionId) {
+          console.log('[ChatPage] Switching to ephemeral state');
+          sessionManager.currentSessionId = null;
+          
+          // 触发事件，通知其他组件
+          serviceCenter.getEventBus().emit(window.Events.CHAT.CURRENT_SESSION_CHANGED, { 
+            sessionId: null,
+            previousId: sessionManager.currentSessionId
+          });
+        }
         
-        // 更新 currentChat 为新会话的 ChatController
+        // 更新 currentChat 为 EphemeralChat
         currentChat = serviceCenter.getCurrentChat();
         
-        console.log('[ChatPage] Updated currentChat:', currentChat.id, 'Title:', currentChat.title);
+        console.log('[ChatPage] Updated currentChat:', currentChat.id);
         
         render();
       }
