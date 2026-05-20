@@ -121,11 +121,6 @@ class OpenRouterService extends OpenAIService {
     
     const reasoningContent = choice.delta.reasoning || choice.delta.reasoning_content || '';
     
-    // 调试日志：检查 reasoning 字段
-    if (reasoningContent) {
-      console.log('[OpenRouterService] Parsed reasoning chunk:', reasoningContent.substring(0, 50));
-    }
-    
     return {
       content: choice.delta.content || '',
       // OpenRouter 使用 delta.reasoning 而非 delta.reasoning_content
@@ -168,11 +163,6 @@ class OpenRouterService extends OpenAIService {
             
             // 提取支持的参数
             const supportedParams = model.supported_parameters || [];
-            
-            // 调试：检查 free 模型的 supported_parameters
-            if (model.id === 'openrouter/free') {
-              console.log('[OpenRouterService] openrouter/free supported_parameters:', supportedParams);
-            }
             
             return {
               id: model.id,
