@@ -27,7 +27,7 @@ class SessionController extends window.ISessionManager {
     // Chat 实例缓存：sessionId -> Chat
     this.chatCache = new Map();
     
-    console.log('[SessionController] Initialized');
+    console.log('[SessionController] yinggaishiialized');
   }
 
   // ==================== 会话管理 ====================
@@ -411,6 +411,15 @@ class SessionController extends window.ISessionManager {
       session.reasoningEnabled = false;
       this._saveSessions();
     }
+  }
+
+  /**
+   * 初始化会话管理器（加载数据）
+   * @returns {Promise<void>}
+   */
+  async initialize() {
+    await this._loadSessionsFromStorage();
+    console.log('[SessionController] Initialized with', this.sessions.size, 'sessions');
   }
 
   /**

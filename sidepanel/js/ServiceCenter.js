@@ -39,8 +39,8 @@ class ServiceCenter {
     
     this.sessionManager = new window.SessionController(this.eventBus);
     
-    // 初始化时自动加载会话数据
-    await this.sessionManager._loadSessionsFromStorage();
+    // 初始化会话管理器（加载数据）
+    await this.sessionManager.initialize();
     
     console.log('[ServiceCenter] SessionController initialized');
   }
