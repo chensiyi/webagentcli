@@ -10,7 +10,6 @@
 class ServiceCenter {
   constructor(eventBus = window.EventBus) {
     this.eventBus = eventBus;
-    this.serviceRegistry = window.ServiceRegistry;
     
     // 服务实例缓存
     this.sessionManager = null;
@@ -90,21 +89,38 @@ class ServiceCenter {
   }
 
   /**
-   * 注册并获取聊天服务实例（Facade 模式）
-   * @param {string} providerId - 服务提供商标识
+   * 创建聊天服务实例
+   * @param {string} providerId - 服务提供商标识 ('openai', 'openrouter', 'lm-studio')
    * @param {Object} config - 服务配置
-   * @returns {Object} 封装后的 ChatService 实例
+   * @returns {IProviderAPIService} Provider API 服务实例
    */
   createChatService(providerId, config) {
-    if (!this.serviceRegistry) {
-      throw new Error('ServiceRegistry not initialized');
+    // 根据 providerId 选择对应的 Service 类
+    let ServiceClass = null;
+    switch (providerId) {
+      case 'openai':
+        ServiceClass = window.OpenAIService;
+        break;
+      case 'openrouter':
+        ServiceClass = window.OpenRouterService;
+        break;
+      case 'lm-studio':
+        ServiceClass = window.LMStudioService;
+        break;
+      default:
+        throw new Error(`Unknown provider: ${providerId}`);
     }
-
-    // 获取原始 API 服务实例
-    const apiService = this.serviceRegistry.registerChatService(providerId, config);
-
+    
+    if (!ServiceClass) {
+      throw new Error(`Service class not found for provider: ${providerId}`);
+    }
+    
+    // 创建并配置服务实例
+    const service = new ServiceClass();
+    service.configure(config);
+    
     console.log('[ServiceCenter] Chat service created for:', providerId);
-    return apiService;
+    return service;
   }
 
   /**
@@ -112,13 +128,6 @@ class ServiceCenter {
    */
   getEventBus() {
     return this.eventBus;
-  }
-
-  /**
-   * 获取服务注册中心实例
-   */
-  getServiceRegistry() {
-    return this.serviceRegistry;
   }
 }
 
