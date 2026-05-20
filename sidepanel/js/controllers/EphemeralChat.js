@@ -22,7 +22,7 @@ class EphemeralChat extends window.ChatController {
     // 创建一个临时的空 Session 对象用于继承
     const tempSession = {
       id: 'ephemeral',
-      title: '临时会话',
+      title: '新对话',  // 临时会话标题
       messages: [],
       metadata: {},
       reasoningEnabled: false,
