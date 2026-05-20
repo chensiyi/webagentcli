@@ -101,11 +101,16 @@ class LMStudioService {
       baseBody.reasoning = 'off';
     }
     
-    console.log('[LMStudioService] Request body reasoning:', {
+    console.log('[LMStudioService] ===== Request Body Details =====');
+    console.log('[LMStudioService] Input params:', {
       reasoningEnabled: params.reasoningEnabled,
       reasoningEffort: params.reasoningEffort,
-      reasoning: baseBody.reasoning
+      model: params.model || this.config.defaultModel,
+      stream: params.stream ?? false
     });
+    console.log('[LMStudioService] Final reasoning value:', baseBody.reasoning);
+    console.log('[LMStudioService] Full request body:', JSON.stringify(baseBody, null, 2));
+    console.log('[LMStudioService] ====================================');
     
     return baseBody;
   }
