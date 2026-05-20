@@ -202,6 +202,7 @@ window.Pages.chat = function(container, serviceCenter) {
       const settings = settingsController.getSettings();
       
       if (settings && settings.apiStandard) {
+        // 使用 ServiceCenter 的缓存机制，避免重复创建
         const chatService = serviceCenter.createChatService(settings.apiStandard, {
           endpoint: settings.apiEndpoint,
           apiKey: settings.apiKey,
