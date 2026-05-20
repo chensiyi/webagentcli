@@ -188,9 +188,9 @@ window.Pages.chat = function(container, serviceCenter) {
         
         const sessionManager = serviceCenter.getSessionManager();
         
-        // 清空当前会话 ID，切换到 EphemeralChat 状态
+        // 清空当前会话 ID
         if (sessionManager.currentSessionId) {
-          console.log('[ChatPage] Switching to ephemeral state');
+          console.log('[ChatPage] Clearing current session');
           sessionManager.currentSessionId = null;
           
           // 触发事件，通知其他组件
@@ -200,7 +200,7 @@ window.Pages.chat = function(container, serviceCenter) {
           });
         }
         
-        // 更新 currentChat 为 EphemeralChat
+        // ChatController 会在第一次 sendMessage 时自动创建新会话
         currentChat = serviceCenter.getCurrentChat();
         
         console.log('[ChatPage] Updated currentChat:', currentChat.id);

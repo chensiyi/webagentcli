@@ -107,6 +107,8 @@ class ISessionManager {
   // ==================== Chat 实例管理 ====================
 
   /**
+   * ⚠️ TODO: 待清理 - Chat 管理已移至 ServiceCenter
+   * 
    * 获取或创建 Chat 实例
    * @param {string} sessionId - 会话 ID
    * @param {IProviderAPIService} chatService - Provider API 服务实例
@@ -117,9 +119,11 @@ class ISessionManager {
   }
 
   /**
+   * ⚠️ TODO: 待清理 - Chat 管理已移至 ServiceCenter
+   * 
    * 获取当前会话的 Chat 实例
    * @param {IProviderAPIService} chatService - Provider API 服务实例
-   * @returns {IChat|EphemeralChat} Chat 实例
+   * @returns {IChat} Chat 实例
    */
   getCurrentChat(chatService) {
     throw new Error('Method not implemented: getCurrentChat');

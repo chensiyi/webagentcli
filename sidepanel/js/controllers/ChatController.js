@@ -45,9 +45,10 @@ class ChatController {
     const sessionManager = this.serviceCenter.getSessionManager();
     const chatService = this.serviceCenter.getChatService();
     
-    // 获取或创建当前会话
+    // 获取或创建当前会话（懒加载）
     let session = sessionManager.getCurrentSession();
     if (!session) {
+      console.log('[ChatController] No active session, creating new one...');
       session = sessionManager.createSession({ title: '新对话' });
     }
     
@@ -178,6 +179,7 @@ class ChatController {
    * @returns {boolean}
    */
   hasActiveActivities() {
+    // TODO: 后续可能添加 taskQueue 等其他活动状态检查
     return this.messageQueue.length > 0;
   }
   

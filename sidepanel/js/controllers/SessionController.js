@@ -240,6 +240,8 @@ class SessionController extends window.ISessionManager {
   }
   
   /**
+   * ⚠️ TODO: 待清理 - 此方法已被 ServiceCenter.getCurrentChat() 取代
+   * 
    * 获取当前会话的 Chat 实例
    * @param {IProviderAPIService} chatService - Provider API 服务实例
    * @returns {IChat|EphemeralChat} Chat 实例
