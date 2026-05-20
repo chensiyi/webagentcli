@@ -5,7 +5,8 @@
 
 class ScriptsEventHandler {
   constructor(serviceCenter) {
-    this.eventBus = window.EventBus;
+    this.serviceCenter = serviceCenter;
+    this.eventBus = serviceCenter.getEventBus();
     
     // 通过 ServiceCenter 获取 ScriptsController
     if (serviceCenter && serviceCenter.getScriptsController) {

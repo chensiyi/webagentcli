@@ -18,6 +18,13 @@ class ServiceCenter {
   }
 
   /**
+   * 获取事件总线实例
+   */
+  getEventBus() {
+    return this.eventBus;
+  }
+
+  /**
    * 初始化并获取 SessionManager 实例
    * @returns {SessionController} SessionManager 实例
    */
@@ -121,13 +128,6 @@ class ServiceCenter {
     
     console.log('[ServiceCenter] Chat service created for:', providerId);
     return service;
-  }
-
-  /**
-   * 获取事件总线实例
-   */
-  getEventBus() {
-    return this.eventBus;
   }
 }
 

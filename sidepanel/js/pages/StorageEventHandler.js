@@ -5,7 +5,8 @@
 
 class StorageEventHandler {
   constructor(serviceCenter) {
-    this.eventBus = window.EventBus;
+    this.serviceCenter = serviceCenter;
+    this.eventBus = serviceCenter.getEventBus();
     
     // 通过 ServiceCenter 获取 StorageController
     if (serviceCenter && serviceCenter.getStorageController) {

@@ -5,8 +5,8 @@
 
 class ChatEventHandler {
   constructor(serviceCenter) {
-    this.eventBus = window.EventBus;
     this.serviceCenter = serviceCenter;
+    this.eventBus = serviceCenter.getEventBus();
     
     // 注册事件监听
     this._registerEventListeners();

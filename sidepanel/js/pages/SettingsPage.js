@@ -7,7 +7,7 @@ window.Pages = window.Pages || {};
 
 window.Pages.settings = function(container, serviceCenter) {
   const { create, clear, setTheme, getTheme } = window.DOM;
-  const eventBus = window.EventBus;
+  const eventBus = serviceCenter.getEventBus();
   
   if (!serviceCenter) {
     console.error('[SettingsPage] ServiceCenter not available');
