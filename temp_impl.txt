@@ -1,0 +1,528 @@
+﻿/**
+ * ISessionManager - 浼氳瘽绠＄悊鍣ㄦ帴鍙ｏ紙绾暟鎹鐞嗭紝鏃?UI/鍗忚渚濊禆锛?
+ * 
+ * 鑱岃矗锛?
+ * - 浼氳瘽 CRUD 鎿嶄綔
+ * - 鎸佷箙鍖栧瓨鍌紙Chrome Storage锛?
+ * - 閫氳繃 EventBus 閫氱煡鐘舵€佸彉鍖?
+ * - Chat 瀹炰緥缂撳瓨绠＄悊
+ * 
+ * 璁捐鍘熷垯锛?
+ * 1. I 鍓嶇紑琛ㄧず杩欐槸涓€涓帴鍙ｈ鑼冿紝鍙互鏈変笉鍚屽疄鐜?
+ * 2. 褰撳墠鎻愪緵榛樿瀹炵幇 SessionManagerImpl
+ * 3. 浣跨敤鑰呭彲浠ュ疄鐜拌嚜宸辩殑 ISessionManager 骞舵浛鎹?
+ */
+
+class ISessionManager {
+  /**
+   * @param {EventBus} eventBus - 浜嬩欢鎬荤嚎瀹炰緥
+   * @param {Object} storage - 瀛樺偍鎺ュ彛锛堥粯璁や娇鐢?chrome.storage.local锛?
+   */
+  constructor(eventBus, storage = null) {
+    this.eventBus = eventBus;
+    this.storage = storage || chrome.storage.local;
+    
+    // 鍐呭瓨涓殑浼氳瘽缂撳瓨
+    this.sessions = new Map(); // sessionId -> Session
+    this.currentSessionId = null;
+    
+    // Chat 瀹炰緥缂撳瓨锛歴essionId -> Chat
+    this.chatCache = new Map();
+    
+    // 鍒濆鍖?
+    this._loadSessions();
+  }
+
+  // ==================== 浼氳瘽绠＄悊 ====================
+
+  /**
+   * 鍒涘缓鏂颁細璇?
+   * @param {Object} options 
+   * @param {string} [options.title] - 浼氳瘽鏍囬
+   * @param {boolean} [options.persist=true] - 鏄惁绔嬪嵆鎸佷箙鍖?
+   * @param {boolean} [options.reasoningEnabled] - 鏄惁寮€鍚€濊€冩ā寮忥紙榛樿鏍规嵁妯″瀷鑳藉姏鍐冲畾锛?
+   * @returns {Session} 鏂板垱寤虹殑浼氳瘽
+   */
+  createSession(options = {}) {
+    // 鑷姩妫€娴嬪綋鍓嶆ā鍨嬫槸鍚︽敮鎸?reasoning
+    let reasoningEnabled = options.reasoningEnabled;
+    if (reasoningEnabled === undefined) {
+      // 榛樿寮€鍚?reasoning锛岀敱璋冪敤鏂规牴鎹渶瑕佽鐩?
+      reasoningEnabled = true;
+    }
+
+    const session = new Session({
+      title: options.title || '鏂板璇?,
+      messages: [],
+      reasoningEnabled: reasoningEnabled,
+      reasoningEffort: 'medium'
+    });
+      
+    this.sessions.set(session.id, session);
+    this.currentSessionId = session.id;
+      
+    // 榛樿涓嶇珛鍗虫寔涔呭寲锛岄櫎闈炴樉寮忚姹傦紙渚嬪鐢ㄦ埛鎵嬪姩鐐瑰嚮鈥滄柊寤哄璇濃€濓級
+    if (options.persist) {
+      this._saveSessions();
+    }
+      
+    // 鍙戝竷浜嬩欢
+    this.eventBus.emit(window.Events.CHAT.SESSION_CREATED, { session });
+    this.eventBus.emit(window.Events.CHAT.CURRENT_SESSION_CHANGED, { sessionId: session.id });
+      
+    console.log('[SessionManager] Created session:', session.id, 'Reasoning:', reasoningEnabled);
+    return session;
+  }
+
+  /**
+   * 鍔犺浇鎸囧畾浼氳瘽
+   * @param {string} sessionId 
+   * @returns {Session|null}
+   */
+  loadSession(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      console.warn('[SessionManager] Session not found:', sessionId);
+      return null;
+    }
+    
+    const previousId = this.currentSessionId;
+    this.currentSessionId = sessionId;
+    
+    // 鍒囨崲浼氳瘽鏃讹紝閲嶆柊璇勪及骞跺悓姝ヤ細璇濈殑鐜閰嶇疆锛堝 Reasoning, Tools 绛夛級
+    this._syncSessionEnvironment(session);
+    
+    if (previousId !== sessionId) {
+      this.eventBus.emit(window.Events.CHAT.CURRENT_SESSION_CHANGED, { 
+        sessionId, 
+        previousId,
+        session: session // 鎼哄甫浼氳瘽淇℃伅锛屾柟渚?UI 灞傜洿鎺ユ洿鏂扮姸鎬?
+      });
+    }
+    
+    this.eventBus.emit(window.Events.CHAT.SESSION_LOADED, { session });
+    return session;
+  }
+  
+  /**
+   * 鑾峰彇鎴栧垱寤?Chat 瀹炰緥
+   * @param {string} sessionId - 浼氳瘽 ID
+   * @param {IProviderAPIService} chatService - Provider API 鏈嶅姟瀹炰緥
+   * @returns {IChat} Chat 瀹炰緥锛堢户鎵胯嚜 IChat锛?
+   */
+  getOrCreateChat(sessionId, chatService) {
+    if (!chatService) {
+      throw new Error('ChatService is required');
+    }
+    
+    // 妫€鏌ョ紦瀛?
+    if (this.chatCache.has(sessionId)) {
+      const cachedChat = this.chatCache.get(sessionId);
+      // 濡傛灉鏈嶅姟宸插彉鏇达紝鏇存柊鏈嶅姟
+      if (cachedChat.getService() !== chatService) {
+        cachedChat.setService(chatService);
+      }
+      return cachedChat;
+    }
+    
+    // 鑾峰彇 Session
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+    
+    // 鍒涘缓鏂扮殑 ChatController 瀹炰緥锛圛Chat 鐨勫疄鐜帮級
+    const chat = new window.ChatController(session, chatService, this, this.eventBus);
+    this.chatCache.set(sessionId, chat);
+    
+    console.log('[SessionManager] Created Chat for session:', sessionId);
+    return chat;
+  }
+  
+  /**
+   * 鑾峰彇褰撳墠浼氳瘽鐨?Chat 瀹炰緥
+   * @param {IProviderAPIService} chatService - Provider API 鏈嶅姟瀹炰緥
+   * @returns {IChat|EphemeralChat} Chat 瀹炰緥锛堝鏋滄病鏈変細璇濆垯杩斿洖涓存椂 Chat锛?
+   */
+  getCurrentChat(chatService) {
+    if (!chatService) {
+      throw new Error('ChatService is required');
+    }
+    
+    // 濡傛灉娌℃湁褰撳墠浼氳瘽锛岃繑鍥炰复鏃?Chat 鍗犱綅绗?
+    // 娉ㄦ剰锛歴endMessage() 浼氱洿鎺ヨ皟鐢?getOrCreateChat()锛屼笉浼氳蛋杩欓噷
+    if (!this.currentSessionId) {
+      return new window.EphemeralChat(this, chatService, this.eventBus);
+    }
+    
+    return this.getOrCreateChat(this.currentSessionId, chatService);
+  }
+  
+  /**
+   * 娓呴櫎 Chat 瀹炰緥缂撳瓨
+   * @param {string} [sessionId] - 鍙€夛紝鎸囧畾娓呴櫎鏌愪釜浼氳瘽鐨?Chat锛屽惁鍒欐竻闄ゆ墍鏈?
+   */
+  clearChatCache(sessionId = null) {
+    if (sessionId) {
+      this.chatCache.delete(sessionId);
+      console.log('[SessionManager] Cleared Chat cache for session:', sessionId);
+    } else {
+      this.chatCache.clear();
+      console.log('[SessionManager] Cleared all Chat caches');
+    }
+  }
+
+  /**
+   * 鍚屾浼氳瘽鐜閰嶇疆
+   * 纭繚浼氳瘽涓殑鍔熻兘寮€鍏筹紙濡?Reasoning锛変笌褰撳墠閫夊畾鐨勬ā鍨嬭兘鍔涚浉鍖归厤
+   * @param {Session} session 
+   */
+  _syncSessionEnvironment(session) {
+    const settings = window.SettingsController ? window.SettingsController.getSettings() : null;
+    if (!settings || !settings.model) return;
+
+    const cacheKey = `models:${settings.apiEndpoint}`;
+    const cachedModels = window.StorageModel && window.StorageModel.getCacheSync ? 
+      window.StorageModel.getCacheSync(cacheKey) : null;
+    
+    if (!cachedModels || !Array.isArray(cachedModels)) return;
+
+    const currentModel = cachedModels.find(m => m.id === settings.model);
+    if (!currentModel) return;
+
+    // 1. 鍚屾 Reasoning 鐘舵€?
+    const supportsReasoning = typeof currentModel.supportsReasoning === 'function' 
+      ? currentModel.supportsReasoning() 
+      : (currentModel.capabilities?.reasoning || currentModel.supports_reasoning);
+
+    // 濡傛灉妯″瀷涓嶆敮鎸侊紝寮哄埗鍏抽棴浼氳瘽涓殑 Reasoning 寮€鍏?
+    if (!supportsReasoning && session.reasoningEnabled) {
+      console.log(`[SessionManager] Model ${settings.model} does not support reasoning. Disabling for session ${session.id}`);
+      session.reasoningEnabled = false;
+      this._saveSessions(); // 鎸佷箙鍖栧彉鏇?
+    }
+    
+    // 2. 姝ゅ鍙互鎵╁睍鍏朵粬鑳藉姏鐨勫悓姝ラ€昏緫锛堝宸ュ叿璋冪敤銆佸濯掍綋绛夛級
+    // if (!currentModel.capabilities.toolUse && session.toolsEnabled) { ... }
+  }
+
+  /**
+   * 鑾峰彇褰撳墠浼氳瘽
+   * @returns {Session|null}
+   */
+  getCurrentSession() {
+    if (!this.currentSessionId) {
+      // 濡傛灉娌℃湁褰撳墠浼氳瘽锛岃繑鍥?null锛岀瓑寰呯涓€鏉℃秷鎭Е鍙戝垱寤?
+      return null;
+    }
+    
+    return this.sessions.get(this.currentSessionId) || null;
+  }
+
+  /**
+   * 鍒犻櫎浼氳瘽
+   * @param {string} sessionId 
+   * @param {boolean} autoSwitch - 鏄惁鑷姩鍒囨崲鍒扮涓€涓彲鐢ㄤ細璇濓紙宸插簾寮冿紝榛樿 false锛?
+   */
+  deleteSession(sessionId, autoSwitch = true) {
+    const deleted = this.sessions.delete(sessionId);
+    if (!deleted) {
+      console.warn('[SessionManager] Session not found for deletion:', sessionId);
+      return false;
+    }
+    
+    // 濡傛灉鍒犻櫎鐨勬槸褰撳墠浼氳瘽锛屾竻绌烘寚鍚?
+    if (this.currentSessionId === sessionId) {
+      this.currentSessionId = null;
+      
+      this.eventBus.emit(window.Events.CHAT.CURRENT_SESSION_CHANGED, { 
+        sessionId: null,
+        previousId: sessionId
+      });
+    }
+    
+    // 鎸佷箙鍖?
+    this._saveSessions();
+    
+    // 鍙戝竷浜嬩欢
+    this.eventBus.emit(window.Events.CHAT.SESSION_DELETED, { sessionId });
+    
+    console.log('[SessionManager] Deleted session:', sessionId);
+    return true;
+  }
+
+  /**
+   * 鑾峰彇鎵€鏈変細璇濆垪琛?
+   * @returns {Array<Session>}
+   */
+  getAllSessions() {
+    return Array.from(this.sessions.values());
+  }
+
+  /**
+   * 鏇存柊浼氳瘽鏍囬
+   * @param {string} sessionId 
+   * @param {string} title 
+   */
+  updateSessionTitle(sessionId, title) {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      console.warn('[SessionManager] Session not found:', sessionId);
+      return false;
+    }
+    
+    session.title = title;
+    session.updated_at = Date.now();
+    
+    this._saveSessions();
+    this.eventBus.emit(window.Events.CHAT.SESSION_UPDATED, { session });
+    
+    return true;
+  }
+
+  /**
+   * 鏇存柊浼氳瘽锛堥€氱敤锛?
+   * @param {string} sessionId 
+   * @param {Function} updater - 鎺ユ敹浼氳瘽瀵硅薄骞舵墽琛屼慨鏀?
+   * @returns {boolean}
+   */
+  updateSession(sessionId, updater) {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      console.warn('[SessionManager] Session not found:', sessionId);
+      return false;
+    }
+    
+    updater(session);
+    session.updatedAt = Date.now();
+    session.updated_at = session.updatedAt;
+    
+    this._saveSessions();
+    this.eventBus.emit(window.Events.CHAT.SESSION_UPDATED, { session });
+    return true;
+  }
+
+  // ==================== 娑堟伅绠＄悊锛堝鎵樼粰 Session锛?===================
+
+  /**
+   * 娣诲姞娑堟伅鍒板綋鍓嶄細璇?
+   * @param {Message} message 
+   * @returns {boolean}
+   */
+  async addMessage(message) {
+    let session = this.getCurrentSession();
+    
+    // 濡傛灉褰撳墠娌℃湁浼氳瘽锛屽垯鑷姩鍒涘缓涓€涓柊浼氳瘽锛堟鏃舵墠鐪熸鍒涘缓锛?
+    if (!session) {
+      session = this.createSession({ title: '鏂板璇?, persist: false });
+    }
+    
+    session.addMessage(message);
+    
+    // 鎸佷箙鍖栵細褰撲骇鐢熺涓€鏉℃秷鎭椂锛岀‘淇濅細璇濊淇濆瓨
+    await this._saveSessions();
+    
+    // 鍙戝竷浜嬩欢
+    this.eventBus.emit(window.Events.CHAT.MESSAGE_ADDED, {
+      sessionId: session.id,
+      message
+    });
+    
+    return true;
+  }
+
+  /**
+   * 鎵归噺娣诲姞娑堟伅锛堢敤浜庢祦寮忎氦浜掑垵濮嬪寲锛岄伩鍏嶅娆¤Е鍙?UI 娓叉煋锛?
+   * @param {Array<Message>} messages 
+   * @returns {boolean}
+   */
+  async addMessages(messages) {
+    let session = this.getCurrentSession();
+    
+    // 濡傛灉褰撳墠娌℃湁浼氳瘽锛屽垯鑷姩鍒涘缓涓€涓柊浼氳瘽
+    if (!session) {
+      session = this.createSession({ title: '鏂板璇?, persist: false });
+    }
+    
+    messages.forEach(msg => session.addMessage(msg));
+    
+    // 鎸佷箙鍖?
+    await this._saveSessions();
+    
+    // 浠呭湪鎵€鏈夋秷鎭坊鍔犲畬鎴愬悗鍙戝竷涓€娆′簨浠?
+    this.eventBus.emit(window.Events.CHAT.MESSAGES_ADDED, { 
+      sessionId: session.id,
+      messages 
+    });
+    
+    return true;
+  }
+
+  /**
+   * 娴佸紡鍒嗙墖鏇存柊娑堟伅鍐呭锛堜笓涓烘祦寮忎氦浜掕璁★紝涓嶈Е鍙戜簨浠堕€氱煡锛?
+   * @param {string} messageId 
+   * @param {Object} chunk - { content?: string, reasoning_content?: string } - 娴佸紡鍒嗙墖鏁版嵁
+   * @returns {boolean}
+   */
+  streamChunkMessage(messageId, chunk) {
+    const session = this.getCurrentSession();
+    if (!session) return false;
+    
+    const message = session.messages.find(m => m.id === messageId);
+    if (!message) return false;
+    
+    // 杩藉姞娴佸紡鍒嗙墖鍐呭鍒版秷鎭湯灏?
+    if (chunk.content !== undefined) {
+      message.content += chunk.content;
+    }
+    if (chunk.reasoning_content !== undefined) {
+      message.reasoning_content += chunk.reasoning_content;
+    }
+    
+    session.updatedAt = Date.now();
+    session.updated_at = session.updatedAt;
+    
+    // 鎸佷箙鍖栵紙浣嗕笉鍙戝嚭浜嬩欢閫氱煡锛岄伩鍏嶈Е鍙?UI 閲嶇粯锛?
+    this._saveSessions();    
+    return true;
+  }
+
+  /**
+   * 鏇存柊娑堟伅
+   * @param {string} messageId 
+   * @param {Function} updater 
+   * @returns {boolean}
+   */
+  updateMessage(messageId, updater) {
+    const session = this.getCurrentSession();
+    if (!session) return false;
+    
+    const updated = session.updateMessage(messageId, updater);
+    if (updated) {
+      this._saveSessions();
+      
+      // 鍙戝嚭浜嬩欢閫氱煡
+      const updatedMessage = session.messages.find(m => m.id === messageId);
+      this.eventBus.emit(window.Events.CHAT.MESSAGE_UPDATED, {
+        sessionId: session.id,
+        message: updatedMessage
+      });
+    }
+    
+    return updated;
+  }
+
+  /**
+   * 鍒犻櫎娑堟伅
+   * @param {string} messageId 
+   * @returns {boolean}
+   */
+  deleteMessage(messageId) {
+    const session = this.getCurrentSession();
+    if (!session) {
+      console.warn('[SessionManager] No current session to delete message from');
+      return false;
+    }
+    
+    // 浣跨敤 Session 妯″瀷涓殑 removeMessage 鏂规硶
+    const deleted = session.removeMessage(messageId);
+    if (deleted) {
+      console.log('[SessionManager] Message deleted successfully:', messageId);
+      this._saveSessions();
+      this.eventBus.emit(window.Events.CHAT.MESSAGE_DELETED, {
+        sessionId: session.id,
+        messageId
+      });
+    } else {
+      console.warn('[SessionManager] Failed to delete message:', messageId, 'not found in session');
+    }
+    
+    return deleted;
+  }
+
+  // ==================== 鎸佷箙鍖?====================
+
+  /**
+   * 浠庡瓨鍌ㄥ姞杞戒細璇濓紙杩斿洖 Promise 浠ヤ究澶栭儴绛夊緟锛?
+   */
+  loadSessionsFromStorage() {
+    return new Promise((resolve) => {
+      this.storage.get(['sessions', 'currentSessionId'], (data) => {
+        if (data.sessions && Array.isArray(data.sessions)) {
+          // 鎭㈠浼氳瘽
+          data.sessions.forEach(sessionData => {
+            const session = Session.fromJSON(sessionData);
+            this.sessions.set(session.id, session);
+          });
+          
+          // 鎭㈠褰撳墠浼氳瘽
+          if (data.currentSessionId && this.sessions.has(data.currentSessionId)) {
+            this.currentSessionId = data.currentSessionId;
+          } else if (this.sessions.size > 0) {
+            this.currentSessionId = Array.from(this.sessions.keys())[0];
+          }
+          
+          console.log(`[SessionManager] Loaded ${this.sessions.size} sessions`);
+        }
+        resolve();
+      });
+    });
+  }
+
+  /**
+   * 浠庡瓨鍌ㄥ姞杞戒細璇?
+   * @private
+   */
+  _loadSessions() {
+    // 淇濇寔鍘熸湁鐨勫紓姝ラ€昏緫锛岀敤浜庡悗鍙伴潤榛樺埛鏂版垨鍏煎鏃ц皟鐢?
+    this.loadSessionsFromStorage();
+  }
+
+  /**
+   * 淇濆瓨浼氳瘽鍒板瓨鍌?
+   * @private
+   */
+  async _saveSessions() {
+    try {
+      const sessionsData = Array.from(this.sessions.values()).map(s => s.toJSON());
+      
+      await new Promise((resolve, reject) => {
+        this.storage.set({
+          sessions: sessionsData,
+          currentSessionId: this.currentSessionId
+        }, () => {
+          if (chrome.runtime.lastError) {
+            reject(chrome.runtime.lastError);
+          } else {
+            resolve();
+          }
+        });
+      });
+      console.log('[SessionManager] Sessions saved to storage');
+    } catch (error) {
+      console.error('[SessionManager] Failed to save sessions:', error);
+    }
+  }
+
+  /**
+   * 娓呯┖鎵€鏈変細璇?
+   */
+  clearAll() {
+    this.sessions.clear();
+    this.currentSessionId = null;
+    
+    this.storage.remove(['sessions', 'currentSessionId']);
+    
+    this.eventBus.emit(window.Events.CHAT.ALL_SESSIONS_CLEARED);
+    
+    console.log('[SessionManager] Cleared all sessions');
+  }
+}
+
+// 瀵煎嚭
+if (typeof window !== 'undefined') {
+  window.ISessionManager = ISessionManager;
+}
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = ISessionManager;
+}

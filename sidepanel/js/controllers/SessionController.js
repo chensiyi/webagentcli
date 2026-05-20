@@ -1,164 +1,181 @@
 /**
- * 会话控制器
- * 负责会话的业务逻辑协调，委托给 SessionManager 进行数据操作
+ * SessionController - 会话控制器（ISessionManager 的具体实现）
+ * 
+ * 职责：
+ * 1. 实现 ISessionManager 接口定义的所有方法
+ * 2. 处理会话管理业务逻辑（CRUD、持久化、Chat 缓存）
+ * 3. 通过 EventBus 与 UI 层通信
+ * 
+ * 设计原则：
+ * - 继承 ISessionManager 基类
+ * - 包含完整的业务逻辑实现
+ * - 管理运行时状态（sessions、currentSessionId、chatCache）
  */
 
-class SessionController {
-  constructor() {
-    // 等待 SessionManager 初始化完成
-    this.manager = null;
-  }
-  
+class SessionController extends window.ISessionManager {
   /**
-   * 初始化 SessionManager 引用（由 app.js 调用）
+   * @param {EventBus} eventBus - 事件总线实例
+   * @param {Object} storage - 存储接口（默认使用 chrome.storage.local）
    */
-  init() {
-    if (window.sessionManagerInstance) {
-      this.manager = window.sessionManagerInstance;
-      console.log('[SessionController] Delegating to SessionManager');
-      return true;
-    }
-    console.warn('[SessionController] SessionManager not ready yet');
-    return false;
+  constructor(eventBus, storage = null) {
+    super(eventBus, storage);
+    
+    // 内存中的会话缓存
+    this.sessions = new Map(); // sessionId -> Session
+    this.currentSessionId = null;
+    
+    // Chat 实例缓存：sessionId -> Chat
+    this.chatCache = new Map();
+    
+    // 初始化
+    this._loadSessions();
+    
+    console.log('[SessionController] Initialized');
   }
-  
-  /**
-   * 获取当前会话
-   */
-  getCurrentSession() {
-    if (!this.manager) {
-      console.warn('[SessionController] SessionManager not ready');
-      return null;
-    }
-    return this.manager.getCurrentSession();
-  }
-  
+
+  // ==================== 会话管理 ====================
+
   /**
    * 创建新会话
+   * @param {Object} options 
+   * @param {string} [options.title] - 会话标题
+   * @param {boolean} [options.persist=true] - 是否立即持久化
+   * @param {boolean} [options.reasoningEnabled] - 是否开启思考模式
+   * @returns {Session} 新创建的会话
    */
-  createSession(title = '新对话') {
-    if (!this.manager) {
-      console.error('[SessionController] SessionManager not ready');
-      return null;
+  createSession(options = {}) {
+    // 自动检测当前模型是否支持 reasoning
+    let reasoningEnabled = options.reasoningEnabled;
+    if (reasoningEnabled === undefined) {
+      // 默认开启 reasoning，由调用方根据需要覆盖
+      reasoningEnabled = true;
     }
-    // 用户手动点击"新建对话"时，立即持久化
-    // SessionManager.createSession 内部会自动检测模型能力并设置 reasoningEnabled
-    return this.manager.createSession({ title, persist: true });
-  }
-  
-  /**
-   * 切换到指定会话
-   */
-  switchSession(sessionId) {
-    if (!this.manager) {
-      console.error('[SessionController] SessionManager not ready');
-      return null;
+
+    const session = new window.Session({
+      title: options.title || '新对话',
+      messages: [],
+      reasoningEnabled: reasoningEnabled,
+      reasoningEffort: 'medium'
+    });
+      
+    this.sessions.set(session.id, session);
+    this.currentSessionId = session.id;
+      
+    // 默认不立即持久化，除非显式要求
+    if (options.persist) {
+      this._saveSessions();
     }
-    return this.manager.loadSession(sessionId);
-  }
-  
-  /**
-   * 删除会话
-   */
-  deleteSession(sessionId) {
-    if (!this.manager) {
-      console.error('[SessionController] SessionManager not ready');
-      return false;
-    }
-    return this.manager.deleteSession(sessionId);
-  }
-  
-  /**
-   * 添加消息到当前会话
-   */
-  addMessage(message) {
-    if (!this.manager) {
-      console.error('[SessionController] SessionManager not ready');
-      return false;
-    }
-    return this.manager.addMessage(message);
+      
+    // 发布事件
+    this.eventBus.emit(window.Events.CHAT.SESSION_CREATED, { session });
+    this.eventBus.emit(window.Events.CHAT.CURRENT_SESSION_CHANGED, { sessionId: session.id });
+      
+    console.log('[SessionController] Created session:', session.id, 'Reasoning:', reasoningEnabled);
+    return session;
   }
 
   /**
-   * 批量添加消息到当前会话
-   * @param {Array<Message>} messages 
-   * @returns {boolean}
+   * 加载指定会话
+   * @param {string} sessionId 
+   * @returns {Session|null}
    */
-  addMessages(messages) {
-    if (!this.manager) {
-      console.error('[SessionController] SessionManager not ready');
-      return false;
+  loadSession(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      console.warn('[SessionController] Session not found:', sessionId);
+      return null;
     }
-    return this.manager.addMessages(messages);
+    
+    const previousId = this.currentSessionId;
+    this.currentSessionId = sessionId;
+    
+    // 切换会话时，重新评估并同步会话的环境配置
+    this._syncSessionEnvironment(session);
+    
+    if (previousId !== sessionId) {
+      this.eventBus.emit(window.Events.CHAT.CURRENT_SESSION_CHANGED, { 
+        sessionId, 
+        previousId,
+        session: session
+      });
+    }
+    
+    this.eventBus.emit(window.Events.CHAT.SESSION_LOADED, { session });
+    return session;
   }
-  
+
   /**
-   * 更新消息（用于流式更新等场景）
-   * @param {string} messageId 
-   * @param {Function} updater 
+   * 删除会话
+   * @param {string} sessionId 
+   * @param {boolean} autoSwitch - 是否自动切换（已废弃）
    * @returns {boolean}
    */
-  updateMessage(messageId, updater) {
-    if (!this.manager) {
-      console.error('[SessionController] SessionManager not ready');
+  deleteSession(sessionId, autoSwitch = true) {
+    const deleted = this.sessions.delete(sessionId);
+    if (!deleted) {
+      console.warn('[SessionController] Session not found for deletion:', sessionId);
       return false;
     }
-    return this.manager.updateMessage(messageId, updater);
+    
+    // 如果删除的是当前会话，清空指向
+    if (this.currentSessionId === sessionId) {
+      this.currentSessionId = null;
+      
+      this.eventBus.emit(window.Events.CHAT.CURRENT_SESSION_CHANGED, { 
+        sessionId: null,
+        previousId: sessionId
+      });
+    }
+    
+    // 持久化
+    this._saveSessions();
+    
+    // 发布事件
+    this.eventBus.emit(window.Events.CHAT.SESSION_DELETED, { sessionId });
+    
+    console.log('[SessionController] Deleted session:', sessionId);
+    return true;
   }
-  
+
   /**
-   * 流式分片更新消息内容
-   * @param {string} messageId 
-   * @param {Object} chunk - { content?: string, reasoning_content?: string }
-   * @returns {boolean}
+   * 获取当前会话
+   * @returns {Session|null}
    */
-  streamChunkMessage(messageId, chunk) {
-    if (!this.manager) {
-      console.error('[SessionController] SessionManager not ready');
-      return false;
+  getCurrentSession() {
+    if (!this.currentSessionId) {
+      return null;
     }
-    return this.manager.streamChunkMessage(messageId, chunk);
+    
+    return this.sessions.get(this.currentSessionId) || null;
   }
-  
-  /**
-   * 删除消息
-   * @param {string} messageId 
-   * @returns {boolean}
-   */
-  deleteMessage(messageId) {
-    if (!this.manager) {
-      console.error('[SessionController] SessionManager not ready');
-      return false;
-    }
-    const result = this.manager.deleteMessage(messageId);
-    console.log('[SessionController] Delete message result:', result, 'for id:', messageId);
-    return result;
-  }
-  
+
   /**
    * 获取所有会话列表
+   * @returns {Array<Session>}
    */
-  getSessions() {
-    if (!this.manager) {
-      console.warn('[SessionController] SessionManager not ready');
-      return [];
-    }
-    return this.manager.getAllSessions();
+  getAllSessions() {
+    return Array.from(this.sessions.values());
   }
-  
+
   /**
-   * 清空当前会话
+   * 更新会话标题
+   * @param {string} sessionId 
+   * @param {string} title 
+   * @returns {boolean}
    */
-  clearCurrentSession() {
-    const session = this.getCurrentSession();
-    if (!session) return false;
-    
-    session.clearMessages();
-    // SessionManager 会在 addMessage 时自动保存，这里需要手动触发保存
-    if (this.manager) {
-      this.manager._saveSessions();
+  updateSessionTitle(sessionId, title) {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      console.warn('[SessionController] Session not found:', sessionId);
+      return false;
     }
-    console.log('[SessionController] Cleared current session');
+    
+    session.title = title;
+    session.updated_at = Date.now();
+    
+    this._saveSessions();
+    this.eventBus.emit(window.Events.CHAT.SESSION_UPDATED, { session });
+    
     return true;
   }
 
@@ -169,13 +186,282 @@ class SessionController {
    * @returns {boolean}
    */
   updateSession(sessionId, updater) {
-    if (!this.manager) {
-      console.error('[SessionController] SessionManager not ready');
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      console.warn('[SessionController] Session not found:', sessionId);
       return false;
     }
-    return this.manager.updateSession(sessionId, updater);
+    
+    updater(session);
+    session.updatedAt = Date.now();
+    session.updated_at = session.updatedAt;
+    
+    this._saveSessions();
+    this.eventBus.emit(window.Events.CHAT.SESSION_UPDATED, { session });
+    return true;
+  }
+
+  // ==================== Chat 实例管理 ====================
+
+  /**
+   * 获取或创建 Chat 实例
+   * @param {string} sessionId - 会话 ID
+   * @param {IProviderAPIService} chatService - Provider API 服务实例
+   * @returns {IChat} Chat 实例
+   */
+  getOrCreateChat(sessionId, chatService) {
+    if (!chatService) {
+      throw new Error('ChatService is required');
+    }
+    
+    // 检查缓存
+    if (this.chatCache.has(sessionId)) {
+      const cachedChat = this.chatCache.get(sessionId);
+      // 如果服务已变更，更新服务
+      if (cachedChat.getService() !== chatService) {
+        cachedChat.setService(chatService);
+      }
+      return cachedChat;
+    }
+    
+    // 获取 Session
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+    
+    // 创建新的 ChatController 实例（IChat 的实现）
+    const chat = new window.ChatController(session, chatService, this, this.eventBus);
+    this.chatCache.set(sessionId, chat);
+    
+    console.log('[SessionController] Created Chat for session:', sessionId);
+    return chat;
+  }
+  
+  /**
+   * 获取当前会话的 Chat 实例
+   * @param {IProviderAPIService} chatService - Provider API 服务实例
+   * @returns {IChat|EphemeralChat} Chat 实例
+   */
+  getCurrentChat(chatService) {
+    if (!chatService) {
+      throw new Error('ChatService is required');
+    }
+    
+    // 如果没有当前会话，返回临时 Chat 占位符
+    if (!this.currentSessionId) {
+      return new window.EphemeralChat(this, chatService, this.eventBus);
+    }
+    
+    return this.getOrCreateChat(this.currentSessionId, chatService);
+  }
+  
+  /**
+   * 清除 Chat 实例缓存
+   * @param {string} [sessionId] - 可选，指定清除某个会话的 Chat
+   */
+  clearChatCache(sessionId = null) {
+    if (sessionId) {
+      this.chatCache.delete(sessionId);
+      console.log('[SessionController] Cleared Chat cache for session:', sessionId);
+    } else {
+      this.chatCache.clear();
+      console.log('[SessionController] Cleared all Chat caches');
+    }
+  }
+
+  // ==================== 消息管理 ====================
+
+  /**
+   * 添加消息到当前会话
+   * @param {Message} message 
+   * @returns {Promise<boolean>}
+   */
+  async addMessage(message) {
+    let session = this.getCurrentSession();
+    
+    // 如果当前没有会话，则自动创建一个新会话
+    if (!session) {
+      session = this.createSession({ title: '新对话', persist: false });
+    }
+    
+    session.addMessage(message);
+    
+    // 持久化
+    await this._saveSessions();
+    
+    // 发布事件
+    this.eventBus.emit(window.Events.CHAT.MESSAGE_ADDED, {
+      sessionId: session.id,
+      message
+    });
+    
+    return true;
+  }
+
+  /**
+   * 批量添加消息
+   * @param {Array<Message>} messages 
+   * @returns {Promise<boolean>}
+   */
+  async addMessages(messages) {
+    let session = this.getCurrentSession();
+    
+    if (!session) {
+      session = this.createSession({ title: '新对话', persist: false });
+    }
+    
+    messages.forEach(msg => session.addMessage(msg));
+    
+    await this._saveSessions();
+    
+    this.eventBus.emit(window.Events.CHAT.MESSAGES_BATCH_ADDED, {
+      sessionId: session.id,
+      messages
+    });
+    
+    return true;
+  }
+
+  /**
+   * 更新消息
+   * @param {string} messageId 
+   * @param {Function} updater 
+   * @returns {boolean}
+   */
+  updateMessage(messageId, updater) {
+    const session = this.getCurrentSession();
+    if (!session) {
+      console.warn('[SessionController] No current session');
+      return false;
+    }
+    
+    const result = session.updateMessage(messageId, updater);
+    if (result) {
+      this._saveSessions();
+      this.eventBus.emit(window.Events.CHAT.MESSAGE_UPDATED, { messageId, updater });
+    }
+    return result;
+  }
+
+  /**
+   * 流式分片更新消息内容
+   * @param {string} messageId 
+   * @param {Object} chunk - { content?: string, reasoning_content?: string }
+   * @returns {boolean}
+   */
+  streamChunkMessage(messageId, chunk) {
+    const session = this.getCurrentSession();
+    if (!session) {
+      console.warn('[SessionController] No current session');
+      return false;
+    }
+    
+    const result = session.streamChunkMessage(messageId, chunk);
+    if (result) {
+      this._saveSessions();
+    }
+    return result;
+  }
+
+  /**
+   * 删除消息
+   * @param {string} messageId 
+   * @returns {boolean}
+   */
+  deleteMessage(messageId) {
+    const session = this.getCurrentSession();
+    if (!session) {
+      console.warn('[SessionController] No current session');
+      return false;
+    }
+    
+    const result = session.deleteMessage(messageId);
+    if (result) {
+      this._saveSessions();
+      this.eventBus.emit(window.Events.CHAT.MESSAGE_DELETED, { messageId });
+    }
+    return result;
+  }
+
+  // ==================== 内部方法 ====================
+
+  /**
+   * 同步会话环境配置
+   * @param {Session} session 
+   */
+  _syncSessionEnvironment(session) {
+    const settings = window.SettingsController ? window.SettingsController.getSettings() : null;
+    if (!settings || !settings.model) return;
+
+    const cacheKey = `models:${settings.apiEndpoint}`;
+    const cachedModels = window.StorageModel && window.StorageModel.getCacheSync ? 
+      window.StorageModel.getCacheSync(cacheKey) : null;
+    
+    if (!cachedModels || !Array.isArray(cachedModels)) return;
+
+    const currentModel = cachedModels.find(m => m.id === settings.model);
+    if (!currentModel) return;
+
+    // 1. 同步 Reasoning 状态
+    const supportsReasoning = typeof currentModel.supportsReasoning === 'function' 
+      ? currentModel.supportsReasoning() 
+      : (currentModel.capabilities?.reasoning || currentModel.supports_reasoning);
+
+    // 如果模型不支持，强制关闭会话中的 Reasoning 开关
+    if (!supportsReasoning && session.reasoningEnabled) {
+      console.log(`[SessionController] Model ${settings.model} does not support reasoning. Disabling for session ${session.id}`);
+      session.reasoningEnabled = false;
+      this._saveSessions();
+    }
+  }
+
+  /**
+   * 从存储加载会话
+   * @private
+   */
+  _loadSessions() {
+    this.storage.get(['sessions', 'currentSessionId'], (result) => {
+      if (result.sessions) {
+        const sessionsData = result.sessions;
+        this.sessions.clear();
+        
+        Object.values(sessionsData).forEach(sessionData => {
+          const session = new window.Session(sessionData);
+          this.sessions.set(session.id, session);
+        });
+        
+        console.log('[SessionController] Loaded sessions:', this.sessions.size);
+      }
+      
+      if (result.currentSessionId) {
+        this.currentSessionId = result.currentSessionId;
+        console.log('[SessionController] Current session:', this.currentSessionId);
+      }
+    });
+  }
+
+  /**
+   * 保存会话到存储
+   * @private
+   */
+  _saveSessions() {
+    const sessionsData = {};
+    this.sessions.forEach((session, id) => {
+      sessionsData[id] = session.toJSON();
+    });
+    
+    this.storage.set({
+      sessions: sessionsData,
+      currentSessionId: this.currentSessionId
+    });
   }
 }
 
 // 导出单例
-window.SessionController = new SessionController();
+if (typeof window !== 'undefined') {
+  window.sessionManagerInstance = new SessionController(window.EventBus);
+}
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = SessionController;
+}
