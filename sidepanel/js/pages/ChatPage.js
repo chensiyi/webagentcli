@@ -17,10 +17,16 @@ window.Pages.chat = function(container, serviceCenter) {
   const sessionController = serviceCenter.getSessionManager();
   const settingsController = serviceCenter.getSettingsController();
   
-  // 获取当前会话（页面加载时绑定）
+  // 获取当前会话和 ChatController（页面加载时绑定）
   let currentSession = sessionController.getCurrentSession();
+  let currentChat = null;
   
-  console.log('[ChatPage] Initialized, current session:', currentSession?.id || 'none');
+  // 如果有当前会话，获取对应的 ChatController
+  if (currentSession && sessionController.currentSessionId) {
+    currentChat = sessionController.chatCache.get(sessionController.currentSessionId);
+  }
+  
+  console.log('[ChatPage] Initialized, current session:', currentSession?.id || 'none', ', chat:', !!currentChat);
   
   /**
    * 更新当前会话引用（会话切换时调用）
@@ -207,7 +213,7 @@ window.Pages.chat = function(container, serviceCenter) {
     scrollToBottom(messageList);
     
     // 渲染后检查是否有活动任务，恢复按钮状态（解决切换页面后按钮丢失的问题）
-    if (currentSession && currentSession.hasActiveActivities()) {
+    if (currentChat && currentChat.hasActiveActivities()) {
       const sendBtn = document.getElementById('send-btn');
       const stopBtn = document.getElementById('stop-btn');
       if (sendBtn) sendBtn.style.display = 'none';
@@ -350,12 +356,6 @@ window.Pages.chat = function(container, serviceCenter) {
           return;
         }
         
-        // 通过 SessionManager 删除消息
-        if (!sessionController.currentSessionId) {
-          console.error('[ChatPage] Cannot delete message: no active session');
-          return;
-        }
-        
         const deleted = sessionController.deleteMessage(msg.id);
         
         if (deleted) {
@@ -445,17 +445,8 @@ window.Pages.chat = function(container, serviceCenter) {
         flexShrink: '0'  // 防止按钮被压缩
       },
       onClick: () => {
-        // 直接从 chatCache 获取当前会话的 ChatController
-        if (!sessionController.currentSessionId) {
-          console.error('[ChatPage] Cannot stop: no active session');
-          return;
-        }
-        
-        const chat = sessionController.chatCache.get(sessionController.currentSessionId);
-        if (chat) {
-          chat.stopGeneration();
-        } else {
-          console.error('[ChatPage] Cannot stop: chat controller not found in cache');
+        if (currentChat) {
+          currentChat.stopGeneration();
         }
       }
     });
