@@ -75,9 +75,6 @@ class EphemeralChat extends window.ChatController {
     this.session = session;
     this.messageQueue = [];
     this.taskQueue = [];
-    this.activeStream = null;
-    this.isStreaming = false;
-    this.isProcessing = false;
     
     // 替换所有方法为 ChatController 的实现（像换零件一样）
     this.sendMessage = window.ChatController.prototype.sendMessage;
