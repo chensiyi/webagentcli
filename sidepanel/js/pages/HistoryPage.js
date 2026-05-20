@@ -4,7 +4,7 @@
 
 window.Pages = window.Pages || {};
 
-window.Pages.history = async function(container, serviceCenter) {
+window.Pages.history = function(container, serviceCenter) {
   const { create, clear } = window.DOM;
   
   if (!serviceCenter) {
@@ -13,7 +13,7 @@ window.Pages.history = async function(container, serviceCenter) {
     return;
   }
   
-  const sessionManager = await serviceCenter.getSessionManager();
+  const sessionManager = serviceCenter.getSessionManager();
   
   let searchKeyword = '';
   let searchTimer = null;

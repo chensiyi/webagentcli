@@ -31,12 +31,12 @@ class ChatEventHandler {
     });
     
     // 监听消息更新事件（错误更新等）
-    this.eventBus.on(window.Events.CHAT.MESSAGE_UPDATED, async (data) => {
+    this.eventBus.on(window.Events.CHAT.MESSAGE_UPDATED, (data) => {
       const { messageId, updater } = data;
       console.log('[ChatEventHandler] MESSAGE_UPDATED:', messageId);
       
       // 获取当前会话中的消息并应用 updater
-      const sessionManager = await this.serviceCenter.getSessionManager();
+      const sessionManager = this.serviceCenter.getSessionManager();
       const session = sessionManager.getCurrentSession();
       if (!session) return;
       
@@ -124,12 +124,12 @@ class ChatEventHandler {
   /**
    * 处理消息更新（流式更新或错误更新）
    */
-  async _handleMessageUpdated(data) {
+  _handleMessageUpdated(data) {
     const { messageId, updater } = data;
     console.log('[ChatEventHandler] Message updated:', messageId);
     
     // 获取当前会话中的消息
-    const sessionManager = await this.serviceCenter.getSessionManager();
+    const sessionManager = this.serviceCenter.getSessionManager();
     const session = sessionManager.getCurrentSession();
     if (!session) return;
     
@@ -163,7 +163,7 @@ class ChatEventHandler {
   /**
    * 处理用户发送消息事件（收集上下文并调用 Controller）
    */
-  async _handleUserMessageSent(data) {
+  _handleUserMessageSent(data) {
     const { content } = data;
     
     if (!this.serviceCenter) {
@@ -172,7 +172,7 @@ class ChatEventHandler {
     }
     
     // 获取 SessionManager
-    const sessionManager = await this.serviceCenter.getSessionManager();
+    const sessionManager = this.serviceCenter.getSessionManager();
     
     // 如果没有当前会话，先创建一个
     if (!sessionManager.currentSessionId) {
@@ -221,13 +221,13 @@ class ChatEventHandler {
     console.log('[ChatEventHandler] Buttons updated - sendBtn:', sendBtn?.style.display, 'stopBtn:', stopBtn?.style.display);
     
     // 延迟再次检查，确保没有其他代码重置按钮状态
-    setTimeout(async () => {
+    setTimeout(() => {
       const sendBtn2 = document.getElementById('send-btn');
       const stopBtn2 = document.getElementById('stop-btn');
       console.log('[ChatEventHandler] Buttons check after 100ms - sendBtn:', sendBtn2?.style.display, 'stopBtn:', stopBtn2?.style.display);
       
       // 如果按钮状态不正确，再次修复
-      const sessionManager = await this.serviceCenter.getSessionManager();
+      const sessionManager = this.serviceCenter.getSessionManager();
       if (sessionManager && sessionManager.currentSessionId) {
         const settingsController = this.serviceCenter.getSettingsController();
         const settings = settingsController.getSettings();

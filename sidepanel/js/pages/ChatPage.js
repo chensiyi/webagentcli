@@ -5,7 +5,7 @@
 
 window.Pages = window.Pages || {};
 
-window.Pages.chat = async function(container, serviceCenter) {
+window.Pages.chat = function(container, serviceCenter) {
   const { create, clear } = window.DOM;
   
   if (!serviceCenter) {
@@ -13,7 +13,7 @@ window.Pages.chat = async function(container, serviceCenter) {
     return;
   }
   
-  const sessionController = await serviceCenter.getSessionManager();
+  const sessionController = serviceCenter.getSessionManager();
   
   // 获取当前会话（页面加载时绑定）
   let currentSession = sessionController.getCurrentSession();
@@ -21,7 +21,7 @@ window.Pages.chat = async function(container, serviceCenter) {
   /**
    * 渲染聊天页面
    */
-  async function render() {
+  function render() {
     console.log('[ChatPage] Render called');
     clear(container);
     
@@ -36,7 +36,7 @@ window.Pages.chat = async function(container, serviceCenter) {
     const headerActions = [];
     
     // Reasoning 模式切换按钮（仅当模型支持时显示）
-    const modelSupportsReasoning = await checkModelSupportsReasoning();
+    const modelSupportsReasoning = checkModelSupportsReasoning();
     if (modelSupportsReasoning) {
       const reasoningButtonContainer = create('div', {
         className: 'reasoning-control',
@@ -495,9 +495,9 @@ window.Pages.chat = async function(container, serviceCenter) {
   /**
    * 检查当前模型是否支持 reasoning（同步，从缓存读取）
    */
-  async function checkModelSupportsReasoning() {
+  function checkModelSupportsReasoning() {
     // 从 Settings 获取当前模型
-    const settingsController = await serviceCenter.getSettingsController();
+    const settingsController = serviceCenter.getSettingsController();
     const settings = settingsController.getSettings();
     if (!settings || !settings.apiEndpoint || !settings.model) return false;
     
@@ -524,14 +524,14 @@ window.Pages.chat = async function(container, serviceCenter) {
   /**
    * 切换 Reasoning 模式
    */
-  async function toggleReasoning() {
+  function toggleReasoning() {
     if (!currentSession) return;
     
     // 切换 reasoningEnabled 状态
     currentSession.reasoningEnabled = !currentSession.reasoningEnabled;
     
     // 保存会话
-    const sessionManager = await serviceCenter.getSessionManager();
+    const sessionManager = serviceCenter.getSessionManager();
     sessionManager.updateSession(currentSession.id, (session) => {
       session.reasoningEnabled = currentSession.reasoningEnabled;
     });
@@ -547,7 +547,7 @@ window.Pages.chat = async function(container, serviceCenter) {
    * @param {string} effort - 强度值
    * @param {boolean} shouldRerender - 是否重新渲染整个页面（默认 true）
    */
-  async function updateReasoningEffort(effort, shouldRerender = true) {
+  function updateReasoningEffort(effort, shouldRerender = true) {
     if (!currentSession) return;
     
     // 验证强度值
@@ -561,7 +561,7 @@ window.Pages.chat = async function(container, serviceCenter) {
     currentSession.reasoningEffort = effort;
     
     // 保存会话
-    const sessionManager = await serviceCenter.getSessionManager();
+    const sessionManager = serviceCenter.getSessionManager();
     sessionManager.updateSession(currentSession.id, (session) => {
       session.reasoningEffort = effort;
     });

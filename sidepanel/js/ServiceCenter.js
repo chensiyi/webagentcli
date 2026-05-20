@@ -25,20 +25,33 @@ class ServiceCenter {
   }
 
   /**
-   * 初始化并获取 SessionManager 实例
+   * 初始化 SessionManager（仅在 app.js 初始化时调用一次）
+   * @returns {Promise<void>}
+   */
+  async initializeSessionManager() {
+    if (this.sessionManager) {
+      return; // 已经初始化
+    }
+    
+    if (!window.SessionController || !this.eventBus) {
+      throw new Error('SessionController or EventBus not initialized');
+    }
+    
+    this.sessionManager = new window.SessionController(this.eventBus);
+    
+    // 初始化时自动加载会话数据
+    await this.sessionManager._loadSessionsFromStorage();
+    
+    console.log('[ServiceCenter] SessionController initialized');
+  }
+
+  /**
+   * 获取 SessionManager 实例（同步，要求已初始化）
    * @returns {SessionController} SessionManager 实例
    */
-  async getSessionManager() {
+  getSessionManager() {
     if (!this.sessionManager) {
-      if (!window.SessionController || !this.eventBus) {
-        throw new Error('SessionController or EventBus not initialized');
-      }
-      this.sessionManager = new window.SessionController(this.eventBus);
-      
-      // 初始化时自动加载会话数据
-      await this.sessionManager._loadSessionsFromStorage();
-      
-      console.log('[ServiceCenter] SessionController initialized');
+      throw new Error('SessionManager not initialized. Call initializeSessionManager() first.');
     }
     return this.sessionManager;
   }
@@ -63,13 +76,13 @@ class ServiceCenter {
    * @param {IProviderAPIService} chatService - Provider API 服务实例
    * @returns {ChatController} ChatController 实例
    */
-  async getChatController(chatService) {
+  getChatController(chatService) {
     if (!chatService) {
       throw new Error('ChatService is required');
     }
     
     // 获取当前会话 ID
-    const sessionManager = await this.getSessionManager();
+    const sessionManager = this.getSessionManager();
     const sessionId = sessionManager.currentSessionId;
     
     if (!sessionId) {

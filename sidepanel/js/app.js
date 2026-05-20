@@ -31,8 +31,9 @@
       await settingsController.loadSettings();
       console.log('[App] Settings loaded via ServiceCenter');
       
-      // 2. 通过 ServiceCenter 初始化会话管理器（自动加载数据）
-      const sessionManager = await serviceCenter.getSessionManager();
+      // 2. 初始化 SessionManager（加载会话数据）
+      await serviceCenter.initializeSessionManager();
+      const sessionManager = serviceCenter.getSessionManager();
       
       console.log('[App] SessionManager initialized via ServiceCenter');
       
@@ -48,7 +49,7 @@
           });
           
           // 通过 ServiceCenter 获取 ChatController 并设置服务
-          const chatController = await serviceCenter.getChatController(chatService);
+          const chatController = serviceCenter.getChatController(chatService);
           
           console.log('[App] Chat service initialized via ServiceCenter:', settings.apiStandard);
         } catch (error) {
