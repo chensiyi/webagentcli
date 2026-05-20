@@ -160,7 +160,10 @@ class ServiceCenter {
     // 创建新的 ChatController
     const session = sessionManager.getCurrentSession();
     if (!session) {
-      throw new Error(`Session not found: ${sessionId}`);
+      // Session 不存在（可能已被删除），当作没有当前会话处理
+      console.warn('[ServiceCenter] Session not found:', sessionId, ', falling back to EphemeralChat');
+      sessionManager.currentSessionId = null; // 清理无效的 sessionId
+      return new window.EphemeralChat(sessionManager, providerService, this.eventBus);
     }
     
     const chatController = new window.ChatController(session, providerService, sessionManager, this.eventBus);
