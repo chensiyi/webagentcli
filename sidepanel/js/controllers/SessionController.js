@@ -118,12 +118,13 @@ class SessionController extends window.ISessionManager {
     this.chatCache.delete(sessionId);
     console.log('[SessionController] Cleaned up Chat cache for deleted session:', sessionId);
     
-    // 如果删除的是当前会话，清空指向
+    // 如果删除的是当前会话，切换到新会话
     if (this.currentSessionId === sessionId) {
-      this.currentSessionId = null;
+      // 自动创建一个临时会话
+      const newSession = this.createSession({ title: '新对话', persist: false });
       
       this.eventBus.emit(window.Events.CHAT.CURRENT_SESSION_CHANGED, { 
-        sessionId: null,
+        sessionId: newSession.id,
         previousId: sessionId
       });
     }
