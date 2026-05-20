@@ -12,13 +12,13 @@ window.Pages.scripts = function(container, serviceCenter) {
     return;
   }
   
-  // 创建 ScriptsEventHandler（如果尚未创建）
-  let eventHandler;
-  if (window.ScriptsEventHandler) {
-    if (!window.scriptsEventHandler) {
-      window.scriptsEventHandler = new window.ScriptsEventHandler(serviceCenter);
-    }
-    eventHandler = window.scriptsEventHandler;
+  // ScriptsEventHandler 已在 app.js 中创建，通过 window.scriptsEventHandler 访问
+  const eventHandler = window.scriptsEventHandler;
+  
+  if (!eventHandler) {
+    console.error('[ScriptsPage] ScriptsEventHandler not available');
+    container.innerHTML = '<div class="empty-state">事件处理器未初始化，请刷新页面重试</div>';
+    return;
   }
   
   let scripts = [];

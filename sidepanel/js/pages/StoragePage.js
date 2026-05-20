@@ -12,14 +12,13 @@ window.Pages.storage = function(container, serviceCenter) {
     return;
   }
   
-  // 创建 StorageEventHandler（如果尚未创建）
-  let eventHandler;
-  if (window.StorageEventHandler) {
-    // 检查是否已经创建了实例
-    if (!window.storageEventHandler) {
-      window.storageEventHandler = new window.StorageEventHandler(serviceCenter);
-    }
-    eventHandler = window.storageEventHandler;
+  // StorageEventHandler 已在 app.js 中创建，通过 window.storageEventHandler 访问
+  const eventHandler = window.storageEventHandler;
+  
+  if (!eventHandler) {
+    console.error('[StoragePage] StorageEventHandler not available');
+    container.innerHTML = '<div class="empty-state">事件处理器未初始化，请刷新页面重试</div>';
+    return;
   }
   
   let storageItems = [];
