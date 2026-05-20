@@ -86,8 +86,8 @@ class SessionController extends window.ISessionManager {
     const previousId = this.currentSessionId;
     this.currentSessionId = sessionId;
     
-    // 切换会话时，重新评估并同步会话的环境配置
-    this._syncSessionEnvironment(session);
+    // TODO: 切换会话时，重新评估并同步会话的环境配置
+    // this._syncSessionEnvironment(session);
     
     if (previousId !== sessionId) {
       this.eventBus.emit(window.Events.CHAT.CURRENT_SESSION_CHANGED, { 
@@ -386,10 +386,11 @@ class SessionController extends window.ISessionManager {
   /**
    * 同步会话环境配置
    * @param {Session} session 
+   * @param {Object} [settings] - 可选，设置对象
    */
-  _syncSessionEnvironment(session) {
-    const settings = window.SettingsController ? window.SettingsController.getSettings() : null;
-    if (!settings || !settings.model) return;
+  _syncSessionEnvironment(session, settings = null) {
+    // 如果没有提供 settings，无法同步
+    if (!settings || !settings.model || !settings.apiEndpoint) return;
 
     const cacheKey = `models:${settings.apiEndpoint}`;
     const cachedModels = window.StorageModel && window.StorageModel.getCacheSync ? 
