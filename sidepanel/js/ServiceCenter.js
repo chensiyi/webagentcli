@@ -14,6 +14,8 @@ class ServiceCenter {
     // 服务实例缓存
     this.sessionManager = null;
     this.settingsController = null;
+    this.storageController = null;
+    this.scriptsController = null;
     this.chatControllers = new Map(); // sessionId -> ChatController
   }
 
@@ -68,6 +70,36 @@ class ServiceCenter {
       console.log('[ServiceCenter] SettingsController initialized');
     }
     return this.settingsController;
+  }
+
+  /**
+   * 获取 StorageController 实例
+   * @returns {StorageController} StorageController 实例
+   */
+  getStorageController() {
+    if (!this.storageController) {
+      if (!window.StorageController) {
+        throw new Error('StorageController not initialized');
+      }
+      this.storageController = new window.StorageController();
+      console.log('[ServiceCenter] StorageController initialized');
+    }
+    return this.storageController;
+  }
+
+  /**
+   * 获取 ScriptsController 实例
+   * @returns {ScriptsController} ScriptsController 实例
+   */
+  getScriptsController() {
+    if (!this.scriptsController) {
+      if (!window.ScriptsController) {
+        throw new Error('ScriptsController not initialized');
+      }
+      this.scriptsController = new window.ScriptsController();
+      console.log('[ServiceCenter] ScriptsController initialized');
+    }
+    return this.scriptsController;
   }
 
   /**

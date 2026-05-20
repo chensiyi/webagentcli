@@ -9,12 +9,7 @@ class StorageEventHandler {
     this.eventBus = serviceCenter.getEventBus();
     
     // 通过 ServiceCenter 获取 StorageController
-    if (serviceCenter && serviceCenter.getStorageController) {
-      this.storageController = serviceCenter.getStorageController();
-    } else {
-      // 降级：直接使用全局 StorageController
-      this.storageController = window.StorageController;
-    }
+    this.storageController = serviceCenter.getStorageController();
     
     // 注册事件监听
     this._registerEventListeners();

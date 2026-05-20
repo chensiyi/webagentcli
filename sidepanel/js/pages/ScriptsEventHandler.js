@@ -9,12 +9,7 @@ class ScriptsEventHandler {
     this.eventBus = serviceCenter.getEventBus();
     
     // 通过 ServiceCenter 获取 ScriptsController
-    if (serviceCenter && serviceCenter.getScriptsController) {
-      this.scriptsController = serviceCenter.getScriptsController();
-    } else {
-      // 降级：直接使用全局 ScriptsController
-      this.scriptsController = window.ScriptsController;
-    }
+    this.scriptsController = serviceCenter.getScriptsController();
     
     // 注册事件监听
     this._registerEventListeners();
