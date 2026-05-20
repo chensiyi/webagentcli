@@ -76,4 +76,10 @@ class ScriptsController {
   }
 }
 
-window.ScriptsController = new ScriptsController();
+// 导出类（由 ServiceCenter 创建实例）
+if (typeof window !== 'undefined') {
+  window.ScriptsController = ScriptsController;
+}
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = ScriptsController;
+}

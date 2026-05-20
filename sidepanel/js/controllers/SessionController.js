@@ -458,9 +458,9 @@ class SessionController extends window.ISessionManager {
   }
 }
 
-// 导出单例
+// 导出类（由 ServiceCenter 创建实例）
 if (typeof window !== 'undefined') {
-  window.sessionManagerInstance = new SessionController(window.EventBus);
+  window.SessionController = SessionController;
 }
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = SessionController;

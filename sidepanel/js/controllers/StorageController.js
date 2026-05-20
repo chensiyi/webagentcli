@@ -76,4 +76,10 @@ class StorageController {
   }
 }
 
-window.StorageController = new StorageController();
+// 导出类（由 ServiceCenter 创建实例）
+if (typeof window !== 'undefined') {
+  window.StorageController = StorageController;
+}
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = StorageController;
+}
