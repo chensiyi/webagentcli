@@ -187,9 +187,21 @@ window.Pages.chat = function(container, serviceCenter) {
         // 创建临时会话（不立即持久化）
         const newSession = sessionController.createSession({ persist: false });
         
-        // 更新 currentSession 和 currentChat
+        // 更新 currentSession
         currentSession = newSession;
-        currentChat = null; // 新会话还没有 ChatController，等待首次发送消息时创建
+        
+        // 获取或创建新的 ChatController（需要 chatService）
+        const settings = settingsController.getSettings();
+        if (settings && settings.apiStandard) {
+          const chatService = serviceCenter.createChatService(settings.apiStandard, {
+            endpoint: settings.apiEndpoint,
+            apiKey: settings.apiKey,
+            defaultModel: settings.model || 'default'
+          });
+          currentChat = sessionController.getOrCreateChat(newSession.id, chatService);
+        } else {
+          currentChat = null;
+        }
         
         render();
       }
