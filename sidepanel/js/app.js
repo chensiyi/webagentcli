@@ -19,51 +19,43 @@
       return;
     }
     
+    // 创建 ServiceCenter 实例（管理所有服务）
+    const serviceCenter = new window.ServiceCenter(window.EventBus);
+    window.serviceCenterInstance = serviceCenter;
+    
     const root = document.getElementById('root');
     
     try {
-      // 1. 创建 SettingsController 实例并加载设置
-      if (window.SettingsController) {
-        window.settingsControllerInstance = new window.SettingsController(window.EventBus);
-        await window.settingsControllerInstance.loadSettings();
-        console.log('[App] Settings loaded');
-      }
+      // 1. 通过 ServiceCenter 初始化并加载设置
+      const settingsController = serviceCenter.getSettingsController();
+      await settingsController.loadSettings();
+      console.log('[App] Settings loaded via ServiceCenter');
       
       // 2. 通过 ServiceCenter 初始化会话管理器并同步加载数据
-      if (window.ServiceCenter) {
-        try {
-          window.sessionManagerInstance = window.ServiceCenter.getSessionManager();
-          
-          // 关键：显式等待会话从存储加载完成
-          await window.sessionManagerInstance.loadSessionsFromStorage();
-          
-          if (window.SessionController && window.SessionController.init) {
-            window.SessionController.init();
-          }
-          
-          console.log('[App] SessionManager initialized via ServiceCenter');
-        } catch (error) {
-          console.error('[App] Failed to initialize SessionManager:', error);
-        }
-      }
+      const sessionManager = serviceCenter.getSessionManager();
+      
+      // 关键：显式等待会话从存储加载完成
+      await sessionManager.loadSessionsFromStorage();
+      
+      console.log('[App] SessionManager initialized via ServiceCenter');
       
       // 3. 通过 ServiceCenter 初始化聊天服务
-      if (window.ChatController && window.settingsControllerInstance && window.ServiceCenter) {
-        const settings = window.settingsControllerInstance.getSettings();
-        if (settings && settings.apiStandard) {
-          try {
-            const chatService = window.ServiceCenter.createChatService(settings.apiStandard, {
-              endpoint: settings.apiEndpoint,
-              apiKey: settings.apiKey,
-              defaultModel: settings.model || 'default'
-            });
-            
-            window.ChatController.setService(chatService);
-            window.ChatService = chatService;
-            console.log('[App] Chat service initialized via ServiceCenter:', settings.apiStandard);
-          } catch (error) {
-            console.error('[App] Failed to initialize chat service:', error);
-          }
+      const settings = settingsController.getSettings();
+      
+      if (settings && settings.apiStandard) {
+        try {
+          const chatService = serviceCenter.createChatService(settings.apiStandard, {
+            endpoint: settings.apiEndpoint,
+            apiKey: settings.apiKey,
+            defaultModel: settings.model || 'default'
+          });
+          
+          // 通过 ServiceCenter 获取 ChatController 并设置服务
+          const chatController = serviceCenter.getChatController(chatService);
+          
+          console.log('[App] Chat service initialized via ServiceCenter:', settings.apiStandard);
+        } catch (error) {
+          console.error('[App] Failed to initialize chat service:', error);
         }
       }
       
