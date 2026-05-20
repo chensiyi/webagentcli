@@ -13,16 +13,15 @@ window.Pages.chat = function(container, serviceCenter) {
     return;
   }
   
-  // 获取当前 ChatController
-  const chatService = serviceCenter.getCurrentChatService();
-  let currentChat = serviceCenter.getChatController(chatService);
+  // 获取当前 Chat 实例（IChat 接口）
+  let currentChat = serviceCenter.getCurrentChat();
   
   console.log('[ChatPage] Initialized, current chat:', currentChat?.id || 'none');
   
   // 监听会话切换事件，更新 currentChat
   serviceCenter.getEventBus().on(window.Events.CHAT.CURRENT_SESSION_CHANGED, () => {
     console.log('[ChatPage] Session changed, updating currentChat');
-    currentChat = serviceCenter.getChatController(chatService);
+    currentChat = serviceCenter.getCurrentChat();
     render();
   });
   

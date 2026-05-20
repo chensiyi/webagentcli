@@ -16,9 +16,8 @@ class ServiceCenter {
     this.settingsController = null;
     this.storageController = null;
     this.scriptsController = null;
-    this.chatControllers = new Map(); // sessionId -> ChatController
-    this.chatServices = new Map(); // cacheKey -> ChatService
     this.currentChatService = null; // 当前活跃的 ChatService
+    this.chatControllers = new Map(); // sessionId -> ChatController
   }
 
   /**
@@ -133,14 +132,12 @@ class ServiceCenter {
   }
 
   /**
-   * 获取或创建 ChatController 实例
-   * @param {IProviderAPIService} chatService - Provider API 服务实例
-   * @returns {ChatController} ChatController 实例
+   * 获取当前 Chat 实例（IChat 接口）
+   * @returns {IChat} Chat 实例
    */
-  getChatController(chatService) {
-    if (!chatService) {
-      throw new Error('ChatService is required');
-    }
+  getCurrentChat() {
+    // 获取当前 chatService
+    const chatService = this.getCurrentChatService();
     
     // 获取当前会话 ID
     const sessionManager = this.getSessionManager();
@@ -174,18 +171,12 @@ class ServiceCenter {
   }
 
   /**
-   * 创建聊天服务实例（带缓存）
+   * 创建聊天服务实例
    * @param {string} providerId - 服务提供商标识 ('openai', 'openrouter', 'lm-studio')
    * @param {Object} config - 服务配置
    * @returns {IProviderAPIService} Provider API 服务实例
    */
   createChatService(providerId, config) {
-    // 检查缓存：如果配置相同，返回缓存的实例
-    const cacheKey = `${providerId}:${config.endpoint}:${config.defaultModel}`;
-    if (this.chatServices.has(cacheKey)) {
-      return this.chatServices.get(cacheKey);
-    }
-    
     // 根据 providerId 选择对应的 Service 类
     let ServiceClass = null;
     switch (providerId) {
@@ -210,10 +201,7 @@ class ServiceCenter {
     const service = new ServiceClass();
     service.configure(config);
     
-    // 缓存服务实例
-    this.chatServices.set(cacheKey, service);
-    
-    console.log('[ServiceCenter] Chat service created and cached for:', providerId);
+    console.log('[ServiceCenter] Chat service created for:', providerId);
     return service;
   }
 }
