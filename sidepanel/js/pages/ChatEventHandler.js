@@ -36,7 +36,8 @@ class ChatEventHandler {
       console.log('[ChatEventHandler] MESSAGE_UPDATED:', messageId);
       
       // 获取当前会话中的消息并应用 updater
-      const session = window.SessionController ? window.SessionController.getCurrentSession() : null;
+      const sessionManager = this.serviceCenter.getSessionManager();
+      const session = sessionManager.getCurrentSession();
       if (!session) return;
       
       const message = session.messages.find(m => m.id === messageId);
@@ -128,7 +129,8 @@ class ChatEventHandler {
     console.log('[ChatEventHandler] Message updated:', messageId);
     
     // 获取当前会话中的消息
-    const session = window.SessionController ? window.SessionController.getCurrentSession() : null;
+    const sessionManager = this.serviceCenter.getSessionManager();
+    const session = sessionManager.getCurrentSession();
     if (!session) return;
     
     const message = session.messages.find(m => m.id === messageId);
@@ -161,7 +163,7 @@ class ChatEventHandler {
   /**
    * 处理用户发送消息事件（收集上下文并调用 Controller）
    */
-  _handleUserMessageSent(data) {
+  async _handleUserMessageSent(data) {
     const { content } = data;
     
     if (!this.serviceCenter) {
@@ -170,7 +172,7 @@ class ChatEventHandler {
     }
     
     // 获取 SessionManager
-    const sessionManager = this.serviceCenter.getSessionManager();
+    const sessionManager = await this.serviceCenter.getSessionManager();
     
     // 如果没有当前会话，先创建一个
     if (!sessionManager.currentSessionId) {
@@ -219,20 +221,30 @@ class ChatEventHandler {
     console.log('[ChatEventHandler] Buttons updated - sendBtn:', sendBtn?.style.display, 'stopBtn:', stopBtn?.style.display);
     
     // 延迟再次检查，确保没有其他代码重置按钮状态
-    setTimeout(() => {
+    setTimeout(async () => {
       const sendBtn2 = document.getElementById('send-btn');
       const stopBtn2 = document.getElementById('stop-btn');
       console.log('[ChatEventHandler] Buttons check after 100ms - sendBtn:', sendBtn2?.style.display, 'stopBtn:', stopBtn2?.style.display);
       
       // 如果按钮状态不正确，再次修复
-      const sessionManager = window.sessionManagerInstance;
-      const chatService = window.ChatService;
-      if (sessionManager && chatService && sessionManager.currentSessionId) {
-        const chat = sessionManager.getOrCreateChat(sessionManager.currentSessionId, chatService);
-        if (chat.hasActiveActivities()) {
-          if (sendBtn2) sendBtn2.style.display = 'none';
-          if (stopBtn2) stopBtn2.style.display = 'inline-block';
-          console.log('[ChatEventHandler] Buttons restored after delay');
+      const sessionManager = await this.serviceCenter.getSessionManager();
+      if (sessionManager && sessionManager.currentSessionId) {
+        const settingsController = this.serviceCenter.getSettingsController();
+        const settings = settingsController.getSettings();
+        
+        if (settings && settings.apiStandard) {
+          const chatService = this.serviceCenter.createChatService(settings.apiStandard, {
+            endpoint: settings.apiEndpoint,
+            apiKey: settings.apiKey,
+            defaultModel: settings.model || 'default'
+          });
+          
+          const chat = sessionManager.getOrCreateChat(sessionManager.currentSessionId, chatService);
+          if (chat.hasActiveActivities()) {
+            if (sendBtn2) sendBtn2.style.display = 'none';
+            if (stopBtn2) stopBtn2.style.display = 'inline-block';
+            console.log('[ChatEventHandler] Buttons restored after delay');
+          }
         }
       }
     }, 100);
