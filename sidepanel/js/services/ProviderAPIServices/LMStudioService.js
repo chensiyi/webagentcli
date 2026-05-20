@@ -105,6 +105,12 @@ class LMStudioService {
       baseBody.reasoning = params.reasoningEffort;
     }
     
+    console.log('[LMStudioService] Request body reasoning:', {
+      reasoningEnabled: params.reasoningEnabled,
+      reasoningEffort: params.reasoningEffort,
+      reasoning: baseBody.reasoning
+    });
+    
     return baseBody;
   }
 
