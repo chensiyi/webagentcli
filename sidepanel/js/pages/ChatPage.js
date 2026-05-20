@@ -5,7 +5,7 @@
 
 window.Pages = window.Pages || {};
 
-window.Pages.chat = function(container, serviceCenter) {
+window.Pages.chat = async function(container, serviceCenter) {
   const { create, clear } = window.DOM;
   
   if (!serviceCenter) {
@@ -13,7 +13,7 @@ window.Pages.chat = function(container, serviceCenter) {
     return;
   }
   
-  const sessionController = serviceCenter.getSessionManager();
+  const sessionController = await serviceCenter.getSessionManager();
   
   // 获取当前会话（页面加载时绑定）
   let currentSession = sessionController.getCurrentSession();

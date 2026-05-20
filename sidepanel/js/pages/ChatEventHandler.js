@@ -31,12 +31,12 @@ class ChatEventHandler {
     });
     
     // 监听消息更新事件（错误更新等）
-    this.eventBus.on(window.Events.CHAT.MESSAGE_UPDATED, (data) => {
+    this.eventBus.on(window.Events.CHAT.MESSAGE_UPDATED, async (data) => {
       const { messageId, updater } = data;
       console.log('[ChatEventHandler] MESSAGE_UPDATED:', messageId);
       
       // 获取当前会话中的消息并应用 updater
-      const sessionManager = this.serviceCenter.getSessionManager();
+      const sessionManager = await this.serviceCenter.getSessionManager();
       const session = sessionManager.getCurrentSession();
       if (!session) return;
       
@@ -124,12 +124,12 @@ class ChatEventHandler {
   /**
    * 处理消息更新（流式更新或错误更新）
    */
-  _handleMessageUpdated(data) {
+  async _handleMessageUpdated(data) {
     const { messageId, updater } = data;
     console.log('[ChatEventHandler] Message updated:', messageId);
     
     // 获取当前会话中的消息
-    const sessionManager = this.serviceCenter.getSessionManager();
+    const sessionManager = await this.serviceCenter.getSessionManager();
     const session = sessionManager.getCurrentSession();
     if (!session) return;
     
