@@ -391,7 +391,6 @@ window.Pages.chat = function(container, serviceCenter) {
   function createInputArea() {
     console.log('[ChatPage] createInputArea called');
     let inputValue = '';
-    const chatController = window.ChatController;
       
     const textarea = create('textarea', {
       className: 'textarea',
@@ -448,7 +447,23 @@ window.Pages.chat = function(container, serviceCenter) {
         flexShrink: '0'  // 防止按钮被压缩
       },
       onClick: () => {
-        chatController.stopGeneration();
+        // 通过 serviceCenter 获取 ChatController
+        const settingsController = serviceCenter.getSettingsController();
+        const settings = settingsController.getSettings();
+        
+        if (!settings || !settings.apiStandard) {
+          console.error('[ChatPage] Cannot stop: chat service not configured');
+          return;
+        }
+        
+        const chatService = serviceCenter.createChatService(settings.apiStandard, {
+          endpoint: settings.apiEndpoint,
+          apiKey: settings.apiKey,
+          defaultModel: settings.model || 'default'
+        });
+        
+        const chat = serviceCenter.getChatController(chatService);
+        chat.stopGeneration();
       }
     });
     

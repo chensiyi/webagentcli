@@ -203,7 +203,8 @@ class ChatController extends window.IChat {
    * @returns {boolean}
    */
   deleteMessage(messageId) {
-    const deleted = this.session.deleteMessage(messageId);
+    // Session 使用 removeMessage 方法
+    const deleted = this.session.removeMessage(messageId);
     if (deleted) {
       this.eventBus.emit(window.Events.CHAT.MESSAGE_DELETED, { messageId });
     }
