@@ -131,8 +131,8 @@ class ISessionManager {
       throw new Error(`Session not found: ${sessionId}`);
     }
     
-    // 创建新的 Chat 实例
-    const chat = new window.Chat(session, chatService, this, this.eventBus);
+    // 创建新的 ChatController 实例（IChat 的实现）
+    const chat = new window.ChatController(session, chatService, this, this.eventBus);
     this.chatCache.set(sessionId, chat);
     
     console.log('[SessionManager] Created Chat for session:', sessionId);

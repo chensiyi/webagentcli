@@ -187,12 +187,17 @@ window.Pages.chat = function(container) {
     scrollToBottom(messageList);
     
     // 渲染后检查是否有活动任务，恢复按钮状态（解决切换页面后按钮丢失的问题）
-    if (window.ChatController && window.ChatController.hasActiveActivities()) {
-      const sendBtn = document.getElementById('send-btn');
-      const stopBtn = document.getElementById('stop-btn');
-      if (sendBtn) sendBtn.style.display = 'none';
-      if (stopBtn) stopBtn.style.display = 'inline-block';
-      console.log('[ChatPage] Buttons restored after render - hasActive:', true);
+    const sessionManager = window.sessionManagerInstance;
+    const chatService = window.ChatService;
+    if (sessionManager && chatService && sessionManager.currentSessionId) {
+      const chat = sessionManager.getOrCreateChat(sessionManager.currentSessionId, chatService);
+      if (chat.hasActiveActivities()) {
+        const sendBtn = document.getElementById('send-btn');
+        const stopBtn = document.getElementById('stop-btn');
+        if (sendBtn) sendBtn.style.display = 'none';
+        if (stopBtn) stopBtn.style.display = 'inline-block';
+        console.log('[ChatPage] Buttons restored after render - hasActive:', true);
+      }
     }
   }
   
@@ -319,10 +324,13 @@ window.Pages.chat = function(container) {
       onMouseLeave: (e) => e.target.style.opacity = '0',
       onClick: (e) => {
         e.stopPropagation();
-        if (window.ChatController && typeof window.ChatController.deleteMessage === 'function') {
-          window.ChatController.deleteMessage(msg.id);
+        const sessionManager = window.sessionManagerInstance;
+        const chatService = window.ChatService;
+        if (sessionManager && chatService && sessionManager.currentSessionId) {
+          const chat = sessionManager.getOrCreateChat(sessionManager.currentSessionId, chatService);
+          chat.deleteMessage(msg.id);
         } else {
-          console.error('[ChatPage] deleteMessage not found on ChatController');
+          console.error('[ChatPage] Cannot delete message: no active session');
         }
       }
     });

@@ -178,17 +178,15 @@ class ChatEventHandler {
       sessionManager.createSession({ title: '新对话', persist: false });
     }
     
-    // 获取或创建 Chat 实例
+    // 获取或创建 ChatController 实例
     const chat = sessionManager.getOrCreateChat(sessionManager.currentSessionId, chatService);
     
     // 调用 ChatController 执行业务逻辑
-    if (window.ChatController) {
-      window.ChatController.sendMessage(chat, {
-        content
-      }).catch(error => {
-        console.error('[ChatEventHandler] Send message failed:', error);
-      });
-    }
+    chat.sendMessage({
+      content
+    }).catch(error => {
+      console.error('[ChatEventHandler] Send message failed:', error);
+    });
   }
   
   /**
@@ -211,10 +209,15 @@ class ChatEventHandler {
       console.log('[ChatEventHandler] Buttons check after 100ms - sendBtn:', sendBtn2?.style.display, 'stopBtn:', stopBtn2?.style.display);
       
       // 如果按钮状态不正确，再次修复
-      if (window.ChatController && window.ChatController.hasActiveActivities()) {
-        if (sendBtn2) sendBtn2.style.display = 'none';
-        if (stopBtn2) stopBtn2.style.display = 'inline-block';
-        console.log('[ChatEventHandler] Buttons restored after delay');
+      const sessionManager = window.sessionManagerInstance;
+      const chatService = window.ChatService;
+      if (sessionManager && chatService && sessionManager.currentSessionId) {
+        const chat = sessionManager.getOrCreateChat(sessionManager.currentSessionId, chatService);
+        if (chat.hasActiveActivities()) {
+          if (sendBtn2) sendBtn2.style.display = 'none';
+          if (stopBtn2) stopBtn2.style.display = 'inline-block';
+          console.log('[ChatEventHandler] Buttons restored after delay');
+        }
       }
     }, 100);
   }
