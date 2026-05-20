@@ -354,7 +354,18 @@ class SessionController extends window.ISessionManager {
       return false;
     }
     
-    const result = session.streamChunkMessage(messageId, chunk);
+    // 使用 updateMessage 来更新消息
+    const result = session.updateMessage(messageId, (message) => {
+      // 追加内容
+      if (chunk.content) {
+        message.content = (message.content || '') + chunk.content;
+      }
+      // 追加推理内容
+      if (chunk.reasoning_content) {
+        message.reasoning_content = (message.reasoning_content || '') + chunk.reasoning_content;
+      }
+    });
+    
     if (result) {
       this._saveSessions();
     }
