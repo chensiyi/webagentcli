@@ -12,16 +12,28 @@
  * - 首次使用应用
  */
 
-class EphemeralChat {
+class EphemeralChat extends window.ChatController {
   /**
    * @param {ISessionManager} sessionManager - SessionManager 实例
    * @param {IProviderAPIService} chatService - 聊天服务实例
    * @param {EventBus} [eventBus] - 事件总线
    */
   constructor(sessionManager, chatService, eventBus = null) {
-    this.sessionManager = sessionManager;
-    this.chatService = chatService;
-    this.eventBus = eventBus || window.EventBus;
+    // 创建一个临时的空 Session 对象用于继承
+    const tempSession = {
+      id: 'ephemeral',
+      title: '临时会话',
+      messages: [],
+      metadata: {},
+      reasoningEnabled: false,
+      reasoningEffort: 'medium',
+      addMessage: () => {},
+      updateMessage: () => {},
+      deleteMessage: () => false,
+      clearMessages: () => {}
+    };
+    
+    super(tempSession, chatService, sessionManager, eventBus);
     
     // 标记为临时实例
     this.isEphemeral = true;
@@ -81,10 +93,6 @@ class EphemeralChat {
   
   setService() {
     console.warn('[EphemeralChat] Cannot set service on ephemeral chat');
-  }
-  
-  getService() {
-    return this.chatService;
   }
 }
 
