@@ -41,6 +41,15 @@ window.Pages.chat = function(container, serviceCenter) {
    */
   function render() {
     console.log('[ChatPage] Render called');
+    
+    // 同步 currentSession 和 currentChat
+    currentSession = sessionController.getCurrentSession();
+    if (currentSession && sessionController.currentSessionId) {
+      currentChat = sessionController.chatCache.get(sessionController.currentSessionId);
+    } else {
+      currentChat = null;
+    }
+    
     clear(container);
     
     // 使用已保存的 currentSession 引用，不重新获取
@@ -185,24 +194,7 @@ window.Pages.chat = function(container, serviceCenter) {
       text: '+ 新对话',
       onClick: () => {
         // 创建临时会话（不立即持久化）
-        const newSession = sessionController.createSession({ persist: false });
-        
-        // 更新 currentSession
-        currentSession = newSession;
-        
-        // 获取或创建新的 ChatController（需要 chatService）
-        const settings = settingsController.getSettings();
-        if (settings && settings.apiStandard) {
-          const chatService = serviceCenter.createChatService(settings.apiStandard, {
-            endpoint: settings.apiEndpoint,
-            apiKey: settings.apiKey,
-            defaultModel: settings.model || 'default'
-          });
-          currentChat = sessionController.getOrCreateChat(newSession.id, chatService);
-        } else {
-          currentChat = null;
-        }
-        
+        sessionController.createSession({ persist: false });
         render();
       }
     }));
@@ -374,7 +366,7 @@ window.Pages.chat = function(container, serviceCenter) {
           return;
         }
         
-        const deleted = sessionController.deleteMessage(msg.id);
+        const deleted = currentChat.deleteMessage(msg.id);
         
         if (deleted) {
           window.Toast.success('消息已删除');
