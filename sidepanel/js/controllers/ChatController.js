@@ -3,13 +3,13 @@
  * 
  * 职责：
  * 1. 作为 UI 层和 Chat 实例之间的适配层
- * 2. 从 SessionManager 获取当前 Chat 实例
- * 3. 委托所有操作给 Chat 实例
+ * 2. 接收 Chat 实例并委托所有操作
+ * 3. 不持有状态，不管理会话生命周期
  * 
  * 设计原则：
- * - 不持有状态，所有状态在 Chat 实例中
- * - 不直接调用 Service，通过 Chat 实例
- * - 支持动态切换会话和服务
+ * - 无状态：所有状态在 Chat 实例中
+ * - 被动接收：由调用方提供 Chat 对象
+ * - 单一职责：只负责转发调用，不管理资源
  */
 
 class ChatController {
@@ -19,114 +19,76 @@ class ChatController {
   }
   
   /**
-   * 获取当前 Chat 实例
-   * @returns {Chat|EphemeralChat} Chat 实例（如果没有会话则返回临时 Chat）
-   */
-  _getCurrentChat() {
-    const sessionManager = window.sessionManagerInstance;
-    const chatService = window.ChatService;
-    
-    if (!sessionManager) {
-      throw new Error('SessionManager not available');
-    }
-    
-    if (!chatService) {
-      throw new Error('ChatService not configured');
-    }
-    
-    return sessionManager.getCurrentChat(chatService);
-  }
-  
-  /**
    * 发送消息
+   * @param {Chat} chat - Chat 实例（由调用方提供）
    * @param {Object} params - 发送参数
    * @param {string} params.content - 消息内容
    * @param {boolean} [params.reasoningEnabled] - 是否启用 reasoning
    * @param {string} [params.reasoningEffort] - reasoning 强度
    * @returns {Promise<Object>} 结果
    */
-  async sendMessage(params) {
-    const sessionManager = window.sessionManagerInstance;
-    const chatService = window.ChatService;
-    
-    if (!sessionManager) {
-      throw new Error('SessionManager not available');
+  async sendMessage(chat, params) {
+    if (!chat) {
+      throw new Error('Chat instance is required');
     }
-    
-    if (!chatService) {
-      throw new Error('ChatService not configured');
-    }
-    
-    // 如果没有当前会话，先创建一个
-    if (!sessionManager.currentSessionId) {
-      console.log('[ChatController] No current session, creating one...');
-      sessionManager.createSession({ title: '新对话', persist: false });
-    }
-    
-    // 获取或创建真实的 Chat 实例
-    const chat = sessionManager.getOrCreateChat(sessionManager.currentSessionId, chatService);
     return await chat.sendMessage(params);
   }
   
   /**
    * 停止生成
+   * @param {Chat} chat - Chat 实例
    */
-  stopGeneration() {
-    const chat = this._getCurrentChat();
+  stopGeneration(chat) {
     if (!chat) {
-      console.warn('[ChatController] No active chat to stop');
+      console.warn('[ChatController] No chat to stop');
       return;
     }
-    
     chat.stopGeneration();
   }
   
   /**
    * 清空当前会话
+   * @param {Chat} chat - Chat 实例
    */
-  clearSession() {
-    const chat = this._getCurrentChat();
+  clearSession(chat) {
     if (!chat) {
-      console.warn('[ChatController] No active chat to clear');
+      console.warn('[ChatController] No chat to clear');
       return;
     }
-    
     chat.clearMessages();
   }
   
   /**
    * 删除指定消息
+   * @param {Chat} chat - Chat 实例
    * @param {string} messageId - 消息 ID
    * @returns {boolean}
    */
-  deleteMessage(messageId) {
-    const chat = this._getCurrentChat();
+  deleteMessage(chat, messageId) {
     if (!chat) {
       return false;
     }
-    
     return chat.deleteMessage(messageId);
   }
   
   /**
    * 检查是否有活跃活动
+   * @param {Chat} chat - Chat 实例
    * @returns {boolean}
    */
-  hasActiveActivities() {
-    const chat = this._getCurrentChat();
+  hasActiveActivities(chat) {
     if (!chat) {
       return false;
     }
-    
     return chat.hasActiveActivities();
   }
   
   /**
    * 获取队列状态
+   * @param {Chat} chat - Chat 实例
    * @returns {Object}
    */
-  getQueueStatus() {
-    const chat = this._getCurrentChat();
+  getQueueStatus(chat) {
     if (!chat) {
       return {
         isStreaming: false,
@@ -135,25 +97,7 @@ class ChatController {
         hasActive: false
       };
     }
-    
     return chat.getQueueStatus();
-  }
-  
-  /**
-   * 设置聊天服务（触发 Chat 实例更新）
-   * @param {IChatService} service - 新的聊天服务
-   */
-  setService(service) {
-    // 清除 Chat 缓存，下次获取时会创建新实例
-    const sessionManager = window.sessionManagerInstance;
-    if (sessionManager) {
-      sessionManager.clearChatCache();
-    }
-    
-    // 更新全局服务引用
-    window.ChatService = service;
-    
-    console.log('[ChatController] Service updated, Chat cache cleared');
   }
 }
 

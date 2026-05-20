@@ -163,9 +163,27 @@ class ChatEventHandler {
   _handleUserMessageSent(data) {
     const { content } = data;
     
+    // 获取 SessionManager 和 ChatService
+    const sessionManager = window.sessionManagerInstance;
+    const chatService = window.ChatService;
+    
+    if (!sessionManager || !chatService) {
+      console.error('[ChatEventHandler] SessionManager or ChatService not available');
+      return;
+    }
+    
+    // 如果没有当前会话，先创建一个
+    if (!sessionManager.currentSessionId) {
+      console.log('[ChatEventHandler] No current session, creating one...');
+      sessionManager.createSession({ title: '新对话', persist: false });
+    }
+    
+    // 获取或创建 Chat 实例
+    const chat = sessionManager.getOrCreateChat(sessionManager.currentSessionId, chatService);
+    
     // 调用 ChatController 执行业务逻辑
     if (window.ChatController) {
-      window.ChatController.sendMessage({
+      window.ChatController.sendMessage(chat, {
         content
       }).catch(error => {
         console.error('[ChatEventHandler] Send message failed:', error);
