@@ -17,6 +17,7 @@ class ServiceCenter {
     this.storageController = null;
     this.scriptsController = null;
     this.currentProviderService = null; // 当前活跃的 Provider API 服务
+    this.chatControllers = new Map(); // sessionId -> ChatController (IChat)
   }
 
   /**
@@ -128,6 +129,45 @@ class ServiceCenter {
     });
     
     return this.currentProviderService;
+  }
+
+  /**
+   * 获取当前 Chat 实例（IChat 接口）
+   * @returns {IChat} Chat 实例
+   */
+  getCurrentChat() {
+    // 获取当前 Provider Service
+    const providerService = this.getCurrentProviderService();
+    
+    // 获取当前会话 ID
+    const sessionManager = this.getSessionManager();
+    const sessionId = sessionManager.currentSessionId;
+    
+    if (!sessionId) {
+      // 如果没有会话，返回 EphemeralChat
+      return new window.EphemeralChat(sessionManager, providerService, this.eventBus);
+    }
+    
+    // 检查缓存
+    if (this.chatControllers.has(sessionId)) {
+      const cachedChat = this.chatControllers.get(sessionId);
+      if (cachedChat.getService() !== providerService) {
+        cachedChat.setService(providerService);
+      }
+      return cachedChat;
+    }
+    
+    // 创建新的 ChatController
+    const session = sessionManager.getCurrentSession();
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+    
+    const chatController = new window.ChatController(session, providerService, sessionManager, this.eventBus);
+    this.chatControllers.set(sessionId, chatController);
+    
+    console.log('[ServiceCenter] Created ChatController for session:', sessionId);
+    return chatController;
   }
 
   /**
