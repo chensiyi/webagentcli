@@ -4,8 +4,9 @@
  */
 
 class ChatEventHandler {
-  constructor() {
+  constructor(serviceCenter) {
     this.eventBus = window.EventBus;
+    this.serviceCenter = serviceCenter;
     
     // 注册事件监听
     this._registerEventListeners();
@@ -163,15 +164,13 @@ class ChatEventHandler {
   _handleUserMessageSent(data) {
     const { content } = data;
     
-    // 通过 ServiceCenter 获取服务
-    const serviceCenter = window.serviceCenterInstance;
-    if (!serviceCenter) {
+    if (!this.serviceCenter) {
       console.error('[ChatEventHandler] ServiceCenter not available');
       return;
     }
     
     // 获取 SessionManager
-    const sessionManager = serviceCenter.getSessionManager();
+    const sessionManager = this.serviceCenter.getSessionManager();
     
     // 如果没有当前会话，先创建一个
     if (!sessionManager.currentSessionId) {
@@ -180,7 +179,7 @@ class ChatEventHandler {
     }
     
     // 获取 SettingsController 以获取当前配置
-    const settingsController = serviceCenter.getSettingsController();
+    const settingsController = this.serviceCenter.getSettingsController();
     const settings = settingsController.getSettings();
     
     if (!settings || !settings.apiStandard) {
@@ -189,14 +188,14 @@ class ChatEventHandler {
     }
     
     // 创建或获取 ChatService
-    const chatService = serviceCenter.createChatService(settings.apiStandard, {
+    const chatService = this.serviceCenter.createChatService(settings.apiStandard, {
       endpoint: settings.apiEndpoint,
       apiKey: settings.apiKey,
       defaultModel: settings.model || 'default'
     });
     
     // 获取或创建 ChatController 实例
-    const chat = serviceCenter.getChatController(chatService);
+    const chat = this.serviceCenter.getChatController(chatService);
     
     // 调用 ChatController 执行业务逻辑
     chat.sendMessage({

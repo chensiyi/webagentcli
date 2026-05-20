@@ -4,9 +4,16 @@
  */
 
 class ScriptsEventHandler {
-  constructor() {
+  constructor(serviceCenter) {
     this.eventBus = window.EventBus;
-    this.scriptsController = window.ScriptsController;
+    
+    // 通过 ServiceCenter 获取 ScriptsController
+    if (serviceCenter && serviceCenter.getScriptsController) {
+      this.scriptsController = serviceCenter.getScriptsController();
+    } else {
+      // 降级：直接使用全局 ScriptsController
+      this.scriptsController = window.ScriptsController;
+    }
     
     // 注册事件监听
     this._registerEventListeners();
@@ -91,5 +98,10 @@ class ScriptsEventHandler {
   }
 }
 
-// 导出单例
-window.ScriptsEventHandler = new ScriptsEventHandler();
+// 导出类（由 app.js 创建实例）
+if (typeof window !== 'undefined') {
+  window.ScriptsEventHandler = ScriptsEventHandler;
+}
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = ScriptsEventHandler;
+}

@@ -4,17 +4,16 @@
 
 window.Pages = window.Pages || {};
 
-window.Pages.history = function(container) {
+window.Pages.history = function(container, serviceCenter) {
   const { create, clear } = window.DOM;
   
-  // 确保 ISessionManager 已初始化
-  if (!window.sessionManagerInstance && !window.ISessionManager) {
-    console.error('[HistoryPage] ISessionManager not initialized');
-    container.innerHTML = '<div class="empty-state">会话管理器未初始化，请刷新页面重试</div>';
+  if (!serviceCenter) {
+    console.error('[HistoryPage] ServiceCenter not available');
+    container.innerHTML = '<div class="empty-state">服务未初始化，请刷新页面重试</div>';
     return;
   }
   
-  const sessionManager = window.sessionManagerInstance || (window.ServiceCenter ? window.ServiceCenter.getSessionManager() : null);
+  const sessionManager = serviceCenter.getSessionManager();
   
   let searchKeyword = '';
   let searchTimer = null;

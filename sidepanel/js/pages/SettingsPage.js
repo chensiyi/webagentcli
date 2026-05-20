@@ -5,9 +5,17 @@
 
 window.Pages = window.Pages || {};
 
-window.Pages.settings = function(container) {
+window.Pages.settings = function(container, serviceCenter) {
   const { create, clear, setTheme, getTheme } = window.DOM;
   const eventBus = window.EventBus;
+  
+  if (!serviceCenter) {
+    console.error('[SettingsPage] ServiceCenter not available');
+    return;
+  }
+  
+  // 通过 ServiceCenter 获取 SettingsController
+  const settingsController = serviceCenter.getSettingsController();
   
   // UI 状态管理（仅用于渲染）
   let isLoadingModels = false;
@@ -27,8 +35,8 @@ window.Pages.settings = function(container) {
     clear(container);
     
     // 从 Controller 获取当前设置
-    if (window.SettingsController) {
-      const settings = window.SettingsController.getSettings();
+    if (settingsController) {
+      const settings = settingsController.getSettings();
       if (settings) {
         currentSettings = settings.toJSON ? settings.toJSON() : settings;
         // 同步到暴露的属性

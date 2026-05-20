@@ -4,9 +4,23 @@
 
 window.Pages = window.Pages || {};
 
-window.Pages.storage = function(container) {
+window.Pages.storage = function(container, serviceCenter) {
   const { create, clear } = window.DOM;
-  const eventHandler = window.StorageEventHandler;
+  
+  if (!serviceCenter) {
+    console.error('[StoragePage] ServiceCenter not available');
+    return;
+  }
+  
+  // 创建 StorageEventHandler（如果尚未创建）
+  let eventHandler;
+  if (window.StorageEventHandler) {
+    // 检查是否已经创建了实例
+    if (!window.storageEventHandler) {
+      window.storageEventHandler = new window.StorageEventHandler(serviceCenter);
+    }
+    eventHandler = window.storageEventHandler;
+  }
   
   let storageItems = [];
   let filteredItems = [];

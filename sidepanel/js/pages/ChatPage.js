@@ -5,11 +5,9 @@
 
 window.Pages = window.Pages || {};
 
-window.Pages.chat = function(container) {
+window.Pages.chat = function(container, serviceCenter) {
   const { create, clear } = window.DOM;
   
-  // 通过 ServiceCenter 获取服务
-  const serviceCenter = window.serviceCenterInstance;
   if (!serviceCenter) {
     console.error('[ChatPage] ServiceCenter not available');
     return;

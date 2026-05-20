@@ -4,9 +4,22 @@
 
 window.Pages = window.Pages || {};
 
-window.Pages.scripts = function(container) {
+window.Pages.scripts = function(container, serviceCenter) {
   const { create, clear } = window.DOM;
-  const eventHandler = window.ScriptsEventHandler;
+  
+  if (!serviceCenter) {
+    console.error('[ScriptsPage] ServiceCenter not available');
+    return;
+  }
+  
+  // 创建 ScriptsEventHandler（如果尚未创建）
+  let eventHandler;
+  if (window.ScriptsEventHandler) {
+    if (!window.scriptsEventHandler) {
+      window.scriptsEventHandler = new window.ScriptsEventHandler(serviceCenter);
+    }
+    eventHandler = window.scriptsEventHandler;
+  }
   
   let scripts = [];
   let showForm = false;

@@ -4,9 +4,16 @@
  */
 
 class StorageEventHandler {
-  constructor() {
+  constructor(serviceCenter) {
     this.eventBus = window.EventBus;
-    this.storageController = window.StorageController;
+    
+    // 通过 ServiceCenter 获取 StorageController
+    if (serviceCenter && serviceCenter.getStorageController) {
+      this.storageController = serviceCenter.getStorageController();
+    } else {
+      // 降级：直接使用全局 StorageController
+      this.storageController = window.StorageController;
+    }
     
     // 注册事件监听
     this._registerEventListeners();
@@ -106,5 +113,10 @@ class StorageEventHandler {
   }
 }
 
-// 导出单例
-window.StorageEventHandler = new StorageEventHandler();
+// 导出类（由 app.js 创建实例）
+if (typeof window !== 'undefined') {
+  window.StorageEventHandler = StorageEventHandler;
+}
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = StorageEventHandler;
+}

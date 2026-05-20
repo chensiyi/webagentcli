@@ -70,8 +70,22 @@
         });
       }
       
-      // 4. 所有数据就绪后，渲染页面
-      renderPage(root);
+      // 4. 创建 EventHandlers（传入 serviceCenter）
+      if (window.ChatEventHandler) {
+        window.chatEventHandler = new window.ChatEventHandler(serviceCenter);
+      }
+      if (window.SettingsEventHandler) {
+        window.settingsEventHandler = new window.SettingsEventHandler(serviceCenter);
+      }
+      if (window.StorageEventHandler) {
+        window.storageEventHandler = new window.StorageEventHandler(serviceCenter);
+      }
+      if (window.ScriptsEventHandler) {
+        window.scriptsEventHandler = new window.ScriptsEventHandler(serviceCenter);
+      }
+      
+      // 5. 所有数据就绪后，渲染页面
+      renderPage(root, serviceCenter);
       
     } catch (err) {
       console.error('[App] Initialization failed:', err);
@@ -79,7 +93,7 @@
     }
   }
 
-  function renderPage(root) {
+  function renderPage(root, serviceCenter) {
     const { create } = window.DOM;
     const contentAreaEl = create('div', { className: 'content-area', id: 'content-area' });
     
@@ -93,10 +107,10 @@
     root.innerHTML = '';
     root.appendChild(app);
     
-    // 渲染当前页面
+    // 渲染当前页面（传入 serviceCenter）
     if (window.Pages && window.Pages[currentPage]) {
       console.log('[App] Rendering page:', currentPage, 'to container:', contentAreaEl);
-      window.Pages[currentPage](contentAreaEl);
+      window.Pages[currentPage](contentAreaEl, serviceCenter);
     } else {
       console.warn('[App] Page not found:', currentPage, 'Available:', Object.keys(window.Pages || {}));
     }
@@ -172,7 +186,7 @@
     tooltips.forEach(tooltip => tooltip.remove());
     
     currentPage = pageId;
-    renderPage(document.getElementById('root'));
+    renderPage(document.getElementById('root'), window.serviceCenterInstance);
   }
   
   // 暴露 navigateTo 方法
