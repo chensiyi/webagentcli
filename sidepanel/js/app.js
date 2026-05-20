@@ -48,7 +48,7 @@
           });
           
           // 通过 ServiceCenter 获取 ChatController 并设置服务
-          const chatController = serviceCenter.getChatController(chatService);
+          const chatController = await serviceCenter.getChatController(chatService);
           
           console.log('[App] Chat service initialized via ServiceCenter:', settings.apiStandard);
         } catch (error) {

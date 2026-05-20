@@ -63,13 +63,13 @@ class ServiceCenter {
    * @param {IProviderAPIService} chatService - Provider API 服务实例
    * @returns {ChatController} ChatController 实例
    */
-  getChatController(chatService) {
+  async getChatController(chatService) {
     if (!chatService) {
       throw new Error('ChatService is required');
     }
     
     // 获取当前会话 ID
-    const sessionManager = this.getSessionManager();
+    const sessionManager = await this.getSessionManager();
     const sessionId = sessionManager.currentSessionId;
     
     if (!sessionId) {
