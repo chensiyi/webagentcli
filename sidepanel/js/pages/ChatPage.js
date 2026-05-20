@@ -18,6 +18,8 @@ window.Pages.chat = function(container, serviceCenter) {
   // 获取当前会话（页面加载时绑定）
   let currentSession = sessionController.getCurrentSession();
   
+  console.log('[ChatPage] Initialized, current session:', currentSession?.id || 'none');
+  
   /**
    * 渲染聊天页面
    */
@@ -35,9 +37,10 @@ window.Pages.chat = function(container, serviceCenter) {
     // 头部 - 使用 theme 中的 page-header 样式
     const headerActions = [];
     
-    // Reasoning 模式切换按钮（仅当模型支持时显示）
-    const modelSupportsReasoning = checkModelSupportsReasoning();
-    if (modelSupportsReasoning) {
+    // Reasoning 模式切换按钮（仅当模型支持且有会话时显示）
+    if (currentSession) {
+      const modelSupportsReasoning = checkModelSupportsReasoning();
+      if (modelSupportsReasoning) {
       const reasoningButtonContainer = create('div', {
         className: 'reasoning-control',
         style: { position: 'relative', display: 'inline-block' }
@@ -157,6 +160,7 @@ window.Pages.chat = function(container, serviceCenter) {
       reasoningButtonContainer.appendChild(reasoningBtn);
       reasoningButtonContainer.appendChild(effortSelector);
       headerActions.push(reasoningButtonContainer);
+      }
     }
     
     headerActions.push(create('button', {
