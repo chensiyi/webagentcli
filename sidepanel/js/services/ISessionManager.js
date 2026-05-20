@@ -107,8 +107,8 @@ class ISessionManager {
   /**
    * 获取或创建 Chat 实例
    * @param {string} sessionId - 会话 ID
-   * @param {IChatService} chatService - 聊天服务实例
-   * @returns {Chat} Chat 实例
+   * @param {IProviderAPIService} chatService - Provider API 服务实例
+   * @returns {IChat} Chat 实例（继承自 IChat）
    */
   getOrCreateChat(sessionId, chatService) {
     if (!chatService) {
@@ -141,8 +141,8 @@ class ISessionManager {
   
   /**
    * 获取当前会话的 Chat 实例
-   * @param {IChatService} chatService - 聊天服务实例
-   * @returns {Chat|EphemeralChat} Chat 实例（如果没有会话则返回临时 Chat）
+   * @param {IProviderAPIService} chatService - Provider API 服务实例
+   * @returns {IChat|EphemeralChat} Chat 实例（如果没有会话则返回临时 Chat）
    */
   getCurrentChat(chatService) {
     if (!chatService) {
