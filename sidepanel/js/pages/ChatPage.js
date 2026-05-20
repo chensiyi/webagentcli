@@ -18,16 +18,6 @@ window.Pages.chat = function(container, serviceCenter) {
   
   console.log('[ChatPage] Initialized, current chat:', currentChat?.id || 'none');
   
-  // 监听会话切换事件，更新 currentChat（只注册一次）
-  if (!window.Pages.chat._sessionChangeListenerRegistered) {
-    window.Pages.chat._sessionChangeListenerRegistered = true;
-    serviceCenter.getEventBus().on(window.Events.CHAT.CURRENT_SESSION_CHANGED, () => {
-      console.log('[ChatPage] Session changed, updating currentChat');
-      currentChat = serviceCenter.getCurrentChat();
-      render();
-    });
-  }
-  
   /**
    * 渲染聊天页面
    */
@@ -178,6 +168,10 @@ window.Pages.chat = function(container, serviceCenter) {
         // 创建临时会话（不立即持久化）
         const sessionManager = serviceCenter.getSessionManager();
         sessionManager.createSession({ persist: false });
+        
+        // 更新 currentChat 为新会话的 ChatController
+        currentChat = serviceCenter.getCurrentChat();
+        
         render();
       }
     }));
