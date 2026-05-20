@@ -1,16 +1,27 @@
 /**
- * 设置控制器
- * 负责设置的加载、保存、应用
- * 通过 EventBus 与其他模块通信
+ * SettingsController - 设置控制器（IAppSettings 的具体实现）
+ * 
+ * 职责：
+ * 1. 实现 IAppSettings 接口定义的所有方法
+ * 2. 处理设置管理业务逻辑（加载、保存、应用）
+ * 3. 通过 EventBus 与其他模块通信
+ * 
+ * 设计原则：
+ * - 继承 IAppSettings 基类
+ * - 包含完整的业务逻辑实现
+ * - 管理服务配置和模型缓存
  */
 
-class SettingsController {
-  constructor() {
+class SettingsController extends window.IAppSettings {
+  constructor(eventBus = window.EventBus, storage = null) {
+    super(eventBus, storage);
+    
     this.settings = new window.Settings();
-    this.storageKey = 'app_settings';
     
     // 不在构造函数中加载设置，由 app.js 控制初始化时机
     // this.loadSettings();
+    
+    console.log('[SettingsController] Initialized');
   }
   
   /**
@@ -373,5 +384,10 @@ class SettingsController {
   }
 }
 
-// 导出单例
-window.SettingsController = new SettingsController();
+// 导出类（由 app.js 创建实例）
+if (typeof window !== 'undefined') {
+  window.SettingsController = SettingsController;
+}
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = SettingsController;
+}

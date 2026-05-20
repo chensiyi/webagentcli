@@ -22,9 +22,10 @@
     const root = document.getElementById('root');
     
     try {
-      // 1. 初始化 SettingsController 并加载设置（同步等待）
+      // 1. 创建 SettingsController 实例并加载设置
       if (window.SettingsController) {
-        await window.SettingsController.loadSettings();
+        window.settingsControllerInstance = new window.SettingsController(window.EventBus);
+        await window.settingsControllerInstance.loadSettings();
         console.log('[App] Settings loaded');
       }
       
@@ -47,8 +48,8 @@
       }
       
       // 3. 通过 ServiceCenter 初始化聊天服务
-      if (window.ChatController && window.SettingsController && window.ServiceCenter) {
-        const settings = window.SettingsController.getSettings();
+      if (window.ChatController && window.settingsControllerInstance && window.ServiceCenter) {
+        const settings = window.settingsControllerInstance.getSettings();
         if (settings && settings.apiStandard) {
           try {
             const chatService = window.ServiceCenter.createChatService(settings.apiStandard, {
