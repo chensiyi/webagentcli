@@ -14,7 +14,7 @@ class Session {
     
     // Reasoning 配置（持久化）
     this.reasoningEnabled = options.reasoningEnabled || false;
-    this.reasoningEffort = options.reasoningEffort || 'medium'; // 'low' | 'medium' | 'high'
+    this.reasoningEffort = options.reasoningEffort || 'medium'; // 'low' | 'medium' | 'high' | 'off'
     
     // 运行时状态（不持久化）
     this.port = null;

@@ -69,7 +69,8 @@ window.Pages.chat = function(container, serviceCenter) {
       const efforts = [
         { value: 'high', label: '高', icon: '🚀' },
         { value: 'medium', label: '中', icon: '🔥' },
-        { value: 'low', label: '低', icon: '⚡' }
+        { value: 'low', label: '低', icon: '⚡' },
+        { value: 'off', label: '关', icon: '⭕' }
       ];
       
       efforts.forEach(effort => {
@@ -570,16 +571,28 @@ window.Pages.chat = function(container, serviceCenter) {
     // 切换 reasoningEnabled 状态
     currentSession.reasoningEnabled = !currentSession.reasoningEnabled;
     
+    // 协调 reasoningEffort：关闭时设为 'off'，开启时从 'off' 恢复为 'medium'
+    if (currentSession.reasoningEnabled) {
+      // 开启 reasoning，如果当前是 'off'，恢复为 'medium'
+      if (currentSession.reasoningEffort === 'off') {
+        currentSession.reasoningEffort = 'medium';
+      }
+    } else {
+      // 关闭 reasoning，设为 'off'
+      currentSession.reasoningEffort = 'off';
+    }
+    
     // 保存会话
     const sessionManager = serviceCenter.getSessionManager();
     sessionManager.updateSession(currentSession.id, (session) => {
       session.reasoningEnabled = currentSession.reasoningEnabled;
+      session.reasoningEffort = currentSession.reasoningEffort;
     });
     
     // 重新渲染页面以更新按钮状态
     render();
     
-    console.log('[ChatPage] Reasoning mode:', currentSession.reasoningEnabled ? 'enabled' : 'disabled');
+    console.log('[ChatPage] Reasoning mode:', currentSession.reasoningEnabled ? 'enabled' : 'disabled', ', effort:', currentSession.reasoningEffort);
   }
 
   /**
@@ -590,8 +603,8 @@ window.Pages.chat = function(container, serviceCenter) {
   function updateReasoningEffort(effort, shouldRerender = true) {
     if (!currentSession) return;
     
-    // 验证强度值
-    const validEfforts = ['low', 'medium', 'high'];
+    // 验证强度值（包括 'off'）
+    const validEfforts = ['low', 'medium', 'high', 'off'];
     if (!validEfforts.includes(effort)) {
       console.warn('[ChatPage] Invalid reasoning effort:', effort);
       return;
@@ -600,10 +613,19 @@ window.Pages.chat = function(container, serviceCenter) {
     // 更新强度
     currentSession.reasoningEffort = effort;
     
+    // 如果选择 'off'，自动关闭 reasoningEnabled
+    if (effort === 'off') {
+      currentSession.reasoningEnabled = false;
+    } else if (!currentSession.reasoningEnabled) {
+      // 如果从 'off' 切换到其他强度，自动开启 reasoningEnabled
+      currentSession.reasoningEnabled = true;
+    }
+    
     // 保存会话
     const sessionManager = serviceCenter.getSessionManager();
     sessionManager.updateSession(currentSession.id, (session) => {
       session.reasoningEffort = effort;
+      session.reasoningEnabled = currentSession.reasoningEnabled;
     });
     
     // 如果需要，重新渲染页面以更新选择器状态
@@ -614,7 +636,7 @@ window.Pages.chat = function(container, serviceCenter) {
       updateEffortSelectorUI();
     }
     
-    console.log('[ChatPage] Reasoning effort updated to:', effort);
+    console.log('[ChatPage] Reasoning effort updated to:', effort, ', enabled:', currentSession.reasoningEnabled);
   }
 
   /**
@@ -626,8 +648,10 @@ window.Pages.chat = function(container, serviceCenter) {
     
     const options = selector.querySelectorAll('.effort-option');
     options.forEach(option => {
-      const optionEffort = option.textContent.trim().includes('高') ? 'high' :
-                          option.textContent.trim().includes('中') ? 'medium' : 'low';
+      const optionText = option.textContent.trim();
+      const optionEffort = optionText.includes('高') ? 'high' :
+                          optionText.includes('中') ? 'medium' :
+                          optionText.includes('低') ? 'low' : 'off';
       
       if (optionEffort === currentSession.reasoningEffort) {
         option.style.background = 'var(--primary-color, #4CAF50)';
