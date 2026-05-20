@@ -184,7 +184,13 @@ window.Pages.chat = function(container, serviceCenter) {
       className: 'btn btn-primary',
       text: '+ 新对话',
       onClick: () => {
-        sessionController.createSession();
+        // 创建临时会话（不立即持久化）
+        const newSession = sessionController.createSession({ persist: false });
+        
+        // 更新 currentSession 和 currentChat
+        currentSession = newSession;
+        currentChat = null; // 新会话还没有 ChatController，等待首次发送消息时创建
+        
         render();
       }
     }));
