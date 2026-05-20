@@ -18,6 +18,7 @@ class ServiceCenter {
     this.scriptsController = null;
     this.chatControllers = new Map(); // sessionId -> ChatController
     this.chatServices = new Map(); // cacheKey -> ChatService
+    this.currentChatService = null; // 当前活跃的 ChatService
   }
 
   /**
@@ -102,6 +103,33 @@ class ServiceCenter {
       console.log('[ServiceCenter] ScriptsController initialized');
     }
     return this.scriptsController;
+  }
+
+  /**
+   * 获取当前活跃的 ChatService（从 Settings 自动配置）
+   * @returns {IProviderAPIService} Provider API 服务实例
+   */
+  getCurrentChatService() {
+    // 如果已经有缓存的当前服务，直接返回
+    if (this.currentChatService) {
+      return this.currentChatService;
+    }
+    
+    // 否则从 Settings 读取配置并创建
+    const settingsController = this.getSettingsController();
+    const settings = settingsController.getSettings();
+    
+    if (!settings || !settings.apiStandard) {
+      throw new Error('Chat service not configured');
+    }
+    
+    this.currentChatService = this.createChatService(settings.apiStandard, {
+      endpoint: settings.apiEndpoint,
+      apiKey: settings.apiKey,
+      defaultModel: settings.model || 'default'
+    });
+    
+    return this.currentChatService;
   }
 
   /**

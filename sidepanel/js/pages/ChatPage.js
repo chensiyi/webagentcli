@@ -198,25 +198,19 @@ window.Pages.chat = function(container, serviceCenter) {
     
     // 渲染后检查是否有活动任务，恢复按钮状态（解决切换页面后按钮丢失的问题）
     if (serviceCenter && sessionController.currentSessionId) {
-      const settingsController = serviceCenter.getSettingsController();
-      const settings = settingsController.getSettings();
-      
-      if (settings && settings.apiStandard) {
-        // 使用 ServiceCenter 的缓存机制，避免重复创建
-        const chatService = serviceCenter.createChatService(settings.apiStandard, {
-          endpoint: settings.apiEndpoint,
-          apiKey: settings.apiKey,
-          defaultModel: settings.model || 'default'
-        });
-        
-        const chat = serviceCenter.getChatController(chatService);
-        if (chat.hasActiveActivities()) {
+      try {
+        // 直接通过 SessionManager 获取 ChatController（不创建新 Service）
+        const chat = sessionController.getOrCreateChat(sessionController.currentSessionId, null);
+        if (chat && chat.hasActiveActivities()) {
           const sendBtn = document.getElementById('send-btn');
           const stopBtn = document.getElementById('stop-btn');
           if (sendBtn) sendBtn.style.display = 'none';
           if (stopBtn) stopBtn.style.display = 'inline-block';
           console.log('[ChatPage] Buttons restored after render - hasActive:', true);
         }
+      } catch (e) {
+        // 如果获取失败，忽略（可能是 EphemeralChat 或没有配置）
+        console.debug('[ChatPage] Skip button state check:', e.message);
       }
     }
   }
