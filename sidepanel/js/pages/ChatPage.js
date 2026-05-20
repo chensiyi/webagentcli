@@ -18,12 +18,15 @@ window.Pages.chat = function(container, serviceCenter) {
   
   console.log('[ChatPage] Initialized, current chat:', currentChat?.id || 'none');
   
-  // 监听会话切换事件，更新 currentChat
-  serviceCenter.getEventBus().on(window.Events.CHAT.CURRENT_SESSION_CHANGED, () => {
-    console.log('[ChatPage] Session changed, updating currentChat');
-    currentChat = serviceCenter.getCurrentChat();
-    render();
-  });
+  // 监听会话切换事件，更新 currentChat（只注册一次）
+  if (!window.Pages.chat._sessionChangeListenerRegistered) {
+    window.Pages.chat._sessionChangeListenerRegistered = true;
+    serviceCenter.getEventBus().on(window.Events.CHAT.CURRENT_SESSION_CHANGED, () => {
+      console.log('[ChatPage] Session changed, updating currentChat');
+      currentChat = serviceCenter.getCurrentChat();
+      render();
+    });
+  }
   
   /**
    * 渲染聊天页面
