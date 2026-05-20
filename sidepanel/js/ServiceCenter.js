@@ -27,11 +27,12 @@ class ServiceCenter {
   }
 
   /**
-   * 初始化 SessionManager（仅在 app.js 初始化时调用一次）
+   * 初始化 SessionManager（等待异步加载完成）
+   * @returns {Promise<void>}
    */
   initializeSessionManager() {
     if (this.sessionManager) {
-      return; // 已经初始化
+      return Promise.resolve(); // 已经初始化
     }
     
     if (!window.SessionController || !this.eventBus) {
@@ -40,10 +41,10 @@ class ServiceCenter {
     
     this.sessionManager = new window.SessionController(this.eventBus);
     
-    // 启动异步加载会话数据
-    this.sessionManager.initialize();
-    
     console.log('[ServiceCenter] SessionController initialized');
+    
+    // 返回 Promise，等待异步加载完成
+    return this.sessionManager.initialize();
   }
 
   /**

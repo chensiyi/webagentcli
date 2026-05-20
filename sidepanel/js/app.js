@@ -31,11 +31,11 @@
       await settingsController.loadSettings();
       console.log('[App] Settings loaded via ServiceCenter');
       
-      // 2. 初始化 SessionManager（启动异步加载）
-      serviceCenter.initializeSessionManager();
+      // 2. 初始化 SessionManager（等待异步加载完成）
+      await serviceCenter.initializeSessionManager();
       const sessionManager = serviceCenter.getSessionManager();
       
-      console.log('[App] SessionManager initialized via ServiceCenter');
+      console.log('[App] SessionManager initialized and loaded via ServiceCenter');
       
       // 3. 通过 ServiceCenter 初始化聊天服务
       const settings = settingsController.getSettings();
