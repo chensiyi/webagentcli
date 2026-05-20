@@ -16,7 +16,7 @@ class ServiceCenter {
     this.settingsController = null;
     this.storageController = null;
     this.scriptsController = null;
-    this.currentChatService = null; // 当前活跃的 ChatService
+    this.currentProviderService = null; // 当前活跃的 Provider API 服务
   }
 
   /**
@@ -109,8 +109,8 @@ class ServiceCenter {
    */
   getCurrentProviderService() {
     // 如果已经有缓存的当前服务，直接返回
-    if (this.currentChatService) {
-      return this.currentChatService;
+    if (this.currentProviderService) {
+      return this.currentProviderService;
     }
     
     // 否则从 Settings 读取配置并创建
@@ -121,13 +121,13 @@ class ServiceCenter {
       throw new Error('Chat service not configured');
     }
     
-    this.currentChatService = this.createProviderService(settings.apiStandard, {
+    this.currentProviderService = this.createProviderService(settings.apiStandard, {
       endpoint: settings.apiEndpoint,
       apiKey: settings.apiKey,
       defaultModel: settings.model || 'default'
     });
     
-    return this.currentChatService;
+    return this.currentProviderService;
   }
 
   /**
