@@ -31,11 +31,8 @@
       await settingsController.loadSettings();
       console.log('[App] Settings loaded via ServiceCenter');
       
-      // 2. 通过 ServiceCenter 初始化会话管理器并同步加载数据
-      const sessionManager = serviceCenter.getSessionManager();
-      
-      // 关键：显式等待会话从存储加载完成
-      await sessionManager.loadSessionsFromStorage();
+      // 2. 通过 ServiceCenter 初始化会话管理器（自动加载数据）
+      const sessionManager = await serviceCenter.getSessionManager();
       
       console.log('[App] SessionManager initialized via ServiceCenter');
       

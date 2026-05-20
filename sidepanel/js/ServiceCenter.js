@@ -28,12 +28,16 @@ class ServiceCenter {
    * 初始化并获取 SessionManager 实例
    * @returns {SessionController} SessionManager 实例
    */
-  getSessionManager() {
+  async getSessionManager() {
     if (!this.sessionManager) {
       if (!window.SessionController || !this.eventBus) {
         throw new Error('SessionController or EventBus not initialized');
       }
       this.sessionManager = new window.SessionController(this.eventBus);
+      
+      // 初始化时自动加载会话数据
+      await this.sessionManager._loadSessionsFromStorage();
+      
       console.log('[ServiceCenter] SessionController initialized');
     }
     return this.sessionManager;

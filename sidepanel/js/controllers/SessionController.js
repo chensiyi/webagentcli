@@ -414,10 +414,11 @@ class SessionController extends window.ISessionManager {
   }
 
   /**
-   * 从存储加载会话（公开异步方法）
+   * 从存储加载会话（私有方法，仅在初始化时调用）
    * @returns {Promise<void>}
+   * @private
    */
-  async loadSessionsFromStorage() {
+  async _loadSessionsFromStorage() {
     return new Promise((resolve, reject) => {
       this.storage.get(['sessions', 'currentSessionId'], (result) => {
         try {
