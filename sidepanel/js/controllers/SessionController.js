@@ -114,6 +114,10 @@ class SessionController extends window.ISessionManager {
       return false;
     }
     
+    // 清理 ChatController 缓存
+    this.chatCache.delete(sessionId);
+    console.log('[SessionController] Cleaned up Chat cache for deleted session:', sessionId);
+    
     // 如果删除的是当前会话，清空指向
     if (this.currentSessionId === sessionId) {
       this.currentSessionId = null;

@@ -171,6 +171,24 @@ class ServiceCenter {
   }
 
   /**
+   * 清理非活动的 ChatController
+   * @param {string} sessionId - 要清理的会话 ID
+   */
+  cleanupChatController(sessionId) {
+    if (this.chatControllers.has(sessionId)) {
+      const chat = this.chatControllers.get(sessionId);
+      
+      // 检查是否有活动任务
+      if (!chat.hasActiveActivities()) {
+        this.chatControllers.delete(sessionId);
+        console.log('[ServiceCenter] Cleaned up inactive ChatController for session:', sessionId);
+      } else {
+        console.log('[ServiceCenter] Skip cleanup: ChatController still has active tasks:', sessionId);
+      }
+    }
+  }
+
+  /**
    * 创建 Provider API 服务实例
    * @param {string} providerId - 服务提供商标识 ('openai', 'openrouter', 'lm-studio')
    * @param {Object} config - 服务配置
