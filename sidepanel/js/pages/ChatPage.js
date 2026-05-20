@@ -18,20 +18,23 @@ window.Pages.chat = function(container, serviceCenter) {
   
   console.log('[ChatPage] Initialized, current chat:', currentChat?.id || 'none');
   
+  // 监听会话切换事件，更新 currentChat
+  serviceCenter.getEventBus().on(window.Events.CHAT.CURRENT_SESSION_CHANGED, () => {
+    console.log('[ChatPage] Session changed, updating currentChat');
+    currentChat = serviceCenter.getCurrentChat();
+    render();
+  });
+  
   /**
    * 渲染聊天页面
    */
   function render() {
     console.log('[ChatPage] Render called');
-    
-    // 同步 currentChat（确保使用最新的）
-    currentChat = serviceCenter.getCurrentChat();
-    
     clear(container);
     
     const messages = currentChat ? currentChat.messages : [];
     
-    console.log('[ChatPage] Current session:', currentChat.id, 'Messages count:', messages.length);
+    console.log('[ChatPage] Current session:', currentChat?.id, 'Messages count:', messages.length);
     
     const page = create('div', { className: 'page' });
     
@@ -590,8 +593,7 @@ window.Pages.chat = function(container, serviceCenter) {
     }
     
     // 通过 sessionManager 保存会话
-    const sessionManager = serviceCenter.getSessionManager();
-    sessionManager.updateSession(currentChat.id, (session) => {
+    currentChat.sessionManager.updateSession(currentChat.id, (session) => {
       session.reasoningEffort = effort;
       session.reasoningEnabled = currentChat.session.reasoningEnabled;
     });
