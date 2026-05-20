@@ -114,104 +114,113 @@ class OpenAIService {
   /**
    * 发送聊天请求（非流式）
    */
-  async chat(params) {
+  chat(params) {
     const url = this.buildUrl('/chat/completions');
     const headers = this.buildHeaders();
     const body = this.buildRequestBody({ ...params, stream: false });
     
     this.abortController = new AbortController();
     
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: this.abortController.signal
-      });
-      
+    return fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: this.abortController.signal
+    })
+    .then(response => {
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
+        return response.text().then(errorText => {
+          throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
+        });
       }
-      
-      const data = await response.json();
+      return response.json();
+    })
+    .then(data => {
       return this.parseResponse(data);
-    } catch (error) {
+    })
+    .catch(error => {
       if (error.name === 'AbortError') {
         console.log('[OpenAIService] Request cancelled');
       } else {
         console.error('[OpenAIService] Chat error:', error);
         throw error;
       }
-    } finally {
+    })
+    .finally(() => {
       this.abortController = null;
-    }
+    });
   }
 
   /**
    * 发送流式聊天请求
    */
-  async chatStream(params, onChunk, onComplete) {
+  chatStream(params, onChunk, onComplete) {
     const url = this.buildUrl('/chat/completions');
     const headers = this.buildHeaders();
     const body = this.buildRequestBody({ ...params, stream: true });
     
     this.abortController = new AbortController();
     
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: this.abortController.signal
-      });
-      
+    return fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: this.abortController.signal
+    })
+    .then(response => {
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
+        return response.text().then(errorText => {
+          throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
+        });
       }
       
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
       
-      while (true) {
-        const { done, value } = await reader.read();
-        
-        if (done) {
-          if (onComplete) onComplete();
-          break;
-        }
-        
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop();
-        
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || trimmed === 'data: [DONE]') continue;
+      const processStream = () => {
+        return reader.read().then(({ done, value }) => {
+          if (done) {
+            if (onComplete) onComplete();
+            return;
+          }
           
-          if (trimmed.startsWith('data: ')) {
-            try {
-              const json = JSON.parse(trimmed.slice(6));
-              const parsed = this.parseStreamChunk(json);
-              if (parsed && onChunk) onChunk(parsed);
-            } catch (e) {
-              console.warn('[OpenAIService] Failed to parse chunk:', e);
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+          
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed === 'data: [DONE]') continue;
+            
+            if (trimmed.startsWith('data: ')) {
+              try {
+                const json = JSON.parse(trimmed.slice(6));
+                const parsed = this.parseStreamChunk(json);
+                if (parsed && onChunk) onChunk(parsed);
+              } catch (e) {
+                console.warn('[OpenAIService] Failed to parse chunk:', e);
+              }
             }
           }
-        }
-      }
-    } catch (error) {
+          
+          return processStream();
+        });
+      };
+      
+      return processStream();
+    })
+    .catch(error => {
       if (error.name === 'AbortError') {
         console.log('[OpenAIService] Stream cancelled');
       } else {
         console.error('[OpenAIService] Stream error:', error);
         throw error;
       }
-    } finally {
+    })
+    .finally(() => {
       this.abortController = null;
-    }
+    });
   }
 
   /**
@@ -227,7 +236,7 @@ class OpenAIService {
   /**
    * 列出可用模型
    */
-  async listModels() {
+  listModels() {
     const baseUrl = this.config.endpoint.replace(/\/$/, '');
     let modelsEndpoint;
     
@@ -237,45 +246,47 @@ class OpenAIService {
       modelsEndpoint = baseUrl + '/v1/models';
     }
     
-    const response = await fetch(modelsEndpoint, {
+    return fetch(modelsEndpoint, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${this.config.apiKey}`
       }
+    })
+    .then(response => {
+      if (!response.ok) {
+        return response.text().then(errorText => {
+          throw new Error(`HTTP ${response.status}: ${errorText.substring(0, 200)}`);
+        });
+      }
+      return response.json();
+    })
+    .then(result => {
+      if (result.data && Array.isArray(result.data)) {
+        // 返回完整的模型数据，包含详细信息
+        return result.data.map(model => ({
+          id: model.id,
+          name: model.name || model.id,
+          created: model.created,
+          owned_by: model.owned_by,
+          context_length: model.context_length || null,
+          max_output_tokens: model.max_output_tokens || null,
+          modality: 'text->text',
+          supports_reasoning: false,
+          supports_tools: true, // OpenAI 标准支持工具调用
+          pricing: { prompt: null, completion: null }, // OpenAI 官方 API 通常不在此处返回价格
+          ...model
+        }));
+      }
+      
+      return [];
     });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`HTTP ${response.status}: ${errorText.substring(0, 200)}`);
-    }
-    
-    const result = await response.json();
-    
-    if (result.data && Array.isArray(result.data)) {
-      // 返回完整的模型数据，包含详细信息
-      return result.data.map(model => ({
-        id: model.id,
-        name: model.name || model.id,
-        created: model.created,
-        owned_by: model.owned_by,
-        context_length: model.context_length || null,
-        max_output_tokens: model.max_output_tokens || null,
-        modality: 'text->text',
-        supports_reasoning: false,
-        supports_tools: true, // OpenAI 标准支持工具调用
-        pricing: { prompt: null, completion: null }, // OpenAI 官方 API 通常不在此处返回价格
-        ...model
-      }));
-    }
-    
-    return [];
   }
   
   /**
    * 获取单个模型的详细信息
    * @param {string} modelId - 模型 ID
    */
-  async getModelDetails(modelId) {
+  getModelDetails(modelId) {
     const baseUrl = this.config.endpoint.replace(/\/$/, '');
     let modelEndpoint;
     
@@ -285,35 +296,38 @@ class OpenAIService {
       modelEndpoint = `${baseUrl}/v1/models/${modelId}`;
     }
     
-    const response = await fetch(modelEndpoint, {
+    return fetch(modelEndpoint, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${this.config.apiKey}`
       }
+    })
+    .then(response => {
+      if (!response.ok) {
+        // 如果获取失败，返回 null
+        console.warn(`[OpenAIService] Failed to fetch details for model ${modelId}: ${response.status}`);
+        return null;
+      }
+      return response.json();
+    })
+    .then(model => {
+      if (!model) return null;
+      
+      // 返回标准化的模型详细信息，匹配 Model 原型
+      return {
+        id: model.id,
+        name: model.name || model.id,
+        created: model.created,
+        owned_by: model.owned_by,
+        context_length: model.context_length || null,
+        max_output_tokens: model.max_output_tokens || null,
+        modality: 'text->text',
+        supports_reasoning: false,
+        supports_tools: true,
+        pricing: { prompt: null, completion: null },
+        ...model
+      };
     });
-    
-    if (!response.ok) {
-      // 如果获取失败，返回 null
-      console.warn(`[OpenAIService] Failed to fetch details for model ${modelId}: ${response.status}`);
-      return null;
-    }
-    
-    const model = await response.json();
-    
-    // 返回标准化的模型详细信息，匹配 Model 原型
-    return {
-      id: model.id,
-      name: model.name || model.id,
-      created: model.created,
-      owned_by: model.owned_by,
-      context_length: model.context_length || null,
-      max_output_tokens: model.max_output_tokens || null,
-      modality: 'text->text',
-      supports_reasoning: false,
-      supports_tools: true,
-      pricing: { prompt: null, completion: null },
-      ...model
-    };
   }
 }
 
