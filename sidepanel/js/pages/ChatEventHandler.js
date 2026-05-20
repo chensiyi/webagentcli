@@ -564,5 +564,4 @@ class ChatEventHandler {
   }
 }
 
-// 导出单例
-window.ChatEventHandler = new ChatEventHandler();
+// 不导出到全局，仅在 app.js 中通过 new ChatEventHandler(serviceCenter) 创建实例

@@ -71,17 +71,17 @@
       }
       
       // 4. 创建 EventHandlers（传入 serviceCenter）
-      if (window.ChatEventHandler) {
-        window.chatEventHandler = new window.ChatEventHandler(serviceCenter);
+      if (typeof ChatEventHandler !== 'undefined') {
+        window.chatEventHandler = new ChatEventHandler(serviceCenter);
       }
-      if (window.SettingsEventHandler) {
-        window.settingsEventHandler = new window.SettingsEventHandler(serviceCenter);
+      if (typeof SettingsEventHandler !== 'undefined') {
+        window.settingsEventHandler = new SettingsEventHandler(serviceCenter);
       }
-      if (window.StorageEventHandler) {
-        window.storageEventHandler = new window.StorageEventHandler(serviceCenter);
+      if (typeof StorageEventHandler !== 'undefined') {
+        window.storageEventHandler = new StorageEventHandler(serviceCenter);
       }
-      if (window.ScriptsEventHandler) {
-        window.scriptsEventHandler = new window.ScriptsEventHandler(serviceCenter);
+      if (typeof ScriptsEventHandler !== 'undefined') {
+        window.scriptsEventHandler = new ScriptsEventHandler(serviceCenter);
       }
       
       // 5. 所有数据就绪后，渲染页面

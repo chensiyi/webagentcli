@@ -114,10 +114,4 @@ class StorageEventHandler {
   }
 }
 
-// 导出类（由 app.js 创建实例）
-if (typeof window !== 'undefined') {
-  window.StorageEventHandler = StorageEventHandler;
-}
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = StorageEventHandler;
-}
+// 不导出到全局，仅在 app.js 中通过 new StorageEventHandler(serviceCenter) 创建实例

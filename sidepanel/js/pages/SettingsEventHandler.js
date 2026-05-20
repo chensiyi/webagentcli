@@ -319,5 +319,4 @@ class SettingsEventHandler {
   }
 }
 
-// 导出单例
-window.SettingsEventHandler = new SettingsEventHandler();
+// 不导出到全局，仅在 app.js 中通过 new SettingsEventHandler(serviceCenter) 创建实例

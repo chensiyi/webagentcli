@@ -99,10 +99,4 @@ class ScriptsEventHandler {
   }
 }
 
-// 导出类（由 app.js 创建实例）
-if (typeof window !== 'undefined') {
-  window.ScriptsEventHandler = ScriptsEventHandler;
-}
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = ScriptsEventHandler;
-}
+// 不导出到全局，仅在 app.js 中通过 new ScriptsEventHandler(serviceCenter) 创建实例
