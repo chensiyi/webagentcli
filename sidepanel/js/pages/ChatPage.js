@@ -340,11 +340,16 @@ window.Pages.chat = function(container, serviceCenter) {
       text: '×',
       onMouseEnter: (e) => e.target.style.opacity = '1',
       onMouseLeave: (e) => e.target.style.opacity = '0',
-      onClick: (e) => {
+      onClick: async (e) => {
         e.stopPropagation();
         
         // 确认删除
-        if (!confirm('确定要删除这条消息吗？')) {
+        const confirmed = await window.Toast.confirm({
+          message: '确定要删除这条消息吗？',
+          title: '删除消息'
+        });
+        
+        if (!confirmed) {
           return;
         }
         
@@ -360,8 +365,10 @@ window.Pages.chat = function(container, serviceCenter) {
         const deleted = sessionManager.deleteMessage(msg.id);
         
         if (deleted) {
+          window.Toast.success('消息已删除');
           console.log('[ChatPage] Message deleted:', msg.id);
         } else {
+          window.Toast.error('删除失败');
           console.warn('[ChatPage] Failed to delete message:', msg.id);
         }
       }
