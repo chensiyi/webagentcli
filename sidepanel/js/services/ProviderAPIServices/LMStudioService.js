@@ -91,14 +91,15 @@ class LMStudioService {
       baseBody.top_p = params.top_p;
     }
     
-    // 支持推理/思考模式 - 根据 LM Studio 官方文档
-    // reasoning 字段是字符串: "off" | "low" | "medium" | "high" | "on"
+    // 支持推理/思考模式 - OpenAI 兼容格式
+    // 使用 reasoning_effort 参数（下划线格式）
+    // 可选值: "low" | "medium" | "high" | "minimal" | "none"
     if (params.reasoningEnabled === true) {
       // 如果启用了推理，使用 reasoningEffort
-      baseBody.reasoning = params.reasoningEffort || 'medium';
+      baseBody.reasoning_effort = params.reasoningEffort || 'medium';
     } else {
-      // 关闭推理，设为 'off'
-      baseBody.reasoning = 'off';
+      // 关闭推理，设为 'none' 或不传递该字段
+      baseBody.reasoning_effort = 'none';
     }
     
     console.log('[LMStudioService] ===== Request Body Details =====');
@@ -108,7 +109,7 @@ class LMStudioService {
       model: params.model || this.config.defaultModel,
       stream: params.stream ?? false
     });
-    console.log('[LMStudioService] Final reasoning value:', baseBody.reasoning);
+    console.log('[LMStudioService] Final reasoning_effort value:', baseBody.reasoning_effort);
     console.log('[LMStudioService] Full request body:', JSON.stringify(baseBody, null, 2));
     console.log('[LMStudioService] ====================================');
     
