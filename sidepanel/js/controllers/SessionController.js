@@ -120,7 +120,7 @@ class SessionController extends window.ISessionManager {
     
     // 如果删除的是当前会话，切换到新会话
     if (this.currentSessionId === sessionId) {
-      // 自动创建一个临时会话
+      // 自动创建一个临时会话（不持久化）
       const newSession = this.createSession({ title: '新对话', persist: false });
       
       this.eventBus.emit(window.Events.CHAT.CURRENT_SESSION_CHANGED, { 
@@ -129,7 +129,7 @@ class SessionController extends window.ISessionManager {
       });
     }
     
-    // 持久化
+    // 持久化（注意：新创建的临时会话不会被保存，因为 persist: false）
     this._saveSessions();
     
     // 发布事件
@@ -490,6 +490,11 @@ class SessionController extends window.ISessionManager {
   _saveSessions() {
     const sessionsData = {};
     this.sessions.forEach((session, id) => {
+      // 过滤掉空会话：没有消息且标题为"新对话"的临时会话
+      if (session.messages && session.messages.length === 0 && session.title === '新对话') {
+        console.log('[SessionController] Skipping empty temporary session:', id);
+        return; // 跳过这个会话，不保存
+      }
       sessionsData[id] = session.toJSON();
     });
     
