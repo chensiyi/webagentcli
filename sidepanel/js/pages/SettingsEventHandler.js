@@ -305,9 +305,8 @@ class SettingsEventHandler {
     
     if (dialogResult) {
       // 用户确认，先清除缓存再重新加载
-      if (window.SettingsController) {
-        await window.SettingsController.clearModelCache();
-      }
+      const settingsController = this.serviceCenter.getSettingsController();
+      await settingsController.clearModelCache();
       
       // 发布模型加载请求事件
       this.eventBus.emit(window.Events.SETTINGS.MODELS_REQUEST, {

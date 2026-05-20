@@ -86,11 +86,10 @@ class SettingsController extends window.IAppSettings {
       defaultModel: settings.model || 'default'
     });
     
-    // 更新 ChatController 的服务引用
-    window.ChatController.setService(service);
+    // 不再直接操作全局 ChatController，ServiceCenter 会在下次 getChatController 时创建新的实例
     
-    // 同步更新全局 ChatService 引用（供 UI 层调用）
-    window.ChatService = service;
+    // 不再设置全局 ChatService，所有组件应通过 ServiceCenter 获取
+    // window.ChatService = service;  // ❌ 已废弃
     
     console.log('[SettingsController] ChatService reconfigured:', settings.apiStandard);
     

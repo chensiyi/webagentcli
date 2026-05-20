@@ -338,14 +338,31 @@ window.Pages.chat = function(container, serviceCenter) {
       onMouseLeave: (e) => e.target.style.opacity = '0',
       onClick: (e) => {
         e.stopPropagation();
-        const sessionManager = window.sessionManagerInstance;
-        const chatService = window.ChatService;
-        if (sessionManager && chatService && sessionManager.currentSessionId) {
-          const chat = sessionManager.getOrCreateChat(sessionManager.currentSessionId, chatService);
-          chat.deleteMessage(msg.id);
-        } else {
+        // 通过 serviceCenter 获取服务
+        const sessionManager = serviceCenter.getSessionManager();
+        
+        if (!sessionManager.currentSessionId) {
           console.error('[ChatPage] Cannot delete message: no active session');
+          return;
         }
+        
+        // 获取 Settings 和 ChatService
+        const settingsController = serviceCenter.getSettingsController();
+        const settings = settingsController.getSettings();
+        
+        if (!settings || !settings.apiStandard) {
+          console.error('[ChatPage] Cannot delete message: chat service not configured');
+          return;
+        }
+        
+        const chatService = serviceCenter.createChatService(settings.apiStandard, {
+          endpoint: settings.apiEndpoint,
+          apiKey: settings.apiKey,
+          defaultModel: settings.model || 'default'
+        });
+        
+        const chat = sessionManager.getOrCreateChat(sessionManager.currentSessionId, chatService);
+        chat.deleteMessage(msg.id);
       }
     });
 
