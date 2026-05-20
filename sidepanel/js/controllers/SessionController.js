@@ -414,12 +414,11 @@ class SessionController extends window.ISessionManager {
   }
 
   /**
-   * 初始化会话管理器（加载数据）
-   * @returns {Promise<void>}
+   * 初始化会话管理器（启动异步加载）
    */
-  async initialize() {
-    await this._loadSessionsFromStorage();
-    console.log('[SessionController] Initialized with', this.sessions.size, 'sessions');
+  initialize() {
+    this._loadSessionsFromStorage();
+    console.log('[SessionController] Initialization started');
   }
 
   /**
