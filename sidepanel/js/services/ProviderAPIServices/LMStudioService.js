@@ -26,6 +26,13 @@ class LMStudioService {
   }
 
   /**
+   * 获取当前配置
+   */
+  getConfig() {
+    return this.config;
+  }
+
+  /**
    * 构建 API URL
    */
   buildUrl(path) {
