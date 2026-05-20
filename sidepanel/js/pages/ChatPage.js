@@ -508,11 +508,11 @@ window.Pages.chat = function(container, serviceCenter) {
    * 检查当前模型是否支持 reasoning（同步，从缓存读取）
    */
   function checkModelSupportsReasoning() {
-    // 从 ChatService 获取配置
-    const chatService = currentChat?.getService();
-    if (!chatService) return false;
+    // 从 Provider Service 获取配置
+    const providerService = currentChat?.getService();
+    if (!providerService) return false;
     
-    const config = chatService.getConfig ? chatService.getConfig() : null;
+    const config = providerService.getConfig ? providerService.getConfig() : null;
     if (!config || !config.endpoint || !config.defaultModel) return false;
     
     // 从 StorageModel 同步读取缓存

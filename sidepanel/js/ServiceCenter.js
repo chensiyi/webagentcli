@@ -17,7 +17,6 @@ class ServiceCenter {
     this.storageController = null;
     this.scriptsController = null;
     this.currentChatService = null; // 当前活跃的 ChatService
-    this.chatControllers = new Map(); // sessionId -> ChatController
   }
 
   /**
@@ -105,10 +104,10 @@ class ServiceCenter {
   }
 
   /**
-   * 获取当前活跃的 ChatService（从 Settings 自动配置）
+   * 获取当前活跃的 Provider API 服务（从 Settings 自动配置）
    * @returns {IProviderAPIService} Provider API 服务实例
    */
-  getCurrentChatService() {
+  getCurrentProviderService() {
     // 如果已经有缓存的当前服务，直接返回
     if (this.currentChatService) {
       return this.currentChatService;
@@ -122,7 +121,7 @@ class ServiceCenter {
       throw new Error('Chat service not configured');
     }
     
-    this.currentChatService = this.createChatService(settings.apiStandard, {
+    this.currentChatService = this.createProviderService(settings.apiStandard, {
       endpoint: settings.apiEndpoint,
       apiKey: settings.apiKey,
       defaultModel: settings.model || 'default'
@@ -132,51 +131,12 @@ class ServiceCenter {
   }
 
   /**
-   * 获取当前 Chat 实例（IChat 接口）
-   * @returns {IChat} Chat 实例
-   */
-  getCurrentChat() {
-    // 获取当前 chatService
-    const chatService = this.getCurrentChatService();
-    
-    // 获取当前会话 ID
-    const sessionManager = this.getSessionManager();
-    const sessionId = sessionManager.currentSessionId;
-    
-    if (!sessionId) {
-      // 如果没有会话，返回 EphemeralChat
-      return new window.EphemeralChat(sessionManager, chatService, this.eventBus);
-    }
-    
-    // 检查缓存
-    if (this.chatControllers.has(sessionId)) {
-      const cachedChat = this.chatControllers.get(sessionId);
-      if (cachedChat.getService() !== chatService) {
-        cachedChat.setService(chatService);
-      }
-      return cachedChat;
-    }
-    
-    // 创建新的 ChatController
-    const session = sessionManager.getCurrentSession();
-    if (!session) {
-      throw new Error(`Session not found: ${sessionId}`);
-    }
-    
-    const chatController = new window.ChatController(session, chatService, sessionManager, this.eventBus);
-    this.chatControllers.set(sessionId, chatController);
-    
-    console.log('[ServiceCenter] Created ChatController for session:', sessionId);
-    return chatController;
-  }
-
-  /**
-   * 创建聊天服务实例
+   * 创建 Provider API 服务实例
    * @param {string} providerId - 服务提供商标识 ('openai', 'openrouter', 'lm-studio')
    * @param {Object} config - 服务配置
    * @returns {IProviderAPIService} Provider API 服务实例
    */
-  createChatService(providerId, config) {
+  createProviderService(providerId, config) {
     // 根据 providerId 选择对应的 Service 类
     let ServiceClass = null;
     switch (providerId) {
