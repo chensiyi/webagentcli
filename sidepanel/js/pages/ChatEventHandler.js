@@ -163,14 +163,15 @@ class ChatEventHandler {
   _handleUserMessageSent(data) {
     const { content } = data;
     
-    // 获取 SessionManager 和 ChatService
-    const sessionManager = window.sessionManagerInstance;
-    const chatService = window.ChatService;
-    
-    if (!sessionManager || !chatService) {
-      console.error('[ChatEventHandler] SessionManager or ChatService not available');
+    // 通过 ServiceCenter 获取服务
+    const serviceCenter = window.serviceCenterInstance;
+    if (!serviceCenter) {
+      console.error('[ChatEventHandler] ServiceCenter not available');
       return;
     }
+    
+    // 获取 SessionManager
+    const sessionManager = serviceCenter.getSessionManager();
     
     // 如果没有当前会话，先创建一个
     if (!sessionManager.currentSessionId) {
@@ -178,8 +179,24 @@ class ChatEventHandler {
       sessionManager.createSession({ title: '新对话', persist: false });
     }
     
+    // 获取 SettingsController 以获取当前配置
+    const settingsController = serviceCenter.getSettingsController();
+    const settings = settingsController.getSettings();
+    
+    if (!settings || !settings.apiStandard) {
+      console.error('[ChatEventHandler] Chat service not configured');
+      return;
+    }
+    
+    // 创建或获取 ChatService
+    const chatService = serviceCenter.createChatService(settings.apiStandard, {
+      endpoint: settings.apiEndpoint,
+      apiKey: settings.apiKey,
+      defaultModel: settings.model || 'default'
+    });
+    
     // 获取或创建 ChatController 实例
-    const chat = sessionManager.getOrCreateChat(sessionManager.currentSessionId, chatService);
+    const chat = serviceCenter.getChatController(chatService);
     
     // 调用 ChatController 执行业务逻辑
     chat.sendMessage({

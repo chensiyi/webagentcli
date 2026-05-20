@@ -6,7 +6,12 @@
 class SettingsEventHandler {
   constructor() {
     this.eventBus = window.EventBus;
-    this.settingsController = window.SettingsController;
+    
+    // 通过 ServiceCenter 获取 SettingsController 实例
+    const serviceCenter = window.serviceCenterInstance;
+    if (serviceCenter) {
+      this.settingsController = serviceCenter.getSettingsController();
+    }
     
     // 注册事件监听
     this._registerEventListeners();

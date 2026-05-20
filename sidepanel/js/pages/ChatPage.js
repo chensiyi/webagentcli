@@ -7,8 +7,15 @@ window.Pages = window.Pages || {};
 
 window.Pages.chat = function(container) {
   const { create, clear } = window.DOM;
-  const sessionController = window.SessionController;
-  const chatController = window.ChatController;
+  
+  // 通过 ServiceCenter 获取服务
+  const serviceCenter = window.serviceCenterInstance;
+  if (!serviceCenter) {
+    console.error('[ChatPage] ServiceCenter not available');
+    return;
+  }
+  
+  const sessionController = serviceCenter.getSessionManager();
   
   // 获取当前会话（页面加载时绑定）
   let currentSession = sessionController.getCurrentSession();
@@ -187,16 +194,25 @@ window.Pages.chat = function(container) {
     scrollToBottom(messageList);
     
     // 渲染后检查是否有活动任务，恢复按钮状态（解决切换页面后按钮丢失的问题）
-    const sessionManager = window.sessionManagerInstance;
-    const chatService = window.ChatService;
-    if (sessionManager && chatService && sessionManager.currentSessionId) {
-      const chat = sessionManager.getOrCreateChat(sessionManager.currentSessionId, chatService);
-      if (chat.hasActiveActivities()) {
-        const sendBtn = document.getElementById('send-btn');
-        const stopBtn = document.getElementById('stop-btn');
-        if (sendBtn) sendBtn.style.display = 'none';
-        if (stopBtn) stopBtn.style.display = 'inline-block';
-        console.log('[ChatPage] Buttons restored after render - hasActive:', true);
+    if (serviceCenter && sessionController.currentSessionId) {
+      const settingsController = serviceCenter.getSettingsController();
+      const settings = settingsController.getSettings();
+      
+      if (settings && settings.apiStandard) {
+        const chatService = serviceCenter.createChatService(settings.apiStandard, {
+          endpoint: settings.apiEndpoint,
+          apiKey: settings.apiKey,
+          defaultModel: settings.model || 'default'
+        });
+        
+        const chat = serviceCenter.getChatController(chatService);
+        if (chat.hasActiveActivities()) {
+          const sendBtn = document.getElementById('send-btn');
+          const stopBtn = document.getElementById('stop-btn');
+          if (sendBtn) sendBtn.style.display = 'none';
+          if (stopBtn) stopBtn.style.display = 'inline-block';
+          console.log('[ChatPage] Buttons restored after render - hasActive:', true);
+        }
       }
     }
   }
