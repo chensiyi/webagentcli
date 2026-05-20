@@ -359,16 +359,14 @@ window.Pages.chat = function(container, serviceCenter) {
           return;
         }
         
-        // 通过 SessionManager 删除消息
-        const sessionManager = serviceCenter.getSessionManager();
-        
-        if (!sessionManager.currentSessionId) {
+        // 通过 SessionManager 删除消息（使用已保存的 sessionController）
+        if (!sessionController.currentSessionId) {
           console.error('[ChatPage] Cannot delete message: no active session');
           return;
         }
         
         // 直接调用 SessionManager 的 deleteMessage 方法
-        const deleted = sessionManager.deleteMessage(msg.id);
+        const deleted = sessionController.deleteMessage(msg.id);
         
         if (deleted) {
           window.Toast.success('消息已删除');
