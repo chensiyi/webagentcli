@@ -150,33 +150,8 @@ class ChatEventHandler {
       return;
     }
     
-    // 获取 SessionManager
-    const sessionManager = this.serviceCenter.getSessionManager();
-    
-    // 如果没有当前会话，先创建一个
-    if (!sessionManager.currentSessionId) {
-      console.log('[ChatEventHandler] No current session, creating one...');
-      sessionManager.createSession({ title: '新对话', persist: false });
-    }
-    
-    // 获取 SettingsController 以获取当前配置
-    const settingsController = this.serviceCenter.getSettingsController();
-    const settings = settingsController.getSettings();
-    
-    if (!settings || !settings.apiStandard) {
-      console.error('[ChatEventHandler] Chat service not configured');
-      return;
-    }
-    
-    // 创建或获取 ChatService
-    const chatService = this.serviceCenter.createChatService(settings.apiStandard, {
-      endpoint: settings.apiEndpoint,
-      apiKey: settings.apiKey,
-      defaultModel: settings.model || 'default'
-    });
-    
-    // 获取或创建 ChatController 实例
-    const chat = this.serviceCenter.getChatController(chatService);
+    // 获取当前 Chat 实例（会自动创建 Provider Service 和 ChatController）
+    const chat = this.serviceCenter.getCurrentChat();
     
     // 调用 ChatController 执行业务逻辑
     chat.sendMessage({
@@ -206,25 +181,11 @@ class ChatEventHandler {
       console.log('[ChatEventHandler] Buttons check after 100ms - sendBtn:', sendBtn2?.style.display, 'stopBtn:', stopBtn2?.style.display);
       
       // 如果按钮状态不正确，再次修复
-      const sessionManager = this.serviceCenter.getSessionManager();
-      if (sessionManager && sessionManager.currentSessionId) {
-        const settingsController = this.serviceCenter.getSettingsController();
-        const settings = settingsController.getSettings();
-        
-        if (settings && settings.apiStandard) {
-          const chatService = this.serviceCenter.createChatService(settings.apiStandard, {
-            endpoint: settings.apiEndpoint,
-            apiKey: settings.apiKey,
-            defaultModel: settings.model || 'default'
-          });
-          
-          const chat = sessionManager.getOrCreateChat(sessionManager.currentSessionId, chatService);
-          if (chat.hasActiveActivities()) {
-            if (sendBtn2) sendBtn2.style.display = 'none';
-            if (stopBtn2) stopBtn2.style.display = 'inline-block';
-            console.log('[ChatEventHandler] Buttons restored after delay');
-          }
-        }
+      const chat = this.serviceCenter.getCurrentChat();
+      if (chat && chat.hasActiveActivities()) {
+        if (sendBtn2) sendBtn2.style.display = 'none';
+        if (stopBtn2) stopBtn2.style.display = 'inline-block';
+        console.log('[ChatEventHandler] Buttons restored after delay');
       }
     }, 100);
   }
