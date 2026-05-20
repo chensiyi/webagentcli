@@ -207,10 +207,10 @@ window.Pages.chat = function(container, serviceCenter) {
     scrollToBottom(messageList);
     
     // 渲染后检查是否有活动任务，恢复按钮状态（解决切换页面后按钮丢失的问题）
-    if (serviceCenter && sessionController.currentSessionId) {
+    if (sessionController.currentSessionId) {
       try {
-        // 直接通过 SessionManager 获取 ChatController（不创建新 Service）
-        const chat = sessionController.getOrCreateChat(sessionController.currentSessionId, null);
+        // 直接从 chatCache 获取 ChatController
+        const chat = sessionController.chatCache.get(sessionController.currentSessionId);
         if (chat && chat.hasActiveActivities()) {
           const sendBtn = document.getElementById('send-btn');
           const stopBtn = document.getElementById('stop-btn');
@@ -219,7 +219,7 @@ window.Pages.chat = function(container, serviceCenter) {
           console.log('[ChatPage] Buttons restored after render - hasActive:', true);
         }
       } catch (e) {
-        // 如果获取失败，忽略（可能是 EphemeralChat 或没有配置）
+        // 如果获取失败，忽略
         console.debug('[ChatPage] Skip button state check:', e.message);
       }
     }
@@ -455,17 +455,17 @@ window.Pages.chat = function(container, serviceCenter) {
         flexShrink: '0'  // 防止按钮被压缩
       },
       onClick: () => {
-        // 通过 SessionManager 获取当前会话的 ChatController
+        // 直接从 chatCache 获取当前会话的 ChatController
         if (!sessionController.currentSessionId) {
           console.error('[ChatPage] Cannot stop: no active session');
           return;
         }
         
-        const chat = sessionController.getOrCreateChat(sessionController.currentSessionId, null);
+        const chat = sessionController.chatCache.get(sessionController.currentSessionId);
         if (chat) {
           chat.stopGeneration();
         } else {
-          console.error('[ChatPage] Cannot stop: chat controller not found');
+          console.error('[ChatPage] Cannot stop: chat controller not found in cache');
         }
       }
     });
