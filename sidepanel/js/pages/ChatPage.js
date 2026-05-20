@@ -18,18 +18,15 @@ window.Pages.chat = function(container, serviceCenter) {
   
   console.log('[ChatPage] Initialized, current chat:', currentChat?.id || 'none');
   
-  // 监听会话切换事件，更新 currentChat
-  serviceCenter.getEventBus().on(window.Events.CHAT.CURRENT_SESSION_CHANGED, () => {
-    console.log('[ChatPage] Session changed, updating currentChat');
-    currentChat = serviceCenter.getCurrentChat();
-    render();
-  });
-  
   /**
    * 渲染聊天页面
    */
   function render() {
     console.log('[ChatPage] Render called');
+    
+    // 同步 currentChat（确保使用最新的）
+    currentChat = serviceCenter.getCurrentChat();
+    
     clear(container);
     
     const messages = currentChat ? currentChat.messages : [];
@@ -85,8 +82,8 @@ window.Pages.chat = function(container, serviceCenter) {
             cursor: 'pointer',
             borderRadius: '4px',
             marginBottom: '4px',
-            background: (!currentSession || currentSession.reasoningEffort === effort.value) ? 'var(--primary-color, #4CAF50)' : 'transparent',
-            color: (!currentSession || currentSession.reasoningEffort === effort.value) ? '#fff' : 'inherit',
+            background: (!currentChat || currentChat.session.reasoningEffort === effort.value) ? 'var(--primary-color, #4CAF50)' : 'transparent',
+            color: (!currentChat || currentChat.session.reasoningEffort === effort.value) ? '#fff' : 'inherit',
             textAlign: 'center',
             fontSize: '13px'
           },
@@ -99,12 +96,12 @@ window.Pages.chat = function(container, serviceCenter) {
         
         // 悬停效果
         option.addEventListener('mouseenter', () => {
-          if (!currentSession || currentSession.reasoningEffort !== effort.value) {
+          if (!currentChat || currentChat.session.reasoningEffort !== effort.value) {
             option.style.background = 'rgba(255, 255, 255, 0.1)';
           }
         });
         option.addEventListener('mouseleave', () => {
-          if (!currentSession || currentSession.reasoningEffort !== effort.value) {
+          if (!currentChat || currentChat.session.reasoningEffort !== effort.value) {
             option.style.background = 'transparent';
           }
         });
@@ -113,7 +110,7 @@ window.Pages.chat = function(container, serviceCenter) {
       });
       
       // 主按钮
-      const reasoningEnabled = currentSession ? currentSession.reasoningEnabled : true; // 默认开启
+      const reasoningEnabled = currentChat ? currentChat.session.reasoningEnabled : true; // 默认开启
       const reasoningBtn = create('button', {
         className: `btn ${reasoningEnabled ? 'btn-primary' : 'btn-secondary'}`,
         style: { marginRight: '8px' },
@@ -145,7 +142,7 @@ window.Pages.chat = function(container, serviceCenter) {
         e.preventDefault();
         e.stopPropagation();
         
-        const currentEffort = currentSession ? currentSession.reasoningEffort : 'medium';
+        const currentEffort = currentChat ? currentChat.session.reasoningEffort : 'medium';
         const currentIndex = efforts.findIndex(eff => eff.value === currentEffort);
         let newIndex;
         
@@ -173,10 +170,8 @@ window.Pages.chat = function(container, serviceCenter) {
       text: '+ 新对话',
       onClick: () => {
         // 创建临时会话（不立即持久化）
-        const newSession = sessionController.createSession({ persist: false });
-        
-        // 更新 currentSession
-        currentSession = newSession;
+        const sessionManager = serviceCenter.getSessionManager();
+        sessionManager.createSession({ persist: false });
         render();
       }
     }));
