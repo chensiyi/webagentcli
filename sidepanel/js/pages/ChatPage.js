@@ -207,21 +207,12 @@ window.Pages.chat = function(container, serviceCenter) {
     scrollToBottom(messageList);
     
     // 渲染后检查是否有活动任务，恢复按钮状态（解决切换页面后按钮丢失的问题）
-    if (sessionController.currentSessionId) {
-      try {
-        // 直接从 chatCache 获取 ChatController
-        const chat = sessionController.chatCache.get(sessionController.currentSessionId);
-        if (chat && chat.hasActiveActivities()) {
-          const sendBtn = document.getElementById('send-btn');
-          const stopBtn = document.getElementById('stop-btn');
-          if (sendBtn) sendBtn.style.display = 'none';
-          if (stopBtn) stopBtn.style.display = 'inline-block';
-          console.log('[ChatPage] Buttons restored after render - hasActive:', true);
-        }
-      } catch (e) {
-        // 如果获取失败，忽略
-        console.debug('[ChatPage] Skip button state check:', e.message);
-      }
+    if (currentSession && currentSession.hasActiveActivities()) {
+      const sendBtn = document.getElementById('send-btn');
+      const stopBtn = document.getElementById('stop-btn');
+      if (sendBtn) sendBtn.style.display = 'none';
+      if (stopBtn) stopBtn.style.display = 'inline-block';
+      console.log('[ChatPage] Buttons restored after render - hasActive:', true);
     }
   }
   
@@ -359,13 +350,12 @@ window.Pages.chat = function(container, serviceCenter) {
           return;
         }
         
-        // 通过 SessionManager 删除消息（使用已保存的 sessionController）
+        // 通过 SessionManager 删除消息
         if (!sessionController.currentSessionId) {
           console.error('[ChatPage] Cannot delete message: no active session');
           return;
         }
         
-        // 直接调用 SessionManager 的 deleteMessage 方法
         const deleted = sessionController.deleteMessage(msg.id);
         
         if (deleted) {
