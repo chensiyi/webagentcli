@@ -94,7 +94,7 @@ class SettingsController extends window.IAppSettings {
     console.log('[SettingsController] ChatService reconfigured:', settings.apiStandard);
     
     // 发布服务重新配置事件
-    window.EventBus.emit(window.Events.SERVICE.CONFIGURED, {
+    this.eventBus.emit(window.Events.SERVICE.CONFIGURED, {
       apiStandard: settings.apiStandard,
       endpoint: settings.apiEndpoint
     });
@@ -142,14 +142,14 @@ class SettingsController extends window.IAppSettings {
     Object.assign(this.settings, preservedParams);
     
     // 发布端点变更事件（通知 UI 更新输入框）
-    window.EventBus.emit(window.Events.SETTINGS.API_ENDPOINT_CHANGED, {
+    this.eventBus.emit(window.Events.SETTINGS.API_ENDPOINT_CHANGED, {
       apiStandard,
       endpoint: defaultEndpoint,
       isAutoFilled: true
     });
     
     // 同时发布设置更新事件，确保其他模块（如 ChatService）也能感知到变化
-    window.EventBus.emit(window.Events.SETTINGS.UPDATED, {
+    this.eventBus.emit(window.Events.SETTINGS.UPDATED, {
       updates: { apiStandard, apiEndpoint: defaultEndpoint, ...preservedParams },
       newSettings: this.settings.toJSON()
     });
@@ -215,7 +215,7 @@ class SettingsController extends window.IAppSettings {
       }
       
       // 发布模型加载完成事件
-      window.EventBus.emit(window.Events.SETTINGS.MODELS_LOADED, {
+      this.eventBus.emit(window.Events.SETTINGS.MODELS_LOADED, {
         models,
         count: models.length,
         fromCache: false
@@ -223,7 +223,7 @@ class SettingsController extends window.IAppSettings {
       
       console.log('[SettingsController] Loaded', models.length, 'models from API');
     } catch (error) {
-      window.EventBus.emit(window.Events.SETTINGS.MODELS_ERROR, { error });
+      this.eventBus.emit(window.Events.SETTINGS.MODELS_ERROR, { error });
     } finally {
       // 重置加载按钮状态（通过 Page）
       if (window.Pages && window.Pages.settings) {
@@ -258,7 +258,7 @@ class SettingsController extends window.IAppSettings {
     Object.assign(this.settings, updates);
     
     // 发布更新事件
-    window.EventBus.emit(window.Events.SETTINGS.UPDATED, {
+    this.eventBus.emit(window.Events.SETTINGS.UPDATED, {
       updates,
       oldSettings,
       newSettings: this.settings.toJSON()
@@ -285,7 +285,7 @@ class SettingsController extends window.IAppSettings {
         console.log('[SettingsController] Settings saved successfully to chrome.storage.local');
         
         // 发布保存事件
-        window.EventBus.emit(window.Events.SETTINGS.SAVED, {
+        this.eventBus.emit(window.Events.SETTINGS.SAVED, {
           settings: this.settings.toJSON()
         });
         
@@ -306,7 +306,7 @@ class SettingsController extends window.IAppSettings {
           console.log('[SettingsController] Settings loaded:', this.settings);
           
           // 发布加载事件
-          window.EventBus.emit(window.Events.SETTINGS.LOADED, {
+          this.eventBus.emit(window.Events.SETTINGS.LOADED, {
             settings: this.settings.toJSON()
           });
           
@@ -347,7 +347,7 @@ class SettingsController extends window.IAppSettings {
     this.saveSettings();
     
     // 发布重置事件
-    window.EventBus.emit(window.Events.SETTINGS.RESET);
+    this.eventBus.emit(window.Events.SETTINGS.RESET);
     
     console.log('[SettingsController] Settings reset');
   }
