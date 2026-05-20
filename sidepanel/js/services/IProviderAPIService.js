@@ -93,7 +93,7 @@ class IProviderAPIService {
    * @param {Object} params - 请求参数
    * @returns {Promise<Object>} 标准化响应
    */
-  async chat(params) {
+  chat(params) {
     throw new Error('Method not implemented: chat');
   }
   
@@ -104,7 +104,7 @@ class IProviderAPIService {
    * @param {Function} onComplete - 完成回调
    * @returns {Promise<void>}
    */
-  async chatStream(params, onChunk, onComplete) {
+  chatStream(params, onChunk, onComplete) {
     throw new Error('Method not implemented: chatStream');
   }
   
@@ -122,7 +122,7 @@ class IProviderAPIService {
    * 获取模型列表
    * @returns {Promise<Array>} 模型列表（包含详细信息）
    */
-  async listModels() {
+  listModels() {
     throw new Error('Method not implemented: listModels');
   }
   
@@ -131,7 +131,7 @@ class IProviderAPIService {
    * @param {string} modelId - 模型 ID
    * @returns {Promise<Object>} 模型详细信息
    */
-  async getModelDetails(modelId) {
+  getModelDetails(modelId) {
     throw new Error('Method not implemented: getModelDetails');
   }
 }
