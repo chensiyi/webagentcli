@@ -13,7 +13,9 @@ window.Pages.chat = function(container, serviceCenter) {
     return;
   }
   
+  // 保存 serviceCenter 引用，避免后续重复获取
   const sessionController = serviceCenter.getSessionManager();
+  const settingsController = serviceCenter.getSettingsController();
   
   // 获取当前会话（页面加载时绑定）
   let currentSession = sessionController.getCurrentSession();
@@ -205,7 +207,7 @@ window.Pages.chat = function(container, serviceCenter) {
     scrollToBottom(messageList);
     
     // 渲染后检查是否有活动任务，恢复按钮状态（解决切换页面后按钮丢失的问题）
-    if (sessionController.currentSessionId) {
+    if (serviceCenter && sessionController.currentSessionId) {
       try {
         // 直接通过 SessionManager 获取 ChatController（不创建新 Service）
         const chat = sessionController.getOrCreateChat(sessionController.currentSessionId, null);
@@ -357,14 +359,16 @@ window.Pages.chat = function(container, serviceCenter) {
           return;
         }
         
-        // 通过 SessionManager 删除消息（使用已保存的 sessionController）
-        if (!sessionController.currentSessionId) {
+        // 通过 SessionManager 删除消息
+        const sessionManager = serviceCenter.getSessionManager();
+        
+        if (!sessionManager.currentSessionId) {
           console.error('[ChatPage] Cannot delete message: no active session');
           return;
         }
         
         // 直接调用 SessionManager 的 deleteMessage 方法
-        const deleted = sessionController.deleteMessage(msg.id);
+        const deleted = sessionManager.deleteMessage(msg.id);
         
         if (deleted) {
           window.Toast.success('消息已删除');
@@ -453,18 +457,23 @@ window.Pages.chat = function(container, serviceCenter) {
         flexShrink: '0'  // 防止按钮被压缩
       },
       onClick: () => {
-        // 通过 SessionManager 获取当前会话的 ChatController
-        if (!sessionController.currentSessionId) {
-          console.error('[ChatPage] Cannot stop: no active session');
+        // 通过 serviceCenter 获取 ChatController
+        const settingsController = serviceCenter.getSettingsController();
+        const settings = settingsController.getSettings();
+        
+        if (!settings || !settings.apiStandard) {
+          console.error('[ChatPage] Cannot stop: chat service not configured');
           return;
         }
         
-        const chat = sessionController.getOrCreateChat(sessionController.currentSessionId, null);
-        if (chat) {
-          chat.stopGeneration();
-        } else {
-          console.error('[ChatPage] Cannot stop: chat controller not found');
-        }
+        const chatService = serviceCenter.createChatService(settings.apiStandard, {
+          endpoint: settings.apiEndpoint,
+          apiKey: settings.apiKey,
+          defaultModel: settings.model || 'default'
+        });
+        
+        const chat = serviceCenter.getChatController(chatService);
+        chat.stopGeneration();
       }
     });
     
@@ -533,8 +542,7 @@ window.Pages.chat = function(container, serviceCenter) {
    * 检查当前模型是否支持 reasoning（同步，从缓存读取）
    */
   function checkModelSupportsReasoning() {
-    // 从 Settings 获取当前模型
-    const settingsController = serviceCenter.getSettingsController();
+    // 从 Settings 获取当前模型（使用已保存的 settingsController）
     const settings = settingsController.getSettings();
     if (!settings || !settings.apiEndpoint || !settings.model) return false;
     
@@ -578,9 +586,8 @@ window.Pages.chat = function(container, serviceCenter) {
       currentSession.reasoningEffort = 'off';
     }
     
-    // 保存会话
-    const sessionManager = serviceCenter.getSessionManager();
-    sessionManager.updateSession(currentSession.id, (session) => {
+    // 保存会话（使用已保存的 sessionController）
+    sessionController.updateSession(currentSession.id, (session) => {
       session.reasoningEnabled = currentSession.reasoningEnabled;
       session.reasoningEffort = currentSession.reasoningEffort;
     });
@@ -617,9 +624,8 @@ window.Pages.chat = function(container, serviceCenter) {
       currentSession.reasoningEnabled = true;
     }
     
-    // 保存会话
-    const sessionManager = serviceCenter.getSessionManager();
-    sessionManager.updateSession(currentSession.id, (session) => {
+    // 保存会话（使用已保存的 sessionController）
+    sessionController.updateSession(currentSession.id, (session) => {
       session.reasoningEffort = effort;
       session.reasoningEnabled = currentSession.reasoningEnabled;
     });
