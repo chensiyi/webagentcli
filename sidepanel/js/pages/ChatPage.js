@@ -21,13 +21,21 @@ window.Pages.chat = function(container, serviceCenter) {
   console.log('[ChatPage] Initialized, current session:', currentSession?.id || 'none');
   
   /**
+   * 更新当前会话引用（会话切换时调用）
+   */
+  function updateCurrentSession() {
+    currentSession = sessionController.getCurrentSession();
+    console.log('[ChatPage] Session updated:', currentSession?.id || 'none');
+  }
+  
+  /**
    * 渲染聊天页面
    */
   function render() {
     console.log('[ChatPage] Render called');
     clear(container);
     
-    currentSession = sessionController.getCurrentSession();
+    // 使用已保存的 currentSession 引用，不重新获取
     const messages = currentSession ? currentSession.messages : [];
     
     console.log('[ChatPage] Current session:', currentSession?.id, 'Messages count:', messages.length);
@@ -197,7 +205,7 @@ window.Pages.chat = function(container, serviceCenter) {
     scrollToBottom(messageList);
     
     // 渲染后检查是否有活动任务，恢复按钮状态（解决切换页面后按钮丢失的问题）
-    if (serviceCenter && sessionController.currentSessionId) {
+    if (sessionController.currentSessionId) {
       try {
         // 直接通过 SessionManager 获取 ChatController（不创建新 Service）
         const chat = sessionController.getOrCreateChat(sessionController.currentSessionId, null);
@@ -349,16 +357,14 @@ window.Pages.chat = function(container, serviceCenter) {
           return;
         }
         
-        // 通过 SessionManager 删除消息
-        const sessionManager = serviceCenter.getSessionManager();
-        
-        if (!sessionManager.currentSessionId) {
+        // 通过 SessionManager 删除消息（使用已保存的 sessionController）
+        if (!sessionController.currentSessionId) {
           console.error('[ChatPage] Cannot delete message: no active session');
           return;
         }
         
         // 直接调用 SessionManager 的 deleteMessage 方法
-        const deleted = sessionManager.deleteMessage(msg.id);
+        const deleted = sessionController.deleteMessage(msg.id);
         
         if (deleted) {
           window.Toast.success('消息已删除');
@@ -447,23 +453,18 @@ window.Pages.chat = function(container, serviceCenter) {
         flexShrink: '0'  // 防止按钮被压缩
       },
       onClick: () => {
-        // 通过 serviceCenter 获取 ChatController
-        const settingsController = serviceCenter.getSettingsController();
-        const settings = settingsController.getSettings();
-        
-        if (!settings || !settings.apiStandard) {
-          console.error('[ChatPage] Cannot stop: chat service not configured');
+        // 通过 SessionManager 获取当前会话的 ChatController
+        if (!sessionController.currentSessionId) {
+          console.error('[ChatPage] Cannot stop: no active session');
           return;
         }
         
-        const chatService = serviceCenter.createChatService(settings.apiStandard, {
-          endpoint: settings.apiEndpoint,
-          apiKey: settings.apiKey,
-          defaultModel: settings.model || 'default'
-        });
-        
-        const chat = serviceCenter.getChatController(chatService);
-        chat.stopGeneration();
+        const chat = sessionController.getOrCreateChat(sessionController.currentSessionId, null);
+        if (chat) {
+          chat.stopGeneration();
+        } else {
+          console.error('[ChatPage] Cannot stop: chat controller not found');
+        }
       }
     });
     
