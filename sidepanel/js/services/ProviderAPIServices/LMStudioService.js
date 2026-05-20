@@ -222,104 +222,113 @@ class LMStudioService {
   /**
    * 发送聊天请求（非流式）
    */
-  async chat(params) {
+  chat(params) {
     const url = this.buildUrl('/chat');
     const headers = this.buildHeaders();
     const body = this.buildRequestBody({ ...params, stream: false });
     
     this.abortController = new AbortController();
     
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: this.abortController.signal
-      });
-      
+    return fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: this.abortController.signal
+    })
+    .then(response => {
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`LM Studio API error: ${response.status} - ${errorText}`);
+        return response.text().then(errorText => {
+          throw new Error(`LM Studio API error: ${response.status} - ${errorText}`);
+        });
       }
-      
-      const data = await response.json();
+      return response.json();
+    })
+    .then(data => {
       return this.parseResponse(data);
-    } catch (error) {
+    })
+    .catch(error => {
       if (error.name === 'AbortError') {
         console.log('[LMStudioService] Request cancelled');
       } else {
         console.error('[LMStudioService] Chat error:', error);
         throw error;
       }
-    } finally {
+    })
+    .finally(() => {
       this.abortController = null;
-    }
+    });
   }
 
   /**
    * 发送流式聊天请求
    */
-  async chatStream(params, onChunk, onComplete) {
+  chatStream(params, onChunk, onComplete) {
     const url = this.buildUrl('/chat');
     const headers = this.buildHeaders();
     const body = this.buildRequestBody({ ...params, stream: true });
     
     this.abortController = new AbortController();
     
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: this.abortController.signal
-      });
-      
+    return fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: this.abortController.signal
+    })
+    .then(response => {
       if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`LM Studio API error: ${response.status} - ${errorText}`);
+        return response.text().then(errorText => {
+          throw new Error(`LM Studio API error: ${response.status} - ${errorText}`);
+        });
       }
       
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
       
-      while (true) {
-        const { done, value } = await reader.read();
-        
-        if (done) {
-          if (onComplete) onComplete();
-          break;
-        }
-        
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop();
-        
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || trimmed === 'data: [DONE]') continue;
+      const processStream = () => {
+        return reader.read().then(({ done, value }) => {
+          if (done) {
+            if (onComplete) onComplete();
+            return;
+          }
           
-          if (trimmed.startsWith('data: ')) {
-            try {
-              const json = JSON.parse(trimmed.slice(6));
-              const parsed = this.parseStreamChunk(json);
-              if (parsed && onChunk) onChunk(parsed);
-            } catch (e) {
-              console.warn('[LMStudioService] Failed to parse chunk:', e);
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+          
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || trimmed === 'data: [DONE]') continue;
+            
+            if (trimmed.startsWith('data: ')) {
+              try {
+                const json = JSON.parse(trimmed.slice(6));
+                const parsed = this.parseStreamChunk(json);
+                if (parsed && onChunk) onChunk(parsed);
+              } catch (e) {
+                console.warn('[LMStudioService] Failed to parse chunk:', e);
+              }
             }
           }
-        }
-      }
-    } catch (error) {
+          
+          return processStream();
+        });
+      };
+      
+      return processStream();
+    })
+    .catch(error => {
       if (error.name === 'AbortError') {
         console.log('[LMStudioService] Stream cancelled');
       } else {
         console.error('[LMStudioService] Stream error:', error);
         throw error;
       }
-    } finally {
+    })
+    .finally(() => {
       this.abortController = null;
-    }
+    });
   }
 
   /**
@@ -335,25 +344,32 @@ class LMStudioService {
   /**
    * 列出可用模型
    */
-  async listModels() {
+  listModels() {
     // 优先尝试 LM Studio v1 API (0.4.0+), 失败则回退到 OpenAI 兼容模式
     const endpoints = [
       '/api/v1/models', // Native v1 API
       '/v1/models'      // OpenAI compatible mode
     ];
 
-    for (const path of endpoints) {
-      try {
-        const url = this.config.endpoint.replace(/\/$/, '') + path;
-        const response = await fetch(url, {
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' }
-        });
+    const tryEndpoint = (index) => {
+      if (index >= endpoints.length) {
+        return Promise.reject(new Error('Failed to fetch models from any LM Studio endpoint'));
+      }
 
-        if (!response.ok) continue;
-
-        const result = await response.json();
-        
+      const path = endpoints[index];
+      const url = this.config.endpoint.replace(/\/$/, '') + path;
+      
+      return fetch(url, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      })
+      .then(response => {
+        if (!response.ok) {
+          return tryEndpoint(index + 1);
+        }
+        return response.json();
+      })
+      .then(result => {
         // 处理不同版本的响应格式
         let modelsArray = [];
         if (result.data && Array.isArray(result.data)) {
@@ -399,13 +415,16 @@ class LMStudioService {
             };
           });
         }
-      } catch (error) {
+        
+        return tryEndpoint(index + 1);
+      })
+      .catch(error => {
         console.warn(`[LMStudioService] Failed to fetch from ${path}:`, error);
-        continue;
-      }
-    }
-    
-    throw new Error('Failed to fetch models from any LM Studio endpoint');
+        return tryEndpoint(index + 1);
+      });
+    };
+
+    return tryEndpoint(0);
   }
 
   /**
@@ -413,11 +432,11 @@ class LMStudioService {
    * @param {string} modelId - 模型 ID
    * @returns {Promise<Object>} 模型详细信息
    */
-  async getModelDetails(modelId) {
-    try {
-      // LM Studio 没有单独的模型详情 API
-      // 通过 listModels 获取所有模型，然后查找指定模型
-      const models = await this.listModels();
+  getModelDetails(modelId) {
+    // LM Studio 没有单独的模型详情 API
+    // 通过 listModels 获取所有模型，然后查找指定模型
+    return this.listModels()
+    .then(models => {
       const model = models.find(m => m.id === modelId);
       
       if (!model) {
@@ -426,16 +445,12 @@ class LMStudioService {
       }
       
       return model;
-    } catch (error) {
+    })
+    .catch(error => {
       console.error('[LMStudioService] Failed to get model details:', error);
       return null;
-    }
+    });
   }
 }
 
 window.LMStudioService = LMStudioService;
-
-// 自注册到 ServiceRegistry
-if (window.ServiceRegistry) {
-  window.ServiceRegistry.registerProvider('lm-studio', LMStudioService);
-}

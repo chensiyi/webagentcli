@@ -139,99 +139,102 @@ class OpenRouterService extends OpenAIService {
    * 列出可用模型
    * OpenRouter 使用不同的端点和数据结构，提供更丰富的模型详情
    */
-  async listModels() {
+  listModels() {
     // OpenRouter 使用不同的模型列表端点
     const modelsEndpoint = this.config.endpoint.replace(/\/$/, '') + '/models';
     
-    const response = await fetch(modelsEndpoint, {
+    return fetch(modelsEndpoint, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${this.config.apiKey}`
       }
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`HTTP ${response.status}: ${errorText.substring(0, 200)}`);
-    }
-    
-    const result = await response.json();
-    
-    if (result.data && Array.isArray(result.data)) {
-      return result.data.map(model => {
-        // 提取 pricing 信息
-        const pricing = model.pricing || {};
-        const promptPrice = pricing.prompt ? parseFloat(pricing.prompt) : null;
-        const completionPrice = pricing.completion ? parseFloat(pricing.completion) : null;
-        
-        // 提取支持的参数
-        const supportedParams = model.supported_parameters || [];
-        
-        // 调试：检查 free 模型的 supported_parameters
-        if (model.id === 'openrouter/free') {
-          console.log('[OpenRouterService] openrouter/free supported_parameters:', supportedParams);
+    })
+      .then(response => {
+        if (!response.ok) {
+          return response.text().then(errorText => {
+            throw new Error(`HTTP ${response.status}: ${errorText.substring(0, 200)}`);
+          });
+        }
+        return response.json();
+      })
+      .then(result => {
+        if (result.data && Array.isArray(result.data)) {
+          return result.data.map(model => {
+            // 提取 pricing 信息
+            const pricing = model.pricing || {};
+            const promptPrice = pricing.prompt ? parseFloat(pricing.prompt) : null;
+            const completionPrice = pricing.completion ? parseFloat(pricing.completion) : null;
+            
+            // 提取支持的参数
+            const supportedParams = model.supported_parameters || [];
+            
+            // 调试：检查 free 模型的 supported_parameters
+            if (model.id === 'openrouter/free') {
+              console.log('[OpenRouterService] openrouter/free supported_parameters:', supportedParams);
+            }
+            
+            return {
+              id: model.id,
+              name: model.name || model.id,
+              created: model.created || null,
+              owned_by: model.owned_by || model.owner || 'openrouter',
+              
+              // 核心能力参数
+              context_length: model.context_length || null,
+              max_output_tokens: model.max_output_tokens || null,
+              modality: model.architecture?.modality || 'text->text',
+              
+              // 价格信息 (每百万 tokens)
+              pricing: {
+                prompt: promptPrice,
+                completion: completionPrice,
+                request: pricing.request || null,
+                image: pricing.image || null
+              },
+              
+              // 特性支持
+              supports_reasoning: supportedParams.includes('reasoning'),
+              supports_tools: supportedParams.includes('tools') || supportedParams.includes('tool_use'),
+              supports_function_calling: supportedParams.includes('function_calling'),
+              supports_json_mode: supportedParams.includes('json_mode'),
+              supports_speculative_decoding: supportedParams.includes('speculative_decoding'),
+              
+              // 描述与链接
+              description: model.description || null,
+              top_provider: model.top_provider || null,
+              link: model.link || `https://openrouter.ai/models/${model.id}`,
+              
+              // 原始数据备份
+              _raw: model
+            };
+          });
         }
         
-        return {
-          id: model.id,
-          name: model.name || model.id,
-          created: model.created || null,
-          owned_by: model.owned_by || model.owner || 'openrouter',
-          
-          // 核心能力参数
-          context_length: model.context_length || null,
-          max_output_tokens: model.max_output_tokens || null,
-          modality: model.architecture?.modality || 'text->text',
-          
-          // 价格信息 (每百万 tokens)
-          pricing: {
-            prompt: promptPrice,
-            completion: completionPrice,
-            request: pricing.request || null,
-            image: pricing.image || null
-          },
-          
-          // 特性支持
-          supports_reasoning: supportedParams.includes('reasoning'),
-          supports_tools: supportedParams.includes('tools') || supportedParams.includes('tool_use'),
-          supports_function_calling: supportedParams.includes('function_calling'),
-          supports_json_mode: supportedParams.includes('json_mode'),
-          supports_speculative_decoding: supportedParams.includes('speculative_decoding'),
-          
-          // 描述与链接
-          description: model.description || null,
-          top_provider: model.top_provider || null,
-          link: model.link || `https://openrouter.ai/models/${model.id}`,
-          
-          // 原始数据备份
-          _raw: model
-        };
+        return [];
       });
-    }
-    
-    return [];
   }
 
   /**
    * 获取单个模型的详细信息
    * OpenRouter 模型详情在 listModels 中已包含完整信息
    */
-  async getModelDetails(modelId) {
-    try {
-      // 通过 listModels 获取所有模型，然后查找指定模型
-      const models = await this.listModels();
-      const model = models.find(m => m.id === modelId);
-      
-      if (!model) {
-        console.warn(`[OpenRouterService] Model ${modelId} not found`);
+  getModelDetails(modelId) {
+    // 通过 listModels 获取所有模型，然后查找指定模型
+    return this.listModels()
+      .then(models => {
+        const model = models.find(m => m.id === modelId);
+        
+        if (!model) {
+          console.warn(`[OpenRouterService] Model ${modelId} not found`);
+          return null;
+        }
+        
+        return model;
+      })
+      .catch(error => {
+        console.error('[OpenRouterService] Failed to get model details:', error);
         return null;
-      }
-      
-      return model;
-    } catch (error) {
-      console.error('[OpenRouterService] Failed to get model details:', error);
-      return null;
-    }
+      });
   }
 }
 
