@@ -42,7 +42,7 @@ class EphemeralChat extends window.ChatController {
   }
   
   /**
-   * 发送消息（触发真实会话创建）
+   * 发送消息（触发真实会话创建并原地替换）
    * @param {Object} params - 发送参数
    * @returns {Promise<Object>} 结果
    */
@@ -55,44 +55,111 @@ class EphemeralChat extends window.ChatController {
       persist: false  // 稍后由第一条消息触发持久化
     });
     
-    // 2. 获取真实的 ChatController 实例（会自动缓存）
-    const realChat = this.sessionManager.getOrCreateChat(session.id, this.chatService);
+    console.log('[EphemeralChat] Real session created:', session.id);
     
-    // 3. 委托给真实 ChatController 处理
-    return await realChat.sendMessage(params);
+    // 2. 原地替换当前实例的所有属性为真实 ChatController 的属性
+    this._transformToRealChat(session);
+    
+    // 3. 调用真实的 sendMessage
+    return await window.ChatController.prototype.sendMessage.call(this, params);
   }
   
   /**
-   * 其他方法均为空操作或抛出错误（因为这是临时实例）
+   * 将 EphemeralChat 原地转换为真实的 ChatController
+   * @param {Session} session - 真实的会话对象
+   */
+  _transformToRealChat(session) {
+    console.log('[EphemeralChat] Transforming to real ChatController...');
+    
+    // 替换 session
+    this.session = session;
+    
+    // 初始化运行时状态
+    this.messageQueue = [];
+    this.taskQueue = [];
+    this.activeStream = null;
+    this.isStreaming = false;
+    this.isProcessing = false;
+    
+    // 移除临时标记
+    this.isEphemeral = false;
+    
+    console.log('[EphemeralChat] Transformed successfully, session id:', this.session.id);
+  }
+  
+  /**
+   * 停止生成（转换前不可用）
    */
   stopGeneration() {
-    console.warn('[EphemeralChat] Cannot stop generation on ephemeral chat');
+    if (this.isEphemeral) {
+      console.warn('[EphemeralChat] Cannot stop generation on ephemeral chat');
+      return;
+    }
+    // 转换后调用父类方法
+    return window.ChatController.prototype.stopGeneration.call(this);
   }
   
+  /**
+   * 清空消息（转换前不可用）
+   */
   clearMessages() {
-    console.warn('[EphemeralChat] Cannot clear messages on ephemeral chat');
+    if (this.isEphemeral) {
+      console.warn('[EphemeralChat] Cannot clear messages on ephemeral chat');
+      return;
+    }
+    // 转换后调用父类方法
+    return window.ChatController.prototype.clearMessages.call(this);
   }
   
-  deleteMessage() {
-    console.warn('[EphemeralChat] Cannot delete message on ephemeral chat');
-    return false;
+  /**
+   * 删除消息（转换前不可用）
+   */
+  deleteMessage(messageId) {
+    if (this.isEphemeral) {
+      console.warn('[EphemeralChat] Cannot delete message on ephemeral chat');
+      return false;
+    }
+    // 转换后调用父类方法
+    return window.ChatController.prototype.deleteMessage.call(this, messageId);
   }
   
+  /**
+   * 检查是否有活跃活动
+   */
   hasActiveActivities() {
-    return false;
+    if (this.isEphemeral) {
+      return false;
+    }
+    // 转换后调用父类方法
+    return window.ChatController.prototype.hasActiveActivities.call(this);
   }
   
+  /**
+   * 获取队列状态
+   */
   getQueueStatus() {
-    return {
-      isStreaming: false,
-      messageQueueLength: 0,
-      taskQueueLength: 0,
-      hasActive: false
-    };
+    if (this.isEphemeral) {
+      return {
+        isStreaming: false,
+        messageQueueLength: 0,
+        taskQueueLength: 0,
+        hasActive: false
+      };
+    }
+    // 转换后调用父类方法
+    return window.ChatController.prototype.getQueueStatus.call(this);
   }
   
-  setService() {
-    console.warn('[EphemeralChat] Cannot set service on ephemeral chat');
+  /**
+   * 设置服务（转换前不可用）
+   */
+  setService(chatService) {
+    if (this.isEphemeral) {
+      console.warn('[EphemeralChat] Cannot set service on ephemeral chat');
+      return;
+    }
+    // 转换后调用父类方法
+    return window.ChatController.prototype.setService.call(this, chatService);
   }
 }
 
