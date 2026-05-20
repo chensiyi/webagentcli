@@ -1,6 +1,7 @@
 // 主应用
 (function() {
   let currentPage = 'chat';
+  let serviceCenter = null; // ServiceCenter 实例（在 init 中创建）
   
   const pages = [
     { id: 'chat', icon: '💬', label: '对话' },
@@ -20,8 +21,7 @@
     }
     
     // 创建 ServiceCenter 实例（管理所有服务）
-    const serviceCenter = new window.ServiceCenter(window.EventBus);
-    window.serviceCenterInstance = serviceCenter;
+    serviceCenter = new window.ServiceCenter(window.EventBus);
     
     const root = document.getElementById('root');
     
@@ -186,7 +186,7 @@
     tooltips.forEach(tooltip => tooltip.remove());
     
     currentPage = pageId;
-    renderPage(document.getElementById('root'), window.serviceCenterInstance);
+    renderPage(document.getElementById('root'), serviceCenter);
   }
   
   // 暴露 navigateTo 方法
