@@ -142,15 +142,17 @@ class ISessionManager {
   /**
    * 获取当前会话的 Chat 实例
    * @param {IChatService} chatService - 聊天服务实例
-   * @returns {Chat|null} Chat 实例或 null
+   * @returns {Chat|EphemeralChat} Chat 实例（如果没有会话则返回临时 Chat）
    */
   getCurrentChat(chatService) {
-    if (!this.currentSessionId) {
-      return null;
-    }
-    
     if (!chatService) {
       throw new Error('ChatService is required');
+    }
+    
+    // 如果没有当前会话，返回临时 Chat 占位符
+    if (!this.currentSessionId) {
+      console.log('[ISessionManager] No current session, returning EphemeralChat');
+      return new window.EphemeralChat(this, chatService, this.eventBus);
     }
     
     return this.getOrCreateChat(this.currentSessionId, chatService);

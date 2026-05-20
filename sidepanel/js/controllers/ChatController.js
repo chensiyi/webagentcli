@@ -20,20 +20,18 @@ class ChatController {
   
   /**
    * 获取当前 Chat 实例
-   * @returns {Chat|null}
+   * @returns {Chat|EphemeralChat} Chat 实例（如果没有会话则返回临时 Chat）
    */
   _getCurrentChat() {
     const sessionManager = window.sessionManagerInstance;
     const chatService = window.ChatService;
     
     if (!sessionManager) {
-      console.warn('[ChatController] SessionManager not available');
-      return null;
+      throw new Error('SessionManager not available');
     }
     
     if (!chatService) {
-      console.warn('[ChatController] ChatService not configured');
-      return null;
+      throw new Error('ChatService not configured');
     }
     
     return sessionManager.getCurrentChat(chatService);
@@ -49,10 +47,6 @@ class ChatController {
    */
   async sendMessage(params) {
     const chat = this._getCurrentChat();
-    if (!chat) {
-      throw new Error('No active chat session');
-    }
-    
     return await chat.sendMessage(params);
   }
   
