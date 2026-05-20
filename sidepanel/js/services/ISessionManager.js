@@ -150,8 +150,8 @@ class ISessionManager {
     }
     
     // 如果没有当前会话，返回临时 Chat 占位符
+    // 注意：sendMessage() 会直接调用 getOrCreateChat()，不会走这里
     if (!this.currentSessionId) {
-      console.log('[ISessionManager] No current session, returning EphemeralChat');
       return new window.EphemeralChat(this, chatService, this.eventBus);
     }
     

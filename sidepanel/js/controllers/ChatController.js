@@ -46,7 +46,25 @@ class ChatController {
    * @returns {Promise<Object>} 结果
    */
   async sendMessage(params) {
-    const chat = this._getCurrentChat();
+    const sessionManager = window.sessionManagerInstance;
+    const chatService = window.ChatService;
+    
+    if (!sessionManager) {
+      throw new Error('SessionManager not available');
+    }
+    
+    if (!chatService) {
+      throw new Error('ChatService not configured');
+    }
+    
+    // 如果没有当前会话，先创建一个
+    if (!sessionManager.currentSessionId) {
+      console.log('[ChatController] No current session, creating one...');
+      sessionManager.createSession({ title: '新对话', persist: false });
+    }
+    
+    // 获取或创建真实的 Chat 实例
+    const chat = sessionManager.getOrCreateChat(sessionManager.currentSessionId, chatService);
     return await chat.sendMessage(params);
   }
   
