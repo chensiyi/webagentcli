@@ -384,7 +384,8 @@ class SessionController extends window.ISessionManager {
       return false;
     }
     
-    const result = session.deleteMessage(messageId);
+    // Session 使用 removeMessage 方法
+    const result = session.removeMessage(messageId);
     if (result) {
       this._saveSessions();
       this.eventBus.emit(window.Events.CHAT.MESSAGE_DELETED, { messageId });
