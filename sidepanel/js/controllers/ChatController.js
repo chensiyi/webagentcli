@@ -148,10 +148,9 @@ class ChatController extends window.IChat {
           msg.content = assistantMsg.content;
         });
         
-        // 发出消息更新事件
+        // 发出消息更新事件（直接传递 message 对象）
         this.eventBus.emit(window.Events.CHAT.MESSAGE_UPDATED, {
-          messageId: assistantMsg.id,
-          updater: (msg) => { msg.content = assistantMsg.content; }
+          message: assistantMsg
         });
       }
       

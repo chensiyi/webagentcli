@@ -32,25 +32,15 @@ class ChatEventHandler {
     
     // 监听消息更新事件（错误更新等）
     this.eventBus.on(window.Events.CHAT.MESSAGE_UPDATED, (data) => {
-      const { messageId, updater } = data;
-      console.log('[ChatEventHandler] MESSAGE_UPDATED:', messageId);
-      
-      // 获取当前会话中的消息并应用 updater
-      const sessionManager = this.serviceCenter.getSessionManager();
-      const session = sessionManager.getCurrentSession();
-      if (!session) return;
-      
-      const message = session.messages.find(m => m.id === messageId);
+      const { message } = data;
       if (!message) return;
       
-      if (typeof updater === 'function') {
-        updater(message);
-      }
+      console.log('[ChatEventHandler] MESSAGE_UPDATED:', message.id);
       
-      // 更新 UI
-      this._updateMessageContent(messageId, message.content);
+      // 直接更新 UI
+      this._updateMessageContent(message.id, message.content);
       if (message.reasoning_content) {
-        this._updateMessageReasoning(messageId, message.reasoning_content);
+        this._updateMessageReasoning(message.id, message.reasoning_content);
       }
     });
     
@@ -125,28 +115,17 @@ class ChatEventHandler {
    * 处理消息更新（流式更新或错误更新）
    */
   _handleMessageUpdated(data) {
-    const { messageId, updater } = data;
-    console.log('[ChatEventHandler] Message updated:', messageId);
-    
-    // 获取当前会话中的消息
-    const sessionManager = this.serviceCenter.getSessionManager();
-    const session = sessionManager.getCurrentSession();
-    if (!session) return;
-    
-    const message = session.messages.find(m => m.id === messageId);
+    const { message } = data;
     if (!message) return;
     
-    // 应用 updater 函数
-    if (typeof updater === 'function') {
-      updater(message);
-    }
+    console.log('[ChatEventHandler] Message updated:', message.id);
     
-    // 更新 UI 中的消息内容
-    this._updateMessageContent(messageId, message.content);
+    // 直接更新 UI
+    this._updateMessageContent(message.id, message.content);
     
     // 如果有推理内容，也更新
     if (message.reasoning_content) {
-      this._updateMessageReasoning(messageId, message.reasoning_content);
+      this._updateMessageReasoning(message.id, message.reasoning_content);
     }
   }
   

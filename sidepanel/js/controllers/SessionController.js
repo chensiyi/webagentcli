@@ -336,7 +336,11 @@ class SessionController extends window.ISessionManager {
     const result = session.updateMessage(messageId, updater);
     if (result) {
       this._saveSessions();
-      this.eventBus.emit(window.Events.CHAT.MESSAGE_UPDATED, { messageId, updater });
+      // 获取更新后的 message 对象并传递
+      const message = session.messages.find(m => m.id === messageId);
+      if (message) {
+        this.eventBus.emit(window.Events.CHAT.MESSAGE_UPDATED, { message });
+      }
     }
     return result;
   }
