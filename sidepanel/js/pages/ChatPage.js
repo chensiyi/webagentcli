@@ -457,23 +457,18 @@ window.Pages.chat = function(container, serviceCenter) {
         flexShrink: '0'  // 防止按钮被压缩
       },
       onClick: () => {
-        // 通过 serviceCenter 获取 ChatController
-        const settingsController = serviceCenter.getSettingsController();
-        const settings = settingsController.getSettings();
-        
-        if (!settings || !settings.apiStandard) {
-          console.error('[ChatPage] Cannot stop: chat service not configured');
+        // 通过 SessionManager 获取当前会话的 ChatController
+        if (!sessionController.currentSessionId) {
+          console.error('[ChatPage] Cannot stop: no active session');
           return;
         }
         
-        const chatService = serviceCenter.createChatService(settings.apiStandard, {
-          endpoint: settings.apiEndpoint,
-          apiKey: settings.apiKey,
-          defaultModel: settings.model || 'default'
-        });
-        
-        const chat = serviceCenter.getChatController(chatService);
-        chat.stopGeneration();
+        const chat = sessionController.getOrCreateChat(sessionController.currentSessionId, null);
+        if (chat) {
+          chat.stopGeneration();
+        } else {
+          console.error('[ChatPage] Cannot stop: chat controller not found');
+        }
       }
     });
     
