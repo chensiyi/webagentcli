@@ -27,9 +27,6 @@ class SessionController extends window.ISessionManager {
     // Chat 实例缓存：sessionId -> Chat
     this.chatCache = new Map();
     
-    // 初始化
-    this._loadSessions();
-    
     console.log('[SessionController] Initialized');
   }
 
@@ -417,27 +414,40 @@ class SessionController extends window.ISessionManager {
   }
 
   /**
-   * 从存储加载会话
-   * @private
+   * 从存储加载会话（公开异步方法）
+   * @returns {Promise<void>}
    */
-  _loadSessions() {
-    this.storage.get(['sessions', 'currentSessionId'], (result) => {
-      if (result.sessions) {
-        const sessionsData = result.sessions;
-        this.sessions.clear();
-        
-        Object.values(sessionsData).forEach(sessionData => {
-          const session = new window.Session(sessionData);
-          this.sessions.set(session.id, session);
-        });
-        
-        console.log('[SessionController] Loaded sessions:', this.sessions.size);
-      }
-      
-      if (result.currentSessionId) {
-        this.currentSessionId = result.currentSessionId;
-        console.log('[SessionController] Current session:', this.currentSessionId);
-      }
+  async loadSessionsFromStorage() {
+    return new Promise((resolve, reject) => {
+      this.storage.get(['sessions', 'currentSessionId'], (result) => {
+        try {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+            return;
+          }
+          
+          if (result.sessions) {
+            const sessionsData = result.sessions;
+            this.sessions.clear();
+            
+            Object.values(sessionsData).forEach(sessionData => {
+              const session = new window.Session(sessionData);
+              this.sessions.set(session.id, session);
+            });
+            
+            console.log('[SessionController] Loaded sessions:', this.sessions.size);
+          }
+          
+          if (result.currentSessionId) {
+            this.currentSessionId = result.currentSessionId;
+            console.log('[SessionController] Current session:', this.currentSessionId);
+          }
+          
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
+      });
     });
   }
 
