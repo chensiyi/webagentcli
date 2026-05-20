@@ -1,4 +1,6 @@
 /**
+ * ⚠️ TODO: 待清理 - EphemeralChat 设计过于复杂，将用简单懒加载替代
+ * 
  * EphemeralChat - 临时聊天上下文（轻量级占位符）
  * 
  * 设计目的：

@@ -17,7 +17,7 @@ class ServiceCenter {
     this.storageController = null;
     this.scriptsController = null;
     this.currentProviderService = null; // 当前活跃的 Provider API 服务
-    this.chatControllers = new Map(); // sessionId -> ChatController (IChat)
+    this.chatController = null; // ChatController 单例
   }
 
   /**
@@ -132,63 +132,15 @@ class ServiceCenter {
   }
 
   /**
-   * 获取当前 Chat 实例（IChat 接口）
-   * @returns {IChat} Chat 实例
+   * 获取当前 Chat 实例（单例）
+   * @returns {ChatController} ChatController 实例
    */
   getCurrentChat() {
-    // 获取当前 Provider Service
-    const providerService = this.getCurrentProviderService();
-    
-    // 获取当前会话 ID
-    const sessionManager = this.getSessionManager();
-    const sessionId = sessionManager.currentSessionId;
-    
-    if (!sessionId) {
-      // 如果没有会话，返回 EphemeralChat
-      return new window.EphemeralChat(sessionManager, providerService, this.eventBus);
+    if (!this.chatController) {
+      this.chatController = new window.ChatController(this);
+      console.log('[ServiceCenter] ChatController initialized');
     }
-    
-    // 检查缓存
-    if (this.chatControllers.has(sessionId)) {
-      const cachedChat = this.chatControllers.get(sessionId);
-      if (cachedChat.getService() !== providerService) {
-        cachedChat.setService(providerService);
-      }
-      return cachedChat;
-    }
-    
-    // 创建新的 ChatController
-    const session = sessionManager.getCurrentSession();
-    if (!session) {
-      // Session 不存在（可能已被删除），当作没有当前会话处理
-      console.warn('[ServiceCenter] Session not found:', sessionId, ', falling back to EphemeralChat');
-      sessionManager.currentSessionId = null; // 清理无效的 sessionId
-      return new window.EphemeralChat(sessionManager, providerService, this.eventBus);
-    }
-    
-    const chatController = new window.ChatController(session, providerService, sessionManager, this.eventBus);
-    this.chatControllers.set(sessionId, chatController);
-    
-    console.log('[ServiceCenter] Created ChatController for session:', sessionId);
-    return chatController;
-  }
-
-  /**
-   * 清理非活动的 ChatController
-   * @param {string} sessionId - 要清理的会话 ID
-   */
-  cleanupChatController(sessionId) {
-    if (this.chatControllers.has(sessionId)) {
-      const chat = this.chatControllers.get(sessionId);
-      
-      // 检查是否有活动任务
-      if (!chat.hasActiveActivities()) {
-        this.chatControllers.delete(sessionId);
-        console.log('[ServiceCenter] Cleaned up inactive ChatController for session:', sessionId);
-      } else {
-        console.log('[ServiceCenter] Skip cleanup: ChatController still has active tasks:', sessionId);
-      }
-    }
+    return this.chatController;
   }
 
   /**
