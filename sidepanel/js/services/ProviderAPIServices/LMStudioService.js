@@ -91,16 +91,15 @@ class LMStudioService {
       baseBody.top_p = params.top_p;
     }
     
-    // 支持推理/思考模式 - 根据 LM Studio 文档
-    // reasoning 字段应该是一个对象：{ effort: "low" | "medium" | "high" }
-    // 如果不启用 reasoning，则不传递此字段
+    // 支持推理/思考模式 - 根据 LM Studio 官方文档
+    // reasoning 字段是字符串: "off" | "low" | "medium" | "high" | "on"
     if (params.reasoningEnabled === true) {
       // 如果启用了推理，使用 reasoningEffort
-      baseBody.reasoning = {
-        effort: params.reasoningEffort || 'medium'
-      };
+      baseBody.reasoning = params.reasoningEffort || 'medium';
+    } else {
+      // 关闭推理，设为 'off'
+      baseBody.reasoning = 'off';
     }
-    // 如果 reasoningEnabled 为 false，不添加 reasoning 字段
     
     console.log('[LMStudioService] Request body reasoning:', {
       reasoningEnabled: params.reasoningEnabled,
