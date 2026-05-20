@@ -92,7 +92,7 @@ class ChatEventHandler {
     });
 
     // 监听消息删除事件，更新 UI
-    this.eventBus.on('MESSAGE_DELETED', (data) => {
+    this.eventBus.on(window.Events.CHAT.MESSAGE_DELETED, (data) => {
       console.log('[ChatEventHandler] MESSAGE_DELETED:', data);
       if (window.Pages && window.Pages.chat) {
         window.Pages.chat.render();
