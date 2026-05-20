@@ -13,49 +13,29 @@ window.Pages.chat = function(container, serviceCenter) {
     return;
   }
   
-  // 保存 serviceCenter 引用，避免后续重复获取
-  const sessionController = serviceCenter.getSessionManager();
-  const settingsController = serviceCenter.getSettingsController();
+  // 获取当前 ChatController
+  const chatService = serviceCenter.getCurrentChatService();
+  let currentChat = serviceCenter.getChatController(chatService);
   
-  // 获取当前会话和 ChatController（页面加载时绑定）
-  let currentSession = sessionController.getCurrentSession();
-  let currentChat = null;
+  console.log('[ChatPage] Initialized, current chat:', currentChat?.id || 'none');
   
-  // 如果有当前会话，获取对应的 ChatController
-  if (currentSession && sessionController.currentSessionId) {
-    currentChat = sessionController.chatCache.get(sessionController.currentSessionId);
-  }
-  
-  console.log('[ChatPage] Initialized, current session:', currentSession?.id || 'none', ', chat:', !!currentChat);
-  
-  /**
-   * 更新当前会话引用（会话切换时调用）
-   */
-  function updateCurrentSession() {
-    currentSession = sessionController.getCurrentSession();
-    console.log('[ChatPage] Session updated:', currentSession?.id || 'none');
-  }
+  // 监听会话切换事件，更新 currentChat
+  serviceCenter.getEventBus().on(window.Events.CHAT.CURRENT_SESSION_CHANGED, () => {
+    console.log('[ChatPage] Session changed, updating currentChat');
+    currentChat = serviceCenter.getChatController(chatService);
+    render();
+  });
   
   /**
    * 渲染聊天页面
    */
   function render() {
     console.log('[ChatPage] Render called');
-    
-    // 同步 currentSession 和 currentChat
-    currentSession = sessionController.getCurrentSession();
-    if (currentSession && sessionController.currentSessionId) {
-      currentChat = sessionController.chatCache.get(sessionController.currentSessionId);
-    } else {
-      currentChat = null;
-    }
-    
     clear(container);
     
-    // 使用已保存的 currentSession 引用，不重新获取
-    const messages = currentSession ? currentSession.messages : [];
+    const messages = currentChat ? currentChat.messages : [];
     
-    console.log('[ChatPage] Current session:', currentSession?.id, 'Messages count:', messages.length);
+    console.log('[ChatPage] Current session:', currentChat.id, 'Messages count:', messages.length);
     
     const page = create('div', { className: 'page' });
     
@@ -63,7 +43,7 @@ window.Pages.chat = function(container, serviceCenter) {
     const headerActions = [];
     
     // Reasoning 模式切换按钮（仅当模型支持且有会话时显示）
-    if (currentSession) {
+    if (currentChat) {
       const modelSupportsReasoning = checkModelSupportsReasoning();
       if (modelSupportsReasoning) {
       const reasoningButtonContainer = create('div', {
@@ -100,7 +80,7 @@ window.Pages.chat = function(container, serviceCenter) {
       
       efforts.forEach(effort => {
         const option = create('div', {
-          className: `effort-option ${(!currentSession || currentSession.reasoningEffort === effort.value) ? 'active' : ''}`,
+          className: `effort-option ${(!currentChat || currentChat.session.reasoningEffort === effort.value) ? 'active' : ''}`,
           style: {
             padding: '6px 12px',
             cursor: 'pointer',
@@ -194,7 +174,10 @@ window.Pages.chat = function(container, serviceCenter) {
       text: '+ 新对话',
       onClick: () => {
         // 创建临时会话（不立即持久化）
-        sessionController.createSession({ persist: false });
+        const newSession = sessionController.createSession({ persist: false });
+        
+        // 更新 currentSession
+        currentSession = newSession;
         render();
       }
     }));
@@ -202,7 +185,7 @@ window.Pages.chat = function(container, serviceCenter) {
     const header = create('div', { className: 'page-header' }, [
       create('h2', { 
         className: 'page-title',
-        text: currentSession ? currentSession.title : '新对话'
+        text: currentChat ? currentChat.title : '新对话'
       }),
       ...headerActions
     ]);
@@ -526,12 +509,15 @@ window.Pages.chat = function(container, serviceCenter) {
    * 检查当前模型是否支持 reasoning（同步，从缓存读取）
    */
   function checkModelSupportsReasoning() {
-    // 从 Settings 获取当前模型（使用已保存的 settingsController）
-    const settings = settingsController.getSettings();
-    if (!settings || !settings.apiEndpoint || !settings.model) return false;
+    // 从 ChatService 获取配置
+    const chatService = currentChat?.getService();
+    if (!chatService) return false;
+    
+    const config = chatService.getConfig ? chatService.getConfig() : null;
+    if (!config || !config.endpoint || !config.defaultModel) return false;
     
     // 从 StorageModel 同步读取缓存
-    const cacheKey = `models:${settings.apiEndpoint}`;
+    const cacheKey = `models:${config.endpoint}`;
     const cachedModels = window.StorageModel.getCacheSync ? 
       window.StorageModel.getCacheSync(cacheKey) : null;
     
@@ -540,7 +526,7 @@ window.Pages.chat = function(container, serviceCenter) {
       return true;
     }
     
-    const currentModel = cachedModels.find(m => m.id === settings.model);
+    const currentModel = cachedModels.find(m => m.id === config.defaultModel);
     if (!currentModel) return true; // 没找到具体模型信息时，也默认支持
     
     // 兼容 Model 对象的方法调用和旧版字段
@@ -554,32 +540,33 @@ window.Pages.chat = function(container, serviceCenter) {
    * 切换 Reasoning 模式
    */
   function toggleReasoning() {
-    if (!currentSession) return;
+    if (!currentChat) return;
     
     // 切换 reasoningEnabled 状态
-    currentSession.reasoningEnabled = !currentSession.reasoningEnabled;
+    currentChat.session.reasoningEnabled = !currentChat.session.reasoningEnabled;
     
     // 协调 reasoningEffort：关闭时设为 'off'，开启时从 'off' 恢复为 'medium'
-    if (currentSession.reasoningEnabled) {
+    if (currentChat.session.reasoningEnabled) {
       // 开启 reasoning，如果当前是 'off'，恢复为 'medium'
-      if (currentSession.reasoningEffort === 'off') {
-        currentSession.reasoningEffort = 'medium';
+      if (currentChat.session.reasoningEffort === 'off') {
+        currentChat.session.reasoningEffort = 'medium';
       }
     } else {
       // 关闭 reasoning，设为 'off'
-      currentSession.reasoningEffort = 'off';
+      currentChat.session.reasoningEffort = 'off';
     }
     
-    // 保存会话（使用已保存的 sessionController）
-    sessionController.updateSession(currentSession.id, (session) => {
-      session.reasoningEnabled = currentSession.reasoningEnabled;
-      session.reasoningEffort = currentSession.reasoningEffort;
+    // 通过 sessionManager 保存会话
+    const sessionManager = serviceCenter.getSessionManager();
+    sessionManager.updateSession(currentChat.id, (session) => {
+      session.reasoningEnabled = currentChat.session.reasoningEnabled;
+      session.reasoningEffort = currentChat.session.reasoningEffort;
     });
     
     // 重新渲染页面以更新按钮状态
     render();
     
-    console.log('[ChatPage] Reasoning mode:', currentSession.reasoningEnabled ? 'enabled' : 'disabled', ', effort:', currentSession.reasoningEffort);
+    console.log('[ChatPage] Reasoning mode:', currentChat.session.reasoningEnabled ? 'enabled' : 'disabled', ', effort:', currentChat.session.reasoningEffort);
   }
 
   /**
@@ -588,7 +575,7 @@ window.Pages.chat = function(container, serviceCenter) {
    * @param {boolean} shouldRerender - 是否重新渲染整个页面（默认 true）
    */
   function updateReasoningEffort(effort, shouldRerender = true) {
-    if (!currentSession) return;
+    if (!currentChat) return;
     
     // 验证强度值（包括 'off'）
     const validEfforts = ['low', 'medium', 'high', 'off'];
@@ -598,20 +585,21 @@ window.Pages.chat = function(container, serviceCenter) {
     }
     
     // 更新强度
-    currentSession.reasoningEffort = effort;
+    currentChat.session.reasoningEffort = effort;
     
     // 如果选择 'off'，自动关闭 reasoningEnabled
     if (effort === 'off') {
-      currentSession.reasoningEnabled = false;
-    } else if (!currentSession.reasoningEnabled) {
+      currentChat.session.reasoningEnabled = false;
+    } else if (!currentChat.session.reasoningEnabled) {
       // 如果从 'off' 切换到其他强度，自动开启 reasoningEnabled
-      currentSession.reasoningEnabled = true;
+      currentChat.session.reasoningEnabled = true;
     }
     
-    // 保存会话（使用已保存的 sessionController）
-    sessionController.updateSession(currentSession.id, (session) => {
+    // 通过 sessionManager 保存会话
+    const sessionManager = serviceCenter.getSessionManager();
+    sessionManager.updateSession(currentChat.id, (session) => {
       session.reasoningEffort = effort;
-      session.reasoningEnabled = currentSession.reasoningEnabled;
+      session.reasoningEnabled = currentChat.session.reasoningEnabled;
     });
     
     // 如果需要，重新渲染页面以更新选择器状态
@@ -622,7 +610,7 @@ window.Pages.chat = function(container, serviceCenter) {
       updateEffortSelectorUI();
     }
     
-    console.log('[ChatPage] Reasoning effort updated to:', effort, ', enabled:', currentSession.reasoningEnabled);
+    console.log('[ChatPage] Reasoning effort updated to:', effort, ', enabled:', currentChat.session.reasoningEnabled);
   }
 
   /**
@@ -639,7 +627,7 @@ window.Pages.chat = function(container, serviceCenter) {
                           optionText.includes('中') ? 'medium' :
                           optionText.includes('低') ? 'low' : 'off';
       
-      if (optionEffort === currentSession.reasoningEffort) {
+      if (optionEffort === currentChat.session.reasoningEffort) {
         option.style.background = 'var(--primary-color, #4CAF50)';
         option.style.color = '#fff';
       } else {
