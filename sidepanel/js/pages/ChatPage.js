@@ -36,7 +36,10 @@ window.Pages.chat = function(container, serviceCenter) {
     
     // Reasoning 模式切换按钮（仅当模型支持且有会话时显示）
     if (currentChat) {
+      console.log('[ChatPage] Checking reasoning support, currentChat:', currentChat.id);
       const modelSupportsReasoning = checkModelSupportsReasoning();
+      console.log('[ChatPage] Model supports reasoning:', modelSupportsReasoning);
+      
       if (modelSupportsReasoning) {
       const reasoningButtonContainer = create('div', {
         className: 'reasoning-control',
@@ -165,12 +168,19 @@ window.Pages.chat = function(container, serviceCenter) {
       className: 'btn btn-primary',
       text: '+ 新对话',
       onClick: () => {
+        console.log('[ChatPage] Creating new session...');
+        
         // 创建临时会话（不立即持久化）
         const sessionManager = serviceCenter.getSessionManager();
-        sessionManager.createSession({ persist: false });
+        const newSession = sessionManager.createSession({ persist: false });
+        
+        console.log('[ChatPage] New session created:', newSession.id, 'Title:', newSession.title);
+        console.log('[ChatPage] Current sessionId:', sessionManager.currentSessionId);
         
         // 更新 currentChat 为新会话的 ChatController
         currentChat = serviceCenter.getCurrentChat();
+        
+        console.log('[ChatPage] Updated currentChat:', currentChat.id, 'Title:', currentChat.title);
         
         render();
       }
@@ -505,10 +515,19 @@ window.Pages.chat = function(container, serviceCenter) {
   function checkModelSupportsReasoning() {
     // 从 Provider Service 获取配置
     const providerService = currentChat?.getService();
-    if (!providerService) return false;
+    if (!providerService) {
+      console.log('[ChatPage] No provider service');
+      return false;
+    }
     
-    const config = providerService.getConfig ? providerService.getConfig() : null;
-    if (!config || !config.endpoint || !config.defaultModel) return false;
+    // 直接访问 config 属性
+    const config = providerService.config;
+    if (!config || !config.endpoint || !config.defaultModel) {
+      console.log('[ChatPage] No config or endpoint/model:', { config });
+      return false;
+    }
+    
+    console.log('[ChatPage] Checking model:', config.defaultModel, 'endpoint:', config.endpoint);
     
     // 从 StorageModel 同步读取缓存
     const cacheKey = `models:${config.endpoint}`;
@@ -516,18 +535,31 @@ window.Pages.chat = function(container, serviceCenter) {
       window.StorageModel.getCacheSync(cacheKey) : null;
     
     if (!cachedModels || !Array.isArray(cachedModels)) {
+      console.log('[ChatPage] No cached models, default to true');
       // 如果缓存还没加载出来，默认认为支持（因为 Model 原型默认开启）
       return true;
     }
     
     const currentModel = cachedModels.find(m => m.id === config.defaultModel);
-    if (!currentModel) return true; // 没找到具体模型信息时，也默认支持
+    if (!currentModel) {
+      console.log('[ChatPage] Model not found in cache, default to true');
+      return true; // 没找到具体模型信息时，也默认支持
+    }
+    
+    console.log('[ChatPage] Found model:', currentModel.id);
+    console.log('[ChatPage] Model capabilities:', currentModel.capabilities);
+    console.log('[ChatPage] Model supports_reasoning:', currentModel.supports_reasoning);
     
     // 兼容 Model 对象的方法调用和旧版字段
     if (typeof currentModel.supportsReasoning === 'function') {
-      return currentModel.supportsReasoning();
+      const result = currentModel.supportsReasoning();
+      console.log('[ChatPage] supportsReasoning() returned:', result);
+      return result;
     }
-    return currentModel.capabilities?.reasoning !== false && currentModel.supports_reasoning !== false;
+    
+    const result = currentModel.capabilities?.reasoning !== false && currentModel.supports_reasoning !== false;
+    console.log('[ChatPage] Final result:', result);
+    return result;
   }
 
   /**
