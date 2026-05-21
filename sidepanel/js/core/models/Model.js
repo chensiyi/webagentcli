@@ -5,7 +5,7 @@
  * 基于 LM Studio /api/v1/models 响应格式设计。
  */
 
-class Model {
+class Model extends window.BaseModel {
   /**
    * @param {Object} params
    * @param {string} params.id - 模型唯一标识（如 'qwen2-vl-7b-instruct'）
@@ -32,26 +32,30 @@ class Model {
    * @param {Object} [params.pricing] - 价格信息 { prompt: number, completion: number }
    * @param {Object} [params.metadata] - 额外元数据
    */
-  constructor({
-    id,
-    name,
-    type = 'llm',
-    publisher = 'unknown',
-    architecture = null,
-    capabilities = {},
-    inputModalities = ['text'],
-    outputModalities = ['text'],
-    contextLength = 8192,
-    maxOutputTokens = null,
-    quantization = null,
-    compatibilityType = null,
-    state = 'not-loaded',
-    sizeBytes = null,
-    paramsString = null,
-    description = '',
-    pricing = null,
-    metadata = {}
-  }) {
+  constructor(params = {}) {
+    super(params);
+    
+    const {
+      id,
+      name,
+      type = 'llm',
+      publisher = 'unknown',
+      architecture = null,
+      capabilities = {},
+      inputModalities = ['text'],
+      outputModalities = ['text'],
+      contextLength = 8192,
+      maxOutputTokens = null,
+      quantization = null,
+      compatibilityType = null,
+      state = 'not-loaded',
+      sizeBytes = null,
+      paramsString = null,
+      description = '',
+      pricing = null,
+      metadata = {}
+    } = params;
+
     if (!id) throw new Error('Model id is required');
     if (!name) throw new Error('Model name is required');
 
@@ -80,7 +84,6 @@ class Model {
     this.description = description;
     this.pricing = pricing;
     this.metadata = metadata;
-    this.createdAt = Date.now();
   }
 
   /**
@@ -194,7 +197,7 @@ class Model {
    */
   toJSON() {
     return {
-      id: this.id,
+      ...super.toJSON(),
       name: this.name,
       type: this.type,
       publisher: this.publisher,
@@ -211,8 +214,7 @@ class Model {
       paramsString: this.paramsString,
       description: this.description,
       pricing: this.pricing,
-      metadata: this.metadata,
-      createdAt: this.createdAt
+      metadata: this.metadata
     };
   }
 

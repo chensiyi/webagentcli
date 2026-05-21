@@ -4,7 +4,7 @@
  * 表示 AI 希望执行某个工具的意图，不包含任何 API 标准相关的字段。
  */
 
-class ToolIntention {
+class ToolIntention extends window.BaseModel {
   /**
    * @param {Object} params
    * @param {string} params.id - 唯一标识
@@ -14,14 +14,17 @@ class ToolIntention {
    * @param {*} [params.result] - 执行结果
    * @param {string} [params.error] - 错误信息
    */
-  constructor({
-    id,
-    toolName,
-    parameters = {},
-    status = 'pending',
-    result = null,
-    error = null
-  }) {
+  constructor(params = {}) {
+    super(params);
+    const {
+      id,
+      toolName,
+      parameters = {},
+      status = 'pending',
+      result = null,
+      error = null
+    } = params;
+
     if (!id) throw new Error('ToolIntention id is required');
     if (!toolName) throw new Error('ToolIntention toolName is required');
 
@@ -31,8 +34,7 @@ class ToolIntention {
     this.status = status;
     this.result = result;
     this.error = error;
-    this.createdAt = Date.now();
-    this.completedAt = null;
+    this.completedAt = params.completedAt || null;
   }
 
   /**
@@ -40,6 +42,7 @@ class ToolIntention {
    */
   markAsExecuting() {
     this.status = 'executing';
+    this.touch();
   }
 
   /**
@@ -49,6 +52,7 @@ class ToolIntention {
     this.status = 'completed';
     this.result = result;
     this.completedAt = Date.now();
+    this.touch();
   }
 
   /**
@@ -58,6 +62,7 @@ class ToolIntention {
     this.status = 'failed';
     this.error = typeof error === 'string' ? error : error.message;
     this.completedAt = Date.now();
+    this.touch();
   }
 
   /**
@@ -86,13 +91,12 @@ class ToolIntention {
    */
   toJSON() {
     return {
-      id: this.id,
+      ...super.toJSON(),
       toolName: this.toolName,
       parameters: this.parameters,
       status: this.status,
       result: this.result,
       error: this.error,
-      createdAt: this.createdAt,
       completedAt: this.completedAt
     };
   }

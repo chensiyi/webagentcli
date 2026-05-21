@@ -81,10 +81,9 @@ window.Pages.history = function(container, serviceCenter) {
     const content = create('div', { className: 'page-content' });
     
     // 搜索框
-    const searchBox = create('input', {
-      className: 'input mb-12',
-      style: { width: '100%' },
-      attrs: { type: 'text', placeholder: '搜索对话...' },
+    const searchBox = window.UI.Input({
+      className: 'mb-12',
+      placeholder: '搜索对话...',
       onInput: (e) => {
         if (searchTimer) clearTimeout(searchTimer);
         searchTimer = setTimeout(() => {
@@ -107,7 +106,7 @@ window.Pages.history = function(container, serviceCenter) {
   }
     
   function updateSearchResults() {
-    // 使用 SessionController 的标准方法
+    // 使用 SessionManager 的标准方法
     const sessions = sessionManager.getAllSessions();
     
     // 过滤
@@ -130,10 +129,10 @@ window.Pages.history = function(container, serviceCenter) {
     listContainer.innerHTML = '';
     
     if (filteredConversations.length === 0) {
-      listContainer.appendChild(create('div', { className: 'empty-state' }, [
-        create('div', { className: 'empty-state-icon', text: '📋' }),
-        create('div', { className: 'empty-state-title', text: searchKeyword ? '没有找到匹配的对话' : '暂无历史对话' })
-      ]));
+      listContainer.appendChild(window.UI.EmptyState({
+        icon: '📋',
+        title: searchKeyword ? '没有找到匹配的对话' : '暂无历史对话'
+      }));
     } else {
       filteredConversations.forEach(conv => {
         const isActive = conv.id === currentId;
@@ -156,14 +155,19 @@ window.Pages.history = function(container, serviceCenter) {
         }));
         
         contentDiv.appendChild(create('div', {
-          className: 'history-item-meta',
-          text: `${timeStr} · ${msgCount} 条消息`
-        }));
+          className: 'history-item-meta flex items-center gap-8 mt-4',
+        }, [
+          create('span', { text: timeStr }),
+          window.UI.Badge({
+            type: 'info-light',
+            text: `${msgCount} 消息`
+          })
+        ]));
         
         item.appendChild(contentDiv);
         
-        const deleteBtn = create('button', {
-          className: 'history-item-delete btn btn-text',
+        const deleteBtn = window.UI.Button({
+          className: 'history-item-delete btn-text',
           text: '🗑',
           title: '删除对话',
           onClick: (e) => {

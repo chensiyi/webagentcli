@@ -27,8 +27,8 @@
     
     try {
       // 1. 通过 ServiceCenter 初始化并加载设置
-      const settingsController = serviceCenter.getSettingsController();
-      await settingsController.loadSettings();
+      const settingsManager = serviceCenter.getSettingsManager();
+      await settingsManager.loadSettings();
       console.log('[App] Settings loaded via ServiceCenter');
       
       // 2. 初始化 SessionManager（等待异步加载完成）

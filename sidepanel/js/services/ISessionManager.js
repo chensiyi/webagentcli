@@ -11,7 +11,7 @@
  * 设计原则：
  * 1. I 前缀表示这是一个接口规范
  * 2. 使用者可以实现自己的 ISessionManager 并替换
- * 3. 业务逻辑在具体实现类中（如 SessionController）
+ * 3. 业务逻辑在具体实现类中（如 SessionManager）
  * 
  * 使用示例：
  * ```javascript

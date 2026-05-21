@@ -95,34 +95,22 @@ class SettingsPage_Base extends window.ISettings {
   // ==================== 通用配置项创建方法 ====================
 
   _createApiKeySection(settings, onUpdate) {
-    const { create } = window.DOM;
-    
-    return create('div', { className: 'setting-group' }, [
-      create('label', { className: 'setting-label', text: 'API Key' }),
-      create('input', {
-        className: 'input',
-        attrs: { 
-          type: 'password', 
-          placeholder: '输入 API Key（保密内容不显示）' 
-        },
-        // 注意：不填充已保存的 API Key，保护隐私
-        value: '',
+    return window.UI.FormGroup({ label: 'API Key' }, [
+      window.UI.Input({
+        id: 'settings-api-key',
+        type: 'password',
+        placeholder: '输入 API Key（保密内容不显示）',
+        value: '', // 注意：不填充已保存的 API Key，保护隐私
         onInput: (e) => onUpdate('apiKey', e.target.value)
       })
     ]);
   }
 
   _createApiEndpointSection(settings, onUpdate) {
-    const { create } = window.DOM;
-    
-    return create('div', { className: 'setting-group' }, [
-      create('label', { className: 'setting-label', text: 'API Endpoint' }),
-      create('input', {
-        className: 'input',
-        attrs: { 
-          type: 'text', 
-          placeholder: 'https://api.example.com/v1' 
-        },
+    return window.UI.FormGroup({ label: 'API Endpoint' }, [
+      window.UI.Input({
+        id: 'settings-api-endpoint',
+        placeholder: 'https://api.example.com/v1',
         value: settings.apiEndpoint || '',
         onInput: (e) => onUpdate('apiEndpoint', e.target.value)
       })
@@ -130,18 +118,11 @@ class SettingsPage_Base extends window.ISettings {
   }
 
   _createTemperatureSection(settings, onUpdate) {
-    const { create } = window.DOM;
-    
-    return create('div', { className: 'setting-group' }, [
-      create('label', { className: 'setting-label', text: '温度 (0-2)' }),
-      create('input', {
-        className: 'input',
-        attrs: { 
-          type: 'number', 
-          min: '0', 
-          max: '2', 
-          step: '0.1' 
-        },
+    return window.UI.FormGroup({ label: '温度 (0-2)' }, [
+      window.UI.Input({
+        id: 'settings-temperature',
+        type: 'number',
+        placeholder: '0.7',
         value: settings.temperature || 0.7,
         onInput: (e) => onUpdate('temperature', parseFloat(e.target.value))
       })
@@ -149,17 +130,11 @@ class SettingsPage_Base extends window.ISettings {
   }
 
   _createMaxTokensSection(settings, onUpdate) {
-    const { create } = window.DOM;
-    
-    return create('div', { className: 'setting-group' }, [
-      create('label', { className: 'setting-label', text: '最大 Token' }),
-      create('input', {
-        className: 'input',
-        attrs: { 
-          type: 'number', 
-          min: '100', 
-          max: '32000' 
-        },
+    return window.UI.FormGroup({ label: '最大 Token' }, [
+      window.UI.Input({
+        id: 'settings-max-tokens',
+        type: 'number',
+        placeholder: '4000',
         value: settings.maxTokens || 4000,
         onInput: (e) => onUpdate('maxTokens', parseInt(e.target.value))
       })
@@ -167,13 +142,10 @@ class SettingsPage_Base extends window.ISettings {
   }
 
   _createSystemPromptSection(settings, onUpdate) {
-    const { create } = window.DOM;
-    
-    return create('div', { className: 'setting-group' }, [
-      create('label', { className: 'setting-label', text: '系统提示词' }),
-      create('textarea', {
-        className: 'input setting-textarea',
-        attrs: { placeholder: '可选，设置 AI 的行为和角色' },
+    return window.UI.FormGroup({ label: '系统提示词' }, [
+      window.UI.Textarea({
+        id: 'settings-system-prompt',
+        placeholder: '可选，设置 AI 的行为和角色',
         value: settings.systemPrompt || '',
         onInput: (e) => onUpdate('systemPrompt', e.target.value)
       })
@@ -181,25 +153,20 @@ class SettingsPage_Base extends window.ISettings {
   }
 
   _createThinkingEffortSection(settings, onUpdate) {
-    const { create } = window.DOM;
-    
     const options = [
-      { value: 'off', text: '关闭' },
-      { value: 'low', text: '低 (快速)' },
-      { value: 'medium', text: '中 (平衡)' },
-      { value: 'high', text: '高 (深入)' }
+      { value: 'off', label: '关闭' },
+      { value: 'low', label: '低 (快速)' },
+      { value: 'medium', label: '中 (平衡)' },
+      { value: 'high', label: '高 (深入)' }
     ];
 
-    return create('div', { className: 'setting-group' }, [
-      create('label', { className: 'setting-label', text: '思考强度 (Thinking Effort)' }),
-      create('select', {
-        className: 'input',
-        onInput: (e) => onUpdate('thinkingEffort', e.target.value)
-      }, options.map(opt => create('option', {
-        attrs: { value: opt.value },
-        props: { selected: (settings.thinkingEffort || 'off') === opt.value },
-        text: opt.text
-      })))
+    return window.UI.FormGroup({ label: '思考强度 (Thinking Effort)' }, [
+      window.UI.Select({
+        id: 'settings-thinking-effort',
+        options: options,
+        value: settings.thinkingEffort || 'off',
+        onChange: (val) => onUpdate('thinkingEffort', val)
+      })
     ]);
   }
 }

@@ -2,29 +2,22 @@
  * 会话模型
  */
 
-class Session {
+class Session extends window.BaseModel {
   constructor(options = {}) {
-    this.id = options.id || this.generateId();
+    super(options);
     this.title = options.title || '新对话';
     this.messages = options.messages || [];
-    this.createdAt = options.createdAt || Date.now();
-    this.updatedAt = options.updatedAt || Date.now();
-    this.updated_at = this.updatedAt; // 兼容旧版命名
     this.metadata = options.metadata || {};
     
     // 思考模式配置
     this.thinkingEffort = options.thinkingEffort || 'off'; // 'off' | 'low' | 'medium' | 'high'
     
-    //TODO: 增加工具配置
-    //this.tools = options.tools || [];
+    // 兼容旧版命名
+    this.updated_at = this.updatedAt;
 
     // 运行时状态（不持久化）
     this.port = null;
     this.isStreaming = false;
-  }
-  
-  generateId() {
-    return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
   
   /**
@@ -32,7 +25,7 @@ class Session {
    */
   addMessage(message) {
     this.messages.push(message);
-    this.updatedAt = Date.now();
+    this.touch();
     this.updated_at = this.updatedAt;
   }
   
@@ -43,7 +36,7 @@ class Session {
     const index = this.messages.findIndex(m => m.id === messageId);
     if (index !== -1) {
       this.messages.splice(index, 1);
-      this.updatedAt = Date.now();
+      this.touch();
       this.updated_at = this.updatedAt;
       return true;
     }
@@ -71,7 +64,7 @@ class Session {
       }
     }
     
-    this.updatedAt = Date.now();
+    this.touch();
     this.updated_at = this.updatedAt;
     return true;
   }
@@ -88,7 +81,7 @@ class Session {
    */
   clearMessages() {
     this.messages = [];
-    this.updatedAt = Date.now();
+    this.touch();
     this.updated_at = this.updatedAt;
   }
   
@@ -104,11 +97,9 @@ class Session {
    */
   toJSON() {
     return {
-      id: this.id,
+      ...super.toJSON(),
       title: this.title,
       messages: this.messages.map(m => m.toJSON ? m.toJSON() : m),
-      createdAt: this.createdAt,
-      updatedAt: this.updatedAt,
       metadata: this.metadata,
       thinkingEffort: this.thinkingEffort
     };
@@ -118,7 +109,14 @@ class Session {
    * 从纯对象创建
    */
   static fromJSON(data) {
-    return new Session(data);
+    const session = new Session(data);
+    // 实例化消息对象
+    if (data.messages && Array.isArray(data.messages)) {
+      session.messages = data.messages.map(m => 
+        m instanceof window.Message ? m : window.Message.fromJSON(m)
+      );
+    }
+    return session;
   }
 }
 

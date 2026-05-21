@@ -22,17 +22,25 @@ class ChatController {
     
     // 运行时状态（不持久化）
     this.currentRequest = null;
+    this.state = window.Events.CHAT.STATE.IDLE;
     
     console.log('[ChatController] Initialized');
+  }
+
+  /**
+   * 更新并广播状态
+   * @private
+   */
+  _setState(newState) {
+    if (this.state === newState) return;
+    this.state = newState;
+    console.log(`[ChatController] State changed to: ${newState}`);
+    this._notifyActivityState();
   }
   
   /**
    * 发送消息
    * @param {Object} params 
-   * @param {string} params.content - 消息内容
-   * @param {string} [params.sessionId] - 会话 ID
-   * @param {IProviderAPIService} [params.chatService] - 可选：直接传递 Service 实例
-   * @param {Model} [params.model] - 可选：直接传递 Model 对象
    */
   async sendMessage({ content, sessionId = null, chatService = null, model = null }) {
     if (!content || !content.trim()) {
@@ -45,82 +53,92 @@ class ChatController {
     }
     
     const sessionManager = this.serviceCenter.getSessionManager();
-    
-    // 如果没有传递 chatService，则通过 ServiceCenter 获取
     const service = chatService || this.serviceCenter.getCurrentProviderService();
-    
-    // 获取或创建当前会话（懒加载）
-    let session = sessionId ? sessionManager.getSession(sessionId) : sessionManager.getCurrentSession();
-    if (!session) {
-      console.log('[ChatController] No active session, creating new one...');
-      session = sessionManager.createSession({ title: '新对话' });
-    }
-
-    console.log('[ChatController] Sending message via service:', service.constructor.name);
-    
-    // 使用 model 对象获取特定的配置（如果提供）
-    const modelId = model ? model.id : service.config?.defaultModel;
-    
-    // 获取思考模式配置
-    const thinkingEffort = session.thinkingEffort || 'off';
-    
     let assistantMsgId = null;
-    
+    let session = null;
+
     try {
+      this._setState(window.Events.CHAT.STATE.WAITING);
+      
+      // 获取或创建当前会话
+      session = sessionId ? sessionManager.getSession(sessionId) : sessionManager.getCurrentSession();
+      if (!session) {
+        session = sessionManager.createSession({ title: '新对话' });
+      }
+
+      const modelId = model ? model.id : service.config?.defaultModel;
+      const thinkingEffort = session.thinkingEffort || 'off';
       const { MessagesRequest, ThinkingConfig } = window.MessageContent;
 
-      // 1. 创建并持久化用户消息
+      // 1. 持久化用户消息
       const userMsg = new window.Message({ role: 'user', content: content.trim() });
       await sessionManager.addMessage(userMsg, session.id);
 
-      // 2. 构造标准的 MessagesRequest 对象
+      // 2. 构造请求
       const request = new MessagesRequest({
         model: modelId,
-        messages: session.messages, // 直接传递 Message 对象数组
+        messages: session.messages,
         stream: true,
         thinking: thinkingEffort !== 'off' ? new ThinkingConfig(thinkingEffort) : null
       });
       
-      // 3. 创建并持久化助手消息（空内容，等待流式填充）
+      // 3. 持久化助手消息
       const assistantMsg = new window.Message({ role: 'assistant', content: '' });
       await sessionManager.addMessage(assistantMsg, session.id);
       assistantMsgId = assistantMsg.id;
       
-      // 4. 标记当前请求
+      // 4. 设置运行时状态
       this.currentRequest = {
         sessionId: session.id,
         assistantMessageId: assistantMsgId,
-        startedAt: Date.now()
+        startedAt: Date.now(),
+        lastActiveAt: Date.now()
       };
-      this._notifyActivityState();
+
       this.eventBus.emit(window.Events.CHAT.STREAM_START, {
         sessionId: session.id,
         messageId: assistantMsgId
       });
       
-      // 5. 开始流式请求
+      // 5. 执行流式请求
+      const isThinkingEnabled = thinkingEffort !== 'off';
+      
       await service.chatStream(
         request,
         (chunk) => {
-          // 流式分片：通过 SessionManager 持久化
+          // 更新活跃时间（看门狗依据）
+          if (this.currentRequest) this.currentRequest.lastActiveAt = Date.now();
+
+          // 提取内容
+          const content = chunk.content || '';
+          // 仅在开启思考模式时提取推理内容，否则忽略模型返回的推理分片
+          const reasoning = isThinkingEnabled ? (chunk.reasoning_content || '') : '';
+
+          // 状态流转：根据内容自动切换 THINKING/GENERATING
+          if (reasoning && this.state !== window.Events.CHAT.STATE.THINKING) {
+            this._setState(window.Events.CHAT.STATE.THINKING);
+          } else if (content && this.state !== window.Events.CHAT.STATE.GENERATING) {
+            this._setState(window.Events.CHAT.STATE.GENERATING);
+          }
+
+          // 数据持久化
           sessionManager.streamChunkMessage(assistantMsgId, {
-            content: chunk.content || '',
-            reasoning_content: chunk.reasoning_content || ''
+            content: content,
+            reasoning_content: reasoning
           }, session.id);
           
-          // 发出事件通知 UI 更新
+          // 通知 UI
           this.eventBus.emit(window.Events.CHAT.STREAM_CHUNK_APPEND, {
             sessionId: session.id,
             messageId: assistantMsgId,
-            content: chunk.content || '',
-            reasoning_content: chunk.reasoning_content || ''
+            content: content,
+            reasoning_content: reasoning
           });
         },
         () => {
-          // 流式完成：清理状态
+          // 正常结束
+          this._setState(window.Events.CHAT.STATE.COMPLETED);
           const duration = this.currentRequest ? Date.now() - this.currentRequest.startedAt : null;
-          this.currentRequest = null;
-          this._notifyActivityState();
           this.eventBus.emit(window.Events.CHAT.STREAM_COMPLETE, {
             sessionId: session.id,
             messageId: assistantMsgId,
@@ -129,8 +147,10 @@ class ChatController {
         }
       );
     } catch (error) {
-      // 异常：更新助手消息显示错误信息
-      if (assistantMsgId) {
+      this._setState(window.Events.CHAT.STATE.FAILED);
+      
+      // 错误持久化
+      if (assistantMsgId && session) {
         sessionManager.updateMessage(assistantMsgId, (msg) => {
           msg.content = `❌ 发送失败: ${error.message}`;
         }, session.id);
@@ -140,17 +160,22 @@ class ChatController {
         });
       }
       
-      // 清理状态
-      this.currentRequest = null;
-      this._notifyActivityState();
       this.eventBus.emit(window.Events.CHAT.STREAM_ERROR, {
         error,
         message: error.message,
-        sessionId: session.id,
+        sessionId: session?.id,
         messageId: assistantMsgId
       });
       
       throw error;
+    } finally {
+      // 最终保障：清理运行时状态，并延迟重置为 IDLE
+      this.currentRequest = null;
+      setTimeout(() => {
+        if (!this.currentRequest) {
+          this._setState(window.Events.CHAT.STATE.IDLE);
+        }
+      }, 50);
     }
   }
   
@@ -170,11 +195,15 @@ class ChatController {
     
     const stoppedRequest = this.currentRequest;
     this.currentRequest = null;
-    this._notifyActivityState();
+    this._setState(window.Events.CHAT.STATE.STOPPED);
+    
     this.eventBus.emit(window.Events.CHAT.STREAM_STOP, {
       sessionId: stoppedRequest.sessionId,
       messageId: stoppedRequest.assistantMessageId
     });
+
+    // 停止后重置回空闲状态
+    setTimeout(() => this._setState(window.Events.CHAT.STATE.IDLE), 50);
   }
   
   /**
@@ -190,7 +219,7 @@ class ChatController {
     
     // 清理运行时状态
     this.currentRequest = null;
-    this._notifyActivityState();
+    this._setState(window.Events.CHAT.STATE.IDLE);
     return true;
   }
   
@@ -220,7 +249,7 @@ class ChatController {
    * @returns {boolean}
    */
   hasActiveActivities() {
-    return !!this.currentRequest;
+    return this.state !== window.Events.CHAT.STATE.IDLE;
   }
   
   /**
@@ -229,7 +258,7 @@ class ChatController {
    */
   getQueueStatus() {
     return {
-      messageQueueLength: this.currentRequest ? 1 : 0,
+      state: this.state,
       sessionId: this.currentRequest?.sessionId || null,
       hasActive: this.hasActiveActivities()
     };

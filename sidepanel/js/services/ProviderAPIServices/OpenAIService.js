@@ -5,11 +5,10 @@
  * 支持 OpenAI 标准的 API 接口
  */
 
-class OpenAIService {
+class OpenAIService extends window.IProviderAPIService {
   constructor() {
+    super();
     this.name = 'openai';
-    this.config = null;
-    this.abortController = null;
   }
 
   /**

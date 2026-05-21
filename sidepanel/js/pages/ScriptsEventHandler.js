@@ -8,8 +8,8 @@ class ScriptsEventHandler {
     this.serviceCenter = serviceCenter;
     this.eventBus = serviceCenter.getEventBus();
     
-    // 通过 ServiceCenter 获取 ScriptsController
-    this.scriptsController = serviceCenter.getScriptsController();
+    // 通过 ServiceCenter 获取 ScriptsManager
+    this.scriptsManager = serviceCenter.getScriptsManager();
     
     // 注册事件监听
     this._registerEventListeners();
@@ -61,14 +61,14 @@ class ScriptsEventHandler {
       return;
     }
     
-    await this.scriptsController.install(code);
+    await this.scriptsManager.install(code);
   }
   
   /**
    * 处理切换脚本状态（由页面调用）
    */
   handleToggle(id, enabled) {
-    this.scriptsController.toggle(id, enabled);
+    this.scriptsManager.toggle(id, enabled);
   }
   
   /**
@@ -81,7 +81,7 @@ class ScriptsEventHandler {
     });
     
     if (confirmed) {
-      this.scriptsController.remove(id);
+      this.scriptsManager.remove(id);
       window.Toast?.success('脚本已删除');
     }
   }
@@ -90,7 +90,7 @@ class ScriptsEventHandler {
    * 处理编辑脚本（由页面调用）
    */
   handleEdit(id, code) {
-    this.scriptsController.update(id, code);
+    this.scriptsManager.update(id, code);
   }
 }
 

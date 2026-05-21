@@ -98,10 +98,11 @@ class ChatEventHandler {
    * 处理活动状态变更
    */
   _handleActivityStateChanged(data) {
-    console.log('[ChatEventHandler] Activity state changed:', data);
-    // ChatController 已经通过 EventBus 发送了 ACTIVITY_STATE_CHANGED 事件
-    // ChatPage 会直接监听该事件来更新按钮状态
-    // 这里不需要额外处理
+    console.log('[ChatEventHandler] Activity state changed:', data.state);
+    // 转发给页面进行状态更新
+    if (window.Pages.chat.updateUIState) {
+      window.Pages.chat.updateUIState(data);
+    }
   }
   
   /**
@@ -123,6 +124,7 @@ class ChatEventHandler {
       content
     }).catch(error => {
       console.error('[ChatEventHandler] Send message failed:', error);
+      window.Toast?.error(`发送失败: ${error.message}`);
     });
   }
   
@@ -131,28 +133,7 @@ class ChatEventHandler {
    */
   _handleStreamStart(data) {
     console.log('[ChatEventHandler] Stream started');
-    
-    // 立即更新按钮状态（防止 render() 后按钮状态不正确）
-    const sendBtn = document.getElementById('send-btn');
-    const stopBtn = document.getElementById('stop-btn');
-    if (sendBtn) sendBtn.style.display = 'none';
-    if (stopBtn) stopBtn.style.display = 'inline-block';
-    console.log('[ChatEventHandler] Buttons updated - sendBtn:', sendBtn?.style.display, 'stopBtn:', stopBtn?.style.display);
-    
-    // 延迟再次检查，确保没有其他代码重置按钮状态
-    setTimeout(() => {
-      const sendBtn2 = document.getElementById('send-btn');
-      const stopBtn2 = document.getElementById('stop-btn');
-      console.log('[ChatEventHandler] Buttons check after 100ms - sendBtn:', sendBtn2?.style.display, 'stopBtn:', stopBtn2?.style.display);
-      
-      // 如果按钮状态不正确，再次修复
-      const chat = this.serviceCenter.getChatController();
-      if (chat && chat.hasActiveActivities()) {
-        if (sendBtn2) sendBtn2.style.display = 'none';
-        if (stopBtn2) stopBtn2.style.display = 'inline-block';
-        console.log('[ChatEventHandler] Buttons restored after delay');
-      }
-    }, 100);
+    // UI 状态由 _handleActivityStateChanged 统一处理
   }
   
   /**
@@ -359,31 +340,32 @@ class ChatEventHandler {
   }
   
   /**
-   * 更新消息内容（用于流式更新）
-   * @param {string} messageId - 消息 ID
-   * @param {string} content - 新内容
-   * @param {boolean} append - 是否追加模式（流式更新时为 true）
+   * 更新消息内容（流式追加）
    */
-  _updateMessageContent(messageId, content, append = false) {
+  _updateMessageContent(messageId, content, isAppend = false) {
     const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
-    if (messageElement) {
-      const contentElement = messageElement.querySelector('.message-content');
-      if (contentElement) {
-        // 获取当前完整内容
-        let fullContent = contentElement.dataset.fullContent || '';
-        if (append) {
-          fullContent += content;
-        } else {
-          fullContent = content;
-        }
-        contentElement.dataset.fullContent = fullContent;
-        contentElement.innerHTML = typeof marked !== 'undefined' ? marked.parse(fullContent) : fullContent;
-        
-        // 滚动到底部
-        const messageList = document.getElementById('message-list');
-        if (messageList) {
-          messageList.scrollTop = messageList.scrollHeight;
-        }
+    if (!messageElement) return;
+
+    const contentDiv = messageElement.querySelector('.message-content');
+    if (!contentDiv) return;
+
+    // 获取并更新原始内容
+    let fullContent = isAppend ? (contentDiv.dataset.fullContent || '') + content : content;
+    contentDiv.dataset.fullContent = fullContent;
+
+    // 渲染 Markdown
+    if (window.marked) {
+      contentDiv.innerHTML = window.marked.parse(fullContent);
+    } else {
+      contentDiv.textContent = fullContent;
+    }
+
+    // 自动滚动到底部
+    const list = document.getElementById('message-list');
+    if (list) {
+      const isNearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 100;
+      if (isNearBottom || !isAppend) {
+        list.scrollTop = list.scrollHeight;
       }
     }
   }

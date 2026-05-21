@@ -170,19 +170,21 @@ webagentcli/
 │   │   │       ├── Settings.js       # 设置模型
 │   │   │       └── ...               # 其他模型
 │   │   ├── services/          # 服务层 ⭐
-│   │   │   ├── Chat.js               # Chat 交互上下文 ⭐ NEW
-│   │   │   ├── ISessionManager.js    # 会话管理器 (含 Chat 缓存)
-│   │   │   ├── IChatService.js       # 聊天服务接口 (纯业务)
-│   │   │   ├── ServiceRegistry.js    # 服务注册中心
+│   │   │   ├── ServiceCenter.js      # 框架服务管理中心 ⭐
+│   │   │   ├── SessionManager.js     # 会话管理器 (具体实现)
+│   │   │   ├── SettingsManager.js    # 设置管理器 (具体实现)
+│   │   │   ├── StorageManager.js     # 存储管理器 (具体实现)
+│   │   │   ├── ScriptsManager.js     # 脚本管理器 (具体实现)
+│   │   │   ├── ModelManager.js       # 模型管理器 (具体实现)
+│   │   │   ├── ISessionManager.js    # 会话管理器接口
+│   │   │   ├── IAppSettings.js       # 应用设置接口
+│   │   │   ├── IProviderAPIService.js # Provider 服务接口
 │   │   │   └── ProviderAPIServices/  # 具体 Provider 实现
 │   │   │       ├── OpenAIService.js
 │   │   │       ├── LMStudioService.js
 │   │   │       └── OpenRouterService.js
 │   │   ├── controllers/       # 控制器层 (适配层)
-│   │   │   ├── ServiceCenter.js      # 框架服务管理中心
-│   │   │   ├── ChatController.js     # 聊天控制器 (委托给 Chat)
-│   │   │   ├── SessionController.js  # 会话控制器
-│   │   │   ├── SettingsController.js # 设置控制器
+│   │   │   ├── ChatController.js     # 聊天控制器 (协调 UI 与 Services)
 │   │   │   └── ...
 │   │   ├── pages/             # UI 页面层 (View)
 │   │   │   ├── ChatPage.js           # 对话页面渲染

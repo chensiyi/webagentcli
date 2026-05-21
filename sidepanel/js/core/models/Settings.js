@@ -3,8 +3,12 @@
  * 支持多 API 标准配置
  */
 
-class Settings {
+class Settings extends window.BaseModel {
   constructor(options = {}) {
+    // 设置通常是单例，ID 可以固定
+    options.id = options.id || 'global_settings';
+    super(options);
+
     // API 配置
     this.apiStandard = options.apiStandard || 'openrouter'; // 'openai' | 'openrouter' | 'lm-studio' | 'ollama' | 'anthropic'
     this.apiKey = options.apiKey || '';
@@ -52,6 +56,7 @@ class Settings {
    */
   toJSON() {
     return {
+      ...super.toJSON(),
       apiStandard: this.apiStandard,
       apiKey: this.apiKey,
       apiEndpoint: this.apiEndpoint,

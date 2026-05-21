@@ -14,8 +14,8 @@ window.Pages.settings = function(container, serviceCenter) {
     return;
   }
   
-  // 通过 ServiceCenter 获取 SettingsController
-  const settingsController = serviceCenter.getSettingsController();
+  // 通过 ServiceCenter 获取 SettingsManager
+  const settingsManager = serviceCenter.getSettingsManager();
   
   // UI 状态管理（仅用于渲染）
   let isLoadingModels = false;
@@ -34,9 +34,9 @@ window.Pages.settings = function(container, serviceCenter) {
   async function render() {
     clear(container);
     
-    // 从 Controller 获取当前设置
-    if (settingsController) {
-      const settings = settingsController.getSettings();
+    // 从 Manager 获取当前设置
+    if (settingsManager) {
+      const settings = settingsManager.getSettings();
       if (settings) {
         currentSettings = settings.toJSON ? settings.toJSON() : settings;
         // 同步到暴露的属性
@@ -85,9 +85,8 @@ window.Pages.settings = function(container, serviceCenter) {
     
     // 底部保存按钮
     const footer = create('div', { className: 'page-footer' }, [
-      create('button', {
-        className: 'btn btn-primary',
-        style: { width: '100%' },
+      window.UI.Button({
+        className: 'btn-primary w-full',
         text: '保存设置',
         onClick: handleSaveSettings
       })
@@ -166,46 +165,19 @@ window.Pages.settings = function(container, serviceCenter) {
    * 创建 API 标准选择区
    */
   function createApiStandardSection() {
-    const { create } = window.DOM;
+    const supportedStandards = [
+      { value: 'openrouter', label: 'OpenRouter' },
+      { value: 'openai', label: 'OpenAI' },
+      { value: 'lm-studio', label: 'LM Studio' }
+    ];
     
-    // 支持的 API 标准列表
-    const supportedStandards = ['openrouter', 'openai', 'lm-studio'];
-    
-    const options = supportedStandards.map(standard => {
-      // 获取对应的 Settings 实例以获取显示名称
-      let displayName = standard;
-      let SettingsClass = null;
-      
-      switch (standard) {
-        case 'openai':
-          SettingsClass = window.SettingsPage_OpenAI;
-          break;
-        case 'openrouter':
-          SettingsClass = window.SettingsPage_OpenRouter;
-          break;
-        case 'lm-studio':
-          SettingsClass = window.SettingsPage_LMStudio;
-          break;
-      }
-      
-      if (SettingsClass) {
-        const settings = new SettingsClass();
-        displayName = settings.getProviderName();
-      }
-      
-      return create('option', { 
-        attrs: { value: standard }, 
-        text: displayName 
-      });
-    });
-    
-    return create('div', { className: 'setting-group' }, [
-      create('label', { className: 'setting-label', text: 'API 标准' }),
-      create('select', {
-        className: 'input',
+    return window.UI.FormGroup({ label: 'API 标准' }, [
+      window.UI.Select({
         id: 'api-standard-select',
-        onChange: (e) => handleApiStandardChange(e.target.value)
-      }, options)
+        options: supportedStandards,
+        value: currentSettings?.apiStandard || 'openrouter',
+        onChange: (val) => handleApiStandardChange(val)
+      })
     ]);
   }
 
@@ -213,44 +185,14 @@ window.Pages.settings = function(container, serviceCenter) {
    * 创建模型选择区
    */
   function createModelSection() {
-    return create('div', { 
-      className: 'setting-group',
-      style: { position: 'relative' }
+    return window.UI.FormGroup({ 
+      label: '模型',
+      className: 'relative'
     }, [
-      create('label', { 
-        className: 'setting-label',
-        style: { display: 'inline-flex', alignItems: 'center', gap: '6px' }
-      }, [
-        '模型',
-        create('span', {
-          className: 'help-icon',
-          style: {
-            cursor: 'help',
-            fontSize: '14px',
-            color: 'var(--color-text-secondary)',
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: '16px',
-            height: '16px',
-            borderRadius: '50%',
-            border: '1px solid var(--color-border)',
-            fontWeight: 'bold'
-          },
-          text: '?',
-          attrs: {
-            title: '选择 API 标准后点击"加载模型"按钮从 API 获取可用模型列表\n\n支持的 API 标准：\n• OpenAI: https://api.openai.com/v1\n• LM Studio: http://localhost:1234\n• Ollama: http://localhost:11434\n• OpenRouter: https://openrouter.ai/api/v1\n• Anthropic: https://api.anthropic.com\n\n加载后可搜索和选择模型'
-          }
-        })
-      ]),
-      create('div', { className: 'setting-row' }, [
-        create('input', {
-          className: 'input',
+      create('div', { className: 'flex gap-8' }, [
+        window.UI.Input({
           id: 'model-search',
-          attrs: { 
-            type: 'text', 
-            placeholder: cachedModels.length === 0 ? '点击加载模型' : '选择或搜索模型...',
-          },
+          placeholder: cachedModels.length === 0 ? '点击加载模型' : '选择或搜索模型...',
           onInput: (e) => { 
             modelSearchValue = e.target.value;
             updateModelDropdown();
@@ -258,8 +200,8 @@ window.Pages.settings = function(container, serviceCenter) {
           onClick: handleModelSearchClick,
           onBlur: handleModelSearchBlur
         }),
-        create('button', {
-          className: 'btn btn-secondary btn-small',
+        window.UI.Button({
+          className: 'btn-secondary btn-small',
           id: 'load-models-btn',
           text: isLoadingModels ? '加载中...' : '加载模型',
           disabled: isLoadingModels,
@@ -269,12 +211,8 @@ window.Pages.settings = function(container, serviceCenter) {
       // 缓存状态提示
       create('div', {
         id: 'model-cache-status',
-        style: {
-          fontSize: '11px',
-          color: 'var(--color-text-secondary)',
-          marginTop: '4px',
-          display: cachedModels.length > 0 ? 'block' : 'none'
-        },
+        className: 'text-xs text-secondary mt-4',
+        style: { display: cachedModels.length > 0 ? 'block' : 'none' },
         text: cachedModels.length > 0 ? `已缓存 ${cachedModels.length} 个模型` : ''
       }),
       create('div', {
@@ -289,16 +227,13 @@ window.Pages.settings = function(container, serviceCenter) {
    * 创建上下文管理区
    */
   function createContextSection() {
-    return create('div', { className: 'setting-group' }, [
-      create('label', { className: 'setting-label-inline' }, [
-        create('input', {
-          className: 'setting-checkbox',
-          id: 'auto-context-checkbox',
-          attrs: { type: 'checkbox' },
-          onChange: (e) => updateSettingField('autoContextTruncation', e.target.checked)
-        }),
-        '自动调整上下文窗口（根据模型限制智能截断历史消息）'
-      ])
+    return window.UI.FormGroup({}, [
+      window.UI.Checkbox({
+        id: 'auto-context-checkbox',
+        label: '自动调整上下文窗口（根据模型限制智能截断历史消息）',
+        checked: currentSettings?.autoContextTruncation !== false,
+        onChange: (checked) => updateSettingField('autoContextTruncation', checked)
+      })
     ]);
   }
 
@@ -306,18 +241,12 @@ window.Pages.settings = function(container, serviceCenter) {
    * 创建主题设置区
    */
   function createThemeSection() {
-    return create('div', { className: 'setting-group' }, [
-      create('label', { className: 'setting-label', text: '主题' }),
-      create('div', {}, [
+    return window.UI.FormGroup({ label: '主题' }, [
+      create('div', { className: 'flex gap-16' }, [
         create('label', { className: 'setting-radio-label' }, [
           create('input', {
             className: 'setting-radio',
-            attrs: { 
-              type: 'radio', 
-              name: 'theme', 
-              value: 'light',
-              id: 'theme-light'
-            },
+            attrs: { type: 'radio', name: 'theme', value: 'light', id: 'theme-light' },
             onChange: () => handleThemeChange('light')
           }),
           '浅色'
@@ -325,12 +254,7 @@ window.Pages.settings = function(container, serviceCenter) {
         create('label', { className: 'setting-radio-label' }, [
           create('input', {
             className: 'setting-radio',
-            attrs: { 
-              type: 'radio', 
-              name: 'theme', 
-              value: 'dark',
-              id: 'theme-dark'
-            },
+            attrs: { type: 'radio', name: 'theme', value: 'dark', id: 'theme-dark' },
             onChange: () => handleThemeChange('dark')
           }),
           '深色'
@@ -579,43 +503,25 @@ window.Pages.settings = function(container, serviceCenter) {
       
       // 第二行：详细信息
       const infoLine = create('div', {
-        style: {
-          fontSize: '11px',
-          color: 'var(--color-text-secondary)',
-          display: 'flex',
-          gap: '8px',
-          flexWrap: 'wrap'
-        }
+        className: 'flex gap-8 flex-wrap text-xs'
       });
       
       // 上下文长度
       if (contextLength) {
-        const ctxBadge = create('span', {
-          style: {
-            padding: '2px 6px',
-            background: 'var(--color-primary-light)',
-            borderRadius: '4px',
-            fontSize: '10px'
-          },
-          text: `📝 ${formatContextLength(contextLength)}`
-        });
-        infoLine.appendChild(ctxBadge);
+        infoLine.appendChild(window.UI.Badge({
+          text: `📝 ${formatContextLength(contextLength)}`,
+          type: 'primary-light'
+        }));
       }
       
       // 价格
       if (pricing) {
         const priceText = formatPricing(pricing);
         if (priceText) {
-          const priceBadge = create('span', {
-            style: {
-              padding: '2px 6px',
-              background: 'var(--color-success-light)',
-              borderRadius: '4px',
-              fontSize: '10px'
-            },
-            text: `💰 ${priceText}`
-          });
-          infoLine.appendChild(priceBadge);
+          infoLine.appendChild(window.UI.Badge({
+            text: `💰 ${priceText}`,
+            type: 'success-light'
+          }));
         }
       }
       
@@ -628,16 +534,10 @@ window.Pages.settings = function(container, serviceCenter) {
           'audio': '🎤'
         };
         const icons = inputModalities.map(m => modalityIcons[m] || m).join(' ');
-        const modalBadge = create('span', {
-          style: {
-            padding: '2px 6px',
-            background: 'var(--color-warning-light)',
-            borderRadius: '4px',
-            fontSize: '10px'
-          },
-          text: `📥 ${icons}`
-        });
-        infoLine.appendChild(modalBadge);
+        infoLine.appendChild(window.UI.Badge({
+          text: `📥 ${icons}`,
+          type: 'warning-light'
+        }));
       }
       
       item.appendChild(infoLine);

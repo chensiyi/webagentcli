@@ -37,9 +37,8 @@ window.Pages.scripts = function(container, serviceCenter) {
     // 头部
     const header = create('div', { className: 'page-header' }, [
       create('h1', { className: 'page-title', text: '用户脚本' }),
-      create('button', {
-        className: 'btn btn-primary',
-        style: { padding: '6px 16px', fontSize: '13px' },
+      window.UI.Button({
+        className: 'btn-primary btn-small',
         text: showForm ? '取消' : '安装脚本',
         onClick: () => {
           showForm = !showForm;
@@ -59,11 +58,11 @@ window.Pages.scripts = function(container, serviceCenter) {
     } else if (editingScriptId) {
       content.appendChild(createEditForm());
     } else if (scripts.length === 0) {
-      content.appendChild(create('div', { className: 'empty-state' }, [
-        create('div', { className: 'empty-state-icon', text: '📜' }),
-        create('div', { className: 'empty-state-title', text: '暂无脚本' }),
-        create('div', { className: 'empty-state-desc', text: '点击右上角"安装脚本"开始添加' })
-      ]));
+      content.appendChild(window.UI.EmptyState({
+        icon: '📜',
+        title: '暂无脚本',
+        desc: '点击右上角"安装脚本"开始添加'
+      }));
     } else {
       scripts.forEach(script => {
         content.appendChild(createScriptCard(script));
@@ -78,57 +77,60 @@ window.Pages.scripts = function(container, serviceCenter) {
    * 创建脚本卡片
    */
   function createScriptCard(script) {
-    return create('div', { className: 'card mb-8' }, [
-      create('div', {
-        style: { display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }
-      }, [
-        create('div', {}, [
-          create('h3', {
-            style: { fontSize: '16px', marginBottom: '4px' },
-            text: script.name
-          }),
-          script.version && create('div', {
-            className: 'text-xs text-secondary',
-            text: `v${script.version}`
-          }),
-          script.description && create('div', {
-            className: 'text-xs text-secondary',
-            text: script.description
-          }),
-          create('div', {
-            style: { marginTop: '4px' }
-          }, [
-            create('span', {
-              className: `badge badge-${script.enabled ? 'success' : 'error'}`,
-              text: script.enabled ? '已启用' : '已禁用'
-            }),
-            script.match && script.match.length > 0 && create('span', {
-              className: 'badge badge-info ml-4',
-              text: `${script.match.length} 匹配规则`
-            })
-          ])
-        ]),
-        create('div', { style: { display: 'flex', gap: '8px' } }, [
-          create('button', {
-            className: 'btn btn-small btn-text',
-            text: '编辑',
-            onClick: () => startEdit(script.id)
-          }),
-          create('button', {
-            className: `btn btn-small ${script.enabled ? 'btn-warning' : 'btn-success'}`,
-            text: script.enabled ? '禁用' : '启用',
-            onClick: () => eventHandler.handleToggle(script.id, !script.enabled)
-          }),
-          create('button', {
-            className: 'btn btn-small btn-error',
-            text: '删除',
-            onClick: async () => {
-              await eventHandler.handleDelete(script.id);
-            }
-          })
-        ])
+    const badges = [
+      window.UI.Badge({
+        type: script.enabled ? 'success' : 'error',
+        text: script.enabled ? '已启用' : '已禁用'
+      })
+    ];
+
+    if (script.match && script.match.length > 0) {
+      badges.push(window.UI.Badge({
+        type: 'info',
+        text: `${script.match.length} 匹配规则`
+      }));
+    }
+
+    const headerRow = create('div', {
+      className: 'flex justify-between items-start mb-8'
+    }, [
+      create('div', { className: 'flex-1 min-w-0' }, [
+        create('h3', {
+          className: 'text-base font-semibold mb-4',
+          text: script.name
+        }),
+        script.version && create('div', {
+          className: 'text-xs text-secondary',
+          text: `v${script.version}`
+        }),
+        script.description && create('div', {
+          className: 'text-xs text-secondary',
+          text: script.description
+        }),
+        create('div', { className: 'mt-4 flex gap-4' }, badges)
+      ]),
+      create('div', { className: 'flex gap-8 flex-shrink-0' }, [
+        window.UI.Button({
+          className: 'btn-small btn-text',
+          text: '编辑',
+          onClick: () => startEdit(script.id)
+        }),
+        window.UI.Button({
+          className: `btn-small ${script.enabled ? 'btn-warning' : 'btn-success'}`,
+          text: script.enabled ? '禁用' : '启用',
+          onClick: () => eventHandler.handleToggle(script.id, !script.enabled)
+        }),
+        window.UI.Button({
+          className: 'btn-small btn-error',
+          text: '删除',
+          onClick: async () => {
+            await eventHandler.handleDelete(script.id);
+          }
+        })
       ])
     ]);
+
+    return window.UI.Card({}, [headerRow]);
   }
 
   /**
@@ -137,33 +139,34 @@ window.Pages.scripts = function(container, serviceCenter) {
   function createInstallForm() {
     let code = '';
 
-    const form = create('div', { style: { padding: '20px' } }, [
+    const textarea = window.UI.Textarea({
+      className: 'textarea-monospace mb-16',
+      placeholder: '// ==UserScript==\n// @name         My Script\n// ...',
+      rows: 15,
+      onInput: (e) => { code = e.target.value; }
+    });
+
+    const installBtn = window.UI.Button({
+      className: 'btn-success w-full',
+      text: '安装',
+      onClick: async () => {
+        if (!code.trim()) {
+          window.Toast?.warning('请输入脚本代码');
+          return;
+        }
+        await eventHandler.handleInstall(code);
+        showForm = false;
+      }
+    });
+
+    return create('div', { className: 'p-20' }, [
       create('div', {
         className: 'text-sm text-secondary mb-8',
         text: '粘贴 Tampermonkey 用户脚本代码：'
       }),
-      create('textarea', {
-        className: 'textarea textarea-monospace',
-        attrs: { placeholder: '// ==UserScript==\n// @name         My Script\n// ...' },
-        style: { minHeight: '300px', marginBottom: '16px' },
-        onInput: (e) => { code = e.target.value; }
-      }),
-      create('button', {
-        className: 'btn btn-success',
-        text: '安装',
-        style: { width: '100%' },
-        onClick: async () => {
-          if (!code.trim()) {
-            window.Toast?.warning('请输入脚本代码');
-            return;
-          }
-          await eventHandler.handleInstall(code);
-          showForm = false;
-        }
-      })
+      textarea,
+      installBtn
     ]);
-
-    return form;
   }
 
   /**
@@ -186,46 +189,48 @@ window.Pages.scripts = function(container, serviceCenter) {
     const script = scripts.find(s => s.id === editingScriptId);
     if (!script) return create('div');
 
-    const form = create('div', { style: { padding: '20px' } }, [
+    const textarea = window.UI.Textarea({
+      className: 'textarea-monospace mb-16',
+      rows: 15,
+      value: editCode,
+      onInput: (e) => { editCode = e.target.value; }
+    });
+
+    const saveBtn = window.UI.Button({
+      className: 'btn-success flex-1',
+      text: '保存',
+      onClick: async () => {
+        if (!editCode.trim()) {
+          window.Toast?.warning('脚本代码不能为空');
+          return;
+        }
+        eventHandler.handleEdit(editingScriptId, editCode);
+        editingScriptId = null;
+        editCode = '';
+      }
+    });
+
+    const cancelBtn = window.UI.Button({
+      className: 'btn-text flex-1',
+      text: '取消',
+      onClick: () => {
+        editingScriptId = null;
+        editCode = '';
+        render();
+      }
+    });
+
+    return create('div', { className: 'p-20' }, [
       create('h3', {
-        style: { marginBottom: '16px' },
+        className: 'mb-16 font-semibold text-lg',
         text: `编辑脚本: ${script.name}`
       }),
-      create('textarea', {
-        className: 'textarea textarea-monospace',
-        style: { minHeight: '300px', marginBottom: '16px' },
-        text: editCode,
-        onInput: (e) => { editCode = e.target.value; }
-      }),
-      create('div', { style: { display: 'flex', gap: '8px' } }, [
-        create('button', {
-          className: 'btn btn-success',
-          text: '保存',
-          style: { flex: 1 },
-          onClick: async () => {
-            if (!editCode.trim()) {
-              window.Toast?.warning('脚本代码不能为空');
-              return;
-            }
-            eventHandler.handleEdit(editingScriptId, editCode);
-            editingScriptId = null;
-            editCode = '';
-          }
-        }),
-        create('button', {
-          className: 'btn btn-text',
-          text: '取消',
-          style: { flex: 1 },
-          onClick: () => {
-            editingScriptId = null;
-            editCode = '';
-            render();
-          }
-        })
+      textarea,
+      create('div', { className: 'flex gap-8' }, [
+        saveBtn,
+        cancelBtn
       ])
     ]);
-
-    return form;
   }
 
   /**
@@ -240,5 +245,5 @@ window.Pages.scripts = function(container, serviceCenter) {
   window.Pages.scripts.updateScripts = updateScripts;
 
   // 初始加载
-  eventHandler.scriptsController.loadAll();
+  eventHandler.scriptsManager.loadAll();
 };

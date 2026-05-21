@@ -8,9 +8,9 @@ class SettingsEventHandler {
     this.serviceCenter = serviceCenter;
     this.eventBus = serviceCenter.getEventBus();
     
-    // 通过 ServiceCenter 获取 SettingsController 实例
+    // 通过 ServiceCenter 获取 SettingsManager 实例
     if (serviceCenter) {
-      this.settingsController = serviceCenter.getSettingsController();
+      this.settingsManager = serviceCenter.getSettingsManager();
     }
     
     // 注册事件监听
@@ -24,8 +24,8 @@ class SettingsEventHandler {
    * 初始化时加载设置
    */
   _loadSettingsOnInit() {
-    if (this.settingsController) {
-      this.settingsController.loadSettings().then(() => {
+    if (this.settingsManager) {
+      this.settingsManager.loadSettings().then(() => {
         console.log('[SettingsEventHandler] Settings loaded on init');
       }).catch(err => {
         console.error('[SettingsEventHandler] Failed to load settings:', err);
@@ -92,8 +92,8 @@ class SettingsEventHandler {
    * 处理 API 标准变更
    */
   _handleApiStandardChanged(data) {
-    if (this.settingsController) {
-      this.settingsController._handleApiStandardChange(data);
+    if (this.settingsManager) {
+      this.settingsManager._handleApiStandardChange(data);
     }
   }
   
@@ -101,17 +101,17 @@ class SettingsEventHandler {
    * 处理模型加载请求
    */
   async _handleModelsRequest(data) {
-    if (this.settingsController) {
-      await this.settingsController._handleModelsRequest(data);
+    if (this.settingsManager) {
+      await this.settingsManager._handleModelsRequest(data);
     }
   }
   
   /**
-   * 处理设置更新（重新配置服务）
+   * 处理设置更新
    */
   _handleSettingsUpdate(data) {
-    if (this.settingsController) {
-      this.settingsController._handleSettingsUpdate(data);
+    if (this.settingsManager) {
+      this.settingsManager._handleSettingsUpdate(data);
     }
   }
   
@@ -128,10 +128,10 @@ class SettingsEventHandler {
     });
     
     try {
-      // 调用 Controller 的 updateSettings 方法
-      if (this.settingsController) {
-        this.settingsController.updateSettings(settings);
-        console.log('[SettingsEventHandler] Settings update delegated to Controller');
+      // 调用 SettingsManager 的 updateSettings 方法
+      if (this.settingsManager) {
+        this.settingsManager.updateSettings(settings);
+        console.log('[SettingsEventHandler] Settings update delegated to SettingsManager');
       }
     } catch (error) {
       console.error('[SettingsEventHandler] Save error:', error);
@@ -305,8 +305,8 @@ class SettingsEventHandler {
     
     if (dialogResult) {
       // 用户确认，先清除缓存再重新加载
-      const settingsController = this.serviceCenter.getSettingsController();
-      await settingsController.clearModelCache();
+      const settingsManager = this.serviceCenter.getSettingsManager();
+      await settingsManager.clearModelCache();
       
       // 发布模型加载请求事件
       this.eventBus.emit(window.Events.SETTINGS.MODELS_REQUEST, {

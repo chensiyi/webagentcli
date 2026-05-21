@@ -5,11 +5,10 @@
  * 使用 LM Studio 原生 v1 REST API 标准
  */
 
-class LMStudioService {
+class LMStudioService extends window.IProviderAPIService {
   constructor() {
+    super();
     this.name = 'lm-studio';
-    this.config = null;
-    this.abortController = null;
   }
 
   /**

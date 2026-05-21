@@ -3,16 +3,17 @@
 /* 消息气泡删除按钮（公共组件） */
 .message-delete-btn {
   position: absolute;
-  top: 6px;
-  right: 6px;
-  background: rgba(255, 255, 255, 0.9);
+  top: -8px;
+  right: -8px;
+  background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: 50%;
-  width: 20px;
-  height: 20px;
-  color: var(--color-danger);
+  width: 22px;
+  height: 22px;
+  min-width: 22px; /* 强制圆形 */
+  padding: 0;
+  color: var(--color-text-secondary);
   font-size: 14px;
-  font-weight: bold;
   cursor: pointer;
   opacity: 0;
   z-index: 10;
@@ -20,14 +21,18 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0;
-  line-height: 1;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.message-bubble:hover .message-delete-btn {
+  opacity: 1;
 }
 
 .message-delete-btn:hover {
   background: var(--color-danger);
   color: white;
   border-color: var(--color-danger);
+  transform: scale(1.1);
 }
 
 [data-theme="dark"] .message-delete-btn {
@@ -468,3 +473,39 @@
   background: #3e2723;
   color: #ef9a9a;
 }
+
+/* 思考强度选择器浮窗 */
+.reasoning-effort-selector {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  z-index: 1000;
+  minWidth: 100px;
+  margin-top: 4px;
+}
+
+.effort-option {
+  padding: 6px 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 13px;
+  transition: all 0.2s;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.effort-option:hover {
+  background: var(--color-bg-hover);
+}
+
+.effort-option.active {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+  font-weight: 500;
+}
+

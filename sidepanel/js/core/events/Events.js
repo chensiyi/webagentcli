@@ -22,8 +22,19 @@ const Events = {
     STREAM_COMPLETE: 'chat:streamComplete',    // 流式请求完成
     STREAM_ERROR: 'chat:streamError',          // 流式请求出错
     STREAM_STOP: 'chat:streamStop',            // 用户停止生成
-    ACTIVITY_STATE_CHANGED: 'chat:activityStateChanged', // 活动状态变更（用于按钮显示）
+    // 活动状态变更（用于按钮显示和 UI 锁定）
+    ACTIVITY_STATE_CHANGED: 'chat:activityStateChanged',
     
+    // 状态枚举
+    STATE: {
+      IDLE: 'idle',           // 空闲
+      WAITING: 'waiting',     // 等待响应中
+      THINKING: 'thinking',   // 思考中
+      GENERATING: 'generating', // 生成正文中
+      COMPLETED: 'completed', // 已完成
+      FAILED: 'failed',       // 失败
+      STOPPED: 'stopped'      // 已停止
+    },
     // 会话管理
     SESSION_CREATED: 'chat:sessionCreated',    // 会话创建
     SESSION_SWITCHED: 'chat:sessionSwitched',  // 会话切换

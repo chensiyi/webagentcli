@@ -20,7 +20,7 @@ const Role = {
 // =============================================================================
 // 消息类
 // =============================================================================
-class Message {
+class Message extends window.BaseModel {
   /**
    * @param {Object} options
    * @param {string} options.role - 角色 (Role)
@@ -33,23 +33,16 @@ class Message {
    * @param {Object} [options.metadata] - 额外元数据
    */
   constructor(options = {}) {
-    this.id = options.id || this.generateId();
+    super(options);
     this.role = options.role || Role.USER;
     this.content = options.content || '';
-    this.timestamp = options.timestamp || Date.now();
+    this.timestamp = options.timestamp || this.createdAt;
     
     // 扩展字段
     this.reasoning_content = options.reasoning_content || null;
     this.tool_calls = options.tool_calls || null;
     this.tool_call_id = options.tool_call_id || null;
     this.metadata = options.metadata || {};
-  }
-  
-  /**
-   * 生成唯一 ID
-   */
-  generateId() {
-    return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
   
   /**
@@ -99,7 +92,7 @@ class Message {
    */
   toJSON() {
     return {
-      id: this.id,
+      ...super.toJSON(),
       role: this.role,
       content: this.content,
       timestamp: this.timestamp,

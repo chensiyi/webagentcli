@@ -8,8 +8,8 @@ class StorageEventHandler {
     this.serviceCenter = serviceCenter;
     this.eventBus = serviceCenter.getEventBus();
     
-    // 通过 ServiceCenter 获取 StorageController
-    this.storageController = serviceCenter.getStorageController();
+    // 通过 ServiceCenter 获取 StorageManager
+    this.storageManager = serviceCenter.getStorageManager();
     
     // 注册事件监听
     this._registerEventListeners();
@@ -74,7 +74,7 @@ class StorageEventHandler {
    * 处理刷新（由页面调用）
    */
   handleRefresh() {
-    this.storageController.loadAll();
+    this.storageManager.loadAll();
   }
   
   /**
@@ -82,7 +82,7 @@ class StorageEventHandler {
    */
   handleSearch(keyword) {
     if (keyword.trim()) {
-      this.storageController.search(keyword);
+      this.storageManager.search(keyword);
     }
   }
   
@@ -98,15 +98,15 @@ class StorageEventHandler {
       title: '删除存储项',
       message: `确定要删除 "${key}" 吗？`,
       confirmText: '删除',
-      cancelText: '取消'
+      type: 'danger'
     });
     
-    console.log('[StorageEventHandler] User confirmed:', confirmed);
-    
     if (confirmed) {
-      await this.storageController.removeItem(key);
+      await this.storageManager.removeItem(key);
+      window.Toast.success('已删除');
     }
   }
 }
 
 // 不导出到全局，仅在 app.js 中通过 new StorageEventHandler(serviceCenter) 创建实例
+window.StorageEventHandler = StorageEventHandler;
