@@ -23,8 +23,9 @@ class Settings extends window.BaseModel {
     // 上下文管理
     this.autoContextTruncation = options.autoContextTruncation !== false;
     
-    // 思考模式配置
-    this.thinkingEffort = options.thinkingEffort || 'off'; // 'off' | 'low' | 'medium' | 'high'
+    // 思考模式配置（单一变量）
+    // 'off' 表示关闭，其他值表示开启并使用对应强度
+    this.reasoningEffort = options.reasoningEffort || 'medium'; // 'off' | 'low' | 'medium' | 'high'
     
     // UI 配置
     this.theme = options.theme || 'light'; // 'light' | 'dark'
@@ -33,8 +34,8 @@ class Settings extends window.BaseModel {
   /**
    * 思考模式是否开启
    */
-  isThinkingEnabled() {
-    return this.thinkingEffort !== 'off';
+  isReasoningEnabled() {
+    return this.reasoningEffort !== 'off';
   }
   
   /**
@@ -65,7 +66,7 @@ class Settings extends window.BaseModel {
       maxTokens: this.maxTokens,
       systemPrompt: this.systemPrompt,
       autoContextTruncation: this.autoContextTruncation,
-      thinkingEffort: this.thinkingEffort,
+      reasoningEffort: this.reasoningEffort,
       theme: this.theme
     };
   }

@@ -9,8 +9,9 @@ class Session extends window.BaseModel {
     this.messages = options.messages || [];
     this.metadata = options.metadata || {};
     
-    // 思考模式配置
-    this.thinkingEffort = options.thinkingEffort || 'off'; // 'off' | 'low' | 'medium' | 'high'
+    // 思考模式配置（单一变量）
+    // 'off' 表示关闭，其他值表示开启并使用对应强度
+    this.reasoningEffort = options.reasoningEffort || 'medium'; // 'off' | 'low' | 'medium' | 'high'
     
     // 兼容旧版命名
     this.updated_at = this.updatedAt;
@@ -101,7 +102,7 @@ class Session extends window.BaseModel {
       title: this.title,
       messages: this.messages.map(m => m.toJSON ? m.toJSON() : m),
       metadata: this.metadata,
-      thinkingEffort: this.thinkingEffort
+      reasoningEffort: this.reasoningEffort
     };
   }
   

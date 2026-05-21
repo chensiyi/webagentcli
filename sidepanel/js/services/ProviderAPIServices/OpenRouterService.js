@@ -67,10 +67,11 @@ class OpenRouterService extends OpenAIService {
     }
     
     // OpenRouter 思考模式参数
-    if (request.thinking?.enabled) {
+    // 使用单一变量 reasoningEffort：'off' 表示关闭，其他值表示开启
+    if (request.reasoningEffort && request.reasoningEffort !== 'off') {
       body.thinking = {
         enabled: true,
-        effort: request.thinking.effort || 'medium'
+        effort: request.reasoningEffort
       };
       // OpenRouter 可能不需要 reasoning_effort（如果用了 thinking 对象）
       delete body.reasoning_effort;

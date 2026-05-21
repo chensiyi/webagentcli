@@ -92,8 +92,8 @@ window.ChatComponents = {
     });
 
     const btn = window.UI.Button({
-      className: `btn-small ${session.thinkingEffort !== 'off' ? 'btn-primary' : 'btn-secondary'}`,
-      text: session.thinkingEffort !== 'off' ? 'think💡' : 'think',
+      className: `btn-small ${session.reasoningEffort !== 'off' ? 'btn-primary' : 'btn-secondary'}`,
+      text: session.reasoningEffort !== 'off' ? 'think💡' : 'think',
       onClick: (e) => {
         e.stopPropagation();
         const isHidden = effortSelector.style.display === 'none';
@@ -123,7 +123,7 @@ window.ChatComponents = {
 
     efforts.forEach(eff => {
       const opt = create('div', {
-        className: `effort-option ${session.thinkingEffort === eff.value ? 'active' : ''}`,
+        className: `effort-option ${session.reasoningEffort === eff.value ? 'active' : ''}`,
         text: `${eff.icon} ${eff.label}`,
         onClick: (e) => {
           e.stopPropagation();
@@ -140,7 +140,7 @@ window.ChatComponents = {
       e.preventDefault();
       e.stopPropagation();
       
-      const currentEffort = session.thinkingEffort || 'off';
+      const currentEffort = session.reasoningEffort || 'medium';
       const currentIndex = efforts.findIndex(eff => eff.value === currentEffort);
       let newIndex;
       
@@ -154,7 +154,7 @@ window.ChatComponents = {
         const newEffort = efforts[newIndex].value;
         if (onUpdate) onUpdate(newEffort);
         updateUI(newEffort);
-        session.thinkingEffort = newEffort; // 同步内存对象
+        session.reasoningEffort = newEffort; // 同步内存对象
       }
     }, { passive: false });
 

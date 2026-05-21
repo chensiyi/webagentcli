@@ -74,7 +74,7 @@ class SettingsPage_Base extends window.ISettings {
       temperature: 0.7,
       maxTokens: 4000,
       systemPrompt: '',
-      thinkingEffort: 'off'
+      reasoningEffort: 'medium'
     };
   }
 
@@ -160,12 +160,12 @@ class SettingsPage_Base extends window.ISettings {
       { value: 'high', label: '高 (深入)' }
     ];
 
-    return window.UI.FormGroup({ label: '思考强度 (Thinking Effort)' }, [
+    return window.UI.FormGroup({ label: '思考强度 (Reasoning Effort)' }, [
       window.UI.Select({
-        id: 'settings-thinking-effort',
+        id: 'settings-reasoning-effort',
         options: options,
-        value: settings.thinkingEffort || 'off',
-        onChange: (val) => onUpdate('thinkingEffort', val)
+        value: settings.reasoningEffort || 'medium',
+        onChange: (val) => onUpdate('reasoningEffort', val)
       })
     ]);
   }

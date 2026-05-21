@@ -96,8 +96,9 @@ class LMStudioService extends window.IProviderAPIService {
     }
 
     // 思考模式配置 (LM Studio v1 兼容 OpenAI o1/o3 格式)
-    if (request.thinking?.enabled) {
-      baseBody.reasoning_effort = request.thinking.effort || 'medium';
+    // LM Studio 需要始终发送 reasoning_effort 参数，包括 'off'
+    if (request.reasoningEffort !== undefined) {
+      baseBody.reasoning_effort = request.reasoningEffort || 'off';
     }
     
     return baseBody;

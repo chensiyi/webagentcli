@@ -34,14 +34,14 @@ class SessionManager extends window.ISessionManager {
    * @param {Object} options 
    * @param {string} [options.title] - 会话标题
    * @param {boolean} [options.persist=true] - 是否立即持久化
-   * @param {string} [options.thinkingEffort] - 思考强度
+   * @param {string} [options.reasoningEffort] - 思考强度（'off' | 'low' | 'medium' | 'high'）
    * @returns {Session} 新创建的会话
    */
   createSession(options = {}) {
     const session = new window.Session({
       title: options.title || '新对话',
       messages: [],
-      thinkingEffort: options.thinkingEffort || 'off'
+      reasoningEffort: options.reasoningEffort || 'medium'
     });
       
     this.sessions.set(session.id, session);
@@ -56,7 +56,7 @@ class SessionManager extends window.ISessionManager {
     this.eventBus.emit(window.Events.CHAT.SESSION_CREATED, { session });
     this.eventBus.emit(window.Events.CHAT.CURRENT_SESSION_CHANGED, { sessionId: session.id });
       
-    console.log('[SessionController] Created session:', session.id, 'Thinking:', session.thinkingEffort);
+    console.log('[SessionController] Created session:', session.id, 'Reasoning effort:', session.reasoningEffort);
     return session;
   }
 
@@ -419,9 +419,9 @@ class SessionManager extends window.ISessionManager {
       : (currentModel.capabilities?.reasoning || currentModel.supports_reasoning);
 
     // 如果模型不支持，强制关闭会话中的思考模式
-    if (!supportsReasoning && session.thinkingEffort !== 'off') {
+    if (!supportsReasoning && session.reasoningEffort !== 'off') {
       console.log(`[SessionController] Model ${settings.model} does not support reasoning. Disabling for session ${session.id}`);
-      session.thinkingEffort = 'off';
+      session.reasoningEffort = 'off';
       this._saveSessions();
     }
   }

@@ -82,8 +82,9 @@ class OpenAIService extends window.IProviderAPIService {
     }
 
     // 思考强度参数 (OpenAI o1/o3 系列模型)
-    if (request.thinking?.enabled) {
-      body.reasoning_effort = request.thinking.effort || 'medium';
+    // 使用单一变量 reasoningEffort：'off' 表示关闭，其他值表示开启
+    if (request.reasoningEffort && request.reasoningEffort !== 'off') {
+      body.reasoning_effort = request.reasoningEffort;
     }
 
     return body;
