@@ -224,8 +224,7 @@ class Model {
   }
 }
 
-// 导出（同时支持 ES Module 和全局变量）
+// 导出到全局
 if (typeof window !== 'undefined') {
   window.Model = Model;
 }
-export { Model };

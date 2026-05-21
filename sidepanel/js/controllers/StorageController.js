@@ -4,9 +4,13 @@
  */
 
 class StorageController {
-  constructor() {
+  /**
+   * @param {ServiceCenter} serviceCenter - 服务中心
+   */
+  constructor(serviceCenter) {
+    this.serviceCenter = serviceCenter;
+    this.eventBus = serviceCenter.getEventBus();
     this.model = window.StorageModel;
-    this.eventBus = window.EventBus;
   }
 
   /**

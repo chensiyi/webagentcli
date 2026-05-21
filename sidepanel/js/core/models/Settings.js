@@ -19,8 +19,18 @@ class Settings {
     // 上下文管理
     this.autoContextTruncation = options.autoContextTruncation !== false;
     
+    // 思考模式配置
+    this.thinkingEffort = options.thinkingEffort || 'off'; // 'off' | 'low' | 'medium' | 'high'
+    
     // UI 配置
     this.theme = options.theme || 'light'; // 'light' | 'dark'
+  }
+  
+  /**
+   * 思考模式是否开启
+   */
+  isThinkingEnabled() {
+    return this.thinkingEffort !== 'off';
   }
   
   /**
@@ -50,6 +60,7 @@ class Settings {
       maxTokens: this.maxTokens,
       systemPrompt: this.systemPrompt,
       autoContextTruncation: this.autoContextTruncation,
+      thinkingEffort: this.thinkingEffort,
       theme: this.theme
     };
   }

@@ -46,33 +46,34 @@ class OpenRouterService extends OpenAIService {
 
   /**
    * 构建请求体
-   * OpenRouter 支持额外的参数
+   * @param {MessagesRequest} request - 统一请求对象
    */
-  buildRequestBody(params) {
-    const body = super.buildRequestBody(params);
+  buildRequestBody(request) {
+    const body = super.buildRequestBody(request);
     
     // OpenRouter 支持 transforms 参数
-    if (params.transforms) {
-      body.transforms = params.transforms;
+    if (request.metadata?.transforms) {
+      body.transforms = request.metadata.transforms;
     }
     
     // OpenRouter 支持 provider 参数
-    if (params.provider) {
-      body.provider = params.provider;
+    if (request.metadata?.provider) {
+      body.provider = request.metadata.provider;
     }
     
     // OpenRouter 支持 route 参数
-    if (params.route) {
-      body.route = params.route;
+    if (request.metadata?.route) {
+      body.route = request.metadata.route;
     }
     
-    // OpenRouter reasoning 参数（统一格式）
-    // OpenRouter 使用对象格式: { enabled: boolean, effort?: string }
-    if (params.reasoningEnabled !== undefined) {
-      body.reasoning = {
-        enabled: params.reasoningEnabled,
-        ...(params.reasoningEnabled && params.reasoningEffort && { effort: params.reasoningEffort })
+    // OpenRouter 思考模式参数
+    if (request.thinking?.enabled) {
+      body.thinking = {
+        enabled: true,
+        effort: request.thinking.effort || 'medium'
       };
+      // OpenRouter 可能不需要 reasoning_effort（如果用了 thinking 对象）
+      delete body.reasoning_effort;
     }
     
     return body;

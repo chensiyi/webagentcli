@@ -36,6 +36,12 @@ window.Pages.chat = function(container, serviceCenter) {
     console.log('[ChatPage] CURRENT_SESSION_CHANGED event received:', data);
     render();
   });
+
+  // 监听消息删除事件，自动重新渲染
+  eventBus.on(window.Events.CHAT.MESSAGE_DELETED, () => {
+    console.log('[ChatPage] MESSAGE_DELETED event received, re-rendering...');
+    render();
+  });
   
   /**
    * 渲染聊天页面
@@ -57,10 +63,8 @@ window.Pages.chat = function(container, serviceCenter) {
     // Reasoning 模式切换按钮（仅当模型支持且有会话时显示）
     if (session) {
       console.log('[ChatPage] Checking reasoning support, currentSession:', session.id);
-      const modelSupportsReasoning = checkModelSupportsReasoning();
-      console.log('[ChatPage] Model supports reasoning:', modelSupportsReasoning);
-      
-      if (modelSupportsReasoning) {
+      // 检查模型是否支持思考模式，如果支持则添加按钮
+      if (checkModelSupportsThinking()) {
       const reasoningButtonContainer = create('div', {
         className: 'reasoning-control',
         style: { position: 'relative', display: 'inline-block' }
@@ -93,48 +97,51 @@ window.Pages.chat = function(container, serviceCenter) {
         { value: 'off', label: '关', icon: '⭕' }
       ];
       
-      efforts.forEach(effort => {
+      efforts.forEach((effort, index) => {
         const option = create('div', {
-          className: `effort-option ${(!session || session.reasoningEffort === effort.value) ? 'active' : ''}`,
+          className: `effort-option ${(!session || session.thinkingEffort === effort.value) ? 'active' : ''}`,
           style: {
-            padding: '6px 12px',
+            padding: '4px 12px',
+            fontSize: '11px',
             cursor: 'pointer',
             borderRadius: '4px',
-            marginBottom: '4px',
-            background: (!session || session.reasoningEffort === effort.value) ? 'var(--primary-color, #4CAF50)' : 'transparent',
-            color: (!session || session.reasoningEffort === effort.value) ? '#fff' : 'inherit',
-            textAlign: 'center',
-            fontSize: '13px'
+            background: (!session || session.thinkingEffort === effort.value) ? 'var(--primary-color, #4CAF50)' : 'transparent',
+            color: (!session || session.thinkingEffort === effort.value) ? '#fff' : 'inherit',
+            transition: 'all 0.2s',
+            marginBottom: index === efforts.length - 1 ? '0' : '4px',
+            textAlign: 'center'
           },
           text: `${effort.icon} ${effort.label}`,
           onClick: (e) => {
             e.stopPropagation();
-            updateReasoningEffort(effort.value);
-          }
-        });
-        
-        // 悬停效果
-        option.addEventListener('mouseenter', () => {
-          if (!session || session.reasoningEffort !== effort.value) {
-            option.style.background = 'rgba(255, 255, 255, 0.1)';
-          }
-        });
-        option.addEventListener('mouseleave', () => {
-          if (!session || session.reasoningEffort !== effort.value) {
-            option.style.background = 'transparent';
+            if (!session || session.thinkingEffort !== effort.value) {
+              updateThinkingEffort(effort.value);
+            }
+          },
+          onMouseEnter: (e) => {
+            if (!session || session.thinkingEffort !== effort.value) {
+              e.target.style.background = 'var(--bg-hover, rgba(0,0,0,0.05))';
+            }
+          },
+          onMouseLeave: (e) => {
+            if (!session || session.thinkingEffort !== effort.value) {
+              e.target.style.background = 'transparent';
+            }
           }
         });
         
         effortSelector.appendChild(option);
       });
       
-      // 主按钮
-      const reasoningEnabled = session ? session.reasoningEnabled : true; // 默认开启
+      const thinkingEnabled = session ? (session.thinkingEffort !== 'off') : false;
       const reasoningBtn = create('button', {
-        className: `btn ${reasoningEnabled ? 'btn-primary' : 'btn-secondary'}`,
-        style: { marginRight: '8px' },
-        text: reasoningEnabled ? 'think💡' : 'think',
-        onClick: () => toggleReasoning()
+        className: `btn ${thinkingEnabled ? 'btn-primary' : 'btn-secondary'}`,
+        style: { marginRight: '8px', fontSize: '12px', padding: '4px 8px' },
+        text: thinkingEnabled ? 'think💡' : 'think',
+        onClick: (e) => {
+          e.stopPropagation();
+          toggleReasoning();
+        }
       });
       
       // 鼠标悬停显示/隐藏强度选择器
@@ -161,7 +168,7 @@ window.Pages.chat = function(container, serviceCenter) {
         e.preventDefault();
         e.stopPropagation();
         
-        const currentEffort = session ? session.reasoningEffort : 'medium';
+        const currentEffort = session ? session.thinkingEffort : 'medium';
         const currentIndex = efforts.findIndex(eff => eff.value === currentEffort);
         let newIndex;
         
@@ -174,7 +181,7 @@ window.Pages.chat = function(container, serviceCenter) {
         }
         
         if (newIndex !== currentIndex) {
-          updateReasoningEffort(efforts[newIndex].value, false); // 不重新渲染
+          updateThinkingEffort(efforts[newIndex].value, false); // 不重新渲染
         }
       }, { passive: false }); // 需要调用 preventDefault，必须设为 false
       
@@ -522,9 +529,9 @@ window.Pages.chat = function(container, serviceCenter) {
   }
 
   /**
-   * 检查当前模型是否支持 reasoning（同步，从缓存读取）
+   * 检查当前模型是否支持思考模式（同步，从缓存读取）
    */
-  function checkModelSupportsReasoning() {
+  function checkModelSupportsThinking() {
     // 从 Provider Service 获取配置
     let providerService = null;
     try {
@@ -554,7 +561,7 @@ window.Pages.chat = function(container, serviceCenter) {
     
     if (!cachedModels || !Array.isArray(cachedModels)) {
       console.log('[ChatPage] No cached models, default to true');
-      // 如果缓存还没加载出来，默认认为支持（因为 Model 原型默认开启）
+      // 如果缓存还没加载出来，默认认为支持
       return true;
     }
     
@@ -564,20 +571,12 @@ window.Pages.chat = function(container, serviceCenter) {
       return true; // 没找到具体模型信息时，也默认支持
     }
     
-    console.log('[ChatPage] Found model:', currentModel.id);
-    console.log('[ChatPage] Model capabilities:', currentModel.capabilities);
-    console.log('[ChatPage] Model supports_reasoning:', currentModel.supports_reasoning);
-    
     // 兼容 Model 对象的方法调用和旧版字段
     if (typeof currentModel.supportsReasoning === 'function') {
-      const result = currentModel.supportsReasoning();
-      console.log('[ChatPage] supportsReasoning() returned:', result);
-      return result;
+      return currentModel.supportsReasoning();
     }
     
-    const result = currentModel.capabilities?.reasoning !== false && currentModel.supports_reasoning !== false;
-    console.log('[ChatPage] Final result:', result);
-    return result;
+    return currentModel.capabilities?.reasoning !== false && currentModel.supports_reasoning !== false;
   }
 
   /**
@@ -587,43 +586,51 @@ window.Pages.chat = function(container, serviceCenter) {
     const session = getCurrentSession();
     if (!session) return;
 
-    const nextReasoningEnabled = !session.reasoningEnabled;
-    const nextReasoningEffort = nextReasoningEnabled
-      ? (session.reasoningEffort === 'off' ? 'medium' : session.reasoningEffort)
-      : 'off';
+    // 循环切换: off -> medium -> high -> low -> off
+    const effortMap = {
+      'off': 'medium',
+      'medium': 'high',
+      'high': 'low',
+      'low': 'off'
+    };
+    
+    const currentEffort = session.thinkingEffort || 'off';
+    const nextEffort = effortMap[currentEffort] || 'off';
 
     sessionManager.updateSession(session.id, (targetSession) => {
-      targetSession.reasoningEnabled = nextReasoningEnabled;
-      targetSession.reasoningEffort = nextReasoningEffort;
+      targetSession.thinkingEffort = nextEffort;
     });
-    
-    // 重新渲染页面以更新按钮状态
+
     render();
     
-    console.log('[ChatPage] Reasoning mode:', nextReasoningEnabled ? 'enabled' : 'disabled', ', effort:', nextReasoningEffort);
+    const effortLabels = {
+      'off': '已关闭思考',
+      'low': '开启思考 (低强度)',
+      'medium': '开启思考 (中强度)',
+      'high': '开启思考 (高强度)'
+    };
+    window.Toast.info(effortLabels[nextEffort]);
+    console.log('[ChatPage] Thinking effort updated to:', nextEffort);
   }
 
   /**
-   * 更新 Reasoning 强度
+   * 更新思考强度
    * @param {string} effort - 强度值
    * @param {boolean} shouldRerender - 是否重新渲染整个页面（默认 true）
    */
-  function updateReasoningEffort(effort, shouldRerender = true) {
+  function updateThinkingEffort(effort, shouldRerender = true) {
     const session = getCurrentSession();
     if (!session) return;
     
     // 验证强度值（包括 'off'）
     const validEfforts = ['low', 'medium', 'high', 'off'];
     if (!validEfforts.includes(effort)) {
-      console.warn('[ChatPage] Invalid reasoning effort:', effort);
+      console.warn('[ChatPage] Invalid thinking effort:', effort);
       return;
     }
     
-    const nextReasoningEnabled = effort === 'off' ? false : true;
-
     sessionManager.updateSession(session.id, (targetSession) => {
-      targetSession.reasoningEffort = effort;
-      targetSession.reasoningEnabled = nextReasoningEnabled;
+      targetSession.thinkingEffort = effort;
     });
     
     // 如果需要，重新渲染页面以更新选择器状态
@@ -634,7 +641,7 @@ window.Pages.chat = function(container, serviceCenter) {
       updateEffortSelectorUI();
     }
     
-    console.log('[ChatPage] Reasoning effort updated to:', effort, ', enabled:', nextReasoningEnabled);
+    console.log('[ChatPage] Thinking effort updated to:', effort);
   }
 
   /**
@@ -651,7 +658,7 @@ window.Pages.chat = function(container, serviceCenter) {
                           optionText.includes('中') ? 'medium' :
                           optionText.includes('低') ? 'low' : 'off';
       
-      if (optionEffort === getCurrentSession()?.reasoningEffort) {
+      if (optionEffort === getCurrentSession()?.thinkingEffort) {
         option.style.background = 'var(--primary-color, #4CAF50)';
         option.style.color = '#fff';
       } else {

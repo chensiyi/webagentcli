@@ -1,49 +1,101 @@
 /**
- * 消息模型
- * 简化的消息数据结构
+ * Message - 消息原型定义
+ * 
+ * 职责：
+ * 1. 定义消息的角色枚举 (Role)
+ * 2. 定义核心消息数据结构，支持纯文本和富媒体块内容
+ * 3. 提供基础的消息状态判断逻辑
  */
 
+// =============================================================================
+// 角色枚举
+// =============================================================================
+const Role = {
+  USER: 'user',
+  ASSISTANT: 'assistant',
+  SYSTEM: 'system',
+  TOOL: 'tool'
+};
+
+// =============================================================================
+// 消息类
+// =============================================================================
 class Message {
+  /**
+   * @param {Object} options
+   * @param {string} options.role - 角色 (Role)
+   * @param {string|Array} options.content - 消息内容（字符串或富媒体块数组）
+   * @param {string} [options.id] - 消息唯一 ID
+   * @param {number} [options.timestamp] - 时间戳
+   * @param {string} [options.reasoning_content] - 推理/思考内容
+   * @param {Array} [options.tool_calls] - 工具调用列表 (OpenAI 格式兼容)
+   * @param {string} [options.tool_call_id] - 工具调用 ID (Role.TOOL 时使用)
+   * @param {Object} [options.metadata] - 额外元数据
+   */
   constructor(options = {}) {
     this.id = options.id || this.generateId();
-    this.role = options.role; // 'user' | 'assistant' | 'system' | 'tool'
+    this.role = options.role || Role.USER;
     this.content = options.content || '';
     this.timestamp = options.timestamp || Date.now();
     
-    // 可选字段
+    // 扩展字段
+    this.reasoning_content = options.reasoning_content || null;
     this.tool_calls = options.tool_calls || null;
     this.tool_call_id = options.tool_call_id || null;
-    this.reasoning_content = options.reasoning_content || ''; // 推理/思考内容
     this.metadata = options.metadata || {};
   }
   
+  /**
+   * 生成唯一 ID
+   */
   generateId() {
     return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
   
   /**
-   * 判断是否为用户消息
+   * 判断内容是否为富媒体块数组
    */
-  isUser() {
-    return this.role === 'user';
+  isRichContent() {
+    return Array.isArray(this.content);
   }
   
   /**
-   * 判断是否为助手消息
+   * 获取纯文本内容
    */
-  isAssistant() {
-    return this.role === 'assistant';
+  getText() {
+    if (typeof this.content === 'string') {
+      return this.content;
+    }
+    if (Array.isArray(this.content)) {
+      return this.content
+        .filter(block => block.type === 'text')
+        .map(block => block.text)
+        .join('\n\n');
+    }
+    return '';
   }
-  
+
   /**
-   * 判断是否有工具调用
+   * 判断是否包含工具调用
    */
   hasToolCalls() {
-    return this.role === 'assistant' && this.tool_calls && this.tool_calls.length > 0;
+    if (this.tool_calls && this.tool_calls.length > 0) return true;
+    if (this.isRichContent()) {
+      return this.content.some(block => block.type === 'tool_use');
+    }
+    return false;
   }
   
   /**
-   * 转换为纯对象（用于序列化）
+   * 状态判断
+   */
+  isUser() { return this.role === Role.USER; }
+  isAssistant() { return this.role === Role.ASSISTANT; }
+  isSystem() { return this.role === Role.SYSTEM; }
+  isTool() { return this.role === Role.TOOL; }
+  
+  /**
+   * 序列化
    */
   toJSON() {
     return {
@@ -51,15 +103,15 @@ class Message {
       role: this.role,
       content: this.content,
       timestamp: this.timestamp,
+      reasoning_content: this.reasoning_content,
       tool_calls: this.tool_calls,
       tool_call_id: this.tool_call_id,
-      reasoning_content: this.reasoning_content,
       metadata: this.metadata
     };
   }
   
   /**
-   * 从纯对象创建
+   * 反序列化
    */
   static fromJSON(data) {
     return new Message(data);
@@ -67,4 +119,7 @@ class Message {
 }
 
 // 导出到全局
-window.Message = Message;
+if (typeof window !== 'undefined') {
+  window.Role = Role;
+  window.Message = Message;
+}

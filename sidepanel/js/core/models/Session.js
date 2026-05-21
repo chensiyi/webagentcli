@@ -12,10 +12,12 @@ class Session {
     this.updated_at = this.updatedAt; // 兼容旧版命名
     this.metadata = options.metadata || {};
     
-    // Reasoning 配置（持久化）
-    this.reasoningEnabled = options.reasoningEnabled || false;
-    this.reasoningEffort = options.reasoningEffort || 'medium'; // 'low' | 'medium' | 'high' | 'off'
+    // 思考模式配置
+    this.thinkingEffort = options.thinkingEffort || 'off'; // 'off' | 'low' | 'medium' | 'high'
     
+    //TODO: 增加工具配置
+    //this.tools = options.tools || [];
+
     // 运行时状态（不持久化）
     this.port = null;
     this.isStreaming = false;
@@ -107,10 +109,8 @@ class Session {
       messages: this.messages.map(m => m.toJSON ? m.toJSON() : m),
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
-      updated_at: this.updated_at,
       metadata: this.metadata,
-      reasoningEnabled: this.reasoningEnabled,
-      reasoningEffort: this.reasoningEffort
+      thinkingEffort: this.thinkingEffort
     };
   }
   
@@ -118,20 +118,7 @@ class Session {
    * 从纯对象创建
    */
   static fromJSON(data) {
-    const session = new Session({
-      ...data,
-      // 确保 reasoningEnabled 有默认值。如果模型支持，新会话默认开启；旧数据保持原样
-      reasoningEnabled: data.reasoningEnabled !== undefined ? data.reasoningEnabled : true
-    });
-    // 恢复消息为 Message 对象
-    if (data.messages && Array.isArray(data.messages)) {
-      session.messages = data.messages.map(m => 
-        window.Message ? window.Message.fromJSON(m) : m
-      );
-    }
-    // 确保 updated_at 同步
-    session.updated_at = session.updatedAt;
-    return session;
+    return new Session(data);
   }
 }
 

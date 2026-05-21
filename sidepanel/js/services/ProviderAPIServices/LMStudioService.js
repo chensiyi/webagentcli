@@ -61,45 +61,44 @@ class LMStudioService {
    * 格式化消息
    */
   formatMessages(messages) {
-    // 使用 OpenAI 兼容格式：messages 数组，每个元素包含 role 和 content
-    return messages.map(msg => ({
-      role: msg.role,
-      content: msg.content || ''
-    }));
+    if (!messages || !Array.isArray(messages)) return [];
+    
+    const { MessageStructure } = window.MessageContent;
+    // 使用 OpenAI 兼容格式
+    return messages.map(msg => MessageStructure.toAPIFormat(msg, 'openai'));
   }
 
   /**
    * 构建请求体
+   * @param {MessagesRequest} request - 统一请求对象
    */
-  buildRequestBody(params) {
+  buildRequestBody(request) {
     // 使用 OpenAI 兼容格式
     const baseBody = {
-      model: params.model || this.config.defaultModel,
-      messages: this.formatMessages(params.messages || []),
-      stream: params.stream ?? false
+      model: request.model || this.config.defaultModel,
+      messages: this.formatMessages(request.messages || []),
+      stream: request.stream ?? false
     };
     
-    if (params.temperature !== undefined) {
-      baseBody.temperature = params.temperature;
+    if (request.temperature !== undefined) {
+      baseBody.temperature = request.temperature;
     }
     
-    if (params.maxTokens) {
-      baseBody.max_tokens = params.maxTokens;
+    if (request.maxTokens) {
+      baseBody.max_tokens = request.maxTokens;
     }
     
-    if (params.top_p !== undefined) {
-      baseBody.top_p = params.top_p;
+    // 处理系统提示词
+    if (request.system) {
+      baseBody.messages.unshift({
+        role: 'system',
+        content: request.system
+      });
     }
-    
-    // 支持推理/思考模式 - OpenAI 兼容格式
-    // 使用 reasoning_effort 参数（下划线格式）
-    // 可选值: "low" | "medium" | "high" | "minimal" | "none"
-    if (params.reasoningEnabled === true) {
-      // 如果启用了推理，使用 reasoningEffort
-      baseBody.reasoning_effort = params.reasoningEffort || 'medium';
-    } else {
-      // 关闭推理，设为 'none' 或不传递该字段
-      baseBody.reasoning_effort = 'none';
+
+    // 思考模式配置 (LM Studio v1 兼容 OpenAI o1/o3 格式)
+    if (request.thinking?.enabled) {
+      baseBody.reasoning_effort = request.thinking.effort || 'medium';
     }
     
     return baseBody;
@@ -218,11 +217,14 @@ class LMStudioService {
 
   /**
    * 发送聊天请求（非流式）
+   * @param {MessagesRequest} request - 统一请求对象
    */
-  chat(params) {
+  chat(request) {
     const url = this.buildUrl('/chat');
     const headers = this.buildHeaders();
-    const body = this.buildRequestBody({ ...params, stream: false });
+    
+    request.stream = false;
+    const body = this.buildRequestBody(request);
     
     this.abortController = new AbortController();
     
@@ -258,11 +260,16 @@ class LMStudioService {
 
   /**
    * 发送流式聊天请求
+   * @param {MessagesRequest} request - 统一请求对象
+   * @param {Function} onChunk - 片段回调
+   * @param {Function} onComplete - 完成回调
    */
-  chatStream(params, onChunk, onComplete) {
+  chatStream(request, onChunk, onComplete) {
     const url = this.buildUrl('/chat');
     const headers = this.buildHeaders();
-    const body = this.buildRequestBody({ ...params, stream: true });
+    
+    request.stream = true;
+    const body = this.buildRequestBody(request);
     
     this.abortController = new AbortController();
     

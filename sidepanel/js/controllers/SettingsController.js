@@ -9,17 +9,18 @@
  * 设计原则：
  * - 继承 IAppSettings 基类
  * - 包含完整的业务逻辑实现
- * - 管理服务配置和模型缓存
+ * - 统一通过 ServiceCenter 管理 Provider 服务实例
  */
 
 class SettingsController extends window.IAppSettings {
-  constructor(eventBus = window.EventBus, storage = null) {
-    super(eventBus, storage);
+  /**
+   * @param {ServiceCenter} serviceCenter - 服务中心
+   */
+  constructor(serviceCenter) {
+    super(serviceCenter.getEventBus());
+    this.serviceCenter = serviceCenter;
     
     this.settings = new window.Settings();
-    
-    // 不在构造函数中加载设置，由 app.js 控制初始化时机
-    // this.loadSettings();
     
     console.log('[SettingsController] Initialized');
   }
@@ -38,83 +39,10 @@ class SettingsController extends window.IAppSettings {
       return; // 非 API 配置更新，无需重新配置 Service
     }
     
-    // 重新配置 ChatService
-    this._reconfigureChatService();
+    // 通知 ServiceCenter 重置 ProviderService（下次获取时会自动按新设置创建）
+    this.serviceCenter.resetProviderService();
     
-    // 如果切换了 API 标准，清除模型缓存
-    if (updates.apiStandard) {
-      this._reconfigureModelManager();
-    }
-  }
-  
-  /**
-   * 重新配置聊天服务
-   */
-  _reconfigureChatService() {
-    if (!window.ChatController) {
-      console.warn('[SettingsController] ChatController not available');
-      return;
-    }
-    
-    const settings = this.settings.toJSON();
-    
-    // 直接创建 Service 实例
-    let ServiceClass = null;
-    switch (settings.apiStandard) {
-      case 'openai':
-        ServiceClass = window.OpenAIService;
-        break;
-      case 'openrouter':
-        ServiceClass = window.OpenRouterService;
-        break;
-      case 'lm-studio':
-        ServiceClass = window.LMStudioService;
-        break;
-    }
-    
-    if (!ServiceClass) {
-      console.warn('[SettingsController] Unsupported API standard:', settings.apiStandard);
-      return;
-    }
-    
-    const service = new ServiceClass();
-    
-    // 重新配置服务
-    service.configure({
-      endpoint: settings.apiEndpoint,
-      apiKey: settings.apiKey,
-      defaultModel: settings.model || 'default'
-    });
-    
-    // 不再直接操作全局 ChatController，ServiceCenter 会在下次 getChatController 时创建新的实例
-    
-    // 不再设置全局 ChatService，所有组件应通过 ServiceCenter 获取
-    // window.ChatService = service;  // ❌ 已废弃
-    
-    console.log('[SettingsController] ChatService reconfigured:', settings.apiStandard);
-    
-    // 发布服务重新配置事件
-    this.eventBus.emit(window.Events.SERVICE.CONFIGURED, {
-      apiStandard: settings.apiStandard,
-      endpoint: settings.apiEndpoint
-    });
-  }
-  
-  /**
-   * 重新配置模型管理器
-   */
-  _reconfigureModelManager() {
-    if (!window.ModelManager) {
-      console.warn('[SettingsController] ModelManager not available');
-      return;
-    }
-    
-    const settings = this.settings.toJSON();
-    
-    // 清除旧的模型缓存（因为 API 标准变了）
-    window.ModelManager.clearCache();
-    
-    console.log('[SettingsController] ModelManager cache cleared for new API standard:', settings.apiStandard);
+    console.log('[SettingsController] Provider service reset notified due to settings update');
   }
   
   /**
@@ -148,11 +76,14 @@ class SettingsController extends window.IAppSettings {
       isAutoFilled: true
     });
     
-    // 同时发布设置更新事件，确保其他模块（如 ChatService）也能感知到变化
+    // 同时发布设置更新事件，确保其他模块也能感知到变化
     this.eventBus.emit(window.Events.SETTINGS.UPDATED, {
       updates: { apiStandard, apiEndpoint: defaultEndpoint, ...preservedParams },
       newSettings: this.settings.toJSON()
     });
+    
+    // 重置服务
+    this.serviceCenter.resetProviderService();
     
     console.log('[SettingsController] API standard changed:', apiStandard, '-> endpoint:', defaultEndpoint);
   }
@@ -164,7 +95,6 @@ class SettingsController extends window.IAppSettings {
     const { apiKey, apiEndpoint, apiStandard } = data;
     
     console.log('[SettingsController] MODELS_REQUEST received');
-    console.trace('[SettingsController] MODELS_REQUEST call stack:');
     
     // 设置加载状态
     if (window.Pages && window.Pages.settings) {
@@ -175,53 +105,24 @@ class SettingsController extends window.IAppSettings {
     }
     
     try {
-      // 直接从 API 获取最新模型列表
-      console.log('[SettingsController] Fetching models from API:', apiEndpoint);
+      const modelController = this.serviceCenter.getModelController();
       
-      // 直接创建 Service 实例
-      let ServiceClass = null;
-      switch (apiStandard) {
-        case 'openai':
-          ServiceClass = window.OpenAIService;
-          break;
-        case 'openrouter':
-          ServiceClass = window.OpenRouterService;
-          break;
-        case 'lm-studio':
-          ServiceClass = window.LMStudioService;
-          break;
-      }
-      
-      if (!ServiceClass) {
-        throw new Error(`Unsupported API standard: ${apiStandard}`);
-      }
-      
-      const service = new ServiceClass();
-      
-      // 配置 Service
-      service.configure({
-        endpoint: apiEndpoint,
-        apiKey: apiKey,
-        defaultModel: 'default'
+      // 通过 ModelController 获取并标准化模型
+      const models = await modelController.fetchModels({
+        apiStandard,
+        apiEndpoint,
+        apiKey,
+        forceRefresh: true
       });
-      
-      // 调用 Service 的 listModels 方法
-      const models = await service.listModels();
-      
-      // 保存到缓存（用于页面初始化时显示）
-      if (window.StorageModel) {
-        const cacheKey = `models:${apiEndpoint}`;
-        await window.StorageModel.setCache(cacheKey, models);
-      }
       
       // 发布模型加载完成事件
       this.eventBus.emit(window.Events.SETTINGS.MODELS_LOADED, {
-        models,
+        models: models.map(m => m.toJSON()),
         count: models.length,
         fromCache: false
       });
       
-      console.log('[SettingsController] Loaded', models.length, 'models from API');
+      console.log('[SettingsController] Loaded', models.length, 'models via ModelController');
     } catch (error) {
       this.eventBus.emit(window.Events.SETTINGS.MODELS_ERROR, { error });
     } finally {
@@ -319,27 +220,6 @@ class SettingsController extends window.IAppSettings {
   }
   
   /**
-   * 加载模型列表（已废弃，直接使用 _handleModelsRequest）
-   * @deprecated
-   */
-  async loadModels(apiKey, apiEndpoint, apiStandard) {
-    console.warn('[SettingsController] loadModels is deprecated, use _handleModelsRequest instead');
-    
-    const service = window.ProviderServiceFactory.create(apiStandard);
-    if (!service) {
-      throw new Error(`Unsupported API standard: ${apiStandard}`);
-    }
-    
-    service.configure({
-      endpoint: apiEndpoint,
-      apiKey: apiKey,
-      defaultModel: 'default'
-    });
-    
-    return await service.listModels();
-  }
-  
-  /**
    * 重置设置
    */
   resetSettings() {
@@ -356,15 +236,13 @@ class SettingsController extends window.IAppSettings {
    * 清除模型缓存
    */
   async clearModelCache() {
-    if (!window.StorageModel) {
-      console.warn('[SettingsController] StorageModel not available');
-      return false;
-    }
+    const settings = this.getSettings();
+    if (!settings || !settings.apiEndpoint) return false;
+
+    const modelController = this.serviceCenter.getModelController();
+    await modelController.clearCache(settings.apiEndpoint);
     
-    // 清除所有模型缓存
-    await window.StorageModel.clearAllCache();
-    
-    console.log('[SettingsController] Model cache cleared');
+    console.log('[SettingsController] Model cache cleared via ModelController');
     
     // 通知 Page 清空模型列表
     if (window.Pages && window.Pages.settings) {
@@ -383,7 +261,7 @@ class SettingsController extends window.IAppSettings {
   }
 }
 
-// 导出类（由 app.js 创建实例）
+// 导出类（由 ServiceCenter 创建实例）
 if (typeof window !== 'undefined') {
   window.SettingsController = SettingsController;
 }

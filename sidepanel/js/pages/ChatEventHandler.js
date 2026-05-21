@@ -23,25 +23,12 @@ class ChatEventHandler {
     
     // 监听消息添加事件（触发 UI 渲染）
     this.eventBus.on(window.Events.CHAT.MESSAGE_ADDED, (data) => {
-      console.log('[ChatEventHandler] MESSAGE_ADDED:', data.message?.id);
-      // 通知页面重新渲染
-      if (window.Pages && window.Pages.chat) {
-        window.Pages.chat.render();
-      }
+      this._handleMessageAdded(data);
     });
     
     // 监听消息更新事件（错误更新等）
     this.eventBus.on(window.Events.CHAT.MESSAGE_UPDATED, (data) => {
-      const { message } = data;
-      if (!message) return;
-      
-      console.log('[ChatEventHandler] MESSAGE_UPDATED:', message.id);
-      
-      // 直接更新 UI
-      this._updateMessageContent(message.id, message.content);
-      if (message.reasoning_content) {
-        this._updateMessageReasoning(message.id, message.reasoning_content);
-      }
+      this._handleMessageUpdated(data);
     });
     
     // 监听流式分片追加事件（UI 更新）
@@ -70,24 +57,6 @@ class ChatEventHandler {
     this.eventBus.on(window.Events.CHAT.STREAM_ERROR, (data) => {
       this._handleStreamError(data);
     });
-    
-    // 监听会话切换
-    this.eventBus.on(window.Events.CHAT.SESSION_SWITCHED, (data) => {
-      this._handleSessionSwitched(data);
-    });
-    
-    // 监听会话创建
-    this.eventBus.on(window.Events.CHAT.SESSION_CREATED, (data) => {
-      this._handleSessionCreated(data);
-    });
-
-    // 监听消息删除事件，更新 UI
-    this.eventBus.on(window.Events.CHAT.MESSAGE_DELETED, (data) => {
-      console.log('[ChatEventHandler] MESSAGE_DELETED:', data);
-      if (window.Pages && window.Pages.chat) {
-        window.Pages.chat.render();
-      }
-    });
 
     // 注册键盘快捷键：Ctrl + ArrowUp/Down 快速滑动用户消息
     document.addEventListener('keydown', (e) => {
@@ -104,11 +73,7 @@ class ChatEventHandler {
   _handleMessageAdded(data) {
     const { message } = data;
     console.log('[ChatEventHandler] Message added:', message);
-    
-    // 通知页面重新渲染
-    if (window.Pages && window.Pages.chat) {
-      window.Pages.chat.render();
-    }
+    // ChatPage 会自行处理渲染
   }
   
   /**

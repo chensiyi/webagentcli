@@ -4,9 +4,13 @@
  */
 
 class ScriptsController {
-  constructor() {
+  /**
+   * @param {ServiceCenter} serviceCenter - 服务中心
+   */
+  constructor(serviceCenter) {
+    this.serviceCenter = serviceCenter;
+    this.eventBus = serviceCenter.getEventBus();
     this.model = window.ScriptsModel;
-    this.eventBus = window.EventBus;
   }
 
   /**

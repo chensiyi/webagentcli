@@ -63,17 +63,17 @@ class IProviderAPIService {
   
   /**
    * 构建请求体（子类可重写）
-   * @param {Object} params - 请求参数
-   * @returns {Object} 请求体对象
+   * @param {MessagesRequest} request - 统一请求对象
+   * @returns {Object} 适配各 API 厂商的请求体对象
    */
-  buildRequestBody(params) {
+  buildRequestBody(request) {
     throw new Error('Method not implemented: buildRequestBody');
   }
   
   /**
    * 解析响应（子类可重写）
-   * @param {Object} data - API 响应数据
-   * @returns {Object} 标准化响应 { content, role, toolCalls, finishReason, usage, model }
+   * @param {Object} data - API 响应原始数据
+   * @returns {Object} 标准化响应 { content, reasoning_content, role, toolCalls, finishReason, usage, model }
    */
   parseResponse(data) {
     throw new Error('Method not implemented: parseResponse');
@@ -90,21 +90,21 @@ class IProviderAPIService {
   
   /**
    * 发送聊天请求（非流式）
-   * @param {Object} params - 请求参数
+   * @param {MessagesRequest} request - 统一请求对象
    * @returns {Promise<Object>} 标准化响应
    */
-  chat(params) {
+  chat(request) {
     throw new Error('Method not implemented: chat');
   }
   
   /**
-   * 发送流式聊天请求
-   * @param {Object} params - 请求参数
-   * @param {Function} onChunk - 数据块回调
-   * @param {Function} onComplete - 完成回调
+   * 发送聊天请求（流式）
+   * @param {MessagesRequest} request - 统一请求对象
+   * @param {Function} onChunk - 收到片段的回调 (chunk) => void
+   * @param {Function} onComplete - 请求完成的回调 () => void
    * @returns {Promise<void>}
    */
-  chatStream(params, onChunk, onComplete) {
+  chatStream(request, onChunk, onComplete) {
     throw new Error('Method not implemented: chatStream');
   }
   

@@ -15,6 +15,7 @@ class ServiceCenter {
     this.settingsController = null;
     this.storageController = null;
     this.scriptsController = null;
+    this.modelController = null;
     this.currentProviderService = null; // 当前活跃的 Provider API 服务
     this.currentProviderId = null;
     this.chatController = null; // ChatController 单例
@@ -68,7 +69,7 @@ class ServiceCenter {
       if (!window.SettingsController || !this.eventBus) {
         throw new Error('SettingsController or EventBus not initialized');
       }
-      this.settingsController = new window.SettingsController(this.eventBus);
+      this.settingsController = new window.SettingsController(this);
       console.log('[ServiceCenter] SettingsController initialized');
     }
     return this.settingsController;
@@ -83,7 +84,7 @@ class ServiceCenter {
       if (!window.StorageController) {
         throw new Error('StorageController not initialized');
       }
-      this.storageController = new window.StorageController();
+      this.storageController = new window.StorageController(this);
       console.log('[ServiceCenter] StorageController initialized');
     }
     return this.storageController;
@@ -98,10 +99,34 @@ class ServiceCenter {
       if (!window.ScriptsController) {
         throw new Error('ScriptsController not initialized');
       }
-      this.scriptsController = new window.ScriptsController();
+      this.scriptsController = new window.ScriptsController(this);
       console.log('[ServiceCenter] ScriptsController initialized');
     }
     return this.scriptsController;
+  }
+
+  /**
+   * 获取 ModelController 实例
+   * @returns {ModelController} ModelController 实例
+   */
+  getModelController() {
+    if (!this.modelController) {
+      if (!window.ModelController) {
+        throw new Error('ModelController not initialized');
+      }
+      this.modelController = new window.ModelController(this);
+      console.log('[ServiceCenter] ModelController initialized');
+    }
+    return this.modelController;
+  }
+
+  /**
+   * 重置当前 Provider API 服务（当设置变更时调用）
+   */
+  resetProviderService() {
+    this.currentProviderService = null;
+    this.currentProviderId = null;
+    console.log('[ServiceCenter] Provider service reset');
   }
 
   /**
@@ -123,27 +148,21 @@ class ServiceCenter {
       defaultModel: settings.model || 'default'
     };
 
+    // 如果服务不存在，或者 Provider ID 变了，创建新服务
     if (!this.currentProviderService || this.currentProviderId !== providerId) {
       this.currentProviderService = this.createProviderService(providerId, config);
       this.currentProviderId = providerId;
       return this.currentProviderService;
     }
 
+    // 否则，仅更新现有服务的配置
     this.currentProviderService.configure(config);
     
     return this.currentProviderService;
   }
 
   /**
-   * 获取当前 Provider API 服务（兼容旧命名）
-   * @returns {IProviderAPIService} Provider API 服务实例
-   */
-  getChatService() {
-    return this.getCurrentProviderService();
-  }
-
-  /**
-   * 获取 ChatController 实例（单例）
+   * 获取当前 ChatController 实例（单例）
    * @returns {ChatController} ChatController 实例
    */
   getChatController() {
@@ -152,14 +171,6 @@ class ServiceCenter {
       console.log('[ServiceCenter] ChatController initialized');
     }
     return this.chatController;
-  }
-
-  /**
-   * 获取当前 ChatController 实例（兼容旧命名）
-   * @returns {ChatController} ChatController 实例
-   */
-  getCurrentChat() {
-    return this.getChatController();
   }
 
   /**

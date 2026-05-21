@@ -1,4 +1,4 @@
-﻿/**
+/**
  * OpenAI Service
  * 
  * 基于 OpenAIAdapter 实现
@@ -51,35 +51,43 @@ class OpenAIService {
 
   /**
    * 格式化消息
+   * @param {Array<Message>} messages - 消息对象数组
    */
   formatMessages(messages) {
-    return messages.map(msg => ({
-      role: msg.role,
-      content: msg.content,
-      ...(msg.tool_calls && { tool_calls: msg.tool_calls })
-    }));
+    if (!messages || !Array.isArray(messages)) return [];
+    
+    const { MessageStructure } = window.MessageContent;
+    return messages.map(msg => MessageStructure.toAPIFormat(msg, 'openai'));
   }
 
   /**
    * 构建请求体
+   * @param {MessagesRequest} request - 统一请求对象
    */
-  buildRequestBody(params) {
-    return {
-      model: params.model || this.config.defaultModel,
-      messages: this.formatMessages(params.messages || []),
-      temperature: params.temperature ?? 0.7,
-      stream: params.stream ?? false,
-      ...(params.maxTokens && { max_tokens: params.maxTokens }),
-      ...(params.tools && { tools: params.tools }),
-      ...(params.toolChoice && { tool_choice: params.toolChoice }),
-      // Reasoning 参数（OpenAI o系列模型）- reasoning_effort 是顶层参数
-      // 可选值: "low" | "medium" | "high" | "minimal" | "none"
-      ...(params.reasoningEnabled === true ? {
-        reasoning_effort: params.reasoningEffort || 'medium'
-      } : {
-        reasoning_effort: 'none'
-      })
+  buildRequestBody(request) {
+    const body = {
+      model: request.model || this.config.defaultModel,
+      messages: this.formatMessages(request.messages || []),
+      temperature: request.temperature ?? 0.7,
+      stream: request.stream ?? false,
+      ...(request.maxTokens && { max_tokens: request.maxTokens }),
+      ...(request.tools && { tools: request.tools })
     };
+
+    // 处理系统提示词
+    if (request.system) {
+      body.messages.unshift({
+        role: 'system',
+        content: request.system
+      });
+    }
+
+    // 思考强度参数 (OpenAI o1/o3 系列模型)
+    if (request.thinking?.enabled) {
+      body.reasoning_effort = request.thinking.effort || 'medium';
+    }
+
+    return body;
   }
 
   /**
@@ -116,11 +124,15 @@ class OpenAIService {
 
   /**
    * 发送聊天请求（非流式）
+   * @param {MessagesRequest} request - 统一请求对象
    */
-  chat(params) {
+  chat(request) {
     const url = this.buildUrl('/chat/completions');
     const headers = this.buildHeaders();
-    const body = this.buildRequestBody({ ...params, stream: false });
+    
+    // 确保 stream 为 false
+    request.stream = false;
+    const body = this.buildRequestBody(request);
     
     this.abortController = new AbortController();
     
@@ -156,11 +168,17 @@ class OpenAIService {
 
   /**
    * 发送流式聊天请求
+   * @param {MessagesRequest} request - 统一请求对象
+   * @param {Function} onChunk - 片段回调
+   * @param {Function} onComplete - 完成回调
    */
-  chatStream(params, onChunk, onComplete) {
+  chatStream(request, onChunk, onComplete) {
     const url = this.buildUrl('/chat/completions');
     const headers = this.buildHeaders();
-    const body = this.buildRequestBody({ ...params, stream: true });
+    
+    // 确保 stream 为 true
+    request.stream = true;
+    const body = this.buildRequestBody(request);
     
     this.abortController = new AbortController();
     

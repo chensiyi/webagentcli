@@ -28,11 +28,13 @@ class ChatController {
   
   /**
    * 发送消息
-   * @param {Object} params - 发送参数
+   * @param {Object} params 
    * @param {string} params.content - 消息内容
-   * @returns {Promise<void>}
+   * @param {string} [params.sessionId] - 会话 ID
+   * @param {IProviderAPIService} [params.chatService] - 可选：直接传递 Service 实例
+   * @param {Model} [params.model] - 可选：直接传递 Model 对象
    */
-  async sendMessage({ content, sessionId = null }) {
+  async sendMessage({ content, sessionId = null, chatService = null, model = null }) {
     if (!content || !content.trim()) {
       throw new Error('Message content is required');
     }
@@ -43,7 +45,9 @@ class ChatController {
     }
     
     const sessionManager = this.serviceCenter.getSessionManager();
-    const chatService = this.serviceCenter.getChatService();
+    
+    // 如果没有传递 chatService，则通过 ServiceCenter 获取
+    const service = chatService || this.serviceCenter.getCurrentProviderService();
     
     // 获取或创建当前会话（懒加载）
     let session = sessionId ? sessionManager.getSession(sessionId) : sessionManager.getCurrentSession();
@@ -51,29 +55,31 @@ class ChatController {
       console.log('[ChatController] No active session, creating new one...');
       session = sessionManager.createSession({ title: '新对话' });
     }
+
+    console.log('[ChatController] Sending message via service:', service.constructor.name);
     
-    // 从 Session 获取 reasoning 配置
-    const reasoningEnabled = session.reasoningEnabled;
-    const reasoningEffort = session.reasoningEffort;
+    // 使用 model 对象获取特定的配置（如果提供）
+    const modelId = model ? model.id : service.config?.defaultModel;
+    
+    // 获取思考模式配置
+    const thinkingEffort = session.thinkingEffort || 'off';
     
     let assistantMsgId = null;
     
     try {
+      const { MessagesRequest, ThinkingConfig } = window.MessageContent;
+
       // 1. 创建并持久化用户消息
       const userMsg = new window.Message({ role: 'user', content: content.trim() });
       await sessionManager.addMessage(userMsg, session.id);
 
-      // 2. 基于用户消息追加后的会话准备请求参数
-      const requestParams = {
-        messages: session.messages.map(m => ({
-          role: m.role,
-          content: m.content,
-          tool_calls: m.tool_calls
-        })),
+      // 2. 构造标准的 MessagesRequest 对象
+      const request = new MessagesRequest({
+        model: modelId,
+        messages: session.messages, // 直接传递 Message 对象数组
         stream: true,
-        reasoningEnabled,
-        reasoningEffort
-      };
+        thinking: thinkingEffort !== 'off' ? new ThinkingConfig(thinkingEffort) : null
+      });
       
       // 3. 创建并持久化助手消息（空内容，等待流式填充）
       const assistantMsg = new window.Message({ role: 'assistant', content: '' });
@@ -93,8 +99,8 @@ class ChatController {
       });
       
       // 5. 开始流式请求
-      await chatService.chatStream(
-        requestParams,
+      await service.chatStream(
+        request,
         (chunk) => {
           // 流式分片：通过 SessionManager 持久化
           sessionManager.streamChunkMessage(assistantMsgId, {
@@ -157,7 +163,7 @@ class ChatController {
       return;
     }
     
-    const chatService = this.serviceCenter.getChatService();
+    const chatService = this.serviceCenter.getCurrentProviderService();
     if (chatService && typeof chatService.cancel === 'function') {
       chatService.cancel();
     }

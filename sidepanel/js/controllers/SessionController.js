@@ -24,7 +24,7 @@ class SessionController extends window.ISessionManager {
     this.sessions = new Map(); // sessionId -> Session
     this.currentSessionId = null;
     
-    console.log('[SessionController] yinggaishiialized');
+    console.log('[SessionController] Initialized');
   }
 
   // ==================== 会话管理 ====================
@@ -34,22 +34,14 @@ class SessionController extends window.ISessionManager {
    * @param {Object} options 
    * @param {string} [options.title] - 会话标题
    * @param {boolean} [options.persist=true] - 是否立即持久化
-   * @param {boolean} [options.reasoningEnabled] - 是否开启思考模式
+   * @param {string} [options.thinkingEffort] - 思考强度
    * @returns {Session} 新创建的会话
    */
   createSession(options = {}) {
-    // 自动检测当前模型是否支持 reasoning
-    let reasoningEnabled = options.reasoningEnabled;
-    if (reasoningEnabled === undefined) {
-      // 默认开启 reasoning，由调用方根据需要覆盖
-      reasoningEnabled = true;
-    }
-
     const session = new window.Session({
       title: options.title || '新对话',
       messages: [],
-      reasoningEnabled: reasoningEnabled,
-      reasoningEffort: 'medium'
+      thinkingEffort: options.thinkingEffort || 'off'
     });
       
     this.sessions.set(session.id, session);
@@ -64,7 +56,7 @@ class SessionController extends window.ISessionManager {
     this.eventBus.emit(window.Events.CHAT.SESSION_CREATED, { session });
     this.eventBus.emit(window.Events.CHAT.CURRENT_SESSION_CHANGED, { sessionId: session.id });
       
-    console.log('[SessionController] Created session:', session.id, 'Reasoning:', reasoningEnabled);
+    console.log('[SessionController] Created session:', session.id, 'Thinking:', session.thinkingEffort);
     return session;
   }
 
@@ -426,10 +418,10 @@ class SessionController extends window.ISessionManager {
       ? currentModel.supportsReasoning() 
       : (currentModel.capabilities?.reasoning || currentModel.supports_reasoning);
 
-    // 如果模型不支持，强制关闭会话中的 Reasoning 开关
-    if (!supportsReasoning && session.reasoningEnabled) {
+    // 如果模型不支持，强制关闭会话中的思考模式
+    if (!supportsReasoning && session.thinkingEffort !== 'off') {
       console.log(`[SessionController] Model ${settings.model} does not support reasoning. Disabling for session ${session.id}`);
-      session.reasoningEnabled = false;
+      session.thinkingEffort = 'off';
       this._saveSessions();
     }
   }

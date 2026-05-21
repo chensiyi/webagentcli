@@ -12,15 +12,6 @@
  * 1. I 前缀表示这是一个接口规范
  * 2. 使用者可以实现自己的 IAppSettings 并替换
  * 3. 业务逻辑在具体实现类中（如 SettingsController）
- * 
- * 使用示例：
- * ```javascript
- * class MySettingsManager extends IAppSettings {
- *   loadSettings() {
- *     // 实现具体逻辑
- *   }
- * }
- * ```
  */
 
 class IAppSettings {
@@ -79,13 +70,6 @@ class IAppSettings {
   }
 
   /**
-   * 重新配置聊天服务
-   */
-  _reconfigureChatService() {
-    throw new Error('Method not implemented: _reconfigureChatService');
-  }
-
-  /**
    * 处理 API 标准变更
    * @param {Object} data - { apiStandard }
    */
@@ -99,14 +83,6 @@ class IAppSettings {
    */
   async _handleModelsRequest(data) {
     throw new Error('Method not implemented: _handleModelsRequest');
-  }
-
-  /**
-   * 清除模型缓存
-   * @returns {Promise<boolean>}
-   */
-  async clearModelCache() {
-    throw new Error('Method not implemented: clearModelCache');
   }
 }
 

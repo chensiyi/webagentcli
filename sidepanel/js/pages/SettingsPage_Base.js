@@ -39,6 +39,9 @@ class SettingsPage_Base extends window.ISettings {
     // System Prompt
     container.appendChild(this._createSystemPromptSection(settings, onUpdate));
     
+    // Thinking Effort
+    container.appendChild(this._createThinkingEffortSection(settings, onUpdate));
+    
     // 额外配置（如果子类有）
     this.renderExtraConfig(container, settings, onUpdate);
   }
@@ -70,7 +73,8 @@ class SettingsPage_Base extends window.ISettings {
       model: '',
       temperature: 0.7,
       maxTokens: 4000,
-      systemPrompt: ''
+      systemPrompt: '',
+      thinkingEffort: 'off'
     };
   }
 
@@ -173,6 +177,29 @@ class SettingsPage_Base extends window.ISettings {
         value: settings.systemPrompt || '',
         onInput: (e) => onUpdate('systemPrompt', e.target.value)
       })
+    ]);
+  }
+
+  _createThinkingEffortSection(settings, onUpdate) {
+    const { create } = window.DOM;
+    
+    const options = [
+      { value: 'off', text: '关闭' },
+      { value: 'low', text: '低 (快速)' },
+      { value: 'medium', text: '中 (平衡)' },
+      { value: 'high', text: '高 (深入)' }
+    ];
+
+    return create('div', { className: 'setting-group' }, [
+      create('label', { className: 'setting-label', text: '思考强度 (Thinking Effort)' }),
+      create('select', {
+        className: 'input',
+        onInput: (e) => onUpdate('thinkingEffort', e.target.value)
+      }, options.map(opt => create('option', {
+        attrs: { value: opt.value },
+        props: { selected: (settings.thinkingEffort || 'off') === opt.value },
+        text: opt.text
+      })))
     ]);
   }
 }

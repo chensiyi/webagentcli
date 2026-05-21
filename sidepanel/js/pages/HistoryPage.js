@@ -55,20 +55,14 @@ window.Pages.history = function(container, serviceCenter) {
     
     if (!confirmed) return;
     
-    if (sessionManager.deleteSession) {
-      // 历史页面删除会话时不自动切换，避免影响用户当前浏览的页面
-      sessionManager.deleteSession(id, false);
-    }
+    // 历史页面删除会话时不自动切换，避免影响用户当前浏览的页面
+    sessionManager.deleteSession(id, false);
     render();
     window.Toast.success('对话已删除');
   }
   
   async function loadConversation(id) {
-    if (sessionManager.loadSession) {
-      sessionManager.loadSession(id);
-    } else if (sessionManager.switchSession) {
-      sessionManager.switchSession(id);
-    }
+    sessionManager.setCurrentSession(id);
     
     if (window.App && window.App.navigateTo) {
       window.App.navigateTo('chat');
@@ -113,9 +107,8 @@ window.Pages.history = function(container, serviceCenter) {
   }
     
   function updateSearchResults() {
-    // 兼容 SessionController 和 SessionManager
-    const sessions = sessionManager.getSessions ? sessionManager.getSessions() : 
-                     (sessionManager.getAllSessions ? sessionManager.getAllSessions() : []);
+    // 使用 SessionController 的标准方法
+    const sessions = sessionManager.getAllSessions();
     
     // 过滤
     if (searchKeyword) {
@@ -130,8 +123,7 @@ window.Pages.history = function(container, serviceCenter) {
     // 按时间排序
     filteredConversations.sort((a, b) => (b.updated_at || b.updatedAt || 0) - (a.updated_at || a.updatedAt || 0));
     
-    const currentSession = sessionManager.getCurrentSession ? sessionManager.getCurrentSession() : 
-                           (sessionManager.currentSessionId ? sessionManager.sessions.find(s => s.id === sessionManager.currentSessionId) : null);
+    const currentSession = sessionManager.getCurrentSession();
     const currentId = currentSession ? currentSession.id : null;
     
     if (!listContainer) return;
