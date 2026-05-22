@@ -157,6 +157,10 @@ window.Pages.chat = function(container, serviceCenter) {
       id: 'message-input',
       placeholder: '输入消息 (Ctrl+Enter 发送)',
       rows: 1,
+      style: { 
+        overflow: 'hidden',
+        resize: 'none'
+      },
       onInput: (e) => {
         e.target.style.height = 'auto';
         e.target.style.height = Math.min(e.target.scrollHeight, 150) + 'px';

@@ -15,22 +15,6 @@ class SettingsEventHandler {
     
     // 注册事件监听
     this._registerEventListeners();
-    
-    // 主动加载设置
-    this._loadSettingsOnInit();
-  }
-  
-  /**
-   * 初始化时加载设置
-   */
-  _loadSettingsOnInit() {
-    if (this.settingsManager) {
-      this.settingsManager.loadSettings().then(() => {
-        console.log('[SettingsEventHandler] Settings loaded on init');
-      }).catch(err => {
-        console.error('[SettingsEventHandler] Failed to load settings:', err);
-      });
-    }
   }
   
   /**
@@ -50,6 +34,7 @@ class SettingsEventHandler {
     // 监听设置更新，动态重新配置 Service
     this.eventBus.on(window.Events.SETTINGS.UPDATED, (data) => {
       this._handleSettingsUpdate(data);
+      this._reconfigureProvider(data.newSettings || data.settings);
     });
     
     // 监听 API 端点变更（自动填充）
@@ -80,6 +65,7 @@ class SettingsEventHandler {
     // 监听设置加载完成
     this.eventBus.on(window.Events.SETTINGS.LOADED, (data) => {
       this._handleSettingsLoaded(data);
+      this._reconfigureProvider(data.settings);
     });
     
     // 监听模型刷新确认请求
@@ -248,8 +234,26 @@ class SettingsEventHandler {
       model: settings.model
     });
     
-    // 初始化 Agent
-    if (window.Agent) {
+    // 重新配置 Provider
+    this._reconfigureProvider(settings);
+    
+    // 显示成功提示
+    window.Toast?.success('设置已保存');
+  }
+
+  /**
+    * 重新配置 AI Provider
+    */
+   _reconfigureProvider(settings) {
+     if (!settings) return;
+
+     // 1. 通过 ServiceCenter 登记并更新服务单例
+     if (this.serviceCenter) {
+       this.serviceCenter.updateProviderService(settings);
+     }
+     
+     // 2. 初始化/更新 Agent (业务层逻辑)
+     if (window.Agent) {
       const ai = new window.Agent();
       ai.registerProvider('default', {
         endpoint: settings.apiEndpoint,
@@ -259,11 +263,8 @@ class SettingsEventHandler {
       });
       ai.setProvider('default');
       window.aiManager = ai;
-      console.log('[SettingsEventHandler] AI Manager initialized with adapter:', settings.apiStandard);
+      console.log('[SettingsEventHandler] AI Manager reconfigured with adapter:', settings.apiStandard);
     }
-    
-    // 显示成功提示
-    window.Toast?.success('设置已保存');
   }
   
   /**

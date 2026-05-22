@@ -36,13 +36,10 @@ class SettingsManager extends window.IAppSettings {
     const hasApiUpdate = apiRelatedKeys.some(key => key in updates);
     
     if (!hasApiUpdate) {
-      return; // 非 API 配置更新，无需重新配置 Service
+      return; // 非 API 配置更新
     }
     
-    // 通知 ServiceCenter 重置 ProviderService（下次获取时会自动按新设置创建）
-    this.serviceCenter.resetProviderService();
-    
-    console.log('[SettingsController] Provider service reset notified due to settings update');
+    console.log('[SettingsManager] API related settings updated');
   }
   
   /**
@@ -82,10 +79,7 @@ class SettingsManager extends window.IAppSettings {
       newSettings: this.settings.toJSON()
     });
     
-    // 重置服务
-    this.serviceCenter.resetProviderService();
-    
-    console.log('[SettingsController] API standard changed:', apiStandard, '-> endpoint:', defaultEndpoint);
+    console.log('[SettingsManager] API standard changed:', apiStandard, '-> endpoint:', defaultEndpoint);
   }
   
   /**

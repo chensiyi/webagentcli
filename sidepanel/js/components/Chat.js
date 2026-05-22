@@ -112,7 +112,7 @@ window.ChatComponents = {
     // 局部渲染更新方法
     const updateUI = (newEffort) => {
       btn.className = `btn btn-small ${newEffort !== 'off' ? 'btn-primary' : 'btn-secondary'}`;
-      btn.textContent = newEffort !== 'off' ? 'think💡' : 'think';
+      btn.textContent = 'think' + newEffort || 'off';
       
       // 更新选项激活状态
       Array.from(effortSelector.children).forEach((opt, idx) => {

@@ -26,33 +26,12 @@
     const root = document.getElementById('root');
     
     try {
-      // 1. 通过 ServiceCenter 初始化并加载设置
-      const settingsManager = serviceCenter.getSettingsManager();
-      await settingsManager.loadSettings();
-      console.log('[App] Settings loaded via ServiceCenter');
-      
-      // 2. 初始化 SessionManager（等待异步加载完成）
+      // 1. 初始化 SessionManager（等待异步加载完成）
       await serviceCenter.initializeSessionManager();
-      const sessionManager = serviceCenter.getSessionManager();
+      console.log('[App] SessionManager initialized');
       
-      console.log('[App] SessionManager initialized and loaded via ServiceCenter');
-      
-      // 3. Provider Service 会在聊天控制器首次发送消息时按当前设置动态装配
-      console.log('[App] Chat service will be initialized on first chat page render');
-      
-      // 注册全局事件监听（只注册一次）
-      const eventBus = serviceCenter.getEventBus();
-      if (eventBus && window.Events && !window.App._globalListenersRegistered) {
-        window.App._globalListenersRegistered = true;
-        
-        // 监听会话切换事件，更新 ChatPage 的内部引用
-        eventBus.on(window.Events.CHAT.SESSION_SWITCHED, (data) => {
-          // ChatPage 会在下次渲染时自动获取最新会话
-          console.log('[App] Session switched event received');
-        });
-      }
-      
-      // 4. 创建 EventHandlers（传入 serviceCenter）
+      // 2. 创建 EventHandlers（传入 serviceCenter）
+      // 注意：必须在加载设置之前创建，以便监听 SETTINGS.LOADED 事件
       if (typeof ChatEventHandler !== 'undefined') {
         window.chatEventHandler = new ChatEventHandler(serviceCenter);
       }
@@ -64,6 +43,24 @@
       }
       if (typeof ScriptsEventHandler !== 'undefined') {
         window.scriptsEventHandler = new ScriptsEventHandler(serviceCenter);
+      }
+
+      // 3. 通过 ServiceCenter 加载设置
+      // 这将触发 SETTINGS.LOADED 事件，由 SettingsEventHandler 响应并配置 Provider
+      const settingsManager = serviceCenter.getSettingsManager();
+      await settingsManager.loadSettings();
+      console.log('[App] Settings loaded via ServiceCenter');
+      
+      // 4. 注册全局事件监听（只注册一次）
+      const eventBus = serviceCenter.getEventBus();
+      if (eventBus && window.Events && !window.App._globalListenersRegistered) {
+        window.App._globalListenersRegistered = true;
+        
+        // 监听会话切换事件，更新 ChatPage 的内部引用
+        eventBus.on(window.Events.CHAT.SESSION_SWITCHED, (data) => {
+          // ChatPage 会在下次渲染时自动获取最新会话
+          console.log('[App] Session switched event received');
+        });
       }
       
       // 5. 所有数据就绪后，渲染页面

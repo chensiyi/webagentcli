@@ -169,7 +169,8 @@ window.UI = {
       className = '', 
       onInput, 
       id,
-      rows = 3
+      rows = 3,
+      style = {}
     } = options;
     
     return window.DOM.create('textarea', {
@@ -177,6 +178,7 @@ window.UI = {
       id,
       attrs: { placeholder, rows },
       text: value,
+      style,
       onInput
     });
   },

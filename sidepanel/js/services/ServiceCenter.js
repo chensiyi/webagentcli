@@ -2,8 +2,8 @@
  * ServiceCenter - 框架核心服务管理中心
  * 
  * 职责：
- * - 管理 EventBus（事件总线）
- * - 提供全局框架服务的统一访问入口
+ * - 提供全局框架服务的统一访问入口（单例管理）
+ * - 支持外部业务逻辑（如 EventHandler）注册和更新服务
  */
 
 class ServiceCenter {
@@ -121,26 +121,16 @@ class ServiceCenter {
   }
 
   /**
-   * 重置当前 Provider API 服务（当设置变更时调用）
+   * 登记或更新当前活跃的 Provider API 服务（单例管理）
+   * @param {Object} settings - 包含 apiStandard, apiEndpoint, apiKey, model 的设置对象
+   * @returns {IProviderAPIService} 配置好的服务实例
    */
-  resetProviderService() {
-    this.currentProviderService = null;
-    this.currentProviderId = null;
-    console.log('[ServiceCenter] Provider service reset');
-  }
-
-  /**
-   * 获取当前活跃的 Provider API 服务（从 Settings 自动配置）
-   * @returns {IProviderAPIService} Provider API 服务实例
-   */
-  getCurrentProviderService() {
-    const settingsManager = this.getSettingsManager();
-    const settings = settingsManager.getSettings();
-    
+  updateProviderService(settings) {
     if (!settings || !settings.apiStandard) {
-      throw new Error('Chat service not configured');
+      console.warn('[ServiceCenter] Cannot update provider: settings or apiStandard missing');
+      return null;
     }
-    
+
     const providerId = settings.apiStandard;
     const config = {
       endpoint: settings.apiEndpoint,
@@ -148,16 +138,41 @@ class ServiceCenter {
       defaultModel: settings.model || 'default'
     };
 
-    // 如果服务不存在，或者 Provider ID 变了，创建新服务
+    // 如果服务提供商变更，创建新服务
     if (!this.currentProviderService || this.currentProviderId !== providerId) {
       this.currentProviderService = this.createProviderService(providerId, config);
       this.currentProviderId = providerId;
-      return this.currentProviderService;
+      console.log('[ServiceCenter] New provider service registered:', providerId);
+    } else {
+      // 检查配置是否发生变化，仅在变化时重新配置
+      const currentConfig = this.currentProviderService.config || {};
+      const configChanged = 
+        currentConfig.endpoint !== config.endpoint ||
+        currentConfig.apiKey !== config.apiKey ||
+        currentConfig.defaultModel !== config.defaultModel;
+
+      if (configChanged) {
+        this.currentProviderService.configure(config);
+        console.log('[ServiceCenter] Existing provider service updated:', providerId);
+      }
     }
 
-    // 否则，仅更新现有服务的配置
-    this.currentProviderService.configure(config);
-    
+    return this.currentProviderService;
+  }
+
+  /**
+   * 获取当前活跃的 Provider API 服务（要求已注册）
+   * @returns {IProviderAPIService} Provider API 服务实例
+   */
+  getCurrentProviderService() {
+    if (!this.currentProviderService) {
+      // 降级处理：尝试从 SettingsManager 获取一次初始配置
+      const settings = this.getSettingsManager().getSettings();
+      if (settings && settings.apiStandard) {
+        return this.updateProviderService(settings.toJSON ? settings.toJSON() : settings);
+      }
+      throw new Error('Chat service not registered. Please ensure provider is initialized via SettingsEventHandler.');
+    }
     return this.currentProviderService;
   }
 
