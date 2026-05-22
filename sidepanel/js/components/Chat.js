@@ -93,7 +93,7 @@ window.ChatComponents = {
 
     const btn = window.UI.Button({
       className: `btn-small ${session.reasoningEffort !== 'off' ? 'btn-primary' : 'btn-secondary'}`,
-      text: session.reasoningEffort !== 'off' ? 'think💡' : 'think',
+      text: 'think' + session.reasoningEffort || 'off',
       onClick: (e) => {
         e.stopPropagation();
         const isHidden = effortSelector.style.display === 'none';
