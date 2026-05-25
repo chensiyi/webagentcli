@@ -160,7 +160,7 @@ class SettingsPage_Base extends window.ISettings {
       { value: 'high', label: '高 (深入)' }
     ];
 
-    return window.UI.FormGroup({ label: '思考强度 (Reasoning Effort)' }, [
+    return window.UI.FormGroup({ label: '默认思考强度 (Reasoning Effort)' }, [
       window.UI.Select({
         id: 'settings-reasoning-effort',
         options: options,

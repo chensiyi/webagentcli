@@ -197,8 +197,7 @@ window.Pages.settings = function(container, serviceCenter) {
             modelSearchValue = e.target.value;
             updateModelDropdown();
           },
-          onClick: handleModelSearchClick,
-          onBlur: handleModelSearchBlur
+          onClick: handleModelSearchClick
         }),
         window.UI.Button({
           className: 'btn-secondary btn-small',
@@ -334,42 +333,31 @@ window.Pages.settings = function(container, serviceCenter) {
       window.Toast?.info('请先点击“加载模型”按钮获取模型列表');
       return;
     }
-    
-    // 如果输入框有内容且精确匹配某个模型，则显示所有模型
-    if (modelSearchValue) {
-      const allModels = getAllModels();
-      const exactMatch = allModels.find(m => m === modelSearchValue);
-      
-      if (exactMatch) {
-        const savedSearchValue = modelSearchValue;
-        modelSearchValue = '';
-        updateModelDropdown();
-        modelSearchValue = savedSearchValue;
-        return;
-      }
-    }
-    
-    toggleModelDropdown();
+    updateModelDropdown();
+
+    dropdown.style.display = 'block';
+    modelDropdownVisible = true;
   }
 
-  /**
-   * 处理模型搜索框失去焦点
-   */
-  function handleModelSearchBlur() {
-    setTimeout(() => {
-      const dropdown = document.getElementById('model-dropdown');
-      if (dropdown) {
-        dropdown.style.display = 'none';
-        modelDropdownVisible = false;
-      }
-    }, 200);
+  // /**
+  //  * 处理模型搜索框失去焦点
+  //  */
+  // function handleModelSearchBlur() {
     
-    // 如果只有一条匹配，自动选中
-    const filtered = getFilteredModels();
-    if (filtered.length === 1) {
-      selectModel(filtered[0]);
-    }
-  }
+  //   setTimeout(() => {
+  //     const dropdown = document.getElementById('model-dropdown');
+  //     if (dropdown) {
+  //       dropdown.style.display = 'none';
+  //       modelDropdownVisible = false;
+  //     }
+  //   }, 200);
+    
+  //   // 如果只有一条匹配，自动选中
+  //   // const filtered = getFilteredModels();
+  //   // if (filtered.length === 1) {
+  //   //   selectModel(filtered[0]);
+  //   // }
+  // }
 
   /**
    * 处理加载模型按钮点击
@@ -467,9 +455,12 @@ window.Pages.settings = function(container, serviceCenter) {
    */
   function updateModelDropdown() {
     const dropdown = document.getElementById('model-dropdown');
+    
+    console.log('[SettingsPage] updateModelDropdown ',dropdown)
     if (!dropdown) return;
     
     const filtered = getFilteredModels();
+    console.log('[SettingsPage] updateModelDropdown filtered',filtered)
     
     dropdown.innerHTML = '';
     
@@ -622,7 +613,21 @@ window.Pages.settings = function(container, serviceCenter) {
     }
     
     const keyword = modelSearchValue.toLowerCase();
-    return modelIds.filter(m => m.toLowerCase().includes(keyword));
+
+    const filtered = modelIds.filter(
+      m => m.toLowerCase().includes(keyword)
+    );
+
+    // 如果只有一个精确匹配，说明只是“当前选中值”
+    // 不进入过滤模式，直接展示全部
+    if (
+      filtered.length === 1 &&
+      filtered[0].toLowerCase() === keyword
+    ) {
+      return modelIds;
+    }
+
+    return filtered;
   }
 
   /**

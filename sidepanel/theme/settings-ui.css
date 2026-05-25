@@ -71,6 +71,10 @@
   width: 100%;
 }
 
+.relative {
+  position: relative;
+}
+
 /* 状态提示 */
 .empty-state, .loading-state {
   display: flex;

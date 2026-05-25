@@ -214,7 +214,17 @@ class Model extends window.BaseModel {
       paramsString: this.paramsString,
       description: this.description,
       pricing: this.pricing,
-      metadata: this.metadata
+      metadata: this.metadata,
+      
+      // 兼容性字段 (snake_case)，用于现有 UI（如 SettingsPage）
+      context_length: this.contextLength,
+      max_output_tokens: this.maxOutputTokens,
+      input_modalities: this.inputModalities,
+      output_modalities: this.outputModalities,
+      modality: this.inputModalities.join('->') + '->' + this.outputModalities.join(','),
+      supports_reasoning: this.capabilities.reasoning,
+      supports_tools: this.capabilities.toolUse,
+      supports_json_mode: this.capabilities.jsonMode
     };
   }
 
