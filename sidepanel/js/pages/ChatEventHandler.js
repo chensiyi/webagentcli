@@ -109,7 +109,7 @@ class ChatEventHandler {
    * 处理用户发送消息事件（收集上下文并调用 Controller）
    */
   _handleUserMessageSent(data) {
-    const { content } = data;
+    const { content, reasoningEffort } = data;
     
     if (!this.serviceCenter) {
       console.error('[ChatEventHandler] ServiceCenter not available');
@@ -121,7 +121,8 @@ class ChatEventHandler {
     
     // 调用 ChatController 执行业务逻辑
     chat.sendMessage({
-      content
+      content,
+      reasoningEffort
     }).catch(error => {
       console.error('[ChatEventHandler] Send message failed:', error);
       window.Toast?.error(`发送失败: ${error.message}`);

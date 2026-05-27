@@ -76,14 +76,24 @@ window.Pages.chat = function(container, serviceCenter) {
   /**
    * 渲染头部：标题 + 思考控制 + 新对话
    */
+  const pendingSettings = {
+    reasoningEffort: serviceCenter.getSettingsManager().getSettings()?.reasoningEffort || 'medium'
+  };
+
   function renderHeader(session) {
     const actions = [];
+    const showThinkingControl = checkModelSupportsThinking();
+    const thinkingSession = session || { reasoningEffort: pendingSettings.reasoningEffort };
 
-    // 思考强度控制
-    if (session && checkModelSupportsThinking()) {
-      actions.push(window.ChatComponents.ThinkingControl(session, {
+    // 思考强度控制（新对话状态也显示）
+    if (showThinkingControl) {
+      actions.push(window.ChatComponents.ThinkingControl(thinkingSession, {
         onUpdate: (val) => {
-          sessionManager.updateSession(session.id, (s) => s.thinkingEffort = val);
+          if (session) {
+            sessionManager.updateSession(session.id, (s) => s.reasoningEffort = val);
+          } else {
+            pendingSettings.reasoningEffort = val;
+          }
         }
       }));
     }
@@ -213,7 +223,10 @@ window.Pages.chat = function(container, serviceCenter) {
     }
 
     // 触发发送事件（由 ChatEventHandler 处理后续逻辑）
-    eventBus.emit(window.Events.CHAT.USER_MESSAGE_SENT, { content });
+    eventBus.emit(window.Events.CHAT.USER_MESSAGE_SENT, {
+      content,
+      reasoningEffort: sessionManager.getCurrentSession()?.reasoningEffort || pendingSettings.reasoningEffort
+    });
   }
 
   /**

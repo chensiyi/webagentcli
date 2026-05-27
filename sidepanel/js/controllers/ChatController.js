@@ -42,7 +42,7 @@ class ChatController {
    * 发送消息
    * @param {Object} params 
    */
-  async sendMessage({ content, sessionId = null, chatService = null, model = null }) {
+  async sendMessage({ content, sessionId = null, chatService = null, model = null, reasoningEffort = undefined }) {
     if (!content || !content.trim()) {
       throw new Error('Message content is required');
     }
@@ -54,6 +54,8 @@ class ChatController {
     
     const sessionManager = this.serviceCenter.getSessionManager();
     const service = chatService || this.serviceCenter.getCurrentProviderService();
+    const settings = this.serviceCenter.getSettingsManager().getSettings();
+    const defaultEffort = settings?.reasoningEffort || 'medium';
     let assistantMsgId = null;
     let session = null;
 
@@ -63,11 +65,16 @@ class ChatController {
       // 获取或创建当前会话
       session = sessionId ? sessionManager.getSession(sessionId) : sessionManager.getCurrentSession();
       if (!session) {
-        session = sessionManager.createSession({ title: '新对话' });
+        session = sessionManager.createSession({
+          title: '新对话',
+          reasoningEffort: reasoningEffort || defaultEffort
+        });
+      } else if (reasoningEffort && session.reasoningEffort !== reasoningEffort) {
+        session.reasoningEffort = reasoningEffort;
       }
 
       const modelId = model ? model.id : service.config?.defaultModel;
-      const thinkingEffort = session.thinkingEffort || 'off';
+      const thinkingEffort = session.reasoningEffort || 'off';
       const { MessagesRequest, ThinkingConfig } = window.MessageContent;
 
       // 1. 持久化用户消息
