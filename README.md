@@ -1,60 +1,37 @@
 # Web Agent Client
 
-Web Agent Client 是基于 Chrome Manifest V3 的侧边栏 AI Agent 浏览器扩展。它在浏览器内提供 Chat 交互、会话管理、AI Provider 配置和网页工具调用能力。
+Web Agent Client 是基于 Chrome Manifest V3 的轻量级侧边栏 AI Agent 扩展。它在浏览器内提供 Chat 交互、会话管理、AI Provider 配置和网页工具调用能力。顶层 README 仅保留项目概览与导航，详细实现与设计见子 README 和 `docs/`。
 
-## 主要功能
+## 主要内容
+- **概览**：项目目标与核心能力。
+- **快速开始**：如何加载并运行扩展（最小步骤）。
+- **导航**：指向更详细的模块说明与架构文档。
 
-- 侧边栏 Chat UI：在任意网页中启动对话
-- 多 Provider 支持：OpenAI、OpenRouter、LM Studio
-- 会话与历史管理
-- 本地存储用户设置与对话数据
-- 可扩展脚本和工具执行能力
+## 快速链接
+- Side Panel 说明：[sidepanel/README.md](sidepanel/README.md)
+- 架构设计：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- 数据模型：[docs/CORE_MODELS.md](docs/CORE_MODELS.md)
+- 许可：[LICENSE](LICENSE)
 
 ## 快速开始
-
 1. 克隆仓库：
 
 ```bash
 git clone <repository-url>
 cd webagentcli
 ```
-
 2. 在 Chrome 打开 `chrome://extensions/`
 3. 启用“开发者模式”
 4. 点击“加载已解压的扩展程序”
 5. 选择当前仓库根目录（包含 `manifest.json`）
+6. 打开任意网页并点击扩展图标打开 Side Panel
+7. 进入“设置”页面，选择 AI Provider 并填写 API Key / Endpoint
+8. 切换到“Chat”页面，输入问题并发送。
 
-## 使用说明
+## 详细说明
+所有实现细节、架构文档和模块级说明请在子目录中查看：主要集中在 [sidepanel/README.md](sidepanel/README.md) 以及 `docs/` 下的文件。
 
-1. 打开任意网页。
-2. 点击浏览器工具栏中的扩展图标。
-3. 侧边栏打开后，进入“设置”页面。
-4. 选择 AI Provider，并填写 API Key / Endpoint 配置。
-5. 切换到“Chat”页面，输入问题并发送。
+如果你需要我把某部分内容从子 README 汇总回顶层（例如安装说明或快速演示），告诉我需要哪些项。
 
-> 注意：如果扩展没有正确加载，请确认 `manifest.json` 存在且 `sidepanel/` 目录可访问。
-
-## 目录概览
-
-- `manifest.json` - Chrome 扩展清单
-- `sidepanel/` - 扩展侧边栏 UI 与核心前端逻辑
-- `assets/` - 静态资源与图标
-- `docs/` - 详细文档与架构说明
-- `LICENSE` - 开源许可
-
-## 详细文档
-
-- 架构与组件：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- 核心模型：[docs/CORE_MODELS.md](docs/CORE_MODELS.md)
-- 侧边栏模块：[sidepanel/README.md](sidepanel/README.md)
-
-## 开发与调试
-
-- 侧边栏：打开扩展后右键选择“检查”
-- Service Worker：在 `chrome://extensions/` 中打开扩展卡片的 Service Worker 调试窗口
-- Content Script：在任意网页 DevTools Console 中查看日志
-
-## 许可证
-
-本项目遵循 [LICENSE](LICENSE) 中的开源协议。
- 
+---
+本文件仅作为导航页，详细技术文档与示例请查看上方链接。

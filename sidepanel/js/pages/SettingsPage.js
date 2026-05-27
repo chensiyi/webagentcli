@@ -193,8 +193,7 @@ window.Pages.settings = function(container, serviceCenter) {
             modelSearchValue = e.target.value;
             updateModelDropdown();
           },
-          onClick: handleModelSearchClick,
-          onBlur: handleModelSearchBlur
+          onClick: handleModelSearchClick
         }),
         window.UI.Button({
           className: 'btn-secondary btn-small',
@@ -359,24 +358,25 @@ window.Pages.settings = function(container, serviceCenter) {
     toggleModelDropdown();
   }
 
-  /**
-   * 处理模型搜索框失去焦点
-   */
-  function handleModelSearchBlur() {
-    setTimeout(() => {
-      const dropdown = document.getElementById('model-dropdown');
-      if (dropdown) {
-        dropdown.style.display = 'none';
-        modelDropdownVisible = false;
-      }
-    }, 200);
+  // /**
+  //  * 处理模型搜索框失去焦点
+  //  */
+  // function handleModelSearchBlur() {
     
-    // 如果只有一条匹配，自动选中
-    const filtered = getFilteredModels();
-    if (filtered.length === 1) {
-      selectModel(filtered[0]);
-    }
-  }
+  //   setTimeout(() => {
+  //     const dropdown = document.getElementById('model-dropdown');
+  //     if (dropdown) {
+  //       dropdown.style.display = 'none';
+  //       modelDropdownVisible = false;
+  //     }
+  //   }, 200);
+    
+  //   // 如果只有一条匹配，自动选中
+  //   // const filtered = getFilteredModels();
+  //   // if (filtered.length === 1) {
+  //   //   selectModel(filtered[0]);
+  //   // }
+  // }
 
   /**
    * 处理加载模型按钮点击
@@ -474,6 +474,8 @@ window.Pages.settings = function(container, serviceCenter) {
    */
   function updateModelDropdown(forceShowAll = false) {
     const dropdown = document.getElementById('model-dropdown');
+    
+    console.log('[SettingsPage] updateModelDropdown ',dropdown)
     if (!dropdown) return;
     
     const filtered = getFilteredModels(forceShowAll);

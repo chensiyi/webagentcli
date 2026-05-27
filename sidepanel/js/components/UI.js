@@ -40,8 +40,10 @@ window.UI = {
       placeholder = '', 
       value = '', 
       className = '', 
-      onInput, 
+      onInput,
+      onChange,
       onClick,
+      onFocus,
       onBlur,
       onKeyDown,
       id
@@ -53,7 +55,9 @@ window.UI = {
       attrs: { type, placeholder },
       value,
       onInput,
+      onChange,
       onClick,
+      onFocus,
       onBlur,
       onKeyDown
     });

@@ -123,6 +123,7 @@ class ModelManager extends window.IModelManager {
         architecture: raw.architecture || null,
         capabilities,
         contextLength: raw.context_length || raw.context_window || 8192,
+        inputModalities: raw.input_modalities || (this._detectVisionCapability(id, name, raw) ? ['text', 'image'] : ['text']),
         pricing: raw.pricing || null,
         description: raw.description || '',
         metadata: raw
@@ -139,7 +140,8 @@ class ModelManager extends window.IModelManager {
     return searchStr.includes('vision') || 
            searchStr.includes('vl') || 
            searchStr.includes('multimodal') ||
-           !!(raw.capabilities?.vision);
+           !!(raw.capabilities?.vision) ||
+           raw.modality?.includes('image');
   }
 
   /**
@@ -150,7 +152,10 @@ class ModelManager extends window.IModelManager {
     const searchStr = (id + ' ' + name).toLowerCase();
     if (searchStr.includes('embedding')) return false;
     if (apiStandard === 'openai') return true;
-    return raw.capabilities?.tool_use !== false;
+    
+    return raw.capabilities?.tool_use !== false && 
+           raw.supports_tools !== false && 
+           raw.supports_function_calling !== false;
   }
 
   /**
@@ -164,7 +169,8 @@ class ModelManager extends window.IModelManager {
            searchStr.includes('deepseek-r1') ||
            searchStr.includes('o1') ||
            searchStr.includes('o3') ||
-           !!(raw.capabilities?.reasoning);
+           !!(raw.capabilities?.reasoning) ||
+           raw.supports_reasoning === true;
   }
 
   /**
