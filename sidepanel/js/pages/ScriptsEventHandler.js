@@ -67,8 +67,12 @@ class ScriptsEventHandler {
   /**
    * 处理切换脚本状态（由页面调用）
    */
-  handleToggle(id, enabled) {
-    this.scriptsManager.toggle(id, enabled);
+  async handleToggle(id, enabled) {
+    try {
+      await this.scriptsManager.toggle(id, enabled);
+    } catch (error) {
+      this.eventBus.emit(window.Events.SCRIPTS.ERROR, { error: error.message });
+    }
   }
   
   /**
@@ -81,7 +85,7 @@ class ScriptsEventHandler {
     });
     
     if (confirmed) {
-      this.scriptsManager.remove(id);
+      await this.scriptsManager.remove(id);
       window.Toast?.success('脚本已删除');
     }
   }
@@ -89,8 +93,12 @@ class ScriptsEventHandler {
   /**
    * 处理编辑脚本（由页面调用）
    */
-  handleEdit(id, code) {
-    this.scriptsManager.update(id, code);
+  async handleEdit(id, code) {
+    try {
+      await this.scriptsManager.updateCode(id, code);
+    } catch (error) {
+      this.eventBus.emit(window.Events.SCRIPTS.ERROR, { error: error.message });
+    }
   }
 }
 

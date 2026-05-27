@@ -156,6 +156,7 @@ window.Pages.scripts = function(container, serviceCenter) {
         }
         await eventHandler.handleInstall(code);
         showForm = false;
+        render();
       }
     });
 
