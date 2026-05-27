@@ -61,7 +61,7 @@
   margin-right: 4px;
 }
 
-.setting-hint {
+..setting-hint {
   font-size: 12px;
   color: var(--color-text-secondary);
   margin-top: 4px;
@@ -69,6 +69,10 @@
 
 .setting-full-width {
   width: 100%;
+}
+
+.setting-group.relative {
+  position: relative;
 }
 
 /* 状态提示 */

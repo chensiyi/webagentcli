@@ -14,6 +14,7 @@ class Settings extends window.BaseModel {
     this.apiKey = options.apiKey || '';
     this.apiEndpoint = options.apiEndpoint || 'https://openrouter.ai/api/v1';
     this.model = options.model || '';
+    this.models = Array.isArray(options.models) ? options.models : [];
     
     // 模型参数
     this.temperature = options.temperature ?? 0.7;
@@ -67,7 +68,8 @@ class Settings extends window.BaseModel {
       systemPrompt: this.systemPrompt,
       autoContextTruncation: this.autoContextTruncation,
       reasoningEffort: this.reasoningEffort,
-      theme: this.theme
+      theme: this.theme,
+      models: this.models
     };
   }
   

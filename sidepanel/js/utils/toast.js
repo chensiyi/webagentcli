@@ -47,6 +47,7 @@ window.Toast = {
       pointer-events: auto;
       animation: slideInRight 0.3s ease;
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       gap: 12px;
     `;
@@ -65,18 +66,32 @@ window.Toast = {
     content.className = 'toast-content';
     content.textContent = message;
     content.style.cssText = `
-      flex: 1;
+      flex: 1 1 0%;
+      min-width: 0;
       font-size: 14px;
       color: var(--color-text);
       line-height: 1.4;
+      white-space: pre-wrap;
+      word-break: break-word;
     `;
     
     // 组装
     toast.appendChild(icon);
     toast.appendChild(content);
     
+    let actionContainer = null;
     // 可选的操作按钮
     if (action) {
+      actionContainer = document.createElement('div');
+      actionContainer.className = 'toast-actions';
+      actionContainer.style.cssText = `
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-shrink: 0;
+        margin-left: auto;
+      `;
+
       const actionBtn = document.createElement('button');
       actionBtn.className = 'toast-action';
       actionBtn.textContent = action.text;
@@ -96,7 +111,8 @@ window.Toast = {
         action.onClick();
         this.remove(toast);
       };
-      toast.appendChild(actionBtn);
+      actionContainer.appendChild(actionBtn);
+      toast.appendChild(actionContainer);
     }
     
     // 关闭按钮
@@ -195,7 +211,7 @@ window.Toast = {
         font-size: 13px;
         padding: 4px 8px;
         border-radius: 4px;
-        margin-right: 8px;
+        white-space: nowrap;
       `;
       cancelBtn.onmouseover = () => cancelBtn.style.background = 'rgba(0,0,0,0.05)';
       cancelBtn.onmouseout = () => cancelBtn.style.background = 'transparent';
@@ -205,10 +221,16 @@ window.Toast = {
         this.remove(toast);
       };
       
-      // 插入到 action 按钮前面
-      const actionBtn = toast.querySelector('.toast-action');
-      if (actionBtn) {
-        toast.insertBefore(cancelBtn, actionBtn);
+      const actionContainer = toast.querySelector('.toast-actions');
+      if (actionContainer) {
+        const actionBtn = actionContainer.querySelector('.toast-action');
+        if (actionBtn) {
+          actionContainer.insertBefore(cancelBtn, actionBtn);
+        } else {
+          actionContainer.appendChild(cancelBtn);
+        }
+      } else {
+        toast.insertBefore(cancelBtn, toast.querySelector('.toast-action'));
       }
     });
   },

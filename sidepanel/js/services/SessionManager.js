@@ -404,11 +404,11 @@ class SessionManager extends window.ISessionManager {
     // 如果没有提供 settings，无法同步
     if (!settings || !settings.model || !settings.apiEndpoint) return;
 
-    const cacheKey = `models:${settings.apiEndpoint}`;
-    const cachedModels = window.StorageModel && window.StorageModel.getCacheSync ? 
-      window.StorageModel.getCacheSync(cacheKey) : null;
+    const cachedModels = Array.isArray(settings.models) ? settings.models : null;
     
-    if (!cachedModels || !Array.isArray(cachedModels)) return;
+    if (!cachedModels || !Array.isArray(cachedModels)) {
+      return;
+    }
 
     const currentModel = cachedModels.find(m => m.id === settings.model);
     if (!currentModel) return;

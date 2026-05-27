@@ -41,6 +41,8 @@ window.UI = {
       value = '', 
       className = '', 
       onInput, 
+      onClick,
+      onBlur,
       onKeyDown,
       id
     } = options;
@@ -51,6 +53,8 @@ window.UI = {
       attrs: { type, placeholder },
       value,
       onInput,
+      onClick,
+      onBlur,
       onKeyDown
     });
   },

@@ -109,9 +109,13 @@ class SettingsManager extends window.IAppSettings {
         forceRefresh: true
       });
       
+      // 直接持久化模型列表到设置
+      this.settings.models = models.map(m => m.toJSON());
+      await this.saveSettings();
+      
       // 发布模型加载完成事件
       this.eventBus.emit(window.Events.SETTINGS.MODELS_LOADED, {
-        models: models.map(m => m.toJSON()),
+        models: this.settings.models,
         count: models.length,
         fromCache: false
       });
@@ -231,12 +235,15 @@ class SettingsManager extends window.IAppSettings {
    */
   async clearModelCache() {
     const settings = this.getSettings();
-    if (!settings || !settings.apiEndpoint) return false;
+    if (!settings) return false;
 
     const modelController = this.serviceCenter.getModelController();
     await modelController.clearCache(settings.apiEndpoint);
+
+    this.settings.models = [];
+    await this.saveSettings();
     
-    console.log('[SettingsController] Model cache cleared via ModelController');
+    console.log('[SettingsController] Model cache cleared via ModelController and persisted settings');
     
     // 通知 Page 清空模型列表
     if (window.Pages && window.Pages.settings) {

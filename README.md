@@ -1,66 +1,60 @@
-# Web Agent Client - Chrome Extension
+# Web Agent Client
 
-AI Agent 运行时环境，为 AI 提供浏览器交互能力。
-js实现一切软件的时代到了，用天量用户的热情，冲烂软件行业护城河吧！
+Web Agent Client 是基于 Chrome Manifest V3 的侧边栏 AI Agent 浏览器扩展。它在浏览器内提供 Chat 交互、会话管理、AI Provider 配置和网页工具调用能力。
 
-## 项目结构
+## 主要功能
 
-/* 重构中 */
+- 侧边栏 Chat UI：在任意网页中启动对话
+- 多 Provider 支持：OpenAI、OpenRouter、LM Studio
+- 会话与历史管理
+- 本地存储用户设置与对话数据
+- 可扩展脚本和工具执行能力
 
 ## 快速开始
 
-### 安装
+1. 克隆仓库：
 
-1. **下载源码**
-   - 从 GitHub 下载最新 release 的 Source code (zip)
-   - 或克隆项目：`git clone <repository-url>`
-
-2. **加载扩展**
-   - 打开 Chrome，访问 `chrome://extensions/`
-   - 启用右上角的“开发者模式”
-   - 点击“加载已解压的扩展程序”
-   - 选择项目根目录（包含 manifest.json 的目录）
-
-3. **使用**
-   - 打开任意网页
-   - 点击浏览器工具栏中的扩展图标
-   - 右侧会出现 Side Panel 聊天界面
-   - 在设置页面配置 API Key 后即可使用
-
-4. **启用用户脚本支持（可选）**
-   
-   如需运行自定义用户脚本，需要启用 Tampermonkey 兼容模式：
-   
-   - Chrome 地址栏输入 `chrome://extensions/`
-   - 找到 Web Agent Client 扩展
-   - 点击“详细信息”
-   - 开启“允许访问文件 URL”（如需要）
-   - 参考 [Tampermonkey 用户脚本指南](https://tampermonkey.net/faq.php#Q203) 了解更多
-
-### 调试
-
-**Background Service Worker**：
-- `chrome://extensions/` → 找到扩展 → 点击 "Service Worker"
-
-**Content Script**：
-- 在网页中按 F12 → Console 标签
-
-**Side Panel UI**：
-- 在 Side Panel 中右键 → "检查" → Console
-
-详细测试指南见 [TESTING.md](TESTING.md)
-
-## 架构说明
-
-### 通信流程
-
-```
-Side Panel (UI)
-    ↓ chrome.runtime.connect (长连接)
-Background (Runtime)
-    ↓ fetch API
-AI Provider (OpenRouter/OpenAI/Claude...)
+```bash
+git clone <repository-url>
+cd webagentcli
 ```
 
-### 核心模块
+2. 在 Chrome 打开 `chrome://extensions/`
+3. 启用“开发者模式”
+4. 点击“加载已解压的扩展程序”
+5. 选择当前仓库根目录（包含 `manifest.json`）
 
+## 使用说明
+
+1. 打开任意网页。
+2. 点击浏览器工具栏中的扩展图标。
+3. 侧边栏打开后，进入“设置”页面。
+4. 选择 AI Provider，并填写 API Key / Endpoint 配置。
+5. 切换到“Chat”页面，输入问题并发送。
+
+> 注意：如果扩展没有正确加载，请确认 `manifest.json` 存在且 `sidepanel/` 目录可访问。
+
+## 目录概览
+
+- `manifest.json` - Chrome 扩展清单
+- `sidepanel/` - 扩展侧边栏 UI 与核心前端逻辑
+- `assets/` - 静态资源与图标
+- `docs/` - 详细文档与架构说明
+- `LICENSE` - 开源许可
+
+## 详细文档
+
+- 架构与组件：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- 核心模型：[docs/CORE_MODELS.md](docs/CORE_MODELS.md)
+- 侧边栏模块：[sidepanel/README.md](sidepanel/README.md)
+
+## 开发与调试
+
+- 侧边栏：打开扩展后右键选择“检查”
+- Service Worker：在 `chrome://extensions/` 中打开扩展卡片的 Service Worker 调试窗口
+- Content Script：在任意网页 DevTools Console 中查看日志
+
+## 许可证
+
+本项目遵循 [LICENSE](LICENSE) 中的开源协议。
+ 

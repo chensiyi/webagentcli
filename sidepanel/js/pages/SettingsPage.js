@@ -44,14 +44,10 @@ window.Pages.settings = function(container, serviceCenter) {
       }
     }
     
-    // 从 StorageModel 加载持久化的模型缓存
-    if (window.StorageModel && currentSettings?.apiEndpoint) {
-      const cacheKey = `models:${currentSettings.apiEndpoint}`;
-      const cached = await window.StorageModel.getCache(cacheKey);
-      if (cached && Array.isArray(cached)) {
-        cachedModels = cached;
-        console.log('[SettingsPage] Loaded cached models from storage:', cachedModels.length);
-      }
+    // 从设置中加载已保存的模型列表
+    if (Array.isArray(currentSettings?.models) && currentSettings.models.length > 0) {
+      cachedModels = currentSettings.models;
+      console.log('[SettingsPage] Loaded persisted model list from settings:', cachedModels.length);
     }
     
     const page = create('div', { className: 'page' });
@@ -335,20 +331,31 @@ window.Pages.settings = function(container, serviceCenter) {
       return;
     }
     
-    // 如果输入框有内容且精确匹配某个模型，则显示所有模型
+    // 如果输入框有内容且精确匹配某个模型 ID 或名称，则显示全部模型
+    let forceShowAll = false;
     if (modelSearchValue) {
-      const allModels = getAllModels();
-      const exactMatch = allModels.find(m => m === modelSearchValue);
-      
+      const exactMatch = cachedModels.find((m) => {
+        if (typeof m === 'string') {
+          return m.toLowerCase() === modelSearchValue.toLowerCase();
+        }
+        const modelId = m.id || '';
+        const modelName = m.name || '';
+        return modelId.toLowerCase() === modelSearchValue.toLowerCase() ||
+               modelName.toLowerCase() === modelSearchValue.toLowerCase();
+      });
+
       if (exactMatch) {
-        const savedSearchValue = modelSearchValue;
-        modelSearchValue = '';
-        updateModelDropdown();
-        modelSearchValue = savedSearchValue;
-        return;
+        forceShowAll = true;
       }
     }
-    
+
+    if (forceShowAll) {
+      updateModelDropdown(true);
+      dropdown.style.display = 'block';
+      modelDropdownVisible = true;
+      return;
+    }
+
     toggleModelDropdown();
   }
 
@@ -465,11 +472,11 @@ window.Pages.settings = function(container, serviceCenter) {
   /**
    * 更新模型下拉列表
    */
-  function updateModelDropdown() {
+  function updateModelDropdown(forceShowAll = false) {
     const dropdown = document.getElementById('model-dropdown');
     if (!dropdown) return;
     
-    const filtered = getFilteredModels();
+    const filtered = getFilteredModels(forceShowAll);
     
     dropdown.innerHTML = '';
     
@@ -611,18 +618,40 @@ window.Pages.settings = function(container, serviceCenter) {
   /**
    * 过滤模型列表
    */
-  function getFilteredModels() {
+  function getAllModels() {
+    if (cachedModels.length === 0) return [];
+    return cachedModels.map(m => typeof m === 'object' ? m.id : m);
+  }
+
+  /**
+   * 过滤模型列表
+   */
+  function getFilteredModels(forceShowAll = false) {
     if (cachedModels.length === 0) return [];
     
-    // 如果 cachedModels 中的第一项是对象，提取 ID
-    const modelIds = cachedModels.map(m => typeof m === 'object' ? m.id : m);
+    const models = cachedModels.map(m => {
+      if (typeof m === 'object') {
+        return {
+          id: m.id || '',
+          name: m.name || m.id || '',
+          raw: m
+        };
+      }
+      return {
+        id: m,
+        name: m,
+        raw: m
+      };
+    });
     
-    if (!modelSearchValue) {
-      return modelIds;
+    if (!modelSearchValue || forceShowAll) {
+      return models.map(m => m.id);
     }
     
     const keyword = modelSearchValue.toLowerCase();
-    return modelIds.filter(m => m.toLowerCase().includes(keyword));
+    return models
+      .filter(m => m.id.toLowerCase().includes(keyword) || m.name.toLowerCase().includes(keyword))
+      .map(m => m.id);
   }
 
   /**
@@ -634,21 +663,41 @@ window.Pages.settings = function(container, serviceCenter) {
     }
     
     // 在 cachedModels 中查找
-    const model = cachedModels.find(m => m.id === modelId || m === modelId);
+    const model = cachedModels.find(m => {
+      if (typeof m === 'object') {
+        return m.id === modelId || m.name === modelId;
+      }
+      return m === modelId;
+    });
     
     if (!model) {
       return null;
     }
     
-    // 如果 model 是对象，直接返回
-    if (typeof model === 'object') {
-      return model;
+    if (typeof model === 'string') {
+      return {
+        id: model,
+        name: model,
+        context_length: null,
+        pricing: null,
+        input_modalities: [],
+        description: ''
+      };
     }
     
-    // 如果 model 是字符串，返回基本结构
+    // 兼容 CamelCase 和 snake_case 字段
     return {
-      id: model,
-      name: model
+      id: model.id || '',
+      name: model.name || model.id || '',
+      context_length: model.contextLength || model.context_length || null,
+      pricing: model.pricing || null,
+      input_modalities: model.inputModalities || model.input_modalities || [],
+      description: model.description || model.metadata?.description || '',
+      supports_reasoning: model.capabilities?.reasoning || model.supports_reasoning || false,
+      supports_tools: model.capabilities?.toolUse || model.supports_tools || model.supports_function_calling || false,
+      supports_function_calling: model.capabilities?.toolUse || model.supports_function_calling || false,
+      supports_json_mode: model.capabilities?.jsonMode || model.supports_json_mode || false,
+      links: model.links || {}
     };
   }
 
@@ -874,6 +923,10 @@ window.Pages.settings = function(container, serviceCenter) {
    */
   function updateModelCache(models) {
     cachedModels = models || [];
+    if (currentSettings) {
+      currentSettings.models = cachedModels;
+      window.Pages.settings.currentSettings = currentSettings;
+    }
     
     // 更新输入框 placeholder
     const modelSearch = document.getElementById('model-search');

@@ -1,227 +1,142 @@
-# Chrome 扩展项目结构
+# Side Panel 模块说明
 
-## 目录结构
+本文件介绍 `sidepanel/` 目录下的实际结构、启动流程与关键模块，便于开发者理解侧边栏 UI 的实现方式。
 
-```
-webagentcli/
-├── background/              # Service Worker（后台脚本）
-│   ├── background.js       # 主后台脚本
-│   ├── message-transformer.js
-│   ├── script-injector.js
-│   └── stream-core.js
-│
-├── sidepanel/               # 侧边栏面板
-│   ├── sidepanel.html      # 主页面 HTML
-│   │
-│   ├── js/                 # JavaScript 模块（新架构 - React 风格）
-│   │   ├── core/          # 核心业务层（协议无关）
-│   │   │   ├── models/    # 5个核心模型
-│   │   │   │   ├── Model.js
-│   │   │   │   ├── MediaContent.js
-│   │   │   │   ├── ToolIntention.js
-│   │   │   │   ├── Message.js
-│   │   │   │   ├── Session.js
-│   │   │   │   └── index.js
-│   │   │   ├── events/    # 事件系统
-│   │   │   │   └── EventBus.js
-│   │   │   └── stores/    # 数据管理
-│   │   │       ├── SessionManager.js
-│   │   │       └── ToolRegistry.js
-│   │   │
-│   │   ├── adapters/      # 协议适配层
-│   │   │   ├── ProtocolAdapter.js
-│   │   │   └── lm-studio/
-│   │   │       └── LMStudioAdapter.js
-│   │   │
-│   │   ├── controllers/   # 控制器层（React 风格）
-│   │   │   └── ChatController.js
-│   │   │
-│   │   ├── services/      # 服务层
-│   │   │   └── AdapterService.js
-│   │   │
-│   │   └── ui/            # UI 层（React 风格）
-│   │       ├── components/
-│   │       │   └── ChatMessageList.js
-│   │       └── hooks/
-│   │           └── useChat.js
-│   │
-│   ├── modules/            # 业务模块（旧架构，待迁移）
-│   │   ├── agent/         # Agent 相关
-│   │   ├── api/           # API 服务
-│   │   ├── tools/         # 工具管理
-│   │   └── ...
-│   │
-│   ├── pages/              # 页面脚本（旧架构）
-│   │   ├── chat/          # 聊天页面
-│   │   ├── settings.js    # 设置页面
-│   │   └── ...
-│   │
-│   ├── theme/              # CSS 样式
-│   │   ├── variables.css
-│   │   ├── layout.css
-│   │   ├── chat-components.css
-│   │   └── ...
-│   │
-│   └── utils/              # 工具函数
-│       ├── markdown.js
-│       ├── toast.js
-│       └── ...
-│
-├── content.js              # 内容脚本（注入到网页）
-├── manifest.json           # Chrome 扩展清单文件
-├── assets/                 # 静态资源
-│   └── icons/             # 扩展图标
-│
-├── docs/                   # 项目文档
-│   ├── ARCHITECTURE.md    # 架构设计
-│   ├── CORE_MODELS.md     # 核心模型说明
-│   └── ...
-│
-└── sidepanel_bak/          # 旧项目备份（开发参考）
-```
+## 侧边栏作用与入口
 
-## Chrome 扩展标准说明
+- `sidepanel/sidepanel.html` 是侧边栏的入口页面。
+- Chrome 扩展通过 `manifest.json` 中的 `side_panel.default_path` 指向该页面。
+- 扩展图标点击会触发 `sidepanel/js/background.js` 中的 `chrome.action.onClicked`，打开侧边栏。
 
-### 1. Background (Service Worker)
+## 运行流程
 
-**位置**: `background/`
+1. 用户点击扩展图标。
+2. Chrome Service Worker `sidepanel/js/background.js` 请求打开侧边栏。
+3. `sidepanel.html` 加载时按顺序引入 CSS 和 JS 模块。
+4. 最终执行 `js/app.js`，初始化 `ServiceCenter`、加载设置并渲染当前页面。
 
-Chrome Manifest V3 要求 Service Worker 放在根目录或指定路径。
+## 主要目录
 
-**功能**:
-- 处理扩展后台逻辑
-- 管理长期运行的任务
-- 监听扩展事件
-- 与 content scripts 通信
+- `sidepanel/sidepanel.html` - 侧边栏 HTML 入口，按顺序加载依赖脚本。
+- `sidepanel/js/` - JavaScript 代码目录。
+- `sidepanel/theme/` - 主题样式文件。
 
-**关键文件**:
-- `background.js` - 主入口
-- `stream-core.js` - 流式请求处理
-- `message-transformer.js` - 消息转换
-- `script-injector.js` - 脚本注入
+## 侧边栏 JS 结构
 
-### 2. Side Panel (侧边栏)
+### `js/app.js`
 
-**位置**: `sidepanel/`
+应用入口，负责：
 
-这是扩展的主要 UI 界面，通过点击扩展图标打开。
+- 初始化 `ServiceCenter`
+- 加载 `SessionManager` 和用户设置
+- 创建页面事件处理器
+- 渲染侧边栏主界面与导航
 
-**HTML 入口**: `sidepanel/sidepanel.html`
+### `js/background.js`
 
-**JavaScript 架构**:
+扩展后台 Service Worker，负责：
 
-#### 新架构 (`sidepanel/js/`)
-采用 React 风格的分层架构：
+- 监听扩展图标点击事件
+- 打开侧边栏面板
 
-```
-js/
-├── core/          # 核心业务逻辑（协议无关）
-├── adapters/      # API 协议适配
-├── controllers/   # 状态管理和业务编排
-├── services/      # 通用服务
-└── ui/            # UI 组件和 Hooks
-```
+### `js/core/`
 
-**特点**:
-- ✅ 完全协议无关
-- ✅ React 风格的状态管理
-- ✅ 组件化 UI
-- ✅ 清晰的分层结构
+核心基础设施层，包括：
 
-#### 旧架构 (`sidepanel/modules/`, `pages/`)
-保留的旧代码，用于逐步迁移参考。
+- `events/` - 全局事件总线与事件常量
+- `models/` - 数据模型定义，如 `Message`、`Session`、`Settings`、`Storage`、`Scripts`
 
-### 3. Content Scripts
+### `js/services/`
 
-**位置**: `content.js`（根目录）
+服务层，包含：
 
-注入到所有网页中执行的脚本。
+- `ServiceCenter.js` - 服务中心，组装并暴露各类管理器
+- `SessionManager.js` - 会话管理器
+- `SettingsManager.js` - 设置管理器
+- `StorageManager.js` - 浏览器存储管理
+- `ScriptsManager.js` - 用户脚本管理
+- `ModelManager.js` - 模型管理
+- `ProviderAPIServices/` - 各 Provider API 实现（OpenAI、OpenRouter、LM Studio）
 
-**功能**:
-- 操作 DOM
-- 与网页交互
-- 收集页面信息
-- 与 background/service worker 通信
+### `js/controllers/`
 
-### 4. Web Accessible Resources
+控制器层，协调 UI 与服务逻辑，当前主要包括：
 
-在 `manifest.json` 中配置的资源可以被网页访问：
+- `ChatController.js` - 聊天与消息发送逻辑
 
-```json
-"web_accessible_resources": [
-  {
-    "resources": [
-      "plugins/*",
-      "vendor/*",
-      "sandbox/*",
-      "sidepanel/*",
-      "sidepanel/js/*",
-      "sidepanel/theme/*"
-    ],
-    "matches": ["<all_urls>"]
-  }
-]
-```
+### `js/pages/`
 
-## 开发指南
+页面级逻辑与事件处理：
 
-### 加载扩展
+- `ChatPage.js`、`ChatEventHandler.js`
+- `HistoryPage.js`
+- `SettingsPage.js`、`SettingsEventHandler.js`
+- `StoragePage.js`、`StorageEventHandler.js`
+- `ScriptsPage.js`、`ScriptsEventHandler.js`
 
-1. 打开 Chrome 浏览器
-2. 访问 `chrome://extensions/`
-3. 启用"开发者模式"
-4. 点击"加载已解压的扩展程序"
-5. 选择 `webagentcli/` 目录
+### `js/utils/`
 
-### 调试
+通用工具函数：
 
-**Background Script**:
-- 在 `chrome://extensions/` 中找到扩展
-- 点击"service worker"链接
-- 打开 DevTools 进行调试
+- DOM 操作
+- Toast 提示
+- 对话框/确认框
+- Markdown 渲染
+- 错误处理
 
-**Side Panel**:
-- 点击扩展图标打开侧边栏
-- 右键点击侧边栏 → "检查"
-- 打开 DevTools
+## 侧边栏页面结构
 
-**Content Script**:
-- 在任何网页上右键 → "检查"
-- 切换到 Console 标签
-- Content script 的日志会显示在这里
+- `Chat`：与 AI 交互的主界面。
+- `History`：会话与消息历史查看。
+- `Storage`：本地缓存与数据存储查看。
+- `Scripts`：用户脚本管理界面。
+- `Settings`：AI Provider 配置与模型设置。
 
-### 构建流程
+## 关键实现点
 
-当前是开发版本，直接加载源码即可。
+### `ServiceCenter` 是入口
 
-未来可以添加构建步骤：
-- 使用 Webpack/Vite 打包
-- 压缩和优化代码
-- 生成生产版本
+它负责实例化和管理：
 
-## 架构演进
+- `SessionManager`
+- `SettingsManager`
+- `StorageManager`
+- `ScriptsManager`
+- `ModelManager`
 
-### 当前状态
+页面与控制器通过 `serviceCenter` 获取所需服务。
 
-- ✅ 新架构核心已完成（core/models, adapters, controllers, ui）
-- ⏳ 旧架构代码保留作为参考
-- ⏳ 逐步迁移旧功能到新架构
+### 事件机制
 
-### 迁移计划
+- 全局事件总线在 `js/core/events/EventBus.js`
+- 事件名定义在 `js/core/events/Events.js`
+- 各页面事件处理器注册监听，触发后更新 UI 或调度服务
 
-1. **Phase 1**: 完成核心模型层（已完成）
-2. **Phase 2**: 实现 Controller 层（进行中）
-3. **Phase 3**: 实现 UI 组件（进行中）
-4. **Phase 4**: 迁移现有功能
-   - 聊天功能
-   - 工具执行
-   - 设置管理
-   - 历史记录
-5. **Phase 5**: 删除旧代码
+### 加载顺序
 
-## 相关文件
+`sidepanel.html` 的脚本加载顺序非常重要，必须先加载：
 
-- [manifest.json](../manifest.json) - Chrome 扩展配置
-- [ARCHITECTURE.md](../docs/ARCHITECTURE.md) - 详细架构设计
-- [CORE_MODELS.md](../docs/CORE_MODELS.md) - 核心模型说明
-- [README_NEW.md](../README_NEW.md) - 新架构详细说明
+1. 工具函数与 UI 组件
+2. 核心事件与模型
+3. 服务接口与实现
+4. 页面事件处理器
+5. 页面组件
+6. `js/app.js`
+
+## 如何调试
+
+- 打开 `chrome://extensions/`
+- 点击“服务工作线程（Service Worker）”调试 `sidepanel/js/background.js`
+- 点击扩展图标打开侧边栏后，右键选择“检查”调试前端 UI
+- 在侧边栏控制台中查看 `console.log` 输出
+
+## 常见修改点
+
+- 添加新 Provider：修改 `js/services/ProviderAPIServices/` 并在 `sidepanel.html` 中引入新脚本
+- 扩展设置项：更新 `js/core/models/Settings.js` 和 `js/pages/SettingsPage.js`
+- 新建页面：添加页面 JS 与事件处理器，并在 `js/app.js` 一处挂载即可
+
+## 推荐阅读
+
+- [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) - 架构设计与分层说明
+- [docs/CORE_MODELS.md](../docs/CORE_MODELS.md) - 核心数据模型说明

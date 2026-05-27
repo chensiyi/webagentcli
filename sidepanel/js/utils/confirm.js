@@ -35,7 +35,7 @@ window.ConfirmDialog = {
       border: 1px solid var(--color-border);
       border-radius: 12px;
       padding: 24px;
-      min-width: 320px;
+      width: min(400px, 90vw);
       max-width: 90vw;
       box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
       animation: slideUp 0.2s ease;
@@ -68,6 +68,7 @@ window.ConfirmDialog = {
     buttonContainer.className = 'confirm-dialog-buttons';
     buttonContainer.style.cssText = `
       display: flex;
+      flex-wrap: wrap;
       gap: 12px;
       justify-content: flex-end;
     `;

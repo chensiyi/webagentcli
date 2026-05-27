@@ -39,17 +39,11 @@ class ModelManager extends window.IModelManager {
   async fetchModels({ apiStandard, apiEndpoint, apiKey, forceRefresh = false }) {
     console.log('[ModelManager] Fetching models:', { apiStandard, apiEndpoint, forceRefresh });
 
-    const storage = this.serviceCenter.getStorageManager();
-    const cacheKey = `models:${apiEndpoint}`;
+    console.log('[ModelManager] Fetching models:', { apiStandard, apiEndpoint, forceRefresh });
 
-    // 1. 尝试从缓存加载（如果不是强制刷新）
-    if (!forceRefresh) {
-      const cached = await storage.model.getCache(cacheKey);
-      if (cached && Array.isArray(cached)) {
-        console.log('[ModelManager] Using cached models for', apiEndpoint);
-        this.models = cached.map(m => window.Model.fromJSON(m));
-        return this.models;
-      }
+    // 1. 如果已经有运行时缓存且未强制刷新，则直接返回当前模型列表
+    if (!forceRefresh && this.models.length > 0) {
+      return this.models;
     }
 
     // 2. 获取 Provider Service
@@ -65,9 +59,6 @@ class ModelManager extends window.IModelManager {
     // 4. 标准化为 Model 实例
     this.models = this._processModelData(rawModels, apiStandard);
     this.lastFetchTime = Date.now();
-
-    // 5. 保存到缓存
-    await storage.model.setCache(cacheKey, this.models.map(m => m.toJSON()), this.cacheDuration);
 
     console.log('[ModelManager] Fetched and standardized', this.models.length, 'models');
     return this.models;
@@ -95,12 +86,10 @@ class ModelManager extends window.IModelManager {
    * @param {string} apiEndpoint 
    */
   async clearCache(apiEndpoint) {
-    const storage = this.serviceCenter.getStorageManager();
-    await storage.model.remove(`cache:models:${apiEndpoint}`);
     if (this.models.length > 0) {
       this.models = [];
     }
-    console.log('[ModelManager] Cache cleared for', apiEndpoint);
+    console.log('[ModelManager] Runtime model list cleared for', apiEndpoint);
   }
 
   /**
