@@ -244,6 +244,67 @@ window.UI = {
   },
 
   /**
+   * 创建代码编辑器 (基于 CodeMirror 5)
+   * @param {HTMLElement} container - 挂载容器
+   * @param {Object} options
+   * @param {string} options.value - 初始代码
+   * @param {'javascript'|'application/json'} options.mode - 语言模式
+   * @param {boolean} [options.readOnly=false] - 只读模式
+   * @param {Function} [options.onChange] - 内容变更回调 (value) => void
+   * @param {number} [options.height] - 编辑器高度（px），默认自适应
+   * @returns {Object} { editor: CodeMirror, setValue, getValue, destroy }
+   */
+  CodeEditor(container, options = {}) {
+    const { 
+      value = '', 
+      mode = 'javascript', 
+      readOnly = false, 
+      onChange,
+      height
+    } = options;
+
+    // CodeMirror 在 UI.js 加载后才会存在，这里延迟引用
+    if (typeof CodeMirror === 'undefined') {
+      console.error('[UI.CodeEditor] CodeMirror not loaded');
+      container.textContent = 'Error: CodeMirror not loaded';
+      return null;
+    }
+
+    const cm = CodeMirror(container, {
+      value,
+      mode: mode === 'application/json' ? { name: 'javascript', json: true } : 'javascript',
+      theme: 'default',
+      lineNumbers: true,
+      indentUnit: 2,
+      tabSize: 2,
+      matchBrackets: true,
+      styleActiveLine: true,
+      readOnly: readOnly ? 'nocursor' : false,
+      viewportMargin: Infinity  // 自动高度
+    });
+
+    if (height) {
+      cm.setSize(null, height);
+    }
+
+    if (onChange) {
+      cm.on('change', () => {
+        onChange(cm.getDoc().getValue());
+      });
+    }
+
+    return {
+      editor: cm,
+      getValue: () => cm.getDoc().getValue(),
+      setValue: (val) => cm.getDoc().setValue(val),
+      destroy: () => {
+        cm.toTextArea();
+        container.innerHTML = '';
+      }
+    };
+  },
+
+  /**
    * 创建表单组 (FormGroup)
    */
   FormGroup(options = {}, children = []) {
