@@ -56,7 +56,7 @@ class SessionManager extends window.ISessionManager {
     this.eventBus.emit(window.Events.CHAT.SESSION_CREATED, { session });
     this.eventBus.emit(window.Events.CHAT.CURRENT_SESSION_CHANGED, { sessionId: session.id });
       
-    console.log('[SessionController] Created session:', session.id, 'Reasoning effort:', session.reasoningEffort);
+    console.log('[SessionManager] Created session:', session.id, 'Reasoning effort:', session.reasoningEffort);
     return session;
   }
 
@@ -68,7 +68,7 @@ class SessionManager extends window.ISessionManager {
   loadSession(sessionId) {
     const session = this.sessions.get(sessionId);
     if (!session) {
-      console.warn('[SessionController] Session not found:', sessionId);
+      console.warn('[SessionManager] Session not found:', sessionId);
       return null;
     }
     
@@ -99,7 +99,7 @@ class SessionManager extends window.ISessionManager {
   deleteSession(sessionId, autoSwitch = true) {
     const deleted = this.sessions.delete(sessionId);
     if (!deleted) {
-      console.warn('[SessionController] Session not found for deletion:', sessionId);
+      console.warn('[SessionManager] Session not found for deletion:', sessionId);
       return false;
     }
     
@@ -119,7 +119,7 @@ class SessionManager extends window.ISessionManager {
     // 发布事件
     this.eventBus.emit(window.Events.CHAT.SESSION_DELETED, { sessionId });
     
-    console.log('[SessionController] Deleted session:', sessionId);
+    console.log('[SessionManager] Deleted session:', sessionId);
     return true;
   }
 
@@ -155,7 +155,7 @@ class SessionManager extends window.ISessionManager {
    */
   setCurrentSession(sessionId) {
     if (sessionId !== null && !this.sessions.has(sessionId)) {
-      console.warn('[SessionController] Session not found:', sessionId);
+      console.warn('[SessionManager] Session not found:', sessionId);
       return null;
     }
 
@@ -191,12 +191,12 @@ class SessionManager extends window.ISessionManager {
   updateSessionTitle(sessionId, title) {
     const session = this.sessions.get(sessionId);
     if (!session) {
-      console.warn('[SessionController] Session not found:', sessionId);
+      console.warn('[SessionManager] Session not found:', sessionId);
       return false;
     }
     
     session.title = title;
-    session.updated_at = Date.now();
+    session.touch();
     
     this._saveSessions();
     this.eventBus.emit(window.Events.CHAT.SESSION_UPDATED, { session });
@@ -213,13 +213,12 @@ class SessionManager extends window.ISessionManager {
   updateSession(sessionId, updater) {
     const session = this.sessions.get(sessionId);
     if (!session) {
-      console.warn('[SessionController] Session not found:', sessionId);
+      console.warn('[SessionManager] Session not found:', sessionId);
       return false;
     }
     
     updater(session);
-    session.updatedAt = Date.now();
-    session.updated_at = session.updatedAt;
+    session.touch();
     
     this._saveSessions();
     this.eventBus.emit(window.Events.CHAT.SESSION_UPDATED, { session });
@@ -240,7 +239,7 @@ class SessionManager extends window.ISessionManager {
     // 如果当前没有会话，则自动创建一个新会话
     if (!session) {
       if (sessionId) {
-        console.warn('[SessionController] Session not found:', sessionId);
+        console.warn('[SessionManager] Session not found:', sessionId);
         return false;
       }
       session = this.createSession({ title: '新对话', persist: false });
@@ -271,7 +270,7 @@ class SessionManager extends window.ISessionManager {
     
     if (!session) {
       if (sessionId) {
-        console.warn('[SessionController] Session not found:', sessionId);
+        console.warn('[SessionManager] Session not found:', sessionId);
         return false;
       }
       session = this.createSession({ title: '新对话', persist: false });
@@ -299,7 +298,7 @@ class SessionManager extends window.ISessionManager {
   updateMessage(messageId, updater, sessionId = null) {
     const session = sessionId ? this.getSession(sessionId) : this.getCurrentSession();
     if (!session) {
-      console.warn('[SessionController] No target session');
+      console.warn('[SessionManager] No target session');
       return false;
     }
     
@@ -325,7 +324,7 @@ class SessionManager extends window.ISessionManager {
   streamChunkMessage(messageId, chunk, sessionId = null) {
     const session = sessionId ? this.getSession(sessionId) : this.getCurrentSession();
     if (!session) {
-      console.warn('[SessionController] No target session');
+      console.warn('[SessionManager] No target session');
       return false;
     }
     
@@ -355,7 +354,7 @@ class SessionManager extends window.ISessionManager {
   clearMessages(sessionId = null) {
     const session = sessionId ? this.getSession(sessionId) : this.getCurrentSession();
     if (!session) {
-      console.warn('[SessionController] No target session');
+      console.warn('[SessionManager] No target session');
       return false;
     }
 
@@ -377,7 +376,7 @@ class SessionManager extends window.ISessionManager {
   deleteMessage(messageId, sessionId = null) {
     const session = sessionId ? this.getSession(sessionId) : this.getCurrentSession();
     if (!session) {
-      console.warn('[SessionController] No target session');
+      console.warn('[SessionManager] No target session');
       return false;
     }
     
@@ -420,7 +419,7 @@ class SessionManager extends window.ISessionManager {
 
     // 如果模型不支持，强制关闭会话中的思考模式
     if (!supportsReasoning && session.reasoningEffort !== 'off') {
-      console.log(`[SessionController] Model ${settings.model} does not support reasoning. Disabling for session ${session.id}`);
+      console.log(`[SessionManager] Model ${settings.model} does not support reasoning. Disabling for session ${session.id}`);
       session.reasoningEffort = 'off';
       this._saveSessions();
     }
@@ -431,7 +430,7 @@ class SessionManager extends window.ISessionManager {
    * @returns {Promise<void>}
    */
   initialize() {
-    console.log('[SessionController] Initialization started');
+    console.log('[SessionManager] Initialization started');
     return this._loadSessionsFromStorage();
   }
 
@@ -460,12 +459,12 @@ class SessionManager extends window.ISessionManager {
               this.sessions.set(session.id, session);
             });
             
-            console.log('[SessionController] Loaded sessions:', this.sessions.size);
+            console.log('[SessionManager] Loaded sessions:', this.sessions.size);
           }
           
           if (result.currentSessionId) {
             this.currentSessionId = result.currentSessionId;
-            console.log('[SessionController] Current session:', this.currentSessionId);
+            console.log('[SessionManager] Current session:', this.currentSessionId);
           }
           
           resolve();
@@ -479,6 +478,7 @@ class SessionManager extends window.ISessionManager {
   /**
    * 保存会话到存储
    * @private
+   * @returns {Promise<void>}
    */
   _saveSessions() {
     const sessionsData = {};
@@ -486,9 +486,18 @@ class SessionManager extends window.ISessionManager {
       sessionsData[id] = session.toJSON();
     });
     
-    this.storage.set({
-      sessions: sessionsData,
-      currentSessionId: this.currentSessionId
+    return new Promise((resolve, reject) => {
+      this.storage.set({
+        sessions: sessionsData,
+        currentSessionId: this.currentSessionId
+      }, () => {
+        if (chrome.runtime.lastError) {
+          console.error('[SessionManager] Failed to save sessions:', chrome.runtime.lastError);
+          reject(chrome.runtime.lastError);
+        } else {
+          resolve();
+        }
+      });
     });
   }
 }

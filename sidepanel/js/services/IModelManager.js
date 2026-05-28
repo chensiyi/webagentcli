@@ -10,11 +10,10 @@ class IModelManager {
     this.eventBus = serviceCenter.getEventBus();
   }
 
-  async initialize() { throw new Error('Not implemented'); }
   async fetchModels(params) { throw new Error('Not implemented'); }
   getModels() { throw new Error('Not implemented'); }
   getModel(modelId) { throw new Error('Not implemented'); }
-  async clearCache(apiEndpoint) { throw new Error('Not implemented'); }
+  async clearCache() { throw new Error('Not implemented'); }
 }
 
 window.IModelManager = IModelManager;

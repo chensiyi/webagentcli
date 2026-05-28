@@ -20,12 +20,6 @@ class ChatEventHandler {
     this.eventBus.on(window.Events.CHAT.USER_MESSAGE_SENT, (data) => {
       this._handleUserMessageSent(data);
     });
-    
-    // 监听消息添加事件（触发 UI 渲染）
-    this.eventBus.on(window.Events.CHAT.MESSAGE_ADDED, (data) => {
-      this._handleMessageAdded(data);
-    });
-    
     // 监听消息更新事件（错误更新等）
     this.eventBus.on(window.Events.CHAT.MESSAGE_UPDATED, (data) => {
       this._handleMessageUpdated(data);
@@ -65,15 +59,6 @@ class ChatEventHandler {
         this._scrollToUserMessage(e.key === 'ArrowUp' ? -1 : 1);
       }
     });
-  }
-  
-  /**
-   * 处理消息添加
-   */
-  _handleMessageAdded(data) {
-    const { message } = data;
-    console.log('[ChatEventHandler] Message added:', message);
-    // ChatPage 会自行处理渲染
   }
   
   /**
@@ -387,38 +372,6 @@ class ChatEventHandler {
         messageList.scrollTop = messageList.scrollHeight;
       }
     }
-  }
-  
-  /**
-   * 处理发送消息（由页面调用）
-   */
-  handleSendMessage(content) {
-    if (!content.trim()) return;
-    
-    // 创建用户消息
-    const userMsg = new window.Message({
-      role: 'user',
-      content: content
-    });
-    
-    // 添加到会话
-    this.sessionController.addMessage(userMsg);
-    
-    console.log('[ChatEventHandler] Sent message:', userMsg);
-  }
-  
-  /**
-   * 处理停止生成（由页面调用）
-   */
-  handleStopGeneration() {
-    this.chatController.stopGeneration();
-  }
-  
-  /**
-   * 处理创建新会话（由页面调用）
-   */
-  handleCreateSession() {
-    this.sessionController.createSession();
   }
 
   /**

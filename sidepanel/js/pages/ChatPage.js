@@ -64,13 +64,11 @@ window.Pages.chat = function(container, serviceCenter) {
   };
 
   // ==================== 事件监听 ====================
+  // 消息增删或会话切换时触发全量渲染（为流式分片更新提供底层 DOM 结构）
+  eventBus.on(window.Events.CHAT.MESSAGE_ADDED, () => render());
+  eventBus.on(window.Events.CHAT.MESSAGE_DELETED, () => render());
+  eventBus.on(window.Events.CHAT.CURRENT_SESSION_CHANGED, () => render());
 
-  // 消息增删或会话切换时触发全量渲染
-  const refreshUI = () => render();
-  eventBus.on(window.Events.CHAT.MESSAGE_ADDED, refreshUI);
-  eventBus.on(window.Events.CHAT.MESSAGE_DELETED, refreshUI);
-  eventBus.on(window.Events.CHAT.CURRENT_SESSION_CHANGED, refreshUI);
-  
   // ==================== 组件渲染 ====================
 
   /**
@@ -257,12 +255,23 @@ window.Pages.chat = function(container, serviceCenter) {
 
   /**
    * 检查模型是否支持思考能力
+   * 通过 ModelManager 检测当前模型的能力
    */
   function checkModelSupportsThinking() {
     try {
-      const service = serviceCenter.getCurrentProviderService();
-      // 这里可以根据 service.config.defaultModel 对接 ModelManager 的能力检测
-      return true; 
+      const settings = serviceCenter.getSettingsManager().getSettings();
+      if (!settings || !settings.model) return false;
+      
+      const modelManager = serviceCenter.getModelManager();
+      const model = modelManager.getModel(settings.model);
+      
+      if (model && typeof model.supportsReasoning === 'function') {
+        return model.supportsReasoning();
+      }
+      if (model && model.capabilities) {
+        return !!model.capabilities.reasoning;
+      }
+      return false;
     } catch (e) {
       return false;
     }

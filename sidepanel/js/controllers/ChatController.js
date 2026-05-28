@@ -161,22 +161,17 @@ class ChatController {
         sessionManager.updateMessage(assistantMsgId, (msg) => {
           msg.content = `❌ 发送失败: ${error.message}`;
         }, session.id);
-        
-        this.eventBus.emit(window.Events.CHAT.MESSAGE_UPDATED, {
-          message: sessionManager.getSession(session.id)?.messages.find(m => m.id === assistantMsgId)
-        });
       }
       
+      // 统一错误通知：仅通过事件广播，不再 throw（EventBus 驱动一切）
       this.eventBus.emit(window.Events.CHAT.STREAM_ERROR, {
         error,
         message: error.message,
         sessionId: session?.id,
         messageId: assistantMsgId
       });
-      
-      throw error;
     } finally {
-      // 最终保障：清理运行时状态，并延迟重置为 IDLE
+      // 清理运行时状态
       this.currentRequest = null;
       setTimeout(() => {
         if (!this.currentRequest) {

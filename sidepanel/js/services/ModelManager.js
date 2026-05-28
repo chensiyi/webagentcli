@@ -4,7 +4,11 @@
  * 职责：
  * 1. 负责从 Provider API 获取模型列表并标准化为业务模型
  * 2. 负责模型能力的检测逻辑
- * 3. 负责模型列表的持久化缓存管理
+ * 3. 不维护自有缓存——模型列表以 SettingsManager.settings.models 为准
+ * 
+ * 设计变更说明：
+ * - 移除了 this.models 运行时缓存，改用 serviceCenter.getSettingsManager().getSettings().models
+ * - fetchModels() 仅负责 API 调用和标准化，持久化由调用方（SettingsManager）负责
  */
 
 class ModelManager extends window.IModelManager {
@@ -13,83 +17,59 @@ class ModelManager extends window.IModelManager {
    */
   constructor(serviceCenter) {
     super(serviceCenter);
-    
-    // 运行时状态
-    this.models = []; // Array<Model>
-    this.lastFetchTime = null;
-    this.cacheDuration = 30 * 24 * 60 * 60 * 1000; // 30 天缓存
   }
 
   /**
-   * 初始化
+   * 获取已持久化的模型列表（来自 Settings）
+   * @returns {Array<Model>}
    */
-  async initialize() {
-    console.log('[ModelManager] Initialized');
+  getModels() {
+    const settings = this.serviceCenter.getSettingsManager().getSettings();
+    if (!settings || !Array.isArray(settings.models)) return [];
+    return settings.models.map(m => 
+      m instanceof window.Model ? m : window.Model.fromJSON(m)
+    );
   }
 
   /**
-   * 获取模型列表
-   * @param {Object} params - 获取参数
+   * 获取指定模型（来自 Settings）
+   * @param {string} modelId 
+   * @returns {Model|null}
+   */
+  getModel(modelId) {
+    return this.getModels().find(m => m.id === modelId) || null;
+  }
+
+  /**
+   * 从 Provider API 获取模型列表并标准化
+   * @param {Object} params
    * @param {string} params.apiStandard - API 标准
    * @param {string} params.apiEndpoint - API 端点
    * @param {string} params.apiKey - API Key
-   * @param {boolean} [params.forceRefresh=false] - 是否强制刷新
+   * @param {boolean} [params.forceRefresh=false] - 强制刷新（当前忽略，始终拉取）
    * @returns {Promise<Array<Model>>}
    */
-  async fetchModels({ apiStandard, apiEndpoint, apiKey, forceRefresh = false }) {
-    console.log('[ModelManager] Fetching models:', { apiStandard, apiEndpoint, forceRefresh });
+  async fetchModels({ apiStandard, apiEndpoint, apiKey }) {
+    console.log('[ModelManager] Fetching models:', { apiStandard, apiEndpoint });
 
-    console.log('[ModelManager] Fetching models:', { apiStandard, apiEndpoint, forceRefresh });
-
-    // 1. 如果已经有运行时缓存且未强制刷新，则直接返回当前模型列表
-    if (!forceRefresh && this.models.length > 0) {
-      return this.models;
-    }
-
-    // 2. 获取 Provider Service
     const service = this.serviceCenter.createProviderService(apiStandard, {
       endpoint: apiEndpoint,
       apiKey: apiKey,
       defaultModel: 'default'
     });
 
-    // 3. 调用 API 获取原始数据
     const rawModels = await service.listModels();
+    const models = this._processModelData(rawModels, apiStandard);
 
-    // 4. 标准化为 Model 实例
-    this.models = this._processModelData(rawModels, apiStandard);
-    this.lastFetchTime = Date.now();
-
-    console.log('[ModelManager] Fetched and standardized', this.models.length, 'models');
-    return this.models;
+    console.log('[ModelManager] Fetched and standardized', models.length, 'models');
+    return models;
   }
 
   /**
-   * 获取当前已加载的模型列表
-   * @returns {Array<Model>}
+   * 清除模型缓存（仅清空 Settings 中的 models，重新拉取由调用方决定）
    */
-  getModels() {
-    return this.models;
-  }
-
-  /**
-   * 获取指定模型
-   * @param {string} modelId 
-   * @returns {Model|null}
-   */
-  getModel(modelId) {
-    return this.models.find(m => m.id === modelId) || null;
-  }
-
-  /**
-   * 清除指定端点的模型缓存
-   * @param {string} apiEndpoint 
-   */
-  async clearCache(apiEndpoint) {
-    if (this.models.length > 0) {
-      this.models = [];
-    }
-    console.log('[ModelManager] Runtime model list cleared for', apiEndpoint);
+  async clearCache() {
+    console.log('[ModelManager] Cache clear requested — delegates to settings.models reset');
   }
 
   /**
@@ -100,13 +80,11 @@ class ModelManager extends window.IModelManager {
     if (!Array.isArray(rawModels)) return [];
 
     return rawModels.map(raw => {
-      // 如果已经是 Model 实例，直接返回
       if (raw instanceof window.Model) return raw;
 
       const id = typeof raw === 'string' ? raw : raw.id;
       const name = raw.name || id;
 
-      // 基础能力检测
       const capabilities = {
         vision: this._detectVisionCapability(id, name, raw),
         toolUse: this._detectToolUseCapability(id, name, raw, apiStandard),
@@ -115,7 +93,6 @@ class ModelManager extends window.IModelManager {
         jsonMode: this._detectJsonModeCapability(id, name, raw, apiStandard)
       };
 
-      // 创建标准 Model 实例
       return new window.Model({
         id,
         name,
@@ -152,7 +129,6 @@ class ModelManager extends window.IModelManager {
     const searchStr = (id + ' ' + name).toLowerCase();
     if (searchStr.includes('embedding')) return false;
     if (apiStandard === 'openai') return true;
-    
     return raw.capabilities?.tool_use !== false && 
            raw.supports_tools !== false && 
            raw.supports_function_calling !== false;

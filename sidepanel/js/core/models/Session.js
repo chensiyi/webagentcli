@@ -13,9 +13,6 @@ class Session extends window.BaseModel {
     // 'off' 表示关闭，其他值表示开启并使用对应强度
     this.reasoningEffort = options.reasoningEffort || 'medium'; // 'off' | 'low' | 'medium' | 'high'
     
-    // 兼容旧版命名
-    this.updated_at = this.updatedAt;
-
     // 运行时状态（不持久化）
     this.port = null;
     this.isStreaming = false;
@@ -27,7 +24,6 @@ class Session extends window.BaseModel {
   addMessage(message) {
     this.messages.push(message);
     this.touch();
-    this.updated_at = this.updatedAt;
   }
   
   /**
@@ -38,7 +34,6 @@ class Session extends window.BaseModel {
     if (index !== -1) {
       this.messages.splice(index, 1);
       this.touch();
-      this.updated_at = this.updatedAt;
       return true;
     }
     return false;
@@ -66,7 +61,6 @@ class Session extends window.BaseModel {
     }
     
     this.touch();
-    this.updated_at = this.updatedAt;
     return true;
   }
   
@@ -83,7 +77,6 @@ class Session extends window.BaseModel {
   clearMessages() {
     this.messages = [];
     this.touch();
-    this.updated_at = this.updatedAt;
   }
   
   /**

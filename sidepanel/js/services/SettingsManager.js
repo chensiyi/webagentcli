@@ -26,7 +26,8 @@ class SettingsManager extends window.IAppSettings {
   }
   
   /**
-   * 处理设置更新
+   * 处理设置更新（由 SettingsEventHandler 通过 SETTINGS.UPDATED 事件触发）
+   * 检查是否涉及 API 相关配置变更，记录日志
    */
   _handleSettingsUpdate(data) {
     const { updates } = data;
@@ -36,7 +37,7 @@ class SettingsManager extends window.IAppSettings {
     const hasApiUpdate = apiRelatedKeys.some(key => key in updates);
     
     if (!hasApiUpdate) {
-      return; // 非 API 配置更新
+      return;
     }
     
     console.log('[SettingsManager] API related settings updated');
@@ -88,15 +89,10 @@ class SettingsManager extends window.IAppSettings {
   async _handleModelsRequest(data) {
     const { apiKey, apiEndpoint, apiStandard } = data;
     
-    console.log('[SettingsController] MODELS_REQUEST received');
+    console.log('[SettingsManager] MODELS_REQUEST received');
     
-    // 设置加载状态
-    if (window.Pages && window.Pages.settings) {
-      const updateLoadButtonState = window.Pages.settings.updateLoadButtonState;
-      if (typeof updateLoadButtonState === 'function') {
-        updateLoadButtonState(true);
-      }
-    }
+    // 发布加载状态事件（由 EventHandler 转发到 View）
+    this.eventBus.emit(window.Events.UI.LOADING, { key: 'loadModels', loading: true });
     
     try {
       const modelManager = this.serviceCenter.getModelManager();
@@ -105,8 +101,7 @@ class SettingsManager extends window.IAppSettings {
       const models = await modelManager.fetchModels({
         apiStandard,
         apiEndpoint,
-        apiKey,
-        forceRefresh: true
+        apiKey
       });
       
       // 直接持久化模型列表到设置
@@ -120,17 +115,12 @@ class SettingsManager extends window.IAppSettings {
         fromCache: false
       });
       
-      console.log('[SettingsController] Loaded', models.length, 'models via ModelController');
+      console.log('[SettingsManager] Loaded', models.length, 'models');
     } catch (error) {
       this.eventBus.emit(window.Events.SETTINGS.MODELS_ERROR, { error });
     } finally {
-      // 重置加载按钮状态（通过 Page）
-      if (window.Pages && window.Pages.settings) {
-        const updateLoadButtonState = window.Pages.settings.updateLoadButtonState;
-        if (typeof updateLoadButtonState === 'function') {
-          updateLoadButtonState(false);
-        }
-      }
+      // 发布加载结束事件
+      this.eventBus.emit(window.Events.UI.LOADING, { key: 'loadModels', loading: false });
     }
   }
   
@@ -147,7 +137,7 @@ class SettingsManager extends window.IAppSettings {
   updateSettings(updates) {
     const oldSettings = { ...this.settings.toJSON() };
     
-    console.log('[SettingsController] Updating settings:', {
+    console.log('[SettingsManager] Updating settings:', {
       apiStandard: updates.apiStandard,
       apiEndpoint: updates.apiEndpoint,
       model: updates.model
@@ -166,7 +156,7 @@ class SettingsManager extends window.IAppSettings {
     // 保存到存储
     this.saveSettings();
     
-    console.log('[SettingsController] Settings updated and save initiated');
+    console.log('[SettingsManager] Settings updated and save initiated');
   }
   
   /**
@@ -176,12 +166,12 @@ class SettingsManager extends window.IAppSettings {
     return new Promise((resolve, reject) => {
       chrome.storage.local.set({ [this.storageKey]: this.settings.toJSON() }, () => {
         if (chrome.runtime.lastError) {
-          console.error('[SettingsController] Failed to save settings:', chrome.runtime.lastError);
+          console.error('[SettingsManager] Failed to save settings:', chrome.runtime.lastError);
           reject(chrome.runtime.lastError);
           return;
         }
         
-        console.log('[SettingsController] Settings saved successfully to chrome.storage.local');
+        console.log('[SettingsManager] Settings saved successfully to chrome.storage.local');
         
         // 发布保存事件
         this.eventBus.emit(window.Events.SETTINGS.SAVED, {
@@ -202,7 +192,7 @@ class SettingsManager extends window.IAppSettings {
         const data = result[this.storageKey];
         if (data) {
           this.settings = window.Settings.fromJSON(data);
-          console.log('[SettingsController] Settings loaded:', this.settings);
+          console.log('[SettingsManager] Settings loaded:', this.settings);
           
           // 发布加载事件
           this.eventBus.emit(window.Events.SETTINGS.LOADED, {
@@ -227,7 +217,7 @@ class SettingsManager extends window.IAppSettings {
     // 发布重置事件
     this.eventBus.emit(window.Events.SETTINGS.RESET);
     
-    console.log('[SettingsController] Settings reset');
+    console.log('[SettingsManager] Settings reset');
   }
   
   /**
@@ -237,26 +227,20 @@ class SettingsManager extends window.IAppSettings {
     const settings = this.getSettings();
     if (!settings) return false;
 
-    const modelController = this.serviceCenter.getModelController();
-    await modelController.clearCache(settings.apiEndpoint);
+    const modelManager = this.serviceCenter.getModelManager();
+    await modelManager.clearCache();
 
     this.settings.models = [];
     await this.saveSettings();
     
-    console.log('[SettingsController] Model cache cleared via ModelController and persisted settings');
+    console.log('[SettingsManager] Model cache cleared');
     
-    // 通知 Page 清空模型列表
-    if (window.Pages && window.Pages.settings) {
-      const updateModelCache = window.Pages.settings.updateModelCache;
-      if (typeof updateModelCache === 'function') {
-        updateModelCache([]);
-      }
-      
-      const updateModelDropdown = window.Pages.settings.updateModelDropdown;
-      if (typeof updateModelDropdown === 'function') {
-        updateModelDropdown();
-      }
-    }
+    // 发布事件通知 View 层更新
+    this.eventBus.emit(window.Events.SETTINGS.MODELS_LOADED, {
+      models: [],
+      count: 0,
+      fromCache: false
+    });
     
     return true;
   }
