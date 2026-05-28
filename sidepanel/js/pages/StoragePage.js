@@ -214,18 +214,16 @@ window.Pages.storage = function(container, serviceCenter) {
   }
 
   /**
-   * 打开编辑对话框
+   * 打开编辑对话框（使用 CodeMirror 编辑 JSON）
    */
   function openEditDialog(key, value) {
-    const textarea = create('textarea', {
-      className: 'textarea textarea-monospace flex-1',
-      style: { minHeight: '200px' },
-      text: JSON.stringify(value, null, 2)
+    const editorContainer = create('div', {
+      style: { border: '1px solid var(--color-border)', borderRadius: '6px', overflow: 'hidden' }
     });
 
     const dialog = window.UI.Dialog({
       title: `编辑: ${key}`,
-      content: textarea,
+      content: editorContainer,
       actions: [
         { 
           text: '取消', 
@@ -236,10 +234,12 @@ window.Pages.storage = function(container, serviceCenter) {
           className: 'btn-primary',
           autoClose: false,
           onClick: async () => {
+            if (!editorInstance) return;
             try {
-              const newValue = JSON.parse(textarea.value);
+              const newValue = JSON.parse(editorInstance.getValue());
               await eventHandler.storageManager.updateItem(key, newValue);
               window.Toast.success('已更新');
+              editorInstance.destroy();
               dialog.close();
               eventHandler.handleRefresh();
             } catch (e) {
@@ -250,7 +250,16 @@ window.Pages.storage = function(container, serviceCenter) {
       ]
     });
 
+    let editorInstance = null;
     dialog.open();
+    // CodeMirror 需要 DOM 渲染后才能挂载
+    setTimeout(() => {
+      editorInstance = window.UI.CodeEditor(editorContainer, {
+        value: JSON.stringify(value, null, 2),
+        mode: 'application/json',
+        height: 300
+      });
+    }, 50);
   }
 
   /**

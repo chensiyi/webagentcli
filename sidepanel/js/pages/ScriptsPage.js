@@ -134,22 +134,19 @@ window.Pages.scripts = function(container, serviceCenter) {
   }
 
   /**
-   * 创建安装表单
+   * 创建安装表单（使用 CodeMirror 编辑 JS）
    */
   function createInstallForm() {
-    let code = '';
-
-    const textarea = window.UI.Textarea({
-      className: 'textarea-monospace mb-16',
-      placeholder: '// ==UserScript==\n// @name         My Script\n// ...',
-      rows: 15,
-      onInput: (e) => { code = e.target.value; }
+    let editorInstance = null;
+    const editorContainer = create('div', {
+      style: { border: '1px solid var(--color-border)', borderRadius: '6px', overflow: 'hidden', marginBottom: '16px' }
     });
 
     const installBtn = window.UI.Button({
       className: 'btn-success w-full',
       text: '安装',
       onClick: async () => {
+        const code = editorInstance ? editorInstance.getValue() : '';
         if (!code.trim()) {
           window.Toast?.warning('请输入脚本代码');
           return;
@@ -160,12 +157,21 @@ window.Pages.scripts = function(container, serviceCenter) {
       }
     });
 
+    // DOM 渲染后初始化 CodeMirror
+    setTimeout(() => {
+      editorInstance = window.UI.CodeEditor(editorContainer, {
+        value: '',
+        mode: 'javascript',
+        height: 300
+      });
+    }, 50);
+
     return create('div', { className: 'p-20' }, [
       create('div', {
         className: 'text-sm text-secondary mb-8',
         text: '粘贴 Tampermonkey 用户脚本代码：'
       }),
-      textarea,
+      editorContainer,
       installBtn
     ]);
   }
@@ -184,30 +190,29 @@ window.Pages.scripts = function(container, serviceCenter) {
   }
 
   /**
-   * 创建编辑表单
+   * 创建编辑表单（使用 CodeMirror 编辑 JS）
    */
   function createEditForm() {
     const script = scripts.find(s => s.id === editingScriptId);
     if (!script) return create('div');
 
-    const textarea = window.UI.Textarea({
-      className: 'textarea-monospace mb-16',
-      rows: 15,
-      value: editCode,
-      onInput: (e) => { editCode = e.target.value; }
+    let editorInstance = null;
+    const editorContainer = create('div', {
+      style: { border: '1px solid var(--color-border)', borderRadius: '6px', overflow: 'hidden', marginBottom: '16px' }
     });
 
     const saveBtn = window.UI.Button({
       className: 'btn-success flex-1',
       text: '保存',
       onClick: async () => {
-        if (!editCode.trim()) {
+        const code = editorInstance ? editorInstance.getValue() : '';
+        if (!code.trim()) {
           window.Toast?.warning('脚本代码不能为空');
           return;
         }
-        eventHandler.handleEdit(editingScriptId, editCode);
+        eventHandler.handleEdit(editingScriptId, code);
         editingScriptId = null;
-        editCode = '';
+        render();
       }
     });
 
@@ -216,17 +221,25 @@ window.Pages.scripts = function(container, serviceCenter) {
       text: '取消',
       onClick: () => {
         editingScriptId = null;
-        editCode = '';
         render();
       }
     });
+
+    // DOM 渲染后初始化 CodeMirror
+    setTimeout(() => {
+      editorInstance = window.UI.CodeEditor(editorContainer, {
+        value: editCode,
+        mode: 'javascript',
+        height: 300
+      });
+    }, 50);
 
     return create('div', { className: 'p-20' }, [
       create('h3', {
         className: 'mb-16 font-semibold text-lg',
         text: `编辑脚本: ${script.name}`
       }),
-      textarea,
+      editorContainer,
       create('div', { className: 'flex gap-8' }, [
         saveBtn,
         cancelBtn
