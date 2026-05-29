@@ -261,7 +261,9 @@ window.UI = {
       readOnly = false, 
       onChange,
       height,
-      viewportMargin = 500
+      viewportMargin = 500,
+      fold = true,
+      search = true
     } = options;
 
     // CodeMirror 在 UI.js 加载后才会存在，这里延迟引用
@@ -281,7 +283,15 @@ window.UI = {
       matchBrackets: true,
       styleActiveLine: true,
       readOnly: readOnly ? 'nocursor' : false,
-      viewportMargin  // 避免大文件一次性渲染全部行导致卡顿
+      viewportMargin,
+      foldGutter: fold,
+      gutters: fold
+        ? ["CodeMirror-linenumbers", "CodeMirror-foldgutter"]
+        : ["CodeMirror-linenumbers"],
+      foldOptions: {
+        widget: "⋯",
+        rangeFinder: new CodeMirror.fold.combine(CodeMirror.fold.brace)
+      }
     });
 
     if (height) {
