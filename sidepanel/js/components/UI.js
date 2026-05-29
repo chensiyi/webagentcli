@@ -298,6 +298,11 @@ window.UI = {
       cm.setSize(null, height);
     }
 
+    // 内联搜索栏（Ctrl+F 唤起，不遮挡编辑器）
+    if (search) {
+      _initInlineSearch(cm, container);
+    }
+
     if (onChange) {
       cm.on('change', () => {
         onChange(cm.getDoc().getValue());
@@ -338,3 +343,121 @@ window.UI = {
     return group;
   }
 };
+
+/**
+ * 内部：初始化 CodeMirror 内联搜索栏（Ctrl+F 唤起）
+ * 不遮挡编辑器，嵌在容器右上角
+ */
+  function _initInlineSearch(cm, container) {
+    let searchBar = null;
+    let currentIdx = -1;
+    let allMatches = [];
+
+    // 在容器上拦截 Ctrl+F / Cmd+F，阻止浏览器默认搜索
+    container.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        e.stopPropagation();
+        _showSearchBar();
+      }
+      if (e.key === 'F3') {
+        e.preventDefault();
+        e.shiftKey ? _searchPrev() : _searchNext();
+      }
+    }, true); // 捕获阶段拦截，确保先于其他处理器执行
+
+  function _showSearchBar() {
+    if (searchBar) { searchBar.querySelector('input').focus(); return; }
+
+    searchBar = document.createElement('div');
+    searchBar.className = 'cm-search-bar';
+    searchBar.innerHTML = `
+      <input type="text" class="cm-search-input" placeholder="搜索..." />
+      <span class="cm-search-count"></span>
+      <button class="cm-search-btn" data-dir="prev" title="上一个">▲</button>
+      <button class="cm-search-btn" data-dir="next" title="下一个">▼</button>
+      <button class="cm-search-btn cm-search-close" title="关闭 (Esc)">✕</button>
+    `;
+    searchBar.style.cssText = `
+      position: absolute; top: 4px; right: 8px; z-index: 10;
+      display: flex; align-items: center; gap: 4px;
+      padding: 4px 8px; border-radius: 6px;
+      background: var(--color-surface, #fff);
+      border: 1px solid var(--color-border, #ccc);
+      box-shadow: 0 2px 8px rgba(0,0,0,.12);
+      font-size: 13px;
+    `;
+    container.style.position = 'relative';
+    container.appendChild(searchBar);
+
+    const input = searchBar.querySelector('input');
+    const countEl = searchBar.querySelector('.cm-search-count');
+
+    input.addEventListener('input', () => _doSearch(input.value, countEl));
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.shiftKey ? _searchPrev() : _searchNext(); }
+      if (e.key === 'Escape') _hideSearchBar();
+    });
+    searchBar.querySelector('[data-dir="prev"]').addEventListener('click', _searchPrev);
+    searchBar.querySelector('[data-dir="next"]').addEventListener('click', _searchNext);
+    searchBar.querySelector('.cm-search-close').addEventListener('click', _hideSearchBar);
+
+    input.focus();
+  }
+
+  function _hideSearchBar() {
+    if (searchBar) { searchBar.remove(); searchBar = null; }
+    _clearHighlights();
+    cm.focus();
+  }
+
+  function _doSearch(query, countEl) {
+    _clearHighlights();
+    allMatches = [];
+    currentIdx = -1;
+
+    if (!query) { if (countEl) countEl.textContent = ''; return; }
+
+    const cursor = cm.getDoc().getSearchCursor(query,null,{caseFold:false});
+    while (cursor.findNext()) {
+      const from = cursor.from();
+      const to   = cursor.to();
+      allMatches.push({ from, to });
+      cm.markText(from, to, { className: 'cm-search-match' });
+    }
+
+    if (allMatches.length > 0) {
+      currentIdx = 0;
+      _gotoMatch(0, countEl);
+    } else {
+      if (countEl) countEl.textContent = '0';
+    }
+  }
+
+  function _searchNext() {
+    if (!allMatches.length) return;
+    const countEl = searchBar?.querySelector('.cm-search-count');
+    currentIdx = (currentIdx + 1) % allMatches.length;
+    _gotoMatch(currentIdx, countEl);
+  }
+
+  function _searchPrev() {
+    if (!allMatches.length) return;
+    const countEl = searchBar?.querySelector('.cm-search-count');
+    currentIdx = (currentIdx - 1 + allMatches.length) % allMatches.length;
+    _gotoMatch(currentIdx, countEl);
+  }
+
+  function _gotoMatch(idx, countEl) {
+    const m = allMatches[idx];
+    cm.setSelection(m.from, m.to);
+    cm.scrollIntoView(m.from, 50);
+    if (countEl) countEl.textContent = `${idx + 1}/${allMatches.length}`;
+  }
+
+  function _clearHighlights() {
+    cm.getAllMarks().forEach(mark => {
+      if (mark.className === 'cm-search-match') mark.clear();
+    });
+  }
+}
