@@ -92,10 +92,10 @@ class Session extends window.BaseModel {
   toJSON() {
     return {
       ...super.toJSON(),
-      title: this.title,
-      messages: this.messages.map(m => m.toJSON ? m.toJSON() : m),
-      metadata: this.metadata,
-      reasoningEffort: this.reasoningEffort
+      ...this.title && { title: this.title },
+      ...this.messages && { messages: this.messages.map(m => m.toJSON ? m.toJSON() : m) },
+      ...(Object.keys(this.metadata || {}).length > 0) && { metadata: this.metadata },
+      ...this.reasoningEffort && { reasoningEffort: this.reasoningEffort }
     };
   }
   

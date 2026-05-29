@@ -93,11 +93,11 @@ class ToolIntention extends window.BaseModel {
     return {
       ...super.toJSON(),
       toolName: this.toolName,
-      parameters: this.parameters,
-      status: this.status,
-      result: this.result,
-      error: this.error,
-      completedAt: this.completedAt
+      ...this.parameters && { parameters: this.parameters },
+      ...this.status && { status: this.status },
+      ...this.result !== null && { result: this.result },
+      ...this.error && { error: this.error },
+      ...this.completedAt && { completedAt: this.completedAt }
     };
   }
 

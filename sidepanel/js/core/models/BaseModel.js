@@ -40,8 +40,8 @@ class BaseModel {
   toJSON() {
     return {
       id: this.id,
-      createdAt: this.createdAt,
-      updatedAt: this.updatedAt
+      ...(this.createdAt && { createdAt: this.createdAt }),
+      ...(this.updatedAt && { updatedAt: this.updatedAt })
     };
   }
 

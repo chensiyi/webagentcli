@@ -59,17 +59,17 @@ class Settings extends window.BaseModel {
   toJSON() {
     return {
       ...super.toJSON(),
-      apiStandard: this.apiStandard,
-      apiKey: this.apiKey,
-      apiEndpoint: this.apiEndpoint,
-      model: this.model,
-      temperature: this.temperature,
-      maxTokens: this.maxTokens,
-      systemPrompt: this.systemPrompt,
-      autoContextTruncation: this.autoContextTruncation,
-      reasoningEffort: this.reasoningEffort,
-      theme: this.theme,
-      models: this.models
+      ...this.apiStandard && { apiStandard: this.apiStandard },
+      ...this.apiKey && { apiKey: this.apiKey },
+      ...this.apiEndpoint && { apiEndpoint: this.apiEndpoint },
+      ...this.model && { model: this.model },
+      ...this.temperature !== undefined && { temperature: this.temperature },
+      ...this.maxTokens !== undefined && { maxTokens: this.maxTokens },
+      ...this.systemPrompt && { systemPrompt: this.systemPrompt },
+      ...this.autoContextTruncation !== undefined && { autoContextTruncation: this.autoContextTruncation },
+      ...this.reasoningEffort && { reasoningEffort: this.reasoningEffort },
+      ...this.theme && { theme: this.theme },
+      ...this.models && { models: this.models }
     };
   }
   

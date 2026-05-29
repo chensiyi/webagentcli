@@ -93,13 +93,13 @@ class Message extends window.BaseModel {
   toJSON() {
     return {
       ...super.toJSON(),
-      role: this.role,
-      content: this.content,
-      timestamp: this.timestamp,
-      reasoning_content: this.reasoning_content,
-      tool_calls: this.tool_calls,
-      tool_call_id: this.tool_call_id,
-      metadata: this.metadata
+    ...(this.role && { role: this.role }),
+    ...(this.content && { content: this.content }),
+    ...(this.timestamp && { timestamp: this.timestamp }),
+    ...(this.reasoning_content && { reasoning_content: this.reasoning_content }),
+    ...(this.tool_calls && { tool_calls: this.tool_calls }),
+    ...(this.tool_call_id && { tool_call_id: this.tool_call_id }),
+    ...((Object.keys(this.metadata || {}).length > 0) && { metadata: this.metadata })
     };
   }
   
