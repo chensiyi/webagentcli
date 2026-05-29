@@ -260,7 +260,8 @@ window.UI = {
       mode = 'javascript', 
       readOnly = false, 
       onChange,
-      height
+      height,
+      viewportMargin = 500
     } = options;
 
     // CodeMirror 在 UI.js 加载后才会存在，这里延迟引用
@@ -280,7 +281,7 @@ window.UI = {
       matchBrackets: true,
       styleActiveLine: true,
       readOnly: readOnly ? 'nocursor' : false,
-      viewportMargin: Infinity  // 自动高度
+      viewportMargin  // 避免大文件一次性渲染全部行导致卡顿
     });
 
     if (height) {
