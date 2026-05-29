@@ -1,71 +1,25 @@
 # Web Agent Client 架构文档 v2.0
 
+> 文档同步于 2026-05-28，已对齐当前代码库实现。
+
 ## 项目概述
 
-Web Agent Client 是一个基于 **Manifest V3** 的 Chrome Extension，为 AI Agent 提供网页端执行环境。采用 **MVC 分层架构** + **Chat-Session 嵌套设计**，通过**事件总线（EventBus）**实现组件解耦。
+Web Agent Client 是一个基于 **Manifest V3** 的 Chrome Extension，为 AI Agent 提供网页端执行环境。采用 **MVC 分层架构**，通过**事件总线（EventBus）**实现组件解耦。
 
 ### 核心特性
 
 - 🎯 **MVC 架构**：清晰的分层设计，职责明确
-- 🔄 **Chat-Session 嵌套**：Chat 作为 Session 的运行时增强包装器，内聚交互状态
 - 🔌 **插件化 Provider**：支持 OpenAI、LM Studio、OpenRouter 等多种 AI 服务
-- 💬 **多实例管理**：每个 Chat 实例独立管理，支持前台聊天和后台 Agent 并存
+- 💬 **会话管理**：支持多会话管理，每个会话独立管理消息历史
 - 🌊 **流式响应**：实时渲染 AI 回复，支持思考过程展示
-- 🛠️ **工具系统**：可扩展的工具注册与调用机制
 - 🎨 **主题化 UI**：模块化 CSS 设计，支持深色/浅色模式
 
-## 核心设计：Chat-Session 嵌套架构
+### 架构设计原则
 
-### 设计理念
-
-**问题**：传统的 EventBus 完全解耦导致 Chat 和 Session 这种天然嵌套的关系变得松散不可靠，像"牵着磁力连接的风筝"。
-
-**解决方案**：Chat 作为 Session 的运行时增强包装器，内聚所有交互状态。
-
-```
-┌─────────────────────────────────────┐
-│         Chat (交互上下文)            │
-│  ┌───────────────────────────────┐  │
-│  │   Session (数据模型)           │  │
-│  │   - messages[]                │  │
-│  │   - metadata                  │  │
-│  │   - reasoningEnabled          │  │
-│  └───────────────────────────────┘  │
-│                                     │
-│  - messageQueue (运行时队列)         │
-│  - isStreaming (流式状态)           │
-│  - taskQueue (任务队列)             │
-│  - chatService (API 服务)           │
-└─────────────────────────────────────┘
-```
-
-### 关键优势
-
-1. **状态内聚**：所有交互状态（队列、流式）集中在 Chat 实例中
-2. **多实例支持**：前台聊天和后台 Agent 可以创建独立的 Chat 实例，互不干扰
-3. **避免跨层同步**：UI、持久化、业务逻辑都在 Chat 内部协调
-4. **清晰的职责划分**：
-   - Session：纯数据模型，负责持久化
-   - Chat：运行时上下文，负责交互逻辑
-   - Controller：适配层，委托给 Chat
-   - UI：只发出事件，不关心实现细节
-
-### 数据流向
-
-```
-用户操作 
-  → View (ChatPage)
-  → 发出 USER_MESSAGE_SENT 事件
-    → EventHandler 监听
-      → ChatController.sendMessage()
-        → SessionManager.getCurrentChat()
-          → Chat.sendMessage()
-            → Session.addMessage() (持久化)
-            → chatService.chatStream() (API 调用)
-            → SessionManager.streamChunkMessage() (流式更新)
-            → 发出 MESSAGE_ADDED / STREAM_CHUNK_APPEND 事件
-              → EventHandler 更新 UI
-```
+1. **Controller 协调模式**：ChatController 负责协调 SessionManager 和 ProviderService，管理流式请求和状态
+2. **SessionManager 持久化**：SessionManager 负责会话和消息的持久化，提供 CRUD 操作
+3. **EventBus 事件驱动**：所有跨模块通信均通过 EventBus，实现组件解耦
+4. **ServiceCenter 统一管理**：提供全局服务的统一访问入口
 
 ## 架构分层
 
@@ -90,13 +44,12 @@ Web Agent Client 是一个基于 **Manifest V3** 的 Chrome Extension，为 AI A
                               ▼
 ┌──────────────────────────────────────────────────────────────────┐
 │                     Controller Layer (适配层)                     │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐             │
-│  │   Chat       │ │   Session    │ │   Settings   │             │
-│  │ Controller   │ │ Controller   │ │ Controller   │             │
-│  └──────┬───────┘ └──────┬───────┘ └──────┬───────┘             │
-│         │                │                │                      │
-│         └────────────────┼────────────────┘                      │
-│                          ▼                                       │
+│  ┌──────────────┐                                                 │
+│  │   Chat       │  协调 UI 与 Services，管理流式请求和状态        │
+│  │ Controller   │                                                 │
+│  └──────┬───────┘                                                 │
+│         │                                                         │
+│         ▼                                                         │
 │  ┌─────────────────────────────────────────────────────────┐    │
 │  │           ServiceCenter (Facade 装配)                     │    │
 │  │  • 从 ServiceRegistry 获取 API 实例                       │    │
@@ -108,18 +61,10 @@ Web Agent Client 是一个基于 **Manifest V3** 的 Chrome Extension，为 AI A
 ┌──────────────────────────────────────────────────────────────────┐
 │                    Service Layer (业务服务)                        │
 │  ┌─────────────────────────────────────────────────────────┐    │
-│  │              Chat (交互上下文) ⭐ NEW                     │    │
-│  │  • 持有 Session 引用                                     │    │
-│  │  • 持有 SessionManager 引用 (用于持久化)                 │    │
-│  │  • 管理运行时状态 (队列、流式)                           │    │
-│  │  • 调用 IChatService 进行 API 通信                       │    │
-│  └─────────────────────────────────────────────────────────┘    │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │          ISessionManager (会话管理)                       │    │
+│  │          SessionManager (会话管理)                        │    │
 │  │  • 管理多个 Session 实例                                 │    │
-│  │  • 管理多个 Chat 实例缓存                                │    │
-│  │  • getOrCreateChat() - 获取或创建 Chat                   │    │
-│  │  • streamChunkMessage() - 流式分片更新                   │    │
+│  │  • 提供会话和消息的持久化                                │    │
+│  │  • createSession(), addMessage(), streamChunkMessage()   │    │
 │  └─────────────────────────────────────────────────────────┘    │
 │  ┌─────────────────────────────────────────────────────────┐    │
 │  │          ServiceRegistry (去中心化注册)                    │    │
@@ -154,21 +99,21 @@ Web Agent Client 是一个基于 **Manifest V3** 的 Chrome Extension，为 AI A
 ```
 webagentcli/
 ├── manifest.json              # Chrome Extension 配置 (Manifest V3)
-├── background.js              # Service Worker 入口
 ├── sidepanel/                 # 侧边栏主目录
 │   ├── sidepanel.html         # 入口 HTML，按顺序加载所有模块
 │   ├── js/                    # JavaScript 代码
 │   │   ├── app.js             # 应用初始化与页面路由
+│   │   ├── background.js      # Service Worker 入口
 │   │   ├── core/              # 核心层
 │   │   │   ├── events/        # 事件系统
 │   │   │   │   ├── EventBus.js       # 全局事件总线单例
 │   │   │   │   └── Events.js         # 事件常量定义
 │   │   │   └── models/        # 数据模型
-│   │   │       ├── index.js          # 模型统一导出
-│   │   │       ├── Message.js        # 消息模型
-│   │   │       ├── Session.js        # 会话模型
-│   │   │       ├── Settings.js       # 设置模型
-│   │   │       └── ...               # 其他模型
+│   │   │       ├── BaseModel.js        # 基础模型类
+│   │   │       ├── Message.js          # 消息模型
+│   │   │       ├── Session.js          # 会话模型
+│   │   │       ├── Settings.js         # 设置模型
+│   │   │       └── ...                 # 其他模型
 │   │   ├── services/          # 服务层 ⭐
 │   │   │   ├── ServiceCenter.js      # 框架服务管理中心 ⭐
 │   │   │   ├── SessionManager.js     # 会话管理器 (具体实现)
@@ -184,8 +129,7 @@ webagentcli/
 │   │   │       ├── LMStudioService.js
 │   │   │       └── OpenRouterService.js
 │   │   ├── controllers/       # 控制器层 (适配层)
-│   │   │   ├── ChatController.js     # 聊天控制器 (协调 UI 与 Services)
-│   │   │   └── ...
+│   │   │   └── ChatController.js     # 聊天控制器 (协调 UI 与 Services)
 │   │   ├── pages/             # UI 页面层 (View)
 │   │   │   ├── ChatPage.js           # 对话页面渲染
 │   │   │   ├── ChatEventHandler.js   # 对话页面事件处理
@@ -203,84 +147,74 @@ webagentcli/
 │       └── ...
 └── docs/                      # 项目文档
     ├── ARCHITECTURE.md        # 架构文档 (本文件)
-    └── ...
+    └── CORE_MODELS.md         # 数据模型说明
 ```
 
 ## 核心模块详解
 
-### 1. Chat (交互上下文) ⭐ NEW
+### 1. ChatController (聊天控制器)
 
-**位置**: `js/services/Chat.js`
+**位置**: `sidepanel/js/controllers/ChatController.js`
 
-Chat 是 Session 的运行时增强包装器，内聚所有交互状态。
+ChatController 负责协调 SessionManager 和 ProviderService，管理流式请求和运行时状态。
 
-#### 构造函数
+#### 职责
 
-```javascript
-class Chat {
-  constructor(session, chatService, sessionManager, eventBus = null) {
-    this.session = session;              // Session 实例
-    this.chatService = chatService;      // IChatService 实例
-    this.sessionManager = sessionManager;// SessionManager 实例
-    this.eventBus = eventBus || window.EventBus;
-    
-    // 运行时状态 (不持久化)
-    this.messageQueue = [];
-    this.taskQueue = [];
-    this.isStreaming = false;
-    this.activeStream = null;
-  }
-}
-```
+- 接收 UI 层发送的消息请求
+- 协调 SessionManager 进行消息持久化
+- 调用 ProviderService 进行流式 API 请求
+- 管理运行时状态（当前请求、流式状态）
+- 通过 EventBus 广播事件通知 UI 更新
 
 #### 核心方法
 
 **sendMessage(params)**
+
 ```javascript
-async sendMessage({ content, reasoningEnabled, reasoningEffort }) {
-  // 1. 创建并持久化用户消息
-  const userMsg = new Message({ role: 'user', content });
-  this.session.addMessage(userMsg);
-  this._emitMessageAdded(userMsg);
+async sendMessage({ content, sessionId = null, chatService = null, model = null, reasoningEffort = undefined }) {
+  // 1. 获取或创建会话
+  const session = sessionId ? sessionManager.getSession(sessionId) : sessionManager.getCurrentSession();
   
-  // 2. 创建并持久化助手消息 (空内容)
-  const assistantMsg = new Message({ role: 'assistant', content: '' });
-  this.session.addMessage(assistantMsg);
-  this._emitMessageAdded(assistantMsg);
+  // 2. 持久化用户消息
+  const userMsg = new Message({ role: 'user', content: content.trim() });
+  await sessionManager.addMessage(userMsg, session.id);
   
-  // 3. 加入消息队列
-  this.messageQueue.push({ id: assistantMsg.id, status: 'pending' });
-  
-  // 4. 准备请求参数 (从 Session 获取 messages/reasoning 配置)
-  const requestParams = {
-    messages: this.session.messages.map(m => ({ 
-      role: m.role, 
-      content: m.content 
-    })),
+  // 3. 构造请求
+  const request = new MessagesRequest({
+    model: modelId,
+    messages: session.messages,
     stream: true,
-    reasoningEnabled: reasoningEnabled ?? this.session.reasoningEnabled,
-    reasoningEffort: reasoningEffort || this.session.reasoningEffort
-  };
+    thinking: thinkingEffort !== 'off' ? new ThinkingConfig(thinkingEffort) : null
+  });
   
-  // 5. 开始流式请求
-  await this.chatService.chatStream(
-    requestParams,
+  // 4. 持久化助手消息（空内容）
+  const assistantMsg = new Message({ role: 'assistant', content: '' });
+  await sessionManager.addMessage(assistantMsg, session.id);
+  
+  // 5. 执行流式请求
+  await service.chatStream(
+    request,
     (chunk) => {
-      // 流式分片：通过 SessionManager 持久化
-      this.sessionManager.streamChunkMessage(assistantMsg.id, chunk);
+      // 流式分片：持久化
+      sessionManager.streamChunkMessage(assistantMsgId, {
+        content: chunk.content || '',
+        reasoning_content: chunk.reasoning_content || ''
+      }, session.id);
       
-      // 发出事件通知 UI 更新
+      // 通知 UI 更新
       this.eventBus.emit(Events.CHAT.STREAM_CHUNK_APPEND, {
-        messageId: assistantMsg.id,
+        sessionId: session.id,
+        messageId: assistantMsgId,
         content: chunk.content || '',
         reasoning_content: chunk.reasoning_content || ''
       });
     },
     () => {
-      // 完成：清理状态
-      this.messageQueue = this.messageQueue.filter(item => item.id !== assistantMsg.id);
-      this.isStreaming = false;
-      this._notifyActivityState();
+      // 完成
+      this.eventBus.emit(Events.CHAT.STREAM_COMPLETE, {
+        sessionId: session.id,
+        messageId: assistantMsgId
+      });
     }
   );
 }
@@ -288,267 +222,130 @@ async sendMessage({ content, reasoningEnabled, reasoningEffort }) {
 
 **其他方法**
 - `stopGeneration()` - 停止生成
-- `clearMessages()` - 清空消息
-- `deleteMessage(messageId)` - 删除单条消息
-- `setService(chatService)` - 动态切换服务
+- `clearMessages()` - 清空当前会话消息
+- `deleteMessage(messageId)` - 删除指定消息
 - `hasActiveActivities()` - 是否有活跃活动
 - `getQueueStatus()` - 获取队列状态
+
+### 2. SessionManager (会话管理器)
+
+**位置**: `sidepanel/js/services/SessionManager.js`
+
+SessionManager 负责会话和消息的持久化管理，提供完整的 CRUD 操作。
+
+#### 职责
+
+- 管理多个 Session 实例
+- 提供会话的创建、加载、删除、更新操作
+- 提供消息的添加、更新、删除操作
+- 处理流式分片的持久化
+- 通过 EventBus 发布会话和消息变更事件
+
+#### 核心方法
+
+**会话管理**
+- `createSession(options)` - 创建新会话
+- `getSession(sessionId)` - 获取指定会话
+- `getCurrentSession()` - 获取当前会话
+- `loadSession(sessionId)` - 加载指定会话并设为当前
+- `deleteSession(sessionId)` - 删除会话
+- `updateSession(sessionId, updater)` - 更新会话
+- `getAllSessions()` - 获取所有会话列表
+
+**消息管理**
+- `addMessage(message, sessionId)` - 添加消息到会话
+- `updateMessage(messageId, updater, sessionId)` - 更新消息
+- `streamChunkMessage(messageId, chunk, sessionId)` - 流式分片更新消息
+- `deleteMessage(messageId, sessionId)` - 删除消息
+- `clearMessages(sessionId)` - 清空会话中的所有消息
 
 #### 使用示例
 
 ```javascript
-// 前台聊天
-const sessionManager = window.sessionManagerInstance;
-const chatService = window.ChatService;
+// 创建会话
+const session = sessionManager.createSession({ title: '新对话' });
 
-const chat = sessionManager.getCurrentChat(chatService);
-await chat.sendMessage({ content: 'Hello' });
+// 添加消息
+const userMsg = new Message({ role: 'user', content: 'Hello' });
+await sessionManager.addMessage(userMsg, session.id);
 
-// 后台 Agent (独立实例)
-const agentSession = sessionManager.createSession({ title: 'Agent Task' });
-const agentChat = sessionManager.getOrCreateChat(agentSession.id, agentService);
-await agentChat.sendMessage({ content: 'Execute task' });
+// 流式更新
+sessionManager.streamChunkMessage(messageId, {
+  content: 'Hello ',
+  reasoning_content: ''
+}, session.id);
 ```
 
-### 2. ISessionManager (会话管理)
+### 3. ServiceCenter (服务中心)
 
-**位置**: `js/services/ISessionManager.js`
+**位置**: `sidepanel/js/services/ServiceCenter.js`
 
-管理多个 Session 实例和 Chat 实例缓存。
+ServiceCenter 是框架核心服务管理中心，提供全局服务的统一访问入口。
 
-#### Chat 实例管理
+#### 职责
 
-**getOrCreateChat(sessionId, chatService)**
-```javascript
-getOrCreateChat(sessionId, chatService) {
-  // 检查缓存
-  if (this.chatCache.has(sessionId)) {
-    const cachedChat = this.chatCache.get(sessionId);
-    if (cachedChat.getService() !== chatService) {
-      cachedChat.setService(chatService);
-    }
-    return cachedChat;
-  }
-  
-  // 获取 Session
-  const session = this.sessions.get(sessionId);
-  if (!session) {
-    throw new Error(`Session not found: ${sessionId}`);
-  }
-  
-  // 创建新的 Chat 实例
-  const chat = new Chat(session, chatService, this, this.eventBus);
-  this.chatCache.set(sessionId, chat);
-  
-  return chat;
-}
-```
-
-**getCurrentChat(chatService)**
-```javascript
-getCurrentChat(chatService) {
-  if (!this.currentSessionId) {
-    return null;
-  }
-  return this.getOrCreateChat(this.currentSessionId, chatService);
-}
-```
-
-**clearChatCache(sessionId?)**
-```javascript
-clearChatCache(sessionId = null) {
-  if (sessionId) {
-    this.chatCache.delete(sessionId);
-  } else {
-    this.chatCache.clear();
-  }
-}
-```
-
-#### 流式分片更新
-
-**streamChunkMessage(messageId, chunk)**
-```javascript
-streamChunkMessage(messageId, { content, reasoning_content }) {
-  const session = this.getCurrentSession();
-  if (!session) return;
-  
-  const message = session.messages.find(m => m.id === messageId);
-  if (!message) return;
-  
-  // 追加内容
-  if (content) {
-    message.content += content;
-  }
-  if (reasoning_content) {
-    message.reasoning_content = (message.reasoning_content || '') + reasoning_content;
-  }
-  
-  // 持久化
-  this._saveSessions();
-  
-  // 发出更新事件
-  this.eventBus.emit(Events.CHAT.MESSAGE_UPDATED, {
-    messageId,
-    updater: (msg) => {
-      if (content) msg.content += content;
-      if (reasoning_content) {
-        msg.reasoning_content = (msg.reasoning_content || '') + reasoning_content;
-      }
-    }
-  });
-}
-```
-
-### 3. ChatController (适配层)
-
-**位置**: `js/controllers/ChatController.js`
-
-作为 UI 层和 Chat 实例之间的适配层，无状态，所有操作委托给 Chat 实例。
+- 管理所有核心服务实例（SessionManager、SettingsManager 等）
+- 处理 Provider 服务的注册和切换
+- 提供 ChatController 单例
+- 作为服务的 Facade 层
 
 #### 核心方法
 
-**_getCurrentChat()**
-```javascript
-_getCurrentChat() {
-  const sessionManager = window.sessionManagerInstance;
-  const chatService = window.ChatService;
-  
-  if (!sessionManager || !chatService) {
-    return null;
-  }
-  
-  return sessionManager.getCurrentChat(chatService);
-}
-```
+- `getSessionManager()` - 获取 SessionManager 实例
+- `getSettingsManager()` - 获取 SettingsManager 实例
+- `getStorageManager()` - 获取 StorageManager 实例
+- `getScriptsManager()` - 获取 ScriptsManager 实例
+- `getModelManager()` - 获取 ModelManager 实例
+- `getCurrentProviderService()` - 获取当前 Provider 服务实例
+- `updateProviderService(settings)` - 更新 Provider 服务配置
+- `getChatController()` - 获取 ChatController 实例
 
-**sendMessage(params)**
-```javascript
-async sendMessage(params) {
-  const chat = this._getCurrentChat();
-  if (!chat) {
-    throw new Error('No active chat session');
-  }
-  
-  return await chat.sendMessage(params);
-}
-```
+### 4. EventBus (事件总线)
 
-**其他方法**
-- `stopGeneration()` - 委托给 Chat.stopGeneration()
-- `clearSession()` - 委托给 Chat.clearMessages()
-- `deleteMessage(messageId)` - 委托给 Chat.deleteMessage()
-- `setService(chatService)` - 清除 Chat 缓存，下次获取时创建新实例
+**位置**: `sidepanel/js/core/events/EventBus.js`
 
-### 4. ChatEventHandler (事件处理)
+全局事件总线，实现组件间的解耦通信。
 
-**位置**: `js/pages/ChatEventHandler.js`
+#### 核心事件
 
-监听事件，协调持久化和 UI 更新。
+**聊天相关**
+- `CHAT.USER_MESSAGE_SENT` - 用户发送消息
+- `CHAT.MESSAGE_ADDED` - 消息已添加
+- `CHAT.MESSAGE_UPDATED` - 消息已更新
+- `CHAT.MESSAGE_DELETED` - 消息已删除
+- `CHAT.STREAM_START` - 流式开始
+- `CHAT.STREAM_CHUNK_APPEND` - 流式分片追加
+- `CHAT.STREAM_COMPLETE` - 流式完成
+- `CHAT.STREAM_ERROR` - 流式错误
+- `CHAT.STREAM_STOP` - 流式停止
+- `CHAT.SESSION_CREATED` - 会话创建
+- `CHAT.SESSION_SWITCHED` - 会话切换
 
-#### 核心监听器
-
-**USER_MESSAGE_SENT**
-```javascript
-this.eventBus.on(Events.CHAT.USER_MESSAGE_SENT, (data) => {
-  this._handleUserMessageSent(data);
-});
-
-_handleUserMessageSent({ content }) {
-  // 只传递 content，Chat 实例从 Session 获取其他信息
-  window.ChatController.sendMessage({ content })
-    .catch(error => {
-      console.error('[ChatEventHandler] Send message failed:', error);
-    });
-}
-```
-
-**MESSAGE_ADDED**
-```javascript
-this.eventBus.on(Events.CHAT.MESSAGE_ADDED, (data) => {
-  // 通知页面重新渲染
-  if (window.Pages && window.Pages.chat) {
-    window.Pages.chat.render();
-  }
-});
-```
-
-**STREAM_CHUNK_APPEND**
-```javascript
-this.eventBus.on(Events.CHAT.STREAM_CHUNK_APPEND, (data) => {
-  this._handleStreamChunkAppend(data);
-});
-
-_handleStreamChunkAppend({ messageId, content, reasoning_content }) {
-  // 增量更新 UI，不重新渲染整个列表
-  this._updateMessageContent(messageId, content);
-  if (reasoning_content) {
-    this._updateMessageReasoning(messageId, reasoning_content);
-  }
-}
-```
-
-### 5. ChatPage (UI 渲染)
-
-**位置**: `js/pages/ChatPage.js`
-
-负责渲染聊天界面，发出用户交互事件。
-
-#### 发送消息
-
-```javascript
-function sendMessage() {
-  if (!inputValue.trim()) return;
-  
-  const content = inputValue.trim();
-  
-  // 清空输入
-  inputValue = '';
-  textarea.value = '';
-  
-  // 发出事件 (ChatEventHandler 监听并处理)
-  window.EventBus.emit(Events.CHAT.USER_MESSAGE_SENT, { content });
-}
-```
-
-#### 删除消息
-
-```javascript
-onClick: (e) => {
-  e.stopPropagation();
-  if (window.ChatController && typeof window.ChatController.deleteMessage === 'function') {
-    window.ChatController.deleteMessage(msg.id);
-  }
-}
-```
+**设置相关**
+- `SETTINGS.LOADED` - 设置已加载
+- `SETTINGS.UPDATED` - 设置已更新
 
 ## 核心设计原则
 
-### 1. Chat-Session 嵌套
+### 1. Controller 协调模式
 
-- **Session**: 纯数据模型，负责持久化
-- **Chat**: 运行时上下文，内聚交互状态
-- **优势**: 状态内聚，避免跨层同步问题
+- ChatController 负责协调 SessionManager 和 ProviderService
+- Controller 管理最小运行时状态（当前请求、流式状态）
+- 不持有 Session 引用，从 SessionManager 获取最新状态
 
-### 2. 多实例支持
+### 2. 持久化与运行时分离
 
-- 每个 Chat 实例独立管理自己的 Session、队列、流式状态
-- 支持前台聊天和后台 Agent 并存，互不干扰
-- 通过 `SessionManager.getOrCreateChat()` 管理生命周期
+- SessionManager 负责数据持久化
+- ChatController 负责运行时协调
+- 职责清晰，避免状态不一致
 
-### 3. Controller 无状态
-
-- Controller 不持有状态，所有状态在 Chat 实例中
-- Controller 只作为适配层，委托给 Chat 实例
-- 便于测试和替换
-
-### 4. UI 层解耦
+### 3. UI 层解耦
 
 - UI 层只发出事件，不关心实现细节
-- EventHandler 监听事件，协调持久化和 UI 更新
+- EventHandler 监听事件，触发 Controller 操作
 - 符合单一职责原则
 
-### 5. 事件驱动
+### 4. 事件驱动
 
 - 所有跨模块通信均通过 EventBus
 - 避免循环依赖与紧耦合
@@ -559,6 +356,7 @@ onClick: (e) => {
 ### 添加新的 Provider
 
 1. **创建服务文件**: 在 `js/services/ProviderAPIServices/` 创建 `XxxService.js`
+
 2. **继承抽象基类**:
    ```javascript
    class XxxService extends IProviderAPIService {
@@ -567,12 +365,9 @@ onClick: (e) => {
      // ... 实现所有抽象方法
    }
    ```
-3. **自注册**:
-   ```javascript
-   if (window.ServiceRegistry) {
-     window.ServiceRegistry.registerProvider('xxx', XxxService);
-   }
-   ```
+
+3. **注册服务**: 在 `ServiceCenter.createProviderService()` 中添加 case 分支
+
 4. **添加脚本引用**: 在 `sidepanel.html` 中添加 `<script src="js/services/ProviderAPIServices/XxxService.js"></script>`
 
 ### 添加新的事件
@@ -585,10 +380,12 @@ onClick: (e) => {
      }
    };
    ```
+
 2. **发布事件**: 
    ```javascript
    window.EventBus.emit(Events.CHAT.MY_EVENT, { data });
    ```
+
 3. **订阅事件**:
    ```javascript
    window.EventBus.on(Events.CHAT.MY_EVENT, (data) => {
@@ -598,26 +395,25 @@ onClick: (e) => {
 
 ## 版本信息
 
-- **扩展版本**: 0.6.0
+- **扩展版本**: 0.3.3
 - **Manifest 版本**: 3
-- **架构版本**: MVC v2.0.0 (Chat-Session Nested)
-- **最后更新**: 2026-05-19
+- **架构版本**: MVC v2.0.0 (Controller + SessionManager)
+- **最后更新**: 2026-05-28
 
 ### 主要变更
 
-#### v0.6.0 (2026-05-19) - Chat-Session Nested Architecture
+#### v0.3.3 - 当前版本
 
-- ✅ 新增 Chat.js - 会话交互上下文 (队列、流式、活动追踪)
-- ✅ 重构 IChatService - 移除 UI 耦合，保持纯业务接口
-- ✅ 重构 ChatController - 无状态适配层，委托给 Chat 实例
-- ✅ 更新 ISessionManager - 支持 Chat 实例缓存和管理
-- ✅ 清理 ChatEventHandler - 移除冗余持久化逻辑
-- ✅ 修复 ChatPage - 删除消息改为调用 ChatController
-- ✅ 架构优势：支持多实例独立管理，状态内聚，分层清晰
+- ✅ ChatController 负责协调 SessionManager 和 ProviderService
+- ✅ SessionManager 负责会话和消息的持久化
+- ✅ ServiceCenter 提供统一的服务访问入口
+- ✅ EventBus 实现组件解耦通信
+- ✅ 支持多种 AI Provider（OpenAI、OpenRouter、LM Studio）
+- ✅ 支持思考模式（reasoning）配置
+- ✅ 模块化 CSS 主题系统
 
-#### v0.5.0 (2026-05-19) - Architecture Stabilization
+---
 
-- ✅ SessionManager 移至 `services/` 目录并重命名为 `ISessionManager`
-- ✅ ServiceCenter 集成：通过 `getSessionManager()` 统一管理会话服务
-- ✅ 流式分片持久化：新增 `streamChunkMessage()` 方法
-- ✅ 思考气泡样式移至主题文件，移除 JS 硬编码
+推荐阅读：
+- [CORE_MODELS.md](CORE_MODELS.md) - 核心数据模型说明
+- [sidepanel/README.md](../sidepanel/README.md) - Side Panel 模块说明
