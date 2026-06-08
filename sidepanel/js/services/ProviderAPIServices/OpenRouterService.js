@@ -1,20 +1,16 @@
 /**
  * OpenRouter Service
- * 
- * 继承自 OpenAIService
- * OpenRouter 使用 OpenAI 兼容的 API 标准
- * 默认端点和模型列表接口有所不同
+ *
+ * 继承 OpenAIService，OpenRouter 使用 OpenAI 兼容的 API 标准。
+ * 差异点：reasoning 字段名不同（delta.reasoning / message.reasoning）。
+ * tool_calls 处理与 OpenAI 一致，继承父类逻辑。
  */
-
 class OpenRouterService extends OpenAIService {
   constructor() {
     super();
     this.name = 'openrouter';
   }
 
-  /**
-   * 配置服务
-   */
   configure(config) {
     this.config = {
       endpoint: config.endpoint || 'https://openrouter.ai/api/v1',
@@ -22,212 +18,172 @@ class OpenRouterService extends OpenAIService {
       defaultModel: config.defaultModel || 'openai/gpt-3.5-turbo',
       ...config
     };
-    
-    if (!this.config.apiKey) {
-      throw new Error('OpenRouter: apiKey is required');
-    }
-    
-    console.log('[OpenRouterService] Configured:', this.config);
+    if (!this.config.apiKey) throw new Error('OpenRouter: apiKey is required');
   }
 
-  /**
-   * 构建请求头
-   * OpenRouter 需要额外的 headers
-   */
   buildHeaders() {
     const headers = super.buildHeaders();
-    
-    // 添加 OpenRouter 特定的 headers
     headers['HTTP-Referer'] = window.location.href || 'http://localhost';
     headers['X-Title'] = 'Web Agent Client';
-    
     return headers;
   }
 
-  /**
-   * 构建请求体
-   * @param {MessagesRequest} request - 统一请求对象
-   */
   buildRequestBody(request) {
     const body = super.buildRequestBody(request);
-    
-    // OpenRouter 支持 transforms 参数
-    if (request.metadata?.transforms) {
-      body.transforms = request.metadata.transforms;
-    }
-    
-    // OpenRouter 支持 provider 参数
-    if (request.metadata?.provider) {
-      body.provider = request.metadata.provider;
-    }
-    
-    // OpenRouter 支持 route 参数
-    if (request.metadata?.route) {
-      body.route = request.metadata.route;
-    }
-    
-    // OpenRouter 思考模式参数
-    // 使用单一变量 reasoningEffort：'off' 表示关闭，其他值表示开启
+    // OpenRouter 特有的参数
+    if (request.metadata?.transforms) body.transforms = request.metadata.transforms;
+    if (request.metadata?.provider) body.provider = request.metadata.provider;
+    if (request.metadata?.route) body.route = request.metadata.route;
+    // 思考模式：OpenRouter 用 thinking 对象
     if (request.reasoningEffort && request.reasoningEffort !== 'off') {
-      body.thinking = {
-        enabled: true,
-        effort: request.reasoningEffort
-      };
-      // OpenRouter 可能不需要 reasoning_effort（如果用了 thinking 对象）
+      body.thinking = { enabled: true, effort: request.reasoningEffort };
       delete body.reasoning_effort;
     }
-    
     return body;
   }
 
-  /**
-   * 解析响应
-   * OpenRouter 可能返回 reasoning_details 数组或 message.reasoning 字段
-   */
-  parseResponse(data) {
-    const choice = data.choices[0];
-    
-    // 提取 reasoning_content（优先级：message.reasoning > reasoning_details > message.reasoning_content）
-    let reasoningContent = '';
-    if (choice.message.reasoning) {
-      // OpenRouter 流式/非流式都可能使用 reasoning 字段
-      reasoningContent = choice.message.reasoning;
-    } else if (data.reasoning_details && Array.isArray(data.reasoning_details)) {
-      // OpenRouter 格式：reasoning_details 数组
-      reasoningContent = data.reasoning_details
-        .map(detail => detail.text || detail.content || '')
-        .join('\n');
-    } else if (choice.message.reasoning_content) {
-      // 兼容其他格式
-      reasoningContent = choice.message.reasoning_content;
-    }
-    
-    return {
-      content: choice.message.content,
-      reasoning_content: reasoningContent,
-      role: choice.message.role,
-      toolCalls: choice.message.tool_calls || [],
-      finishReason: choice.finish_reason,
-      usage: data.usage,
-      model: data.model
-    };
-  }
+  /** 覆盖：OpenRouter 的 reasoning 字段是 delta.reasoning / message.reasoning */
+  chatStream(request, onChunk) {
+    const url = this.buildUrl('/chat/completions');
+    const headers = this.buildHeaders();
+    request.stream = true;
+    const body = this.buildRequestBody(request);
 
-  /**
-   * 解析流式片段
-   * OpenRouter 流式响应中 reasoning 在 delta.reasoning 字段
-   */
-  parseStreamChunk(data) {
-    const choice = data.choices[0];
-    if (!choice || !choice.delta) return null;
-    
-    const reasoningContent = choice.delta.reasoning || choice.delta.reasoning_content || '';
-    
-    return {
-      content: choice.delta.content || '',
-      // OpenRouter 使用 delta.reasoning 而非 delta.reasoning_content
-      reasoning_content: reasoningContent,
-      role: choice.delta.role,
-      toolCalls: choice.delta.tool_calls || [],
-      finishReason: choice.finish_reason
-    };
-  }
+    this.abortController = new AbortController();
 
-  /**
-   * 列出可用模型
-   * OpenRouter 使用不同的端点和数据结构，提供更丰富的模型详情
-   */
-  listModels() {
-    // OpenRouter 使用不同的模型列表端点
-    const modelsEndpoint = this.config.endpoint.replace(/\/$/, '') + '/models';
-    
-    return fetch(modelsEndpoint, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${this.config.apiKey}`
-      }
-    })
+    let pendingContent = '';
+    let pendingReasoning = '';
+    const pendingToolCalls = {};
+    let pendingFinishReason = null;
+
+    return new Promise((resolve, reject) => {
+      fetch(url, {
+        method: 'POST', headers, body: JSON.stringify(body),
+        signal: this.abortController.signal
+      })
       .then(response => {
         if (!response.ok) {
-          return response.text().then(errorText => {
-            throw new Error(`HTTP ${response.status}: ${errorText.substring(0, 200)}`);
-          });
+          return response.text().then(t => { throw new Error(`OpenRouter API error: ${response.status} - ${t}`); });
         }
-        return response.json();
-      })
-      .then(result => {
-        if (result.data && Array.isArray(result.data)) {
-          return result.data.map(model => {
-            // 提取 pricing 信息
-            const pricing = model.pricing || {};
-            const promptPrice = pricing.prompt ? parseFloat(pricing.prompt) : null;
-            const completionPrice = pricing.completion ? parseFloat(pricing.completion) : null;
-            
-            // 提取支持的参数
-            const supportedParams = model.supported_parameters || [];
-            
-            return {
-              id: model.id,
-              name: model.name || model.id,
-              created: model.created || null,
-              owned_by: model.owned_by || model.owner || 'openrouter',
-              
-              // 核心能力参数
-              context_length: model.context_length || null,
-              max_output_tokens: model.max_output_tokens || null,
-              modality: model.architecture?.modality || 'text->text',
-              
-              // 价格信息 (每百万 tokens)
-              pricing: {
-                prompt: promptPrice,
-                completion: completionPrice,
-                request: pricing.request || null,
-                image: pricing.image || null
-              },
-              
-              // 特性支持
-              supports_reasoning: supportedParams.includes('reasoning'),
-              supports_tools: supportedParams.includes('tools') || supportedParams.includes('tool_use'),
-              supports_function_calling: supportedParams.includes('function_calling'),
-              supports_json_mode: supportedParams.includes('json_mode'),
-              supports_speculative_decoding: supportedParams.includes('speculative_decoding'),
-              
-              // 描述与链接
-              description: model.description || null,
-              top_provider: model.top_provider || null,
-              link: model.link || `https://openrouter.ai/models/${model.id}`,
-              
-              // 原始数据备份
-              _raw: model
-            };
-          });
-        }
-        
-        return [];
-      });
-  }
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
 
-  /**
-   * 获取单个模型的详细信息
-   * OpenRouter 模型详情在 listModels 中已包含完整信息
-   */
-  getModelDetails(modelId) {
-    // 通过 listModels 获取所有模型，然后查找指定模型
-    return this.listModels()
-      .then(models => {
-        const model = models.find(m => m.id === modelId);
-        
-        if (!model) {
-          console.warn(`[OpenRouterService] Model ${modelId} not found`);
-          return null;
-        }
-        
-        return model;
+        const processStream = () => {
+          return reader.read().then(({ done, value }) => {
+            if (done) {
+              const { MessageStructure } = window.MessageContent;
+              resolve({
+                content: pendingContent,
+                reasoning_content: pendingReasoning,
+                toolCalls: MessageStructure.parseToolCallsFromOpenAI(Object.values(pendingToolCalls)),
+                finishReason: pendingFinishReason || 'stop',
+                usage: null,
+                model: null
+              });
+              return;
+            }
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed || trimmed === 'data: [DONE]') continue;
+
+              if (trimmed.startsWith('data: ')) {
+                try {
+                  const json = JSON.parse(trimmed.slice(6));
+                  const choice = json.choices?.[0];
+                  if (!choice) continue;
+
+                  const delta = choice.delta || {};
+                  const finish = choice.finish_reason;
+                  if (finish) pendingFinishReason = finish;
+
+                  // 累计 tool_calls（与 OpenAIService 相同）
+                  if (delta.tool_calls) {
+                    for (const tc of delta.tool_calls) {
+                      if (!pendingToolCalls[tc.index]) {
+                        pendingToolCalls[tc.index] = tc;
+                      } else {
+                        const existing = pendingToolCalls[tc.index];
+                        if (tc.function) {
+                          existing.function = existing.function || { arguments: '' };
+                          existing.function.arguments = (existing.function.arguments || '') + (tc.function.arguments || '');
+                        }
+                      }
+                    }
+                  }
+
+                  // OpenRouter 的 reasoning 在 delta.reasoning 字段
+                  const contentChunk = delta.content || '';
+                  const reasoningChunk = delta.reasoning || delta.reasoning_content || '';
+                  if (contentChunk) pendingContent += contentChunk;
+                  if (reasoningChunk) pendingReasoning += reasoningChunk;
+
+                  if (onChunk && (contentChunk || reasoningChunk)) {
+                    onChunk({ content: contentChunk, reasoning_content: reasoningChunk });
+                  }
+                } catch (e) {
+                  console.warn('[OpenRouterService] Failed to parse chunk:', e);
+                }
+              }
+            }
+            return processStream();
+          });
+        };
+        return processStream();
       })
       .catch(error => {
-        console.error('[OpenRouterService] Failed to get model details:', error);
-        return null;
-      });
+        if (error.name === 'AbortError') {
+          console.log('[OpenRouterService] Stream cancelled');
+          resolve(null);
+        } else {
+          reject(error);
+        }
+      })
+      .finally(() => { this.abortController = null; });
+    });
+  }
+
+  /** 覆盖：OpenRouter 非流式响应中 reasoning 字段位置不同 */
+  _buildStandardResponse(choice, data) {
+    const { MessageStructure } = window.MessageContent;
+    const reasoning = choice.message?.reasoning || data.reasoning_details?.map(d => d.text || '').join('\n') || choice.message?.reasoning_content || '';
+    return {
+      content: choice.message?.content || '',
+      reasoning_content: reasoning,
+      role: choice.message?.role || 'assistant',
+      toolCalls: MessageStructure.parseToolCallsFromOpenAI(choice.message?.tool_calls || []),
+      finishReason: choice.finish_reason || null,
+      usage: data.usage || null,
+      model: data.model || null
+    };
+  }
+
+  listModels() {
+    const modelsEndpoint = this.config.endpoint.replace(/\/$/, '') + '/models';
+    return fetch(modelsEndpoint, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${this.config.apiKey}` }
+    })
+    .then(r => { if (!r.ok) return r.text().then(t => { throw new Error(`HTTP ${r.status}: ${t.substring(0,200)}`); }); return r.json(); })
+    .then(result => (result.data || []).map(m => ({
+      id: m.id, name: m.name || m.id, created: m.created,
+      owned_by: m.owned_by || m.owner || 'openrouter',
+      context_length: m.context_length || null, max_output_tokens: m.max_output_tokens || null,
+      modality: m.architecture?.modality || 'text->text',
+      pricing: { prompt: m.pricing?.prompt ? parseFloat(m.pricing.prompt) : null, completion: m.pricing?.completion ? parseFloat(m.pricing.completion) : null },
+      supports_reasoning: (m.supported_parameters || []).includes('reasoning'),
+      supports_tools: (m.supported_parameters || []).includes('tools'),
+      description: m.description || null, ...m
+    })));
+  }
+
+  getModelDetails(modelId) {
+    return this.listModels().then(models => models.find(m => m.id === modelId) || null);
   }
 }
 

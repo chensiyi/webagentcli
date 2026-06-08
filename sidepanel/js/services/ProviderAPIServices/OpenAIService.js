@@ -1,19 +1,15 @@
 /**
  * OpenAI Service
- * 
- * 基于 OpenAIAdapter 实现
- * 支持 OpenAI 标准的 API 接口
+ *
+ * chat() 和 chatStream() 均返回 StandardResponse（Promise），
+ * 内部完成协议解析，Controller 层面接受 ToolCall[] 对象。
  */
-
 class OpenAIService extends window.IProviderAPIService {
   constructor() {
     super();
     this.name = 'openai';
   }
 
-  /**
-   * 配置服务
-   */
   configure(config) {
     this.config = {
       endpoint: config.endpoint || 'https://api.openai.com/v1',
@@ -21,26 +17,15 @@ class OpenAIService extends window.IProviderAPIService {
       defaultModel: config.defaultModel || 'gpt-3.5-turbo',
       ...config
     };
-    
-    if (!this.config.apiKey) {
-      throw new Error('OpenAI: apiKey is required');
-    }
-    
-    console.log('[OpenAIService] Configured:', this.config);
+    if (!this.config.apiKey) throw new Error('OpenAI: apiKey is required');
   }
 
-  /**
-   * 构建 API URL
-   */
   buildUrl(path) {
     const cleanBase = this.config.endpoint.replace(/\/$/, '');
     const cleanPath = path.startsWith('/') ? path : `/${path}`;
     return `${cleanBase}${cleanPath}`;
   }
 
-  /**
-   * 构建请求头
-   */
   buildHeaders() {
     return {
       'Content-Type': 'application/json',
@@ -48,21 +33,12 @@ class OpenAIService extends window.IProviderAPIService {
     };
   }
 
-  /**
-   * 格式化消息
-   * @param {Array<Message>} messages - 消息对象数组
-   */
   formatMessages(messages) {
     if (!messages || !Array.isArray(messages)) return [];
-    
     const { MessageStructure } = window.MessageContent;
     return messages.map(msg => MessageStructure.toAPIFormat(msg, 'openai'));
   }
 
-  /**
-   * 构建请求体
-   * @param {MessagesRequest} request - 统一请求对象
-   */
   buildRequestBody(request) {
     const body = {
       model: request.model || this.config.defaultModel,
@@ -72,313 +48,203 @@ class OpenAIService extends window.IProviderAPIService {
       ...(request.maxTokens && { max_tokens: request.maxTokens }),
       ...(request.tools && { tools: request.tools })
     };
-
-    // 处理系统提示词
     if (request.system) {
-      body.messages.unshift({
-        role: 'system',
-        content: request.system
-      });
+      body.messages.unshift({ role: 'system', content: request.system });
     }
-
-    // 思考强度参数 (OpenAI o1/o3 系列模型)
-    // 使用单一变量 reasoningEffort：'off' 表示关闭，其他值表示开启
     if (request.reasoningEffort && request.reasoningEffort !== 'off') {
       body.reasoning_effort = request.reasoningEffort;
     }
-
     return body;
   }
 
-  /**
-   * 解析响应
-   */
-  parseResponse(data) {
-    const choice = data.choices[0];
+  /** 公用的 API 调用后处理：生成 StandardResponse，将 OpenAI tool_calls 转为 ToolCall[] */
+  _buildStandardResponse(choice, data) {
+    const { MessageStructure } = window.MessageContent;
     return {
-      content: choice.message.content,
-      reasoning_content: choice.message.reasoning_content || '',
-      role: choice.message.role,
-      toolCalls: choice.message.tool_calls || [],
-      finishReason: choice.finish_reason,
-      usage: data.usage,
-      model: data.model
+      content: choice.message?.content || '',
+      reasoning_content: choice.message?.reasoning_content || '',
+      role: choice.message?.role || 'assistant',
+      toolCalls: MessageStructure.parseToolCallsFromOpenAI(choice.message?.tool_calls || []),
+      finishReason: choice.finish_reason || null,
+      usage: data.usage || null,
+      model: data.model || null
     };
   }
 
-  /**
-   * 解析流式片段
-   */
-  parseStreamChunk(data) {
-    const choice = data.choices[0];
-    if (!choice || !choice.delta) return null;
-    
-    return {
-      content: choice.delta.content || '',
-      reasoning_content: choice.delta.reasoning_content || choice.delta.thinking || '',
-      role: choice.delta.role,
-      toolCalls: choice.delta.tool_calls || [],
-      finishReason: choice.finish_reason
-    };
-  }
+  // ==================== 非流式 ====================
 
-  /**
-   * 发送聊天请求（非流式）
-   * @param {MessagesRequest} request - 统一请求对象
-   */
   chat(request) {
     const url = this.buildUrl('/chat/completions');
     const headers = this.buildHeaders();
-    
-    // 确保 stream 为 false
     request.stream = false;
     const body = this.buildRequestBody(request);
-    
+
     this.abortController = new AbortController();
-    
+
     return fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
+      method: 'POST', headers, body: JSON.stringify(body),
       signal: this.abortController.signal
     })
     .then(response => {
       if (!response.ok) {
-        return response.text().then(errorText => {
-          throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
-        });
+        return response.text().then(t => { throw new Error(`OpenAI API error: ${response.status} - ${t}`); });
       }
       return response.json();
     })
     .then(data => {
-      return this.parseResponse(data);
+      const choice = data.choices?.[0];
+      if (!choice) throw new Error('Empty response');
+      return this._buildStandardResponse(choice, data);
     })
     .catch(error => {
-      if (error.name === 'AbortError') {
-        console.log('[OpenAIService] Request cancelled');
-      } else {
-        console.error('[OpenAIService] Chat error:', error);
-        throw error;
-      }
+      if (error.name === 'AbortError') { console.log('[OpenAIService] cancelled'); return null; }
+      throw error;
     })
-    .finally(() => {
-      this.abortController = null;
-    });
+    .finally(() => { this.abortController = null; });
   }
 
-  /**
-   * 发送流式聊天请求
-   * @param {MessagesRequest} request - 统一请求对象
-   * @param {Function} onChunk - 片段回调
-   * @param {Function} onComplete - 完成回调
-   */
-  /**
-   * 发送流式聊天请求
-   * @param {MessagesRequest} request
-   * @param {Function} onChunk - (chunk) => void
-   * @param {Function} onComplete - ({ toolCalls }?) => void, toolCalls 为 OpenAI 格式数组（若有）
-   */
-  chatStream(request, onChunk, onComplete) {
+  // ==================== 流式 ====================
+
+  chatStream(request, onChunk) {
     const url = this.buildUrl('/chat/completions');
     const headers = this.buildHeaders();
-    
     request.stream = true;
     const body = this.buildRequestBody(request);
-    
+
     this.abortController = new AbortController();
 
-    // 累计 SSE 中分片传来的 tool_calls（按 index 合并）
-    const pendingToolCalls = {};
+    // 累计流式分片
+    let pendingContent = '';
+    let pendingReasoning = '';
+    const pendingToolCalls = {};   // index → OpenAI raw tool_call
+    let pendingFinishReason = null;
 
-    return fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: this.abortController.signal
-    })
-    .then(response => {
-      if (!response.ok) {
-        return response.text().then(errorText => {
-          throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
-        });
-      }
-      
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      
-      const processStream = () => {
-        return reader.read().then(({ done, value }) => {
-          if (done) {
-            // 流结束，检查是否有累积的 tool_calls
-            const accumulated = Object.values(pendingToolCalls);
-            if (accumulated.length > 0 && onComplete) {
-              onComplete({ toolCalls: accumulated });
-            } else if (onComplete) {
-              onComplete({});
+    return new Promise((resolve, reject) => {
+      fetch(url, {
+        method: 'POST', headers, body: JSON.stringify(body),
+        signal: this.abortController.signal
+      })
+      .then(response => {
+        if (!response.ok) {
+          return response.text().then(t => { throw new Error(`OpenAI API error: ${response.status} - ${t}`); });
+        }
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        const processStream = () => {
+          return reader.read().then(({ done, value }) => {
+            if (done) {
+              // 流结束：构造 StandardResponse
+              const { MessageStructure } = window.MessageContent;
+              resolve({
+                content: pendingContent,
+                reasoning_content: pendingReasoning,
+                toolCalls: MessageStructure.parseToolCallsFromOpenAI(Object.values(pendingToolCalls)),
+                finishReason: pendingFinishReason || 'stop',
+                usage: null,
+                model: null
+              });
+              return;
             }
-            return;
-          }
-          
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop();
-          
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed || trimmed === 'data: [DONE]') continue;
-            
-            if (trimmed.startsWith('data: ')) {
-              try {
-                const json = JSON.parse(trimmed.slice(6));
-                // 累计 tool_calls
-                const choice = json.choices?.[0];
-                if (choice?.delta?.tool_calls) {
-                  for (const tc of choice.delta.tool_calls) {
-                    if (!pendingToolCalls[tc.index]) {
-                      pendingToolCalls[tc.index] = tc;
-                    } else {
-                      // 合并 function.arguments 字符串
-                      const existing = pendingToolCalls[tc.index];
-                      if (tc.function) {
-                        existing.function = existing.function || { arguments: '' };
-                        existing.function.arguments = (existing.function.arguments || '') + (tc.function.arguments || '');
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed || trimmed === 'data: [DONE]') continue;
+
+              if (trimmed.startsWith('data: ')) {
+                try {
+                  const json = JSON.parse(trimmed.slice(6));
+                  const choice = json.choices?.[0];
+                  if (!choice) continue;
+
+                  const delta = choice.delta || {};
+                  const finish = choice.finish_reason;
+                  if (finish) pendingFinishReason = finish;
+
+                  // 累计 tool_calls（按 index 合并 arguments）
+                  if (delta.tool_calls) {
+                    for (const tc of delta.tool_calls) {
+                      if (!pendingToolCalls[tc.index]) {
+                        pendingToolCalls[tc.index] = tc;
+                      } else {
+                        const existing = pendingToolCalls[tc.index];
+                        if (tc.function) {
+                          existing.function = existing.function || { arguments: '' };
+                          existing.function.arguments = (existing.function.arguments || '') + (tc.function.arguments || '');
+                        }
                       }
                     }
                   }
+
+                  // 累计 content / reasoning
+                  const contentChunk = delta.content || '';
+                  const reasoningChunk = delta.reasoning_content || delta.thinking || '';
+                  if (contentChunk) pendingContent += contentChunk;
+                  if (reasoningChunk) pendingReasoning += reasoningChunk;
+
+                  // 实时回调 onChunk（仅用于 UI 更新）
+                  if (onChunk && (contentChunk || reasoningChunk)) {
+                    onChunk({ content: contentChunk, reasoning_content: reasoningChunk });
+                  }
+                } catch (e) {
+                  console.warn('[OpenAIService] Failed to parse chunk:', e);
                 }
-                const parsed = this.parseStreamChunk(json);
-                if (parsed && onChunk) onChunk(parsed);
-              } catch (e) {
-                console.warn('[OpenAIService] Failed to parse chunk:', e);
               }
             }
-          }
-          
-          return processStream();
-        });
-      };
-      
-      return processStream();
-    })
-    .catch(error => {
-      if (error.name === 'AbortError') {
-        console.log('[OpenAIService] Stream cancelled');
-      } else {
-        console.error('[OpenAIService] Stream error:', error);
-        throw error;
-      }
-    })
-    .finally(() => {
-      this.abortController = null;
+            return processStream();
+          });
+        };
+        return processStream();
+      })
+      .catch(error => {
+        if (error.name === 'AbortError') {
+          console.log('[OpenAIService] Stream cancelled');
+          resolve(null);
+        } else {
+          reject(error);
+        }
+      })
+      .finally(() => { this.abortController = null; });
     });
   }
 
-  /**
-   * 取消请求
-   */
   cancel() {
-    if (this.abortController) {
-      this.abortController.abort();
-      this.abortController = null;
-    }
+    if (this.abortController) { this.abortController.abort(); this.abortController = null; }
   }
 
-  /**
-   * 列出可用模型
-   */
   listModels() {
     const baseUrl = this.config.endpoint.replace(/\/$/, '');
-    let modelsEndpoint;
-    
-    if (baseUrl.endsWith('/v1')) {
-      modelsEndpoint = baseUrl + '/models';
-    } else {
-      modelsEndpoint = baseUrl + '/v1/models';
-    }
-    
+    const modelsEndpoint = baseUrl.endsWith('/v1') ? baseUrl + '/models' : baseUrl + '/v1/models';
     return fetch(modelsEndpoint, {
       method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${this.config.apiKey}`
-      }
+      headers: { 'Authorization': `Bearer ${this.config.apiKey}` }
     })
-    .then(response => {
-      if (!response.ok) {
-        return response.text().then(errorText => {
-          throw new Error(`HTTP ${response.status}: ${errorText.substring(0, 200)}`);
-        });
-      }
-      return response.json();
-    })
-    .then(result => {
-      if (result.data && Array.isArray(result.data)) {
-        // 返回完整的模型数据，包含详细信息
-        return result.data.map(model => ({
-          id: model.id,
-          name: model.name || model.id,
-          created: model.created,
-          owned_by: model.owned_by,
-          context_length: model.context_length || null,
-          max_output_tokens: model.max_output_tokens || null,
-          modality: 'text->text',
-          supports_reasoning: false,
-          supports_tools: true, // OpenAI 标准支持工具调用
-          pricing: { prompt: null, completion: null }, // OpenAI 官方 API 通常不在此处返回价格
-          ...model
-        }));
-      }
-      
-      return [];
-    });
+    .then(r => { if (!r.ok) return r.text().then(t => { throw new Error(`HTTP ${r.status}: ${t.substring(0, 200)}`); }); return r.json(); })
+    .then(result => (result.data || []).map(m => ({
+      id: m.id, name: m.name || m.id, created: m.created,
+      owned_by: m.owned_by, context_length: m.context_length || null,
+      max_output_tokens: m.max_output_tokens || null,
+      modality: 'text->text', supports_reasoning: false, supports_tools: true,
+      pricing: { prompt: null, completion: null }, ...m
+    })));
   }
-  
-  /**
-   * 获取单个模型的详细信息
-   * @param {string} modelId - 模型 ID
-   */
+
   getModelDetails(modelId) {
     const baseUrl = this.config.endpoint.replace(/\/$/, '');
-    let modelEndpoint;
-    
-    if (baseUrl.endsWith('/v1')) {
-      modelEndpoint = `${baseUrl}/models/${modelId}`;
-    } else {
-      modelEndpoint = `${baseUrl}/v1/models/${modelId}`;
-    }
-    
-    return fetch(modelEndpoint, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${this.config.apiKey}`
-      }
-    })
-    .then(response => {
-      if (!response.ok) {
-        // 如果获取失败，返回 null
-        console.warn(`[OpenAIService] Failed to fetch details for model ${modelId}: ${response.status}`);
-        return null;
-      }
-      return response.json();
-    })
-    .then(model => {
-      if (!model) return null;
-      
-      // 返回标准化的模型详细信息，匹配 Model 原型
-      return {
-        id: model.id,
-        name: model.name || model.id,
-        created: model.created,
-        owned_by: model.owned_by,
-        context_length: model.context_length || null,
-        max_output_tokens: model.max_output_tokens || null,
-        modality: 'text->text',
-        supports_reasoning: false,
-        supports_tools: true,
-        pricing: { prompt: null, completion: null },
-        ...model
-      };
-    });
+    const ep = baseUrl.endsWith('/v1') ? `${baseUrl}/models/${modelId}` : `${baseUrl}/v1/models/${modelId}`;
+    return fetch(ep, { method: 'GET', headers: { 'Authorization': `Bearer ${this.config.apiKey}` } })
+    .then(r => { if (!r.ok) return null; return r.json(); })
+    .then(m => m ? {
+      id: m.id, name: m.name || m.id, created: m.created, owned_by: m.owned_by,
+      context_length: m.context_length || null, max_output_tokens: m.max_output_tokens || null,
+      modality: 'text->text', supports_reasoning: false, supports_tools: true,
+      pricing: { prompt: null, completion: null }, ...m
+    } : null);
   }
 }
 
