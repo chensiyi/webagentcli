@@ -8,6 +8,17 @@
  */
 
 // =============================================================================
+// 内部工具
+// =============================================================================
+/**
+ * 安全解析 JSON 字符串，解析失败返回 {}
+ */
+function safeParseJSON(str) {
+  if (!str || typeof str !== 'string') return {};
+  try { return JSON.parse(str); } catch (e) { return {}; }
+}
+
+// =============================================================================
 // 内容块类型
 // =============================================================================
 
@@ -136,23 +147,22 @@ class MediaContent {
 class MessageStructure {
   /**
    * 将消息转换为各厂商 API 所需的请求体格式
+   * 负责把内部对象 (Message + toolCalls) 转成 OpenAI 协议字段
    */
   static toAPIFormat(message, standard = 'openai') {
     if (standard === 'openai') {
       const result = { role: message.role };
-      
-      // 优先处理工具调用 (兼容 OpenAI 格式)
-      if (message.tool_calls && message.tool_calls.length > 0) {
-        result.tool_calls = message.tool_calls;
+
+      // 从 Message.toolCalls (子对象数组) 转 OpenAI 协议字段
+      if (message.toolCalls && message.toolCalls.length > 0) {
+        result.tool_calls = message.toolCalls.map(MessageStructure.toOpenAIToolCall);
       }
 
       if (Array.isArray(message.content)) {
-        // 如果是块数组，根据 role 转换
         if (message.role === 'assistant') {
           const toolUses = message.content.filter(b => b.type === 'tool_use');
           const texts = message.content.filter(b => b.type === 'text');
-          
-          // 如果 content 中有 tool_use 块，且 result 中还没有 tool_calls
+
           if (toolUses.length > 0 && !result.tool_calls) {
             result.tool_calls = toolUses.map(tu => ({
               id: tu.id,
@@ -160,7 +170,7 @@ class MessageStructure {
               function: { name: tu.name, arguments: JSON.stringify(tu.input) }
             }));
           }
-          
+
           result.content = texts.map(t => t.text).join('\n\n') || null;
         } else {
           result.content = message.getText();
@@ -172,13 +182,46 @@ class MessageStructure {
       if (message.reasoning_content) {
         result.reasoning_content = message.reasoning_content;
       }
-      if (message.role === 'tool') {
-        result.tool_call_id = message.tool_call_id;
+      // Role.TOOL 消息使用 toolCallId 关联一次工具调用
+      if (message.role === 'tool' && message.toolCallId) {
+        result.tool_call_id = message.toolCallId;
       }
-      
+
       return result;
     }
     return message.toJSON();
+  }
+
+  /**
+   * 把内部 ToolCall 转为 OpenAI 协议字段
+   * 这里是协议转换的唯一边界
+   */
+  static toOpenAIToolCall(toolCall) {
+    return {
+      id: toolCall.id,
+      type: 'function',
+      function: {
+        name: toolCall.toolName,
+        arguments: JSON.stringify(toolCall.arguments || {})
+      }
+    };
+  }
+
+  /**
+   * 把 OpenAI 响应中的 tool_calls 解析为内部 ToolCall[] 供 Message 接受
+   * 这里同样是协议转换的唯一边界
+   * @param {Array} openAIToolCalls
+   * @returns {ToolCall[]}
+   */
+  static parseToolCallsFromOpenAI(openAIToolCalls) {
+    if (!Array.isArray(openAIToolCalls)) return [];
+    return openAIToolCalls
+      .filter(tc => tc && tc.function)
+      .map(tc => new window.ToolCall({
+        id: tc.id,
+        toolName: tc.function.name,
+        arguments: safeParseJSON(tc.function.arguments)
+      }));
   }
 
   /**
