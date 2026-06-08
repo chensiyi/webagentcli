@@ -172,16 +172,24 @@ class OpenAIService extends window.IProviderAPIService {
    * @param {Function} onChunk - 片段回调
    * @param {Function} onComplete - 完成回调
    */
+  /**
+   * 发送流式聊天请求
+   * @param {MessagesRequest} request
+   * @param {Function} onChunk - (chunk) => void
+   * @param {Function} onComplete - ({ toolCalls }?) => void, toolCalls 为 OpenAI 格式数组（若有）
+   */
   chatStream(request, onChunk, onComplete) {
     const url = this.buildUrl('/chat/completions');
     const headers = this.buildHeaders();
     
-    // 确保 stream 为 true
     request.stream = true;
     const body = this.buildRequestBody(request);
     
     this.abortController = new AbortController();
-    
+
+    // 累计 SSE 中分片传来的 tool_calls（按 index 合并）
+    const pendingToolCalls = {};
+
     return fetch(url, {
       method: 'POST',
       headers,
@@ -202,7 +210,13 @@ class OpenAIService extends window.IProviderAPIService {
       const processStream = () => {
         return reader.read().then(({ done, value }) => {
           if (done) {
-            if (onComplete) onComplete();
+            // 流结束，检查是否有累积的 tool_calls
+            const accumulated = Object.values(pendingToolCalls);
+            if (accumulated.length > 0 && onComplete) {
+              onComplete({ toolCalls: accumulated });
+            } else if (onComplete) {
+              onComplete({});
+            }
             return;
           }
           
@@ -217,6 +231,22 @@ class OpenAIService extends window.IProviderAPIService {
             if (trimmed.startsWith('data: ')) {
               try {
                 const json = JSON.parse(trimmed.slice(6));
+                // 累计 tool_calls
+                const choice = json.choices?.[0];
+                if (choice?.delta?.tool_calls) {
+                  for (const tc of choice.delta.tool_calls) {
+                    if (!pendingToolCalls[tc.index]) {
+                      pendingToolCalls[tc.index] = tc;
+                    } else {
+                      // 合并 function.arguments 字符串
+                      const existing = pendingToolCalls[tc.index];
+                      if (tc.function) {
+                        existing.function = existing.function || { arguments: '' };
+                        existing.function.arguments = (existing.function.arguments || '') + (tc.function.arguments || '');
+                      }
+                    }
+                  }
+                }
                 const parsed = this.parseStreamChunk(json);
                 if (parsed && onChunk) onChunk(parsed);
               } catch (e) {

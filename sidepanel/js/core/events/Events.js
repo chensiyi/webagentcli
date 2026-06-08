@@ -92,6 +92,13 @@ const Events = {
   SCRIPTS: {
     LOADED: 'scripts:loaded',                  // 脚本列表已加载
     ERROR: 'scripts:error',                    // 脚本操作错误
+  },
+
+  // ==================== Tool 相关事件 ====================
+  TOOL: {
+    EXECUTING: 'tool:executing',               // 工具开始执行 { toolName, toolCallId, sessionId }
+    COMPLETED: 'tool:completed',               // 工具执行完成 { toolName, toolCallId, status, duration, sessionId }
+    ALL_COMPLETED: 'tool:allCompleted',        // 本轮所有工具执行完毕 { toolResults: [], sessionId }
   }
 };
 
