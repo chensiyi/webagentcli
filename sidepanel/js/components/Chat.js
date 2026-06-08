@@ -1,18 +1,139 @@
 /**
  * Chat Components - 聊天业务组件库
+ *
+ * 渲染职责：
+ * - user / assistant / system / tool 四种 role 的消息气泡
+ * - assistant 消息中携带 toolCalls 时，渲染 ToolCallCard 列表
+ * - tool 消息渲染为 ToolResultCard（紧凑折叠）
  */
 
+/** HTML 安全转义（防止 XSS） */
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&')
+    .replace(/</g, '<')
+    .replace(/>/g, '>')
+    .replace(/"/g, '"')
+    .replace(/'/g, '&#039;');
+}
+
 window.ChatComponents = {
-  /**
-   * 消息气泡组件
-   */
+
+  // ==================== ToolCallCard（AI 发起的工具调用） ====================
+
+  ToolCallCard(toolCall) {
+    const { create } = window.DOM;
+    const isToolCallObj = toolCall instanceof window.ToolCall;
+    const tcId = isToolCallObj ? toolCall.id : (toolCall.id || '');
+    const tcName = isToolCallObj ? toolCall.toolName : (toolCall.toolName || 'unknown');
+    const tcArgs = isToolCallObj ? (toolCall.arguments || {}) : (toolCall.arguments || {});
+
+    const argsStr = JSON.stringify(tcArgs, null, 2);
+
+    // 查找对应的 ToolResult（同 message 的 tool 消息）
+    const resultEl = create('div', {
+      className: 'tool-result-body',
+      attrs: { 'data-tool-call-id': tcId, 'data-tool-name': tcName },
+      style: { display: 'none' }
+    });
+
+    const header = create('div', { className: 'tool-card-header' }, [
+      create('span', { className: 'tool-card-icon', text: '🔧' }),
+      create('span', { className: 'tool-card-name', text: tcName }),
+      create('span', { className: 'tool-card-args', text: `(${argsStr.slice(0, 60)}${argsStr.length > 60 ? '…' : ''})` })
+    ]);
+
+    const argsBody = create('div', {
+      className: 'tool-args-body',
+      style: { display: 'none' }
+    }, [
+      create('pre', { text: argsStr, style: { margin: '8px 0', fontSize: '12px', lineHeight: '1.5', overflow: 'auto', maxHeight: '200px', background: 'var(--color-bg, #f8f8f8)', padding: '8px', borderRadius: '4px' } })
+    ]);
+
+    // 可折叠
+    header.style.cursor = 'pointer';
+    header.addEventListener('click', () => {
+      const isHidden = argsBody.style.display === 'none';
+      argsBody.style.display = isHidden ? 'block' : 'none';
+    });
+
+    return create('div', { className: 'tool-card', attrs: { 'data-tool-call-id': tcId } }, [
+      header,
+      argsBody,
+      resultEl
+    ]);
+  },
+
+  // ==================== ToolResultCard（工具执行结果） ====================
+
+  ToolResultCard(toolResult) {
+    const { create } = window.DOM;
+    const status = toolResult.status;
+    const statusIcon = { success: '✅', failed: '❌', cancelled: '⚠️' }[status] || '⋯';
+    const duration = toolResult.duration ? ` · ${toolResult.duration}ms` : '';
+
+    const outputText = typeof toolResult.output === 'string'
+      ? toolResult.output.slice(0, 200)
+      : JSON.stringify(toolResult.output, null, 2)?.slice(0, 200);
+
+    return create('div', { 
+      className: `tool-card-result tool-result-${status}`,
+      attrs: { 'data-tool-call-id': toolResult.toolCallId }
+    }, [
+      create('div', { className: 'tool-result-header' }, [
+        create('span', { text: `${statusIcon} ${status}` }),
+        create('span', { text: duration, className: 'tool-result-duration' })
+      ]),
+      toolResult.error ? create('div', { className: 'tool-result-error', text: toolResult.error }) : null,
+      outputText ? create('div', { className: 'tool-result-output', text: outputText }) : null
+    ].filter(Boolean));
+  },
+
+  // ==================== 消息气泡组件 ====================
+
   MessageBubble(msg, options = {}) {
     const { onDelete } = options;
     const { create } = window.DOM;
     const isUser = msg.role === 'user';
+    const isTool = msg.role === 'tool';
     const bodyChildren = [];
-    
-    // AI 消息：处理思考过程
+
+    // ---- tool 角色：渲染 ToolResultCard ----
+    if (isTool) {
+      // tool 消息的内容就是结果文本，紧凑展示
+      const content = msg.content || '';
+      const isJson = content.startsWith('{') || content.startsWith('[');
+      bodyChildren.push(create('div', {
+        className: 'tool-result-content',
+        html: isJson
+          ? `<pre class="tool-result-pre">${escapeHtml(content).slice(0, 500)}</pre>`
+          : escapeHtml(content).slice(0, 500)
+      }));
+      
+      // 悬浮显示 toolCallId 标记
+      if (msg.toolCallId) {
+        bodyChildren.unshift(create('div', {
+          className: 'tool-result-label',
+          text: `🔗 ${msg.toolCallId}`
+        }));
+      }
+
+      return create('div', {
+        className: 'message-bubble message-tool',
+        attrs: { 'data-message-id': msg.id, 'data-tool-call-id': msg.toolCallId || '' }
+      }, [
+        create('div', { className: 'message-body' }, bodyChildren),
+        onDelete ? window.UI.Button({
+          className: 'message-delete-btn',
+          title: '删除结果',
+          text: '×',
+          onClick: (e) => { e.stopPropagation(); onDelete(msg.id); }
+        }) : null
+      ].filter(Boolean));
+    }
+
+    // ---- assistant / user / system：处理思考过程 ----
     if (!isUser) {
       const hasReasoning = msg.reasoning_content && msg.reasoning_content.trim();
       
@@ -39,6 +160,15 @@ window.ChatComponents = {
       });
       
       bodyChildren.push(reasoningContainer);
+
+      // ---- assistant 消息：渲染 toolCalls 列表 ----
+      if (Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0) {
+        const toolCards = create('div', { className: 'tool-calls-container' });
+        msg.toolCalls.forEach(tc => {
+          toolCards.appendChild(window.ChatComponents.ToolCallCard(tc));
+        });
+        bodyChildren.push(toolCards);
+      }
     }
     
     // 消息内容：Markdown 渲染
