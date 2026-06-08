@@ -63,7 +63,8 @@ class ServiceCenter {
    */
   _registerBuiltInTools() {
     const builtInClasses = [
-      window.RunUserScriptTool
+      window.RunUserScriptTool,
+      window.ManageUserScriptsTool
     ];
 
     builtInClasses.forEach(ToolClass => {

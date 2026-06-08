@@ -99,28 +99,35 @@ window.ChatComponents = {
     const isTool = msg.role === 'tool';
     const bodyChildren = [];
 
-    // ---- tool 角色：渲染 ToolResultCard ----
+    // ---- tool 角色：复用 assistant 的 markdown 渲染 ----
     if (isTool) {
-      // tool 消息的内容就是结果文本，紧凑展示
-      const content = msg.content || '';
-      const isJson = content.startsWith('{') || content.startsWith('[');
-      bodyChildren.push(create('div', {
-        className: 'tool-result-content',
-        html: isJson
-          ? `<pre class="tool-result-pre">${escapeHtml(content).slice(0, 500)}</pre>`
-          : escapeHtml(content).slice(0, 500)
-      }));
-      
-      // 悬浮显示 toolCallId 标记
+      // tool 消息内容统一交给 marked.parse 渲染（与 assistant 路径一致）：
+      //   - JSON 串被 ```...``` 包裹后会被 marked 渲染为原生 <pre><code> 代码块
+      //   - 不再 escapeHtml，不再 500 字符截断，不再手动包 <pre class="tool-result-pre">
+      const raw = msg.content || '';
+      const isJson = raw.startsWith('{') || raw.startsWith('[');
+      const mdSource = isJson ? '```json\n' + raw + '\n```' : raw;
+      const rendered = typeof marked !== 'undefined'
+        ? marked.parse(mdSource)
+        : mdSource;
+
+      // 调用 id 标记（与 assistant 的 reasoning-header 风格一致的小标签）
       if (msg.toolCallId) {
-        bodyChildren.unshift(create('div', {
+        bodyChildren.push(create('div', {
           className: 'tool-result-label',
           text: `🔗 ${msg.toolCallId}`
         }));
       }
 
+      // 消息内容：与 assistant 一样用 .message-content 走 markdown 渲染
+      bodyChildren.push(create('div', {
+        className: 'message-content',
+        attrs: { 'data-full-content': raw },
+        html: rendered
+      }));
+
       return create('div', {
-        className: 'message-bubble message-tool',
+        className: 'message-bubble message-bubble--left message-tool',
         attrs: { 'data-message-id': msg.id, 'data-tool-call-id': msg.toolCallId || '' }
       }, [
         create('div', { className: 'message-body' }, bodyChildren),
