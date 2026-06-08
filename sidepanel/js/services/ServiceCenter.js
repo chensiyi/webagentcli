@@ -63,11 +63,6 @@ class ServiceCenter {
    */
   _registerBuiltInTools() {
     const builtInClasses = [
-      window.GetPageContentTool,
-      window.GetPageMetadataTool,
-      window.ReadStorageTool,
-      window.WriteStorageTool,
-      window.ListStorageTool,
       window.RunUserScriptTool
     ];
 
