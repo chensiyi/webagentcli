@@ -19,6 +19,9 @@ class ServiceCenter {
     this.currentProviderService = null; // 当前活跃的 Provider API 服务
     this.currentProviderId = null;
     this.chatController = null; // ChatController 单例
+
+    // 工具注册表
+    this.tools = new Map(); // name → IToolService 实例
   }
 
   /**
@@ -44,9 +47,77 @@ class ServiceCenter {
     this.sessionManager = new window.SessionManager(this.eventBus);
     
     console.log('[ServiceCenter] SessionManager initialized');
+
+    // 在初始化时注册内置工具
+    this._registerBuiltInTools();
     
     // 返回 Promise，等待异步加载完成
     return this.sessionManager.initialize();
+  }
+
+  // ==================== 工具管理 ====================
+
+  /**
+   * 注册内置工具
+   * @private
+   */
+  _registerBuiltInTools() {
+    const builtInClasses = [
+      window.GetPageContentTool,
+      window.GetPageMetadataTool,
+      window.ReadStorageTool,
+      window.WriteStorageTool,
+      window.ListStorageTool,
+      window.RunUserScriptTool
+    ];
+
+    builtInClasses.forEach(ToolClass => {
+      if (typeof ToolClass !== 'function') return;
+      try {
+        const tool = new ToolClass();
+        if (tool.definition && tool.definition.name) {
+          this.tools.set(tool.definition.name, tool);
+          console.log(`[ServiceCenter] Built-in tool registered: ${tool.definition.name} (enabled: ${tool.enabled})`);
+        }
+      } catch (e) {
+        console.warn('[ServiceCenter] Failed to register tool:', e);
+      }
+    });
+  }
+
+  /**
+   * 获取指定工具
+   * @param {string} name - 工具名
+   * @returns {IToolService|null}
+   */
+  getTool(name) {
+    return this.tools.get(name) || null;
+  }
+
+  /**
+   * 获取所有已启用的工具
+   * @returns {IToolService[]}
+   */
+  getEnabledTools() {
+    return Array.from(this.tools.values()).filter(t => t.enabled);
+  }
+
+  /**
+   * 获取所有工具
+   * @returns {IToolService[]}
+   */
+  getAllTools() {
+    return Array.from(this.tools.values());
+  }
+
+  /**
+   * 获取所有工具定义（用于传给 LLM 的 tools 参数）
+   * @returns {Array} OpenAI function calling 格式数组
+   */
+  getToolDefinitionsForLLM() {
+    return this.getEnabledTools()
+      .filter(t => t.definition)
+      .map(t => t.definition.toOpenAIFunction());
   }
 
   /**
