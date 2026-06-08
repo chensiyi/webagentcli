@@ -198,14 +198,117 @@ window.Pages.chat = function(container, serviceCenter) {
       onClick: () => chatController.stopGeneration()
     });
 
+    // 工具按钮（工具面板展开/折叠）
+    let toolPanelVisible = false;
+    const toolBtn = window.UI.Button({
+      className: 'btn-tool-toggle',
+      text: '🔧 工具',
+      title: '管理可用工具',
+      onClick: () => {
+        toolPanelVisible = !toolPanelVisible;
+        const panel = document.getElementById('tool-panel');
+        if (panel) panel.style.display = toolPanelVisible ? 'block' : 'none';
+        toolBtn.className = toolPanelVisible ? 'btn btn-secondary btn-tool-toggle active' : 'btn btn-secondary btn-tool-toggle';
+      }
+    });
+
+    // 工具面板容器
+    const toolPanel = create('div', { id: 'tool-panel', className: 'tool-panel', style: { display: 'none' } });
+
+    // 延迟填充工具列表（DOM 渲染后）
+    setTimeout(() => populateToolPanel(toolPanel), 100);
+
     return create('div', { className: 'page-footer flex flex-col' }, [
       statusText,
+      toolPanel,
       create('div', { className: 'flex items-end gap-8' }, [
+        toolBtn,
         textarea,
         sendBtn,
         stopBtn
       ])
     ]);
+  }
+
+  // ==================== 工具面板逻辑 ====================
+
+  /**
+   * 填充工具面板列表（从 ServiceCenter 获取所有工具）
+   */
+  function populateToolPanel(panel) {
+    if (!panel) return;
+    const allTools = serviceCenter.getAllTools();
+    
+    if (!allTools || allTools.length === 0) {
+      panel.appendChild(create('div', { className: 'tool-panel-empty', text: '暂无可用工具' }));
+      return;
+    }
+
+    // 清空
+    panel.innerHTML = '';
+    panel.appendChild(create('div', { className: 'tool-panel-title', text: '可用工具' }));
+
+    allTools.forEach(tool => {
+      if (!tool.definition) return;
+      const toolItem = create('div', { className: 'tool-panel-item' }, [
+        create('div', { className: 'tool-panel-info' }, [
+          create('span', { className: 'tool-panel-name', text: tool.definition.name }),
+          create('span', { className: 'tool-panel-desc', text: tool.definition.description || '' }),
+        ]),
+        create('button', {
+          className: tool.enabled ? 'btn btn-small btn-success tool-toggle-btn' : 'btn btn-small btn-secondary tool-toggle-btn',
+          text: tool.enabled ? '已启用' : '已禁用',
+          title: tool.enabled ? '点击禁用' : '点击启用',
+          onClick: () => {
+            if (tool.enabled) {
+              tool.disable();
+            } else {
+              tool.enable();
+            }
+            // 本地更新 UI
+            toolBtnText.textContent = tool.enabled ? '已启用' : '已禁用';
+            toolBtnText.className = tool.enabled ? 'btn btn-small btn-success tool-toggle-btn' : 'btn btn-small btn-secondary tool-toggle-btn';
+          }
+        })
+      ]);
+      
+      const toolBtnText = toolItem.querySelector('.tool-toggle-btn');
+      panel.appendChild(toolItem);
+    });
+
+    // 工具执行进度指示区域
+    const progressArea = create('div', { id: 'tool-progress-area', className: 'tool-progress-area' });
+    panel.appendChild(progressArea);
+
+    // 监听工具执行进度
+    eventBus.on(window.Events.TOOL.EXECUTING, (data) => {
+      appendToolProgress(progressArea, 'executing', data);
+    });
+    eventBus.on(window.Events.TOOL.COMPLETED, (data) => {
+      appendToolProgress(progressArea, 'completed', data);
+    });
+  }
+
+  /**
+   * 追加工具执行进度条目
+   */
+  function appendToolProgress(area, type, data) {
+    if (!area) return;
+    const icon = type === 'executing' ? '⏳' : (data.status === 'success' ? '✅' : '❌');
+    const text = type === 'executing' 
+      ? `正在执行: ${data.toolName}`
+      : `${data.toolName} ${data.status} (${data.duration || 0}ms)`;
+    const entry = create('div', { className: 'tool-progress-entry' }, [
+      create('span', { text: icon }),
+      create('span', { text, className: 'tool-progress-text' })
+    ]);
+    area.appendChild(entry);
+    // 自动滚动到底部
+    area.scrollTop = area.scrollHeight;
+    // 最多保留 50 条
+    while (area.children.length > 50) {
+      area.removeChild(area.firstChild);
+    }
   }
 
   // ==================== 业务逻辑 ====================
