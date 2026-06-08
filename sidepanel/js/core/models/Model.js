@@ -68,7 +68,7 @@ class Model extends window.BaseModel {
       vision: false,
       toolUse: true,
       streaming: true,
-      reasoning: true, // 默认开启思考能力
+      reasoning: false, // 默认关闭思考能力，仅支持的模型启用
       jsonMode: false,
       ...capabilities
     };
