@@ -52,6 +52,17 @@ class ChatEventHandler {
       this._handleStreamError(data);
     });
 
+    // 监听工具执行进度
+    this.eventBus.on(window.Events.TOOL.EXECUTING, (data) => {
+      this._handleToolExecuting(data);
+    });
+    this.eventBus.on(window.Events.TOOL.COMPLETED, (data) => {
+      this._handleToolCompleted(data);
+    });
+    this.eventBus.on(window.Events.TOOL.ALL_COMPLETED, (data) => {
+      this._handleToolAllCompleted(data);
+    });
+
     // 注册键盘快捷键：Ctrl + ArrowUp/Down 快速滑动用户消息
     document.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
@@ -299,6 +310,69 @@ class ChatEventHandler {
     // 这里不需要额外处理
   }
   
+  /**
+   * 处理工具开始执行（显示 spinner）
+   */
+  _handleToolExecuting(data) {
+    const { toolCallId, toolName } = data;
+    const card = document.querySelector(`.tool-card[data-tool-call-id="${toolCallId}"]`);
+    if (!card) return;
+
+    const header = card.querySelector('.tool-card-header');
+    if (!header) return;
+
+    // 添加 spinner
+    let spinner = header.querySelector('.tool-spinner');
+    if (!spinner) {
+      spinner = document.createElement('span');
+      spinner.className = 'tool-spinner';
+      header.appendChild(spinner);
+    }
+
+    // 将工具卡片标题文字变暗表示执行中
+    const nameEl = header.querySelector('.tool-card-name');
+    if (nameEl) nameEl.style.color = 'var(--color-text-secondary, #999)';
+  }
+
+  /**
+   * 处理工具执行完成（显示结果）
+   */
+  _handleToolCompleted(data) {
+    const { toolCallId, toolName, status, duration } = data;
+    const card = document.querySelector(`.tool-card[data-tool-call-id="${toolCallId}"]`);
+    if (!card) return;
+
+    const header = card.querySelector('.tool-card-header');
+    const nameEl = header?.querySelector('.tool-card-name');
+    if (nameEl) nameEl.style.color = '';
+
+    // 移除 spinner
+    const spinner = header?.querySelector('.tool-spinner');
+    if (spinner) spinner.remove();
+
+    // 添加状态标记
+    const statusIcon = document.createElement('span');
+    statusIcon.className = `tool-status tool-status-${status}`;
+    statusIcon.textContent = status === 'success' ? '✅' : status === 'failed' ? '❌' : '⚠️';
+    header?.appendChild(statusIcon);
+
+    // 显示执行耗时
+    if (duration !== undefined) {
+      const timeSpan = document.createElement('span');
+      timeSpan.className = 'tool-duration';
+      timeSpan.textContent = `${duration}ms`;
+      header?.appendChild(timeSpan);
+    }
+  }
+
+  /**
+   * 处理本轮所有工具执行完毕
+   */
+  _handleToolAllCompleted(data) {
+    console.log('[ChatEventHandler] All tools completed, waiting for LLM response');
+    // UI 由 ChatPage 的 MESSAGE_ADDED 事件驱动重新渲染
+  }
+
   /**
    * 处理会话切换
    */

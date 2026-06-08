@@ -11,11 +11,11 @@
 function escapeHtml(str) {
   if (!str) return '';
   return String(str)
-    .replace(/&/g, '&')
-    .replace(/</g, '<')
-    .replace(/>/g, '>')
-    .replace(/"/g, '"')
-    .replace(/'/g, '&#039;');
+    .replace(/&/g, String.fromCharCode(38)+'amp;')
+    .replace(/</g, String.fromCharCode(60)+'lt;')
+    .replace(/>/g, String.fromCharCode(62)+'gt;')
+    .replace(/"/g, String.fromCharCode(34)+'quot;')
+    .replace(/'/g, String.fromCharCode(39)+'#039;');
 }
 
 window.ChatComponents = {
