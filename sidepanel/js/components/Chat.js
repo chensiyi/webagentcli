@@ -111,20 +111,36 @@ window.ChatComponents = {
         ? marked.parse(mdSource)
         : mdSource;
 
-      // 调用 id 标记（与 assistant 的 reasoning-header 风格一致的小标签）
-      if (msg.toolCallId) {
-        bodyChildren.push(create('div', {
+      const resultHeader = create('div', { className: 'tool-result-header' }, [
+        create('span', {
           className: 'tool-result-label',
-          text: `🔗 ${msg.toolCallId}`
-        }));
-      }
+          text: msg.toolCallId ? `🔗 ${msg.toolCallId}` : '🔧 Tool result'
+        }),
+        create('span', {
+          className: 'tool-result-toggle',
+          text: '▼'
+        })
+      ]);
 
-      // 消息内容：与 assistant 一样用 .message-content 走 markdown 渲染
-      bodyChildren.push(create('div', {
-        className: 'message-content',
-        attrs: { 'data-full-content': raw },
-        html: rendered
-      }));
+      const resultBody = create('div', { className: 'tool-result-body' }, [
+        create('div', {
+          className: 'message-content',
+          attrs: { 'data-full-content': raw },
+          html: rendered
+        })
+      ]);
+
+      resultHeader.style.cursor = 'pointer';
+      resultHeader.addEventListener('click', () => {
+        const hidden = resultBody.style.display === 'none';
+        resultBody.style.display = hidden ? 'block' : 'none';
+        const toggle = resultHeader.querySelector('.tool-result-toggle');
+        if (toggle) {
+          toggle.style.transform = hidden ? 'rotate(180deg)' : 'rotate(0deg)';
+        }
+      });
+
+      bodyChildren.push(resultHeader, resultBody);
 
       return create('div', {
         className: 'message-bubble message-bubble--left message-tool',
