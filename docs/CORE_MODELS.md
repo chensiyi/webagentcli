@@ -1,266 +1,575 @@
 # 数据模型文档
 
+> 与当前代码库（v0.3.3）保持同步
+
 ## 概述
 
 本文档描述 Web Agent Client 的核心数据模型，位于 `sidepanel/js/core/models/` 目录。
 
-所有模型类都导出到全局 `window` 对象，方便各层代码访问。
+**约定**：
+
+- 所有模型类都导出到全局 `window` 对象（如 `window.Message` / `window.Session`）
+- 业务层 **不使用** 任何特定 AI 协议的字段（如 OpenAI 的 `tool_calls` 数组）—— 协议转换在 `MessageContent.MessageStructure` 中隔离
+- 持久化字段通过 `toJSON()` 输出，不可变值类型（`ToolCall` / `ToolResult` / `ToolDefinition`）使用 `Object.freeze`
+- 运行时状态（如 `Session.isStreaming`、`Session.port`）**不** 序列化
 
 ---
 
-## Message (消息)
+## BaseModel（基类）
 
-**文件**: `sidepanel/js/core/models/Message.js`
+**文件**：`sidepanel/js/core/models/BaseModel.js`
+
+所有持久化模型的抽象基类，**不可直接实例化**（`new.target === BaseModel` 时抛错）。
 
 ### 字段
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `id` | string | 自动生成 | 唯一标识符 |
-| `role` | string | - | 角色类型：`'user'` \| `'assistant'` \| `'system'` \| `'tool'` |
-| `content` | string | `''` | 消息内容 |
-| `timestamp` | number | `Date.now()` | 创建时间戳 |
-| `tool_calls` | array\|null | `null` | 工具调用列表（assistant 消息） |
-| `tool_call_id` | string\|null | `null` | 工具调用 ID（tool 消息） |
-| `reasoning_content` | string | `''` | 推理/思考内容 |
-| `metadata` | object | `{}` | 附加元数据 |
+| `id` | string | `generateId()` | 唯一标识符 |
+| `createdAt` | number | `Date.now()` | 创建时间戳 |
+| `updatedAt` | number | `this.createdAt` | 最后更新时间戳 |
 
 ### 方法
 
 | 方法 | 返回 | 说明 |
 |------|------|------|
-| `isUser()` | boolean | 是否为用户消息 |
-| `isAssistant()` | boolean | 是否为助手消息 |
-| `hasToolCalls()` | boolean | 是否包含工具调用 |
-| `toJSON()` | object | 序列化为纯对象 |
-| `static fromJSON(data)` | Message | 从纯对象反序列化 |
+| `generateId()` | string | 生成 `prefix_<timestamp>_<random>` 格式 ID（子类可覆盖） |
+| `touch()` | void | 更新 `updatedAt = Date.now()` |
+| `toJSON()` | object | 序列化（子类覆盖以包含特定字段） |
+| `static fromJSON(data)` | Instance | 反序列化（子类必须实现） |
 
-### 消息格式示例
+---
 
-**用户消息**:
+## Message（消息）
+
+**文件**：`sidepanel/js/core/models/Message.js`
+
+### 角色枚举
+
+`window.Role` 暴露：
+
+```javascript
+const Role = {
+  USER: 'user',
+  ASSISTANT: 'assistant',
+  SYSTEM: 'system',
+  TOOL: 'tool'
+};
+```
+
+`role` 在构造时设定，**不可修改**（`get role()` 暴露）。
+
+### 字段
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `id` | string | 自动生成 | 继承自 BaseModel |
+| `role` | string | `Role.USER` | 只读 |
+| `content` | string \| Block[] | `''` | 文本或富媒体块数组 |
+| `timestamp` | number | `this.createdAt` | 时间戳 |
+| `reasoning_content` | string \| null | `null` | 思考/推理内容（可与 content 并存） |
+| `toolCallId` | string \| null | `null` | `role === TOOL` 时关联的 ToolCall.id |
+| `toolCalls` | `ToolCall[]` | `[]` | **子对象**：assistant 消息携带的工具调用意图 |
+| `metadata` | object | `{}` | 附加元数据 |
+
+> ⚠️ **协议字段已隔离**：本模型不再有 `tool_calls`（OpenAI 协议字段名）等协议特定字段。发给 API 时由 `MessageStructure.toAPIFormat()` 转换。
+
+### 方法
+
+| 方法 | 返回 | 说明 |
+|------|------|------|
+| `addToolCall(toolCall)` | void | 添加工具调用（自动去重：同 id 不重复添加；自动 `touch()`） |
+| `getToolCall(id)` | `ToolCall \| null` | 按 id 查找 |
+| `isRichContent()` | boolean | `content` 是否为块数组 |
+| `getText()` | string | 提取所有 text 块（双换行拼接） |
+| `hasToolCalls()` | boolean | `toolCalls.length > 0` |
+| `isUser()` / `isAssistant()` / `isSystem()` / `isTool()` | boolean | 角色判断 |
+| `toJSON()` | object | 序列化（`toolCalls` 嵌套展开为 `tc.toJSON()`） |
+| `static fromJSON(data)` | `Message` | 反序列化 |
+
+### 消息示例
+
+**用户消息**：
+
 ```json
 {
-  "id": "msg_1234567890_abc123",
+  "id": "message_1713369600000_abc123",
   "role": "user",
   "content": "帮我写一个 Python 脚本",
   "timestamp": 1713369600000,
-  "tool_calls": null,
-  "tool_call_id": null,
-  "reasoning_content": "",
+  "reasoning_content": null,
+  "toolCallId": null,
+  "toolCalls": [],
   "metadata": {}
 }
 ```
 
-**助手消息（含工具调用）**:
+**助手消息（含工具调用）**：
+
 ```json
 {
-  "id": "msg_1234567891_def456",
+  "id": "message_1713369601000_def456",
   "role": "assistant",
-  "content": "我来帮你搜索一下相关信息",
+  "content": "我来帮你搜索一下",
   "timestamp": 1713369601000,
-  "tool_calls": [
+  "reasoning_content": "用户需要一个 Python 脚本",
+  "toolCallId": null,
+  "toolCalls": [
     {
       "id": "call_abc123",
-      "type": "function",
-      "function": {
-        "name": "search",
-        "arguments": "{\"query\": \"Python script\"}"
-      }
+      "toolName": "search",
+      "arguments": { "query": "Python script" }
     }
-  ],
-  "tool_call_id": null,
-  "reasoning_content": "用户需要一个 Python 脚本，我应该先搜索相关信息",
-  "metadata": {}
+  ]
 }
 ```
 
-**工具结果消息**:
+**工具结果消息**：
+
 ```json
 {
-  "id": "msg_1234567892_ghi789",
+  "id": "message_1713369602000_ghi789",
   "role": "tool",
-  "content": "[搜索结果] Python 是一种高级编程语言...",
+  "content": "[搜索结果] ...",
   "timestamp": 1713369602000,
-  "tool_calls": null,
-  "tool_call_id": "call_abc123",
-  "reasoning_content": "",
-  "metadata": {}
+  "toolCallId": "call_abc123",
+  "toolCalls": []
 }
 ```
 
 ---
 
-## Session (会话)
+## Session（会话）
 
-**文件**: `sidepanel/js/core/models/Session.js`
+**文件**：`sidepanel/js/core/models/Session.js`
 
 ### 字段
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `id` | string | 自动生成 | 唯一标识符 |
+| `id` | string | 自动生成 | 继承自 BaseModel |
 | `title` | string | `'新对话'` | 会话标题 |
-| `messages` | Message[] | `[]` | 消息列表 |
-| `createdAt` | number | `Date.now()` | 创建时间戳 |
-| `updatedAt` | number | `Date.now()` | 最后更新时间戳 |
-| `updated_at` | number | 同 updatedAt | 兼容旧版命名 |
+| `messages` | `Message[]` | `[]` | 消息列表（**每条消息自带 `toolCalls`**） |
 | `metadata` | object | `{}` | 附加元数据 |
-| `port` | object\|null | `null` | 运行时端口（不持久化） |
-| `isStreaming` | boolean | `false` | 是否正在流式响应（不持久化） |
+| `reasoningEffort` | string | `'medium'` | 思考模式 `'off' \| 'low' \| 'medium' \| 'high'` |
+| `port` | object \| null | `null` | 运行时端口（**不持久化**） |
+| `isStreaming` | boolean | `false` | 是否正在流式（**不持久化**） |
 
-### 方法
+### 消息管理方法
 
-| 方法 | 参数 | 返回 | 说明 |
-|------|------|------|------|
-| `addMessage(msg)` | Message | - | 添加消息 |
-| `removeMessage(id)` | string | boolean | 删除消息 |
-| `updateMessage(id, updater)` | string, Function | boolean | 更新消息 |
-| `getLastMessage()` | - | Message\|null | 获取最后一条消息 |
-| `clearMessages()` | - | - | 清空所有消息 |
-| `hasMessages()` | - | boolean | 是否有消息 |
-| `toJSON()` | - | object | 序列化 |
-| `static fromJSON(data)` | object | Session | 反序列化 |
+| 方法 | 说明 |
+|------|------|
+| `addMessage(message)` | 添加消息并 `touch()` |
+| `removeMessage(messageId)` | 按 id 删除，返回 boolean |
+| `updateMessage(messageId, updater)` | 函数式更新（`updater(msg)`；返回新对象会替换） |
+| `getLastMessage()` | 返回最后一条消息或 null |
+| `clearMessages()` | 清空所有消息 |
+| `hasMessages()` | 是否存在消息 |
 
-### updateMessage 使用示例
+### ToolCall 视图方法（不存储，只查询）
+
+`ToolCall` 始终作为 `Message.toolCalls` 的子对象存在；Session 仅提供查询视图：
+
+| 方法 | 返回 | 说明 |
+|------|------|------|
+| `getAllToolCalls()` | `ToolCall[]` | 遍历所有消息收集全部 toolCalls |
+| `getToolCallsOfMessage(messageId)` | `ToolCall[]` | 获取指定消息的 toolCalls |
+| `findToolCall(toolCallId)` | `ToolCall \| null` | 跨消息查找 |
+| `hasToolCalls()` | boolean | 是否存在任意 toolCall |
+| `getToolResultMessages()` | `Message[]` | 所有 `role === TOOL` 的消息 |
+| `getPendingToolCalls()` | `ToolCall[]` | **未** 被 ToolResult 消息回应的 ToolCall（用于判断是否需要继续轮询 AI） |
+
+### 序列化
 
 ```javascript
-session.updateMessage(messageId, (msg) => {
-  msg.content += chunk.content;
-  // 可以返回新对象或修改原对象
-});
+toJSON() {
+  return {
+    ...super.toJSON(),
+    title, messages: messages.map(m => m.toJSON()),
+    metadata, reasoningEffort
+    // port / isStreaming 不会输出
+  };
+}
 ```
 
 ---
 
-## Settings (设置)
+## Settings（设置）
 
-**文件**: `sidepanel/js/core/models/Settings.js`
+**文件**：`sidepanel/js/core/models/Settings.js`
+
+设置是单例（`id` 固定为 `'global_settings'`），由 `SettingsManager` 加载/保存。
 
 ### 字段
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `apiStandard` | string | `'openrouter'` | API 标准：`'openai'` \| `'lm-studio'` \| `'openrouter'` \| `'ollama'` \| `'anthropic'` |
-| `apiEndpoint` | string | - | API 端点 URL |
+| `id` | string | `'global_settings'` | 固定 |
+| `apiStandard` | string | `'openrouter'` | `'openai' \| 'openrouter' \| 'lm-studio' \| 'ollama' \| 'anthropic'` |
 | `apiKey` | string | `''` | API 密钥 |
-| `model` | string | - | 当前模型 |
-| `theme` | string | `'light'` | 主题：`'light'` \| `'dark'` |
-| `autoContextWindow` | boolean | `true` | 自动调整上下文窗口 |
+| `apiEndpoint` | string | `'https://openrouter.ai/api/v1'` | 端点 URL |
+| `model` | string | `''` | 当前模型 id |
+| `models` | array | `[]` | 已加载模型列表 |
+| `temperature` | number | `0.7` | 温度 |
+| `maxTokens` | number | `2000` | 最大生成长度 |
+| `systemPrompt` | string | `''` | 系统提示词 |
+| `autoContextTruncation` | boolean | `true` | 自动上下文截断 |
+| `reasoningEffort` | string | `'medium'` | `'off' \| 'low' \| 'medium' \| 'high'` |
+| `theme` | string | `'light'` | `'light' \| 'dark'` |
 
 ### 方法
 
-| 方法 | 参数 | 返回 | 说明 |
-|------|------|------|------|
-| `toJSON()` | - | object | 序列化 |
-| `static fromJSON(data)` | object | Settings | 反序列化 |
-| `static getDefaultEndpoint(standard)` | string | string | 获取默认端点 |
+| 方法 | 说明 |
+|------|------|
+| `isReasoningEnabled()` | `reasoningEffort !== 'off'` |
+| `static getDefaultEndpoint(apiStandard)` | 返回标准默认端点 |
 
-### 各 API 标准默认端点
+### 默认端点
 
 | API 标准 | 默认端点 |
 |----------|----------|
 | `openai` | `https://api.openai.com/v1` |
-| `lm-studio` | `http://localhost:1234` |
 | `openrouter` | `https://openrouter.ai/api/v1` |
+| `lm-studio` | `http://localhost:1234` |
 | `ollama` | `http://localhost:11434` |
 | `anthropic` | `https://api.anthropic.com` |
 
 ---
 
-## Storage (存储)
+## Model（AI 模型）
 
-**文件**: `sidepanel/js/core/models/Storage.js`
+**文件**：`sidepanel/js/core/models/Model.js`
 
-用于缓存管理，支持模型列表等数据的本地缓存。
+**协议无关** 的 AI 模型元数据，参考 LM Studio `/api/v1/models` 响应格式设计。
 
-### 方法
+### 字段
 
-| 方法 | 参数 | 返回 | 说明 |
-|------|------|------|------|
-| `setCache(key, data)` | string, any | Promise | 设置缓存 |
-| `getCache(key)` | string | Promise<any> | 获取缓存 |
-| `clearCache(key)` | string | Promise | 清除指定缓存 |
-| `clearAllCache()` | - | Promise | 清除所有缓存 |
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `id` | string | **必填** | 唯一标识符 |
+| `name` | string | **必填** | 显示名称 |
+| `type` | string | `'llm'` | `'llm' \| 'vlm' \| 'embeddings'` |
+| `publisher` | string | `'unknown'` | 发布者 |
+| `architecture` | string \| null | `null` | `'llama'`、`'qwen2_vl'`、`'nomic-bert'` 等 |
+| `capabilities` | object | `{vision:false, toolUse:true, streaming:true, reasoning:true, jsonMode:false}` | 模型能力 |
+| `inputModalities` | string[] | `['text']` | 输入模态 |
+| `outputModalities` | string[] | `['text']` | 输出模态 |
+| `contextLength` | number | `8192` | 最大上下文（tokens） |
+| `maxOutputTokens` | number \| null | `null` | 最大单次输出 |
+| `quantization` | string \| null | `null` | 量化等级（`'Q4_K_M'`、`'4bit'` 等） |
+| `compatibilityType` | string \| null | `null` | `'gguf'`、`'mlx'` 等 |
+| `state` | string | `'not-loaded'` | `'loaded' \| 'not-loaded' \| 'loading'` |
+| `sizeBytes` | number \| null | `null` | 文件大小（字节） |
+| `paramsString` | string \| null | `null` | 参数量（`'7B'`、`'13B'`、`'70B'`） |
+| `description` | string | `''` | 描述 |
+| `pricing` | object \| null | `null` | `{ prompt, completion }` |
+| `metadata` | object | `{}` | 附加元数据 |
+
+### 能力方法
+
+| 方法 | 返回 | 说明 |
+|------|------|------|
+| `supportsInputModality(modality)` | boolean | 是否支持某输入模态 |
+| `isVisionModel()` | boolean | `type === 'vlm'` 或 vision / image 模态 |
+| `isEmbeddingModel()` | boolean | `type === 'embeddings'` |
+| `isMultimodal()` | boolean | 多种模态 |
+| `supportsToolUse()` | boolean | `capabilities.toolUse && !isEmbedding` |
+| `supportsStreaming()` | boolean | `capabilities.streaming` |
+| `supportsJsonMode()` | boolean | `capabilities.jsonMode` |
+| `supportsReasoning()` | boolean | `capabilities.reasoning` |
+| `isLoaded()` | boolean | `state === 'loaded'` |
+| `getParamsString()` | string | 参数量或 `'Unknown'` |
+| `getQuantizationLabel()` | string | 标准化量化（`'4-bit'` / `'FP16'` / 原值） |
+| `getSizeLabel()` | string | 人类可读大小（`'4.2 GB'` / `'512 MB'`） |
+
+### 序列化
+
+`toJSON()` 同时输出 camelCase 和 snake_case 字段以兼容现有 UI：
+
+```json
+{
+  "id": "qwen2-vl-7b-instruct",
+  "name": "Qwen2-VL 7B Instruct",
+  "type": "vlm",
+  "capabilities": { "vision": true, "toolUse": true, ... },
+  "contextLength": 8192,
+  "context_length": 8192,
+  "input_modalities": ["text", "image"],
+  "modality": "text,image->text",
+  "supports_reasoning": true,
+  "supports_tools": true,
+  ...
+}
+```
 
 ---
 
-## Scripts (脚本)
+## ToolCall（工具调用意图）
 
-**文件**: `sidepanel/js/core/models/Scripts.js`
+**文件**：`sidepanel/js/core/models/ToolCall.js`
 
-管理用户脚本的元数据。
+**不可变**（`Object.freeze`）。表示"AI 在某轮希望执行什么工具"，是 `Message.toolCalls` 的子对象。
 
 ### 字段
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `id` | string | 脚本唯一标识符 |
-| `name` | string | 脚本名称 |
-| `code` | string | 脚本代码 |
-| `description` | string | 描述 |
-| `enabled` | boolean | 是否启用 |
-| `matchPatterns` | string[] | 匹配模式 |
-| `metadata` | object | 附加元数据 |
+| `id` | string | 唯一标识（`call_abc123`） |
+| `toolName` | string | 工具名（对应 `ToolDefinition.name`） |
+| `arguments` | object | 工具参数（**对象形式**，非 JSON 字符串） |
+
+> ⚠️ `arguments` 也会被冻结，构造时即不可变。
+
+### 方法
+
+| 方法 | 说明 |
+|------|------|
+| `toJSON()` | 输出 `{ id, toolName, arguments }` |
+| `static fromJSON(obj)` | 反序列化为 `ToolCall`（`null` 输入返回 `null`） |
+
+---
+
+## ToolResult（工具执行结果）
+
+**文件**：`sidepanel/js/core/models/ToolResult.js`
+
+**不可变**。表示"工具执行得到什么结果"。由 `IToolService.invoke()` 统一构造。
+
+### 字段
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `toolCallId` | string | 关联的 `ToolCall.id` |
+| `status` | string | `'success' \| 'failed' \| 'cancelled'` |
+| `output` | any | 执行输出（任意可序列化值，默认 `null`） |
+| `error` | string \| null | 错误消息（status='failed' 时） |
+| `duration` | number | 执行耗时（毫秒） |
+
+### 校验
+
+- `status === 'success'` 时 **不能** 同时有 `error`
+- `duration` 必须是非负数
+
+### 方法
+
+| 方法 | 说明 |
+|------|------|
+| `isSuccess()` / `isFailed()` / `isCancelled()` | 状态判断 |
+| `toJSON()` | 序列化（`null` 输出字段不输出） |
+| `static fromJSON(obj)` | 反序列化 |
+
+---
+
+## ToolDefinition（工具契约）
+
+**文件**：`sidepanel/js/core/models/ToolDefinition.js`
+
+**不可变**。声明工具的能力描述，供 LLM 识别。
+
+### 字段
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `name` | string | 工具唯一名 |
+| `description` | string | 工具描述（LLM 可见） |
+| `parameters` | object | JSON Schema（OpenAI function calling 格式） |
+| `requiresApproval` | boolean | 是否需用户确认（默认 `false`） |
+| `metadata` | object | 附加元数据（分类、图标等） |
+
+### 方法
+
+| 方法 | 说明 |
+|------|------|
+| `toOpenAIFunction()` | 序列化为 OpenAI 协议格式 `{ type: 'function', function: { name, description, parameters } }` |
+| `toJSON()` | 普通对象 |
+| `static fromJSON(obj)` | 反序列化 |
+
+---
+
+## MessageContent（消息内容与请求）
+
+**文件**：`sidepanel/js/core/models/MessageContent.js`
+
+**所有内容导出到 `window.MessageContent`**。
+
+### 内容块（Block）
+
+| 类 | 字段 | 用途 |
+|----|------|------|
+| `TextBlock` | `type='text'`, `text` | 纯文本 |
+| `ImageBlock` | `type='image'`, `source` | 图片（`{ type, media_type, data }`） |
+| `ToolUseBlock` | `type='tool_use'`, `id`, `name`, `input` | 工具调用意图 |
+| `ToolResultBlock` | `type='tool_result'`, `tool_use_id`, `content` | 工具结果 |
+| `ThinkingBlock` | `type='thinking'`, `thinking`, `signature` | 思考内容 |
+
+### `ThinkingConfig`（思考模式配置）
+
+```javascript
+new ThinkingConfig('medium') // 'off' | 'low' | 'medium' | 'high'
+// .effort = 'medium'
+// .enabled = true (when effort !== 'off')
+// .toAPIFormat() → { type: 'enabled', budget_tokens: 4000 } 或 null
+```
+
+### `MessagesRequest`（统一请求对象）
+
+```javascript
+new MessagesRequest({
+  model: 'gpt-4o',
+  messages: [Message, Message, ...],   // Message[] 内部对象
+  system: '...',                       // 可选
+  maxTokens: 2000,
+  temperature: 0.7,
+  stream: true,
+  thinking: ThinkingConfig | null,     // 思考模式
+  tools: [...],                        // OpenAI function calling 格式
+  metadata: {}
+})
+// .validate() 校验 model 与 messages 非空
+```
+
+### `MessageStructure`（协议转换工厂）
+
+业务层和 API 层之间的**唯一转换边界**：
+
+| 方法 | 输入 | 输出 | 说明 |
+|------|------|------|------|
+| `toAPIFormat(message, standard='openai')` | `Message` | OpenAI 协议字段 | 把 `toolCalls[]` 转为 `tool_calls`，把 `content` 数组转字符串等 |
+| `toOpenAIToolCall(toolCall)` | `ToolCall` | `{ id, type, function: { name, arguments } }` | 单个转换 |
+| `parseToolCallsFromOpenAI(openAIToolCalls)` | OpenAI `tool_calls` | `ToolCall[]` | 反向解析 |
+
+```javascript
+// 示例：组装 API 请求
+const apiMessages = session.messages.map(m => MessageStructure.toAPIFormat(m, 'openai'));
+const apiRequest = { model, messages: apiMessages, stream: true, tools: [...] };
+```
+
+### `MediaContent`（多媒体内容模型）
+
+```javascript
+MediaContent.createText('hello')
+MediaContent.createImage('data:image/png;base64,...')
+MediaContent.createImage('https://example.com/a.png') // 自动识别 data URL
+new MediaContent({ type, text, dataUrl, url, filename, mimeType, size, metadata })
+// .fromJSON(obj)
+```
+
+---
+
+## Storage / Scripts（实用模型）
+
+### Storage
+
+**文件**：`sidepanel/js/core/models/Storage.js`
+
+直接导出**单例** `window.StorageModel`，封装 `chrome.storage.local` 并提供内存缓存。
+
+| 方法 | 说明 |
+|------|------|
+| `get(key)` / `getAll()` / `set(key, value)` / `remove(key)` / `clear()` | 基础 KV |
+| `search(keyword)` | 按关键词（key 或 value 序列化文本）模糊搜索 |
+| `getStats()` | `{ totalItems, totalSize, totalSizeKB, largestItem }` |
+| `setCache(key, value, ttl=30天)` | 带过期时间的缓存（key 前缀 `cache:`） |
+| `getCache(key)` / `getCacheSync(key)` / `removeCache(key)` / `clearAllCache()` | 缓存 CRUD（含同步读取的懒加载回填） |
+| `hasValidCache(key)` | 缓存是否存在且有效 |
+
+### Scripts
+
+**文件**：`sidepanel/js/core/models/Scripts.js`
+
+直接导出**单例** `window.ScriptsModel`，管理 Tampermonkey 风格的 `user_scripts`。
+
+| 方法 | 说明 |
+|------|------|
+| `parseMetadata(code)` | 解析 `==UserScript==` 块，提取 `name / namespace / version / description / author / match[] / grant[]` |
+| `getAll()` / `getById(id)` / `save(scripts)` | 列表 CRUD |
+| `install(code)` | 解析元数据 + 生成 id + 追加到列表 |
+| `updateCode(id, code)` | 更新代码（重新解析元数据） |
+| `toggle(id, enabled)` | 启用/禁用 |
+| `remove(id)` | 删除 |
+
+脚本数据结构（持久化形态）：
+
+```json
+{
+  "id": "script_1713369600_xyz",
+  "name": "示例脚本",
+  "namespace": "user",
+  "version": "1.0.0",
+  "description": "...",
+  "author": "...",
+  "match": ["https://example.com/*"],
+  "grant": ["GM_setValue"],
+  "enabled": true,
+  "code": "...",
+  "createdAt": 1713369600000,
+  "updatedAt": 1713369700000
+}
+```
+
+存储键：`user_scripts`（数组）。
 
 ---
 
 ## 模型关系图
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    Session                          │
-│  ┌─────────────────────────────────────────────┐    │
-│  │  messages: [Message, Message, Message, ...] │    │
-│  │                                             │    │
-│  │  Message                                     │    │
-│  │  ───────────────────────────────────────┐  │    │
-│  │  │  role: 'user'/'assistant'/'tool'      │  │    │
-│  │  │  content: string                       │  │    │
-│  │  │  tool_calls: [...]                     │  │    │
-│  │  │  reasoning_content: string             │  │    │
-│  │  └───────────────────────────────────────┘  │    │
-│  └─────────────────────────────────────────────┘    │
-│                                                     │
-│  title: string                                      │
-│  createdAt: timestamp                               │
-│  updatedAt: timestamp                               │
-─────────────────────────────────────────────────────┘
+                    Session (id, title, messages, reasoningEffort)
+                       │
+                       │ 1
+                       │
+                       │ N
+                       ▼
+                    Message (id, role, content, reasoning_content, toolCallId)
+                       │
+                       │ 0..N (子对象)
+                       ▼
+                    ToolCall[] (id, toolName, arguments)
+                       │
+                       │ 1
+                       │
+                       │ 0..1
+                       ▼
+                    ToolResult (toolCallId, status, output, error, duration)
+                    ⚠️ 不直接挂在 Session 上，由 ChatController 按"消息流"
+                       写一条 role=tool 的 Message 来表达结果
 
-┌─────────────────────────────────────────────────────┐
-│                    Settings                         │
-│  apiStandard: 'openai'/'lm-studio'/...              │
-│  apiEndpoint: string                                │
-│  apiKey: string                                     │
-│  model: string                                      │
-│  theme: 'light'/'dark'                              │
-─────────────────────────────────────────────────────┘
+独立单例：
+  Settings   ──── 全局一份（id='global_settings'）
+  Model      ──── 来自 Provider /api/v1/models
+  StorageModel / ScriptsModel  ──── chrome.storage.local 单例
 ```
 
 ---
 
 ## 序列化与持久化
 
-### 持久化流程
+### 流程
 
 ```
-Session/Message/Settings
-        │
-        ▼ toJSON()
-    纯 JSON 对象
-        │
-        ▼ chrome.storage.local.set()
-    浏览器存储
-        │
-        ▼ chrome.storage.local.get()
-    纯 JSON 对象
-        │
-        ▼ Session.fromJSON() / Message.fromJSON()
-    模型实例
+Model 实例
+   │  toJSON()
+   ▼
+纯 JSON 对象（去除运行时字段、冻结对象正确序列化）
+   │
+   ▼
+chrome.storage.local.set({ key: json })
+   │
+   ▼ （重启后）
+chrome.storage.local.get(key)
+   │
+   ▼
+Model.fromJSON(json)  // 或 new Model(json)
+   │
+   ▼
+Model 实例
 ```
 
 ### 注意事项
 
-1. **Message** 和 **Session** 支持双向序列化
-2. **Settings** 在 `app.js` 初始化时从 `chrome.storage.local` 加载
-3. **Session** 在 `SessionManager` 中管理持久化
-4. 运行时状态（如 `port`, `isStreaming`）不会被持久化
+1. **Message**、**Session**、**Settings**、**Model** 全部支持双向序列化
+2. **运行时字段**（`Session.isStreaming` / `Session.port`）和 **未设置的 null 字段**（如空字符串的 `reasoning_content`）**不会** 出现在 `toJSON()` 中
+3. **不可变对象**（`ToolCall` / `ToolResult` / `ToolDefinition`）依赖构造函数参数 `fromJSON` 重建，不依赖原型方法修改
+4. **Settings** 在 `app.js` 初始化时通过 `SettingsManager.loadSettings()` 加载
+5. **Session** 在 `SessionManager` 中管理持久化
+6. **缓存**统一以 `cache:` 为前缀存储，便于 `StoragePage` 清理
