@@ -1,6 +1,164 @@
-/* ==================== 聊天相关组件 ==================== */
+/* =================================================================
+ * chat-components.css
+ *
+ * 设计哲学：
+ *   先建立基础原子（utility primitives），所有工具 / 面板 / 卡片
+ *   都通过「组合」这些原子实现，避免重复声明 padding / border / 动效。
+ *
+ *   原子清单：
+ *     .pill             — 胶囊形按钮基类
+ *       .pill--muted    — 描边灰（默认/禁用）
+ *       .pill--primary  — 实心蓝（输入区工具开关激活）
+ *       .pill--success  — 实心绿（启用）
+ *       .pill--danger   — 实心红（危险）
+ *     .status-card      — 左侧 3px 色条卡片基类
+ *       .status-card--neutral / --primary / --success / --danger / --warning
+ *     .panel-surface    — 浮起容器
+ *     .mono-text        — 等宽字
+ *     .status-dot       — 状态圆点
+ *       .status-dot--success / --danger / --warning / --running
+ * ================================================================= */
 
-/* 消息气泡删除按钮（公共组件） */
+/* =================================================================
+ * 0. 基础原子
+ * ================================================================= */
+
+.panel-surface {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.mono-text {
+  font-family: Consolas, Monaco, "SF Mono", Menlo, monospace;
+  letter-spacing: 0.2px;
+}
+
+/* .pill —— 胶囊按钮基类，统一定义形态/动效，变体仅切换配色 */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 3px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition: background 0.2s ease, color 0.2s ease,
+              border-color 0.2s ease, box-shadow 0.2s ease,
+              transform 0.15s ease;
+}
+.pill:hover { transform: translateY(-1px); }
+.pill:active { transform: translateY(0); }
+
+.pill--muted {
+  background: var(--color-bg);
+  border-color: var(--color-border);
+  color: var(--color-text-secondary);
+}
+.pill--muted:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  box-shadow: 0 1px 4px rgba(var(--color-primary-rgb), 0.18);
+}
+.pill--primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(var(--color-primary-rgb), 0.32);
+}
+.pill--primary:hover {
+  filter: brightness(1.06);
+  box-shadow: 0 3px 10px rgba(var(--color-primary-rgb), 0.40);
+}
+.pill--success {
+  background: var(--color-success);
+  border-color: var(--color-success);
+  color: #fff;
+  box-shadow: 0 1px 4px rgba(var(--color-success-rgb), 0.32);
+}
+.pill--success:hover {
+  filter: brightness(1.06);
+  box-shadow: 0 2px 6px rgba(var(--color-success-rgb), 0.40);
+}
+.pill--danger {
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: #fff;
+}
+.pill--danger:hover {
+  filter: brightness(1.06);
+  box-shadow: 0 1px 4px rgba(var(--color-danger-rgb), 0.32);
+}
+
+/* .status-card —— 左侧 3px 色条卡片 */
+.status-card {
+  padding: 8px 10px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-text-hint);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--color-text);
+  transition: box-shadow 0.2s ease, background 0.2s ease,
+              border-color 0.2s ease;
+}
+.status-card--neutral  { border-left-color: var(--color-text-hint); }
+.status-card--primary  { border-left-color: var(--color-primary); }
+.status-card--primary:hover {
+  box-shadow: 0 2px 8px rgba(var(--color-primary-rgb), 0.10);
+}
+.status-card--success {
+  background: var(--color-success-light);
+  border-color: rgba(var(--color-success-rgb), 0.32);
+  border-left-color: var(--color-success);
+}
+.status-card--danger {
+  background: var(--color-danger-light);
+  border-color: rgba(var(--color-danger-rgb), 0.32);
+  border-left-color: var(--color-danger);
+}
+.status-card--warning {
+  background: rgba(255, 152, 0, 0.06);
+  border-color: rgba(255, 152, 0, 0.32);
+  border-left-color: var(--color-warning);
+}
+
+/* .status-dot —— 状态圆点 */
+.status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-text-hint);
+  flex-shrink: 0;
+}
+.status-dot--success { background: var(--color-success); }
+.status-dot--danger  { background: var(--color-danger); }
+.status-dot--warning { background: var(--color-warning); }
+.status-dot--running {
+  background: var(--color-primary);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.55; transform: scale(0.85); }
+}
+
+/* =================================================================
+ * 1. 消息气泡
+ * ================================================================= */
+
 .message-delete-btn {
   position: absolute;
   top: -8px;
@@ -10,7 +168,7 @@
   border-radius: 50%;
   width: 22px;
   height: 22px;
-  min-width: 22px; /* 强制圆形 */
+  min-width: 22px;
   padding: 0;
   color: var(--color-text-secondary);
   font-size: 14px;
@@ -21,73 +179,86 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
-
-.message-bubble:hover .message-delete-btn {
-  opacity: 1;
-}
-
+.message-bubble:hover .message-delete-btn { opacity: 1; }
 .message-delete-btn:hover {
   background: var(--color-danger);
-  color: white;
+  color: #fff;
   border-color: var(--color-danger);
   transform: scale(1.1);
 }
+[data-theme="dark"] .message-delete-btn { background: rgba(30, 30, 30, 0.9); }
 
-[data-theme="dark"] .message-delete-btn {
-  background: rgba(30, 30, 30, 0.9);
-}
-
-/* 消息气泡容器 */
+/* 气泡基本形态（两种对齐） */
 .message-bubble {
   position: relative;
   margin-bottom: 8px;
-  padding: 8px 12px;
+  padding: 10px 14px;
   border-radius: 12px;
   background: var(--color-surface);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   max-width: 85%;
+  min-width: 280px;          /* 保证短内容也拉宽占住空间 */
   word-wrap: break-word;
   word-break: break-word;
   overflow-wrap: break-word;
   hyphens: auto;
+  box-sizing: border-box;
+}
+.message-bubble .message-body { min-width: 0; }
+
+/* 基本风格 1：左对齐（默认；assistant / tool 使用） */
+.message-bubble--left,
+.message-bubble.message-assistant,
+.message-bubble.message-tool,
+.message-bubble.message-system {
+  margin-left: 0;
+  margin-right: auto;
 }
 
+.message-bubble.message-tool {
+  max-width: 85%;
+  min-width: 280px;
+  width: auto;
+}
+
+.message-bubble.message-tool .tool-result-output,
+.message-bubble.message-tool .tool-result-pre {
+  max-width: 100%;
+}
+
+/* 基本风格 2：右对齐（user 使用） */
+.message-bubble--right,
 .message-bubble.message-user {
   margin-left: auto;
+  margin-right: 0;
+}
+
+/* 语义颜色（仅调色，不改对齐） */
+.message-bubble.message-user {
   background: var(--color-primary-light);
   border: 1px solid var(--color-primary);
   color: var(--color-text);
 }
-
 .message-bubble.message-user .message-content,
 .message-bubble.message-user .message-role {
   color: var(--color-text) !important;
 }
-
-.message-bubble.message-assistant {
-  margin-right: auto;
+.message-bubble.message-assistant,
+.message-bubble.message-tool {
   border: 1px solid var(--color-border);
+  background: var(--color-bg);
 }
+.message-body { position: relative; padding: 4px 0; }
 
-/* 消息主体内容区域 */
-.message-body {
-  position: relative;
-  padding: 4px 0;
-}
-
-/* 思考过程容器 */
 .message-reasoning {
   margin-bottom: 8px;
   padding: 8px;
   background: var(--color-surface);
-  border-radius: 6px;
   border-left: 3px solid var(--color-primary);
   cursor: pointer;
 }
-
-/* 思考过程头部（标题栏） */
 .reasoning-header {
   font-size: 12px;
   color: var(--color-text-secondary);
@@ -100,13 +271,7 @@
   cursor: pointer;
   transition: background 0.2s;
 }
-
-.reasoning-header:hover {
-  background: var(--color-border);
-  border-radius: 4px;
-}
-
-/* 思考过程内容区域 */
+.reasoning-header:hover { background: var(--color-border); border-radius: 4px; }
 .reasoning-content {
   font-size: 12px;
   color: var(--color-text-secondary);
@@ -117,15 +282,12 @@
   hyphens: auto;
   line-height: 1.6;
 }
-
-/* 思考过程展开/收起按钮 */
 .reasoning-toggle {
   font-size: 10px;
   transition: transform 0.2s;
   user-select: none;
 }
 
-/* RAG 组件样式 */
 .rag-sources-container,
 .rag-context-container,
 .citations-container {
@@ -134,7 +296,6 @@
   border-radius: 8px;
   overflow: hidden;
 }
-
 .rag-sources-header,
 .rag-context-header,
 .citations-header {
@@ -147,11 +308,7 @@
   gap: 6px;
   cursor: pointer;
 }
-
-.rag-sources-list {
-  padding: 8px;
-}
-
+.rag-sources-list { padding: 8px; }
 .rag-source-item {
   display: flex;
   align-items: center;
@@ -162,16 +319,8 @@
   border-radius: 6px;
   transition: background 0.2s;
 }
-
-.rag-source-item:hover {
-  background: var(--color-primary-light);
-}
-
-.source-info {
-  flex: 1;
-  min-width: 0;
-}
-
+.rag-source-item:hover { background: var(--color-primary-light); }
+.source-info { flex: 1; min-width: 0; }
 .source-title {
   font-size: 13px;
   font-weight: 500;
@@ -180,14 +329,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
 .source-meta {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   font-size: 11px;
   color: var(--color-text-secondary);
 }
-
 .rag-context-content {
   padding: 12px;
   font-size: 13px;
@@ -197,40 +344,18 @@
   background: var(--color-bg);
 }
 
-/* 引用标注样式 */
-.citations-list {
-  list-style: none;
-  padding: 8px 12px;
-  margin: 0;
-}
-
+.citations-list { list-style: none; padding: 8px 12px; margin: 0; }
 .citation-item {
   padding: 6px 0;
   font-size: 13px;
   line-height: 1.5;
   border-bottom: 1px solid var(--color-border);
 }
+.citation-item:last-child { border-bottom: none; }
+.citation-number { font-weight: bold; color: var(--color-primary); margin-right: 6px; }
+.citation-text { color: var(--color-text); }
+.citation-source { color: var(--color-text-secondary); font-size: 12px; }
 
-.citation-item:last-child {
-  border-bottom: none;
-}
-
-.citation-number {
-  font-weight: bold;
-  color: var(--color-primary);
-  margin-right: 8px;
-}
-
-.citation-text {
-  color: var(--color-text);
-}
-
-.citation-source {
-  color: var(--color-text-secondary);
-  font-size: 12px;
-}
-
-/* 思考和工具调用指示器 */
 .thinking-indicator,
 .tool-call-indicator {
   padding: 4px 8px;
@@ -242,19 +367,12 @@
   animation: pulse 2s ease-in-out infinite;
 }
 
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
-}
-
-/* 思考过程容器 */
 .thinking-container {
   margin: 8px 0;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   overflow: hidden;
 }
-
 .thinking-header {
   padding: 8px 12px;
   background: var(--color-surface);
@@ -266,11 +384,7 @@
   cursor: pointer;
   transition: background 0.2s;
 }
-
-.thinking-header:hover {
-  background: var(--color-border);
-}
-
+.thinking-header:hover { background: var(--color-border); }
 .thinking-title {
   display: flex;
   align-items: center;
@@ -279,15 +393,8 @@
   font-weight: 500;
   font-size: 13px;
 }
-
-.thinking-icon {
-  font-size: 14px;
-}
-
-.thinking-label {
-  font-size: 13px;
-}
-
+.thinking-icon { font-size: 14px; }
+.thinking-label { font-size: 13px; }
 .thinking-toggle {
   margin-left: auto;
   background: none;
@@ -299,12 +406,10 @@
   border-radius: 3px;
   transition: all 0.2s;
 }
-
 .thinking-toggle:hover {
   background: var(--color-primary-light);
   color: var(--color-primary);
 }
-
 .thinking-content {
   padding: 12px;
   font-size: 13px;
@@ -315,132 +420,391 @@
   white-space: pre-wrap;
 }
 
-/* 工具调用容器 */
+/* =================================================================
+ * 2. 工具调用与结果（全部由原子组合）
+ * ================================================================= */
+
 .tool-calls-container {
   margin: 8px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.tool-call-box {
-  padding: 8px 12px;
-  background: var(--color-primary-light);
-  border-radius: 6px;
-  margin-bottom: 4px;
-  font-size: 12px;
-  border-left: 3px solid var(--color-primary);
-}
-
-/* 工具调用卡片 */
-.tool-call-card {
+/* 2.1 工具调用卡片：复合 .status-card + --primary */
+.tool-card {
   padding: 8px 10px;
-  background: var(--color-surface);
-  border-radius: 6px;
-  margin-bottom: 6px;
+  background: var(--color-bg);
   border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-primary);
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: box-shadow 0.2s ease;
 }
+.tool-card:hover { box-shadow: 0 2px 8px rgba(var(--color-primary-rgb), 0.10); }
 
-.tool-call-header {
+.tool-card-header {
   display: flex;
   align-items: center;
   gap: 6px;
   margin-bottom: 6px;
+  user-select: none;
 }
-
-.tool-call-name {
+.tool-card-icon {
+  font-size: 13px;
+  line-height: 1;
+  flex-shrink: 0;
+  filter: saturate(1.1);
+}
+.tool-card-name {
   flex: 1;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--color-text);
+  font-family: Consolas, Monaco, "SF Mono", Menlo, monospace;
+  letter-spacing: 0.2px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 0.2s ease;
 }
-
-.tool-call-params {
-  margin-bottom: 6px;
-  padding: 6px 8px;
-  background: var(--color-bg);
-  border-radius: 4px;
-  font-size: 10px;
-  font-family: Consolas, Monaco, monospace;
-  white-space: pre-wrap;
-  word-break: break-all;
-  line-height: 1.5;
-  color: var(--color-text-secondary);
-  border: 1px solid var(--color-border);
-}
-
-.tool-call-result {
-  margin-bottom: 0;
-}
-
-.tool-call-result summary {
-  cursor: pointer;
+.tool-card-args {
   font-size: 11px;
-  font-weight: 500;
-  padding: 4px 6px;
-  border-radius: 4px;
-  transition: background 0.2s;
-  outline: none;
-  list-style: none;
+  color: var(--color-text-secondary);
+  font-family: Consolas, Monaco, "SF Mono", Menlo, monospace;
+  letter-spacing: 0.2px;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
-.tool-call-result summary.success {
-  color: var(--color-success);
-  background: var(--color-success-light);
-}
-
-.tool-call-result summary.error {
-  color: var(--color-danger);
-  background: var(--color-danger-light);
-}
-
-.tool-call-result summary:hover.success {
-  background: rgba(var(--color-success-rgb), 0.15);
-}
-
-.tool-call-result summary:hover.error {
-  background: rgba(var(--color-danger-rgb), 0.15);
-}
-
-.tool-call-result-content {
-  margin-top: 4px;
-  padding: 6px 8px;
-  background: var(--color-bg);
-  border-radius: 4px;
-  font-size: 10px;
-  line-height: 1.5;
-  color: var(--color-text);
+.tool-args-body pre,
+.tool-args-body code {
+  background: var(--color-surface);
   border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--color-text);
+  padding: 8px 10px;
+  margin: 4px 0 0;
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
   max-height: 200px;
   overflow: auto;
 }
-
-.tool-call-result-content.error {
-  color: #dc2626;
-  font-family: Consolas, Monaco, monospace;
+[data-theme="dark"] .tool-args-body pre,
+[data-theme="dark"] .tool-args-body code {
+  background: rgba(255, 255, 255, 0.04);
 }
 
-/* 工具调用 spinner */
+/* 2.2 工具结果卡片：复合 .status-card
+ *     由 JS 追加 .status-card--success / --danger / --warning 实现状态色
+ *     无需重复声明 .tool-result-success / --failed / --cancelled
+ */
+.tool-card-result {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-text-hint);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--color-text);
+}
+.tool-card-result.status-card--success {
+  background: var(--color-success-light);
+  border-color: rgba(var(--color-success-rgb), 0.32);
+  border-left-color: var(--color-success);
+}
+.tool-card-result.status-card--danger {
+  background: var(--color-danger-light);
+  border-color: rgba(var(--color-danger-rgb), 0.32);
+  border-left-color: var(--color-danger);
+}
+.tool-card-result.status-card--warning {
+  background: rgba(255, 152, 0, 0.06);
+  border-color: rgba(255, 152, 0, 0.32);
+  border-left-color: var(--color-warning);
+}
+
+.tool-result-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.tool-result-duration {
+  margin-left: auto;
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  font-family: Consolas, Monaco, "SF Mono", Menlo, monospace;
+}
+.message-bubble.message-tool .tool-result-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  margin-bottom: 8px;
+}
+.message-bubble.message-tool .tool-result-toggle {
+  transition: transform 0.2s ease;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+.message-bubble.message-tool .tool-result-body {
+  display: block;
+}
+.message-bubble.message-tool .tool-result-body.collapsed {
+  display: none;
+}
+.tool-result-error {
+  margin-top: 4px;
+  padding: 6px 8px;
+  background: rgba(var(--color-danger-rgb), 0.10);
+  border-radius: 4px;
+  color: var(--color-danger);
+  font-family: Consolas, Monaco, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.tool-result-output {
+  margin-top: 4px;
+  padding: 6px 8px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-family: Consolas, Monaco, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--color-text);
+  max-height: 180px;
+  overflow: auto;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+[data-theme="dark"] .tool-result-output {
+  background: rgba(255, 255, 255, 0.04);
+}
+
 .tool-call-spinner {
   display: inline-block;
   width: 10px;
   height: 10px;
-  border: 2px solid #3b82f6;
+  border: 2px solid var(--color-primary);
   border-top-color: transparent;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
+@keyframes spin { to { transform: rotate(360deg); } }
 
-/* 代码执行结果样式 */
+/* =================================================================
+ * 3. 工具面板（输入区上方）
+ * ================================================================= */
+
+.tool-panel {
+  margin-bottom: 10px;
+  padding: 10px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  max-height: 320px;
+  overflow-y: auto;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+}
+.tool-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-bottom: 10px;
+  padding: 0 2px;
+  letter-spacing: 0.2px;
+}
+.tool-panel-empty {
+  text-align: center;
+  padding: 20px 12px;
+  color: var(--color-text-hint);
+  font-size: 12px;
+  background: var(--color-surface);
+  border: 1px dashed var(--color-border);
+  border-radius: 8px;
+}
+.tool-panel-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  margin-bottom: 6px;
+  background: var(--color-surface);
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  transition: background 0.2s ease, border-color 0.2s ease,
+              box-shadow 0.2s ease, transform 0.15s ease;
+}
+.tool-panel-item:last-child { margin-bottom: 0; }
+.tool-panel-item:hover {
+  background: var(--color-bg);
+  border-color: rgba(var(--color-primary-rgb), 0.32);
+  box-shadow: 0 2px 6px rgba(var(--color-primary-rgb), 0.08);
+  transform: translateY(-1px);
+}
+.tool-panel-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tool-panel-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text);
+  font-family: Consolas, Monaco, "SF Mono", Menlo, monospace;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tool-panel-desc {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 工具按钮共享形态：输入区开关 + 面板内启用开关，同为胶囊 */
+.btn-tool-toggle,
+.tool-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition: background 0.2s ease, color 0.2s ease,
+              border-color 0.2s ease, box-shadow 0.2s ease,
+              transform 0.15s ease;
+}
+.btn-tool-toggle:hover,
+.tool-toggle-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  transform: translateY(-1px);
+  box-shadow: 0 1px 4px rgba(var(--color-primary-rgb), 0.18);
+}
+.btn-tool-toggle:active,
+.tool-toggle-btn:active { transform: translateY(0); }
+
+/* 输入区开关（顶部“⛒ 工具”）：明显更大 */
+.btn-tool-toggle {
+  min-width: 96px;
+  height: 34px;
+  padding: 7px 18px;
+  font-size: 13px;
+  align-self: flex-end;
+  margin-bottom: 2px;
+}
+.btn-tool-toggle.active {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(var(--color-primary-rgb), 0.32);
+}
+.btn-tool-toggle.active:hover {
+  background: var(--color-primary);
+  color: #fff;
+  filter: brightness(1.06);
+}
+
+/* 面板内的单工具启用/禁用按钮：更紧凑 */
+.tool-toggle-btn {
+  min-width: 60px;
+  padding: 4px 12px;
+  font-size: 11px;
+}
+.tool-toggle-btn.btn-success {
+  background: var(--color-success);
+  border-color: var(--color-success);
+  color: #fff;
+  box-shadow: 0 1px 4px rgba(var(--color-success-rgb), 0.32);
+}
+.tool-toggle-btn.btn-success:hover {
+  background: var(--color-success);
+  color: #fff;
+  filter: brightness(1.06);
+}
+
+/* 工具执行进度区 */
+.tool-progress-area {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+  max-height: 160px;
+  overflow-y: auto;
+}
+.tool-progress-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-border);
+}
+.tool-progress-entry:last-child { border-bottom: none; }
+.tool-progress-text {
+  font-family: Consolas, Monaco, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+/* =================================================================
+ * 4. 代码执行结果（不与工具重适用，复用 .panel-surface）
+ * ================================================================= */
 .js-code-result-container {
   margin: 8px 0;
+  background: var(--color-bg);
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   overflow: hidden;
 }
-
 .result-section,
-.error-section {
-  border-top: 1px solid var(--color-border);
-}
-
+.error-section { border-top: 1px solid var(--color-border); }
 .result-header,
 .error-header {
   padding: 8px 12px;
@@ -451,7 +815,6 @@
   align-items: center;
   gap: 6px;
 }
-
 .result-content {
   padding: 12px;
   font-size: 13px;
@@ -460,35 +823,34 @@
   overflow-x: auto;
   white-space: pre-wrap;
 }
-
 .error-content {
   padding: 12px;
   font-size: 13px;
   line-height: 1.6;
-  background: #ffebee;
-  color: #c62828;
+  background: var(--color-danger-light);
+  color: var(--color-danger);
 }
-
 [data-theme="dark"] .error-content {
-  background: #3e2723;
+  background: rgba(229, 115, 115, 0.10);
   color: #ef9a9a;
 }
 
-/* 思考强度选择器浮窗 */
+/* =================================================================
+ * 5. 思考强度选择器
+ * ================================================================= */
 .reasoning-effort-selector {
   position: absolute;
   top: 100%;
   right: 0;
-  background: var(--color-surface);
+  background: var(--color-bg);
   border: 1px solid var(--color-border);
   border-radius: 8px;
   padding: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   z-index: 1000;
-  minWidth: 100px;
+  min-width: 100px;
   margin-top: 4px;
 }
-
 .effort-option {
   padding: 6px 12px;
   cursor: pointer;
@@ -498,135 +860,68 @@
   color: var(--color-text);
   white-space: nowrap;
 }
-
-.effort-option:hover {
-  background: var(--color-bg-hover);
-}
-
+.effort-option:hover { background: var(--color-primary-light); }
 .effort-option.active {
   background: var(--color-primary-light);
   color: var(--color-primary);
   font-weight: 500;
 }
 
-/* ==================== 工具面板（输入区上方） ==================== */
-
-.btn-tool-toggle {
-  padding: 4px 10px;
-  font-size: 12px;
-  border: 1px solid var(--color-border, #e5e5e5);
-  background: var(--color-surface, #fff);
-  white-space: nowrap;
-  flex-shrink: 0;
-  height: fit-content;
-  align-self: flex-end;
-  margin-bottom: 2px;
-}
-
-.btn-tool-toggle.active {
-  background: var(--color-primary-light, #e3f2fd);
-  border-color: var(--color-primary, #3b82f6);
-  color: var(--color-primary, #3b82f6);
-}
-
-.tool-panel {
-  margin-bottom: 8px;
-  padding: 8px;
-  background: var(--color-bg, #fafafa);
-  border: 1px solid var(--color-border, #e5e5e5);
-  border-radius: 6px;
-  max-height: 320px;
-  overflow-y: auto;
-}
-
-.tool-panel-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--color-text-secondary, #666);
-  margin-bottom: 8px;
-  padding: 0 4px;
-}
-
-.tool-panel-empty {
-  text-align: center;
-  padding: 12px;
-  color: var(--color-text-secondary, #999);
-  font-size: 12px;
-}
-
-.tool-panel-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 6px 8px;
+/* =================================================================
+ * 6. 工具结果（role=tool）消息气泡：复用 assistant 的代码块容器
+ *    复用 markdown.css 中的 .message-content pre / code 样式，
+ *    只需保证 <pre> 不捚破容器、long token 折行、过高可滚动。
+ * ================================================================= */
+.message-bubble.message-tool .tool-result-label {
+  font-family: Consolas, Monaco, "SF Mono", Menlo, monospace;
+  font-size: 10px;
+  color: var(--color-text-secondary);
   margin-bottom: 4px;
-  background: var(--color-surface, #fff);
-  border-radius: 4px;
-  border: 1px solid var(--color-border, #e5e5e5);
-  transition: background 0.15s;
+  overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
-.tool-panel-item:hover {
-  background: var(--color-bg, #f5f5f5);
-}
-
-.tool-panel-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.tool-panel-name {
+/* 工具结果文本（不以代码块呈现时） */
+.message-bubble.message-tool .tool-result-content {
   font-size: 12px;
-  font-weight: 600;
-  color: var(--color-text, #333);
-  font-family: monospace;
+  line-height: 1.55;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  max-width: 100%;
 }
 
-.tool-panel-desc {
-  font-size: 11px;
-  color: var(--color-text-secondary, #888);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* 工具结果 <pre>（与 assistant 消息的代码块风格一致） */
+.message-bubble.message-tool .tool-result-pre {
+  margin: 0;
+  padding: 8px 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-family: Consolas, Monaco, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  max-width: 100%;
+  max-height: 320px;
+  overflow: auto;
+}
+[data-theme="dark"] .message-bubble.message-tool .tool-result-pre {
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--color-text);
 }
 
-.tool-toggle-btn {
-  padding: 2px 10px;
-  font-size: 11px;
-  flex-shrink: 0;
+/* 工具结果中的 <code> 标签（inline code） */
+.message-bubble.message-tool code {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-family: Consolas, Monaco, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  color: var(--color-primary);
 }
-
-.tool-progress-area {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--color-border, #e5e5e5);
-  max-height: 160px;
-  overflow-y: auto;
-}
-
-.tool-progress-entry {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  font-size: 11px;
-  color: var(--color-text-secondary, #666);
-  border-bottom: 1px solid var(--color-border, #eee);
-}
-
-.tool-progress-entry:last-child {
-  border-bottom: none;
-}
-
-.tool-progress-text {
-  font-family: monospace;
-  font-size: 11px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-

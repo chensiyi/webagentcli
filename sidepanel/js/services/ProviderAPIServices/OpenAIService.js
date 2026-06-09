@@ -256,7 +256,7 @@ class OpenAIService extends window.IProviderAPIService {
       id: m.id, name: m.name || m.id, created: m.created,
       owned_by: m.owned_by, context_length: m.context_length || null,
       max_output_tokens: m.max_output_tokens || null,
-      modality: 'text->text', supports_reasoning: false, supports_tools: true,
+      modality: 'text->text', supports_reasoning: this._detectReasoningSupport(m.id), supports_tools: true,
       pricing: { prompt: null, completion: null }, ...m
     })));
   }
@@ -269,9 +269,20 @@ class OpenAIService extends window.IProviderAPIService {
     .then(m => m ? {
       id: m.id, name: m.name || m.id, created: m.created, owned_by: m.owned_by,
       context_length: m.context_length || null, max_output_tokens: m.max_output_tokens || null,
-      modality: 'text->text', supports_reasoning: false, supports_tools: true,
+      modality: 'text->text', supports_reasoning: this._detectReasoningSupport(m.id), supports_tools: true,
       pricing: { prompt: null, completion: null }, ...m
     } : null);
+  }
+
+  /**
+   * 检测 OpenAI 模型是否支持推理能力
+   * @private
+   */
+  _detectReasoningSupport(modelId) {
+    const id = modelId.toLowerCase();
+    return id.includes('o1') || id.includes('o3') || 
+           id.includes('reasoning') || id.includes('think') ||
+           id.includes('r1'); // DeepSeek-R1 compatibility
   }
 }
 
