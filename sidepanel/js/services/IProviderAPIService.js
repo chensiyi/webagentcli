@@ -23,6 +23,17 @@ class IProviderAPIService {
     this.name = 'unknown';
     this.config = null;
     this.abortController = null;
+
+    // === Provider 端前缀缓存支持 ===
+    // 按 sessionId 作为 cache key，Provider 可以在会话多轮交互中复用前缀 KV 缓存
+    // - 命中后 token 成本与首 token 延迟可下降 50-90%
+    // - 默认开启，Provider 内部决定是否可应用
+    this.cacheOptions = {
+      enabled: true,         // 是否启用缓存
+      sessionCacheKey: null, // 调用时由 ChatController 注入
+      ttlSeconds: 600,       // 缓存生存时间（各 Provider 实现可调整）
+      minPrefixTokens: 1024  // 小于此 token 数的前缀不缓存，避免不划算
+    };
   }
 
   /**

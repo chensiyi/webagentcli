@@ -19,11 +19,17 @@ class SessionManager extends window.ISessionManager {
    */
   constructor(eventBus, storage = null) {
     super(eventBus, storage);
-    
+
     // 内存中的会话缓存
     this.sessions = new Map(); // sessionId -> Session
     this.currentSessionId = null;
-    
+
+    // === 流式写入合并：防抖持久化 ===
+    // 避免每个 chunk 都触发一次 chrome.storage.local.set
+    this._pendingStreamWrites = new Map(); // sessionId → { content, reasoning_content, dirty, timer }
+    this._streamFlushInterval = 250; // ms
+    this._streamFlushTimer = null;
+
     console.log('[SessionManager] Initialized');
   }
 
@@ -315,8 +321,15 @@ class SessionManager extends window.ISessionManager {
   }
 
   /**
-   * 流式分片更新目标会话中的消息内容
-   * @param {string} messageId 
+   * 流式分片更新目标会话中的消息内容（**带防抖批量持久化**）
+   *
+   * 优化点：
+   * 1. 内存中立即追加 chunk（保证 UI 实时）
+   * 2. 持久化推迟到 _streamFlushInterval (默认 250ms) 后的下一个静默期
+   * 3. 避免每个 chunk 触发一次 chrome.storage.local.set
+   * 4. 多个会话并发流式时按 sessionId 隔离，不会互相覆盖
+   *
+   * @param {string} messageId
    * @param {Object} chunk - { content?: string, reasoning_content?: string }
    * @param {string|null} [sessionId]
    * @returns {boolean}
@@ -327,23 +340,68 @@ class SessionManager extends window.ISessionManager {
       console.warn('[SessionManager] No target session');
       return false;
     }
-    
-    // 使用 updateMessage 来更新消息
+
+    // 1. 内存中立即追加（保证 UI 实时反应）
     const result = session.updateMessage(messageId, (message) => {
-      // 追加内容
       if (chunk.content) {
         message.content = (message.content || '') + chunk.content;
       }
-      // 追加推理内容
       if (chunk.reasoning_content) {
         message.reasoning_content = (message.reasoning_content || '') + chunk.reasoning_content;
       }
     });
-    
-    if (result) {
-      this._saveSessions();
+
+    if (!result) return false;
+
+    // 2. 注册一个待刷新项（按 sessionId 隔离）
+    let pending = this._pendingStreamWrites.get(session.id);
+    if (!pending) {
+      pending = { messageIds: new Set(), timer: null };
+      this._pendingStreamWrites.set(session.id, pending);
     }
-    return result;
+    pending.messageIds.add(messageId);
+
+    // 3. 重置定时器（防抖）
+    if (pending.timer) clearTimeout(pending.timer);
+    pending.timer = setTimeout(() => this._flushStreamWrites(session.id), this._streamFlushInterval);
+
+    return true;
+  }
+
+  /**
+   * 立即刷新指定 session 的待写入流式分片
+   * @param {string} sessionId
+   * @private
+   */
+  async _flushStreamWrites(sessionId) {
+    const pending = this._pendingStreamWrites.get(sessionId);
+    if (!pending) return;
+
+    // 清除注册状态（本次 refresh 结束）
+    this._pendingStreamWrites.delete(sessionId);
+    if (pending.timer) {
+      clearTimeout(pending.timer);
+      pending.timer = null;
+    }
+
+    // 检查会话是否还存在
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+
+    try {
+      await this._saveSessions();
+    } catch (e) {
+      console.error('[SessionManager] Flush stream writes failed:', e);
+    }
+  }
+
+  /**
+   * 外部调用：强制刷新所有待写入的流式分片
+   * （会话结束/取消生成/页面卸载时调用，防止数据丢失）
+   */
+  async flushAllStreamWrites() {
+    const ids = Array.from(this._pendingStreamWrites.keys());
+    await Promise.all(ids.map(id => this._flushStreamWrites(id)));
   }
 
   /**

@@ -29,6 +29,13 @@ class ChatController {
     let assistantMsgId = null;
     let session = null;
 
+    // === Provider 端前缀缓存：以 sessionId 作为 cache key ===
+    // 多轮会话中，Provider 端可以复用前面的前缀，避免重复推理
+    // - OpenAI o-series / gpt-4.1 / gpt-4o: prompt_cache_key 字段
+    // - OpenRouter: cache_control: { type: 'ephemeral' }
+    // - LM Studio: cache_prompt=true
+    // 设置为在创建 session / 加载 session 之后注入，从而保证 session 一定存在
+
     if (!isToolContinuation) {
       if (!content || !content.trim()) throw new Error('Message content is required');
       if (this.currentRequest) throw new Error('A message is already being generated');
@@ -67,6 +74,13 @@ class ChatController {
         thinking: thinkingEffort !== 'off' ? new window.MessageContent.ThinkingConfig(thinkingEffort) : null,
         tools: tools.length > 0 ? tools : null
       });
+
+      // === 注入 Provider 端前缀缓存 key ===
+      // 以 sessionId 作为 cache key，后同会话中可复用前缀 KV cache
+      // 各 Provider 在 _shouldApplyCache() 决定是否采用
+      if (service && service.cacheOptions) {
+        service.cacheOptions.sessionCacheKey = `webagentcli:session:${session.id}`;
+      }
 
       const assistantMsg = new window.Message({ role: 'assistant', content: '' });
       await sessionManager.addMessage(assistantMsg, session.id);
@@ -126,6 +140,7 @@ class ChatController {
     } catch (error) {
       this._setState(window.Events.CHAT.STATE.FAILED);
       if (assistantMsgId && session) {
+        // 注意：这里不使用流式防抖，手动 updateMessage 已直接落盘
         sessionManager.updateMessage(assistantMsgId, (msg) => { msg.content = `❌ 发送失败: ${error.message}`; }, session.id);
       }
       this.eventBus.emit(window.Events.CHAT.STREAM_ERROR, {
@@ -133,6 +148,8 @@ class ChatController {
       });
     } finally {
       this.currentRequest = null;
+      // 强制刷新所有待写入的流式分片，保证错误状态下也不丢数据
+      try { await sessionManager.flushAllStreamWrites(); } catch (e) { /* ignore */ }
       setTimeout(() => {
         if (!this.currentRequest && this.state !== window.Events.CHAT.STATE.IDLE) {
           this._setState(window.Events.CHAT.STATE.IDLE);
@@ -197,6 +214,8 @@ class ChatController {
     this.eventBus.emit(window.Events.CHAT.STREAM_STOP, {
       sessionId: stoppedRequest?.sessionId, messageId: stoppedRequest?.assistantMessageId
     });
+    // 停止时也刷新待写入的流式分片
+    try { this.serviceCenter.getSessionManager().flushAllStreamWrites(); } catch (e) { /* ignore */ }
     setTimeout(() => this._setState(window.Events.CHAT.STATE.IDLE), 50);
   }
 

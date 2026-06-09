@@ -39,7 +39,46 @@ class OpenRouterService extends OpenAIService {
       body.thinking = { enabled: true, effort: request.reasoningEffort };
       delete body.reasoning_effort;
     }
+
+    // === OpenRouter 端前缀缓存 ===
+    // OpenRouter 通过给 system / 历史消息上加 cache_control: { type: 'ephemeral' } 启用 Anthropic-style 缓存
+    // - 命中后计费降到原价 ~10%
+    // - cache_control 字段会透传到上游 provider，不支持的 provider 会忽略
+    if (this._shouldApplyCache(request)) {
+      this._applyCacheControl(body);
+    }
     return body;
+  }
+
+  /**
+   * 覆盖 _shouldApplyCache：OpenRouter 缓存策略与 OpenAI 不同
+   * 任何 sessionId 存在 + messages >= 2 即可应用（由 cache_control 控制粒度）
+   * @override
+   */
+  _shouldApplyCache(request) {
+    if (!this.cacheOptions.enabled) return false;
+    if (!this.cacheOptions.sessionCacheKey) return false;
+    const msgCount = Array.isArray(request.messages) ? request.messages.length : 0;
+    return msgCount >= 2;
+  }
+
+  /**
+   * 在 system 提示和部分早期消息上加 cache_control 断点
+   * 这样后续轮次中只要这些点之前的内容不变，OpenRouter 就可以命中缓存
+   * @private
+   */
+  _applyCacheControl(body) {
+    const breakPoints = 2; // system + 前 1/3 历史
+    if (Array.isArray(body.messages)) {
+      let stamps = 0;
+      for (let i = 0; i < body.messages.length && stamps < breakPoints; i++) {
+        const m = body.messages[i];
+        if (m.role === 'system' || i < Math.max(2, Math.floor(body.messages.length / 3))) {
+          m.cache_control = { type: 'ephemeral' };
+          stamps++;
+        }
+      }
+    }
   }
 
   /** 覆盖：OpenRouter 的 reasoning 字段是 delta.reasoning / message.reasoning */

@@ -46,7 +46,28 @@ class LMStudioService extends window.IProviderAPIService {
     if (request.maxTokens) body.max_tokens = request.maxTokens;
     if (request.system) body.messages.unshift({ role: 'system', content: request.system });
     if (request.reasoningEffort !== undefined) body.reasoning_effort = request.reasoningEffort || 'off';
+
+    // === LM Studio 端前缀缓存 ===
+    // LM Studio v0.3.5+ 支持 context_overlap / cache_prompt
+    // - cache_prompt=true: 启用服务端 prompt 缓存（多次调用可复用）
+    // - 本地运行、零成本，强烈推荐开启
+    if (this._shouldApplyCache(request)) {
+      body.cache_prompt = true;
+    }
+
     return body;
+  }
+
+  /**
+   * 判断本次请求是否应应用 LM Studio 的本地 prompt 缓存
+   * 本地无成本，开箱即用开启
+   * @private
+   */
+  _shouldApplyCache(request) {
+    if (!this.cacheOptions.enabled) return false;
+    if (!this.cacheOptions.sessionCacheKey) return false;
+    const msgCount = Array.isArray(request.messages) ? request.messages.length : 0;
+    return msgCount >= 1; // 本地缓存零成本，即使是首条消息也开启
   }
 
   /** 解析非流式响应 → StandardResponse（含 ToolCall[]） */
