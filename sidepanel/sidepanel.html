@@ -54,44 +54,62 @@
   <!-- Markdown Parser: marked.js -->
   <script src="js/utils/marked.min.js"></script>
   
-  <!-- Core: Events -->
-  <script src="js/core/events/EventBus.js"></script>
+  <!-- Core: Events（Kernel IPC 是唯一消息总线） -->
   <script src="js/core/events/Events.js"></script>
   
-  <!-- Core: Models -->
-  <script src="js/core/models/BaseModel.js"></script>
-  <script src="js/core/models/Model.js"></script>
-  <script src="js/core/models/ToolDefinition.js"></script>
-  <script src="js/core/models/ToolCall.js"></script>
-  <script src="js/core/models/ToolResult.js"></script>
-  <script src="js/core/models/MessageContent.js"></script>
-  <script src="js/core/models/Message.js"></script>
-  <script src="js/core/models/Session.js"></script>
-  <script src="js/core/models/Settings.js"></script>
-  <script src="js/core/models/Storage.js"></script>
-  <script src="js/core/models/Scripts.js"></script>
+  <!-- ★ Kernel 内核子系统 -->
+  <script src="../kernel/KernelLog.js"></script>
+  <script src="../kernel/IPC.js"></script>
+  <script src="../kernel/Events.js"></script>
+  <script src="../kernel/ToolRegistry.js"></script>
+  <script src="../kernel/CapabilityManager.js"></script>
+  <script src="../kernel/Kernel.js"></script>
+  <script src="../kernel/Bootloader.js"></script>
+  <script src="../kernel/index.js"></script>
   
-  <!-- Services -->
-  <script src="js/services/ISessionManager.js"></script>
-  <script src="js/services/IAppSettings.js"></script>
-  <script src="js/services/IProviderAPIService.js"></script>
-  <script src="js/services/IStorageManager.js"></script>
-  <script src="js/services/IScriptsManager.js"></script>
-  <script src="js/services/IModelManager.js"></script>
-  <script src="js/services/IToolService.js"></script>
-  <script src="js/services/tools/RunUserScriptTool.js"></script>
-  <script src="js/services/tools/ManageUserScriptsTool.js"></script>
-  <script src="js/services/ProviderAPIServices/OpenAIService.js"></script>
-  <script src="js/services/ProviderAPIServices/OpenRouterService.js"></script>
-  <script src="js/services/ProviderAPIServices/LMStudioService.js"></script>
-  <script src="js/services/ISettings.js"></script>
+  <!-- ★ Kernel 数据模型 -->
+  <script src="../kernel/models/BaseModel.js"></script>
+  <script src="../kernel/models/Model.js"></script>
+  <script src="../kernel/models/ToolDefinition.js"></script>
+  <script src="../kernel/models/ToolCall.js"></script>
+  <script src="../kernel/models/ToolResult.js"></script>
+  <script src="../kernel/models/MessageContent.js"></script>
+  <script src="../kernel/models/Message.js"></script>
+  <script src="../kernel/models/Session.js"></script>
+  <script src="../kernel/models/Settings.js"></script>
+  <script src="../kernel/models/Storage.js"></script>
+  <script src="../kernel/models/Scripts.js"></script>
   
-  <!-- Service Implementations -->
-  <script src="js/services/StorageManager.js"></script>
-  <script src="js/services/SessionManager.js"></script>
-  <script src="js/services/SettingsManager.js"></script>
-  <script src="js/services/ScriptsManager.js"></script>
-  <script src="js/services/ModelManager.js"></script>
+  <!-- ★ Kernel 服务接口 -->
+  <script src="../kernel/services/ISessionManager.js"></script>
+  <script src="../kernel/services/IAppSettings.js"></script>
+  <script src="../kernel/services/IProviderAPIService.js"></script>
+  <script src="../kernel/services/IStorageManager.js"></script>
+  <script src="../kernel/services/IScriptsManager.js"></script>
+  <script src="../kernel/services/IModelManager.js"></script>
+  <script src="../kernel/services/IToolService.js"></script>
+  
+  <!-- ★ Kernel 内置工具 -->
+  <script src="../kernel/tools/RunUserScriptTool.js"></script>
+  <script src="../kernel/tools/ManageUserScriptsTool.js"></script>
+  
+  <!-- ★ Kernel AI Provider 实现 -->
+  <script src="../kernel/services/ProviderAPIServices/OpenAIService.js"></script>
+  <script src="../kernel/services/ProviderAPIServices/OpenRouterService.js"></script>
+  <script src="../kernel/services/ProviderAPIServices/LMStudioService.js"></script>
+  
+  <!-- ★ Kernel 服务实现 -->
+  <script src="../kernel/services/StorageManager.js"></script>
+  <script src="../kernel/services/SessionManager.js"></script>
+  <script src="../kernel/services/SettingsManager.js"></script>
+  <script src="../kernel/services/ScriptsManager.js"></script>
+  <script src="../kernel/services/ModelManager.js"></script>
+  
+  <!-- ★ Kernel ServiceCenter（向后兼容） -->
+  <script src="../kernel/services/ServiceCenter.js"></script>
+  
+  <!-- Settings: Pages Base Interface -->
+  <script src="js/pages/ISettings.js"></script>
   
   <!-- Settings: Pages Implementation -->
   <script src="js/pages/SettingsPage_Base.js"></script>
@@ -101,9 +119,6 @@
   
   <!-- Controllers -->
   <script src="js/controllers/ChatController.js"></script>
-  
-  <!-- Core Service Center -->
-  <script src="js/services/ServiceCenter.js"></script>
   
   <!-- UI: Page Event Handlers (每个 Page 对应的 EventHandler) -->
   <script src="js/pages/ChatEventHandler.js"></script>

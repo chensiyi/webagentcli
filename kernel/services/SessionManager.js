@@ -15,10 +15,9 @@
 class SessionManager extends window.ISessionManager {
   /**
    * @param {EventBus} eventBus - 事件总线实例
-   * @param {Object} storage - 存储接口（默认使用 chrome.storage.local）
    */
-  constructor(eventBus, storage = null) {
-    super(eventBus, storage);
+  constructor(eventBus) {
+    super(eventBus);
 
     // 内存中的会话缓存
     this.sessions = new Map(); // sessionId -> Session

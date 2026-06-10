@@ -14,7 +14,7 @@
   
   "web_accessible_resources": [
     {
-      "resources": ["sidepanel/*", "sidepanel/js/*", "sidepanel/theme/*"],
+      "resources": ["kernel/*", "kernel/models/*", "kernel/services/*", "kernel/services/ProviderAPIServices/*", "kernel/tools/*", "sidepanel/*", "sidepanel/js/*", "sidepanel/theme/*"],
       "matches": ["<all_urls>"]
     }
   ],

@@ -17,18 +17,20 @@
 class IAppSettings {
   /**
    * @param {EventBus} eventBus - 事件总线实例
-   * @param {Object} storage - 存储接口（默认使用 chrome.storage.local）
+   * @param {Object} [storage] - 存储后端，不传则使用 chrome.storage.local
+   * @param {string} storageKey - 存储键名
    */
-  constructor(eventBus, storage = null) {
-    if (new.target === IAppSettings) {
-      throw new Error('Cannot instantiate abstract class directly');
-    }
-    
-    this.eventBus = eventBus;
-    this.storage = storage || chrome.storage.local;
-    this.settings = null;
-    this.storageKey = 'app_settings';
-  }
+  constructor(eventBus, storage = null, storageKey = 'app_settings') {
+     if (new.target === IAppSettings) {
+       throw new Error('Cannot instantiate abstract class directly');
+     }
+     
+     this.eventBus = eventBus;
+     // 默认使用 chrome.storage.local，允许外部注入替代实现
+     this.storage = storage || (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local);
+     this.storageKey = storageKey;
+     this.settings = null;
+   }
 
   /**
    * 获取设置

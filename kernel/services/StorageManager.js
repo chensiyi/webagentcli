@@ -1,9 +1,11 @@
 /**
- * Storage Manager - 存储管理器
+ * AppStorageManager - 存储管理器（IStorageManager 的具体实现）
+ * 
  * 处理存储管理业务逻辑，通过 EventBus 与 UI 通信
+ * 注意：类名改为 AppStorageManager，避免与浏览器原生 StorageManager API 冲突
  */
 
-class StorageManager extends window.IStorageManager {
+class AppStorageManager extends window.IStorageManager {
   /**
    * @param {ServiceCenter} serviceCenter - 服务中心
    */
@@ -81,8 +83,8 @@ class StorageManager extends window.IStorageManager {
 
 // 导出类（由 ServiceCenter 创建实例）
 if (typeof window !== 'undefined') {
-  window.StorageManager = StorageManager;
+  window.AppStorageManager = AppStorageManager;
 }
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = StorageManager;
+  module.exports = AppStorageManager;
 }

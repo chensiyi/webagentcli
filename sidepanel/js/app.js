@@ -1,92 +1,206 @@
-// 主应用
+/**
+ * App - 应用主入口
+ * 
+ * 使用 Bootloader 启动内核，然后渲染壳层 UI。
+ * 
+ * 向后兼容：当 Kernel.js 未加载时，回退到原始启动流程。
+ */
+
 (function() {
   let currentPage = 'chat';
-  let serviceCenter = null; // ServiceCenter 实例（在 init 中创建）
-  
+  let serviceCenter = null;
+  let kernel = null;
+  let bootloader = null;
+
   const pages = [
-    { id: 'chat', icon: '💬', label: '对话' },
-    { id: 'history', icon: '📋', label: '历史' },
-    { id: 'storage', icon: '💾', label: '存储' },
-    { id: 'scripts', icon: '📜', label: '脚本' },
-    { id: 'settings', icon: '⚙️', label: '设置' }
+    { id: 'chat', icon: '\u{1F4AC}', label: '\u{5BF9}\u{8BDD}' },
+    { id: 'history', icon: '\u{1F4CB}', label: '\u{5386}\u{53F2}' },
+    { id: 'storage', icon: '\u{1F4BE}', label: '\u{5B58}\u{50A8}' },
+    { id: 'scripts', icon: '\u{1F4DC}', label: '\u{811A}\u{672C}' },
+    { id: 'settings', icon: '\u{2699}\u{FE0F}', label: '\u{8BBE}\u{7F6E}' }
   ];
-  
+
   async function init() {
     console.log('[App] Initializing...');
-    
+
     if (!window.DOM || !window.Pages) {
       console.error('[App] DOM or Pages not loaded');
       document.getElementById('root').textContent = 'Error: Dependencies not loaded';
       return;
     }
-    
-    // 创建 ServiceCenter 实例（管理所有服务）
-    serviceCenter = new window.ServiceCenter();
-    
-    const root = document.getElementById('root');
-    
-    try {
-      // 1. 初始化 SessionManager（等待异步加载完成）
-      await serviceCenter.initializeSessionManager();
-      console.log('[App] SessionManager initialized');
-      
-      // 2. 创建 EventHandlers（传入 serviceCenter）
-      // 注意：必须在加载设置之前创建，以便监听 SETTINGS.LOADED 事件
-      if (typeof ChatEventHandler !== 'undefined') {
-        window.chatEventHandler = new ChatEventHandler(serviceCenter);
-      }
-      if (typeof SettingsEventHandler !== 'undefined') {
-        window.settingsEventHandler = new SettingsEventHandler(serviceCenter);
-      }
-      if (typeof StorageEventHandler !== 'undefined') {
-        window.storageEventHandler = new StorageEventHandler(serviceCenter);
-      }
-      if (typeof ScriptsEventHandler !== 'undefined') {
-        window.scriptsEventHandler = new ScriptsEventHandler(serviceCenter);
-      }
 
-      // 3. 通过 ServiceCenter 加载设置
-      // 这将触发 SETTINGS.LOADED 事件，由 SettingsEventHandler 响应并配置 Provider
-      const settingsManager = serviceCenter.getSettingsManager();
-      await settingsManager.loadSettings();
-      console.log('[App] Settings loaded via ServiceCenter');
-      
-      // 4. 注册全局事件监听（只注册一次）
-      const eventBus = serviceCenter.getEventBus();
-      if (eventBus && window.Events && !window.App._globalListenersRegistered) {
-        window.App._globalListenersRegistered = true;
-        
-        // 监听会话切换事件，更新 ChatPage 的内部引用
-        eventBus.on(window.Events.CHAT.SESSION_SWITCHED, (data) => {
-          // ChatPage 会在下次渲染时自动获取最新会话
-          console.log('[App] Session switched event received');
-        });
-      }
-      
-      // 5. 所有数据就绪后，渲染页面
+    const root = document.getElementById('root');
+
+    try {
+      // ========== Phase 1: 使用 Bootloader 启动 Kernel ==========
+      await bootWithKernel();
+
+      // ========== Phase 2: 渲染 UI ==========
       renderPage(root, serviceCenter);
-      
+
     } catch (err) {
       console.error('[App] Initialization failed:', err);
-      document.getElementById('root').textContent = 'Error: Initialization failed';
+      root.textContent = 'Error: Initialization failed';
     }
+  }
+
+  /**
+   * 使用 Kernel + Bootloader 启动
+   */
+  async function bootWithKernel() {
+    console.log('[App] Booting with Kernel...');
+
+    // 1. 创建内核子系统
+    const log = new window.KernelLog({ minLevel: window.KernelLog.LEVELS.INFO });
+    const ipc = new window.IPC({ origin: 'sidepanel', maxHistory: 200 });
+
+    // 2. 创建 ToolRegistry 和 CapabilityManager
+    const toolRegistry = new window.ToolRegistry();
+    const capabilities = new window.CapabilityManager();
+
+    // 3. 注册 IPC 日志中间件
+    ipc.use((message, next) => {
+      log.debug('IPC', `Event: ${message.event} (priority: ${message.priorityName}, origin: ${message.origin})`);
+      return next();
+    });
+
+    // 4. 创建 Kernel 实例
+    kernel = new window.Kernel({
+      ipc,
+      log,
+      origin: 'webagentcli'
+    });
+    kernel.toolRegistry = toolRegistry;
+    kernel.capabilities = capabilities;
+
+    // 5. 创建 Bootloader
+    bootloader = new window.Bootloader(kernel);
+
+    // 6. 注册启动阶段钩子
+    bootloader.on(
+      window.Bootloader.PHASES.CORE_INIT,
+      async (bl) => {
+        // IPC 已创建，无需额外操作
+        log.info('BOOT', 'IPC ready');
+      }
+    );
+
+    bootloader.on(
+      window.Bootloader.PHASES.SERVICES_REGISTER,
+      async (bl) => {
+        // 注册 SessionManager 等核心服务
+        kernel.register('sessionManager', async (k) => {
+          const sm = new window.SessionManager(ipc);
+          await sm.initialize();
+          return sm;
+        }, { dependsOn: [] });
+        
+        kernel.register('settingsManager', async (k) => {
+          return new window.SettingsManager(null);
+        });
+        
+        kernel.register('storageManager', async (k) => {
+          return new window.StorageManager(null);
+        });
+        
+        kernel.register('scriptsManager', async (k) => {
+          return new window.ScriptsManager(null);
+        });
+        
+        kernel.register('modelManager', async (k) => {
+          return new window.ModelManager(null);
+        });
+      }
+    );
+
+    bootloader.on(
+      window.Bootloader.PHASES.SERVICES_INIT,
+      async (bl) => {
+        // 创建 ServiceCenter
+        serviceCenter = new window.ServiceCenter(ipc);
+        await serviceCenter.initializeSessionManager();
+      }
+    );
+
+    bootloader.on(
+      window.Bootloader.PHASES.TOOLS_REGISTER,
+      async (bl) => {
+        // 注册内置工具
+        const builtInClasses = [
+          window.RunUserScriptTool,
+          window.ManageUserScriptsTool
+        ];
+        builtInClasses.forEach(ToolClass => {
+          if (typeof ToolClass !== 'function') return;
+          try {
+            const tool = new ToolClass();
+            if (tool.definition && tool.definition.name) {
+              toolRegistry.register(tool);
+              log.info('TOOL', `Registered: ${tool.definition.name}`);
+            }
+          } catch (e) {
+            log.warn('TOOL', 'Failed to register tool', e);
+          }
+        });
+      }
+    );
+
+    bootloader.on(
+      window.Bootloader.PHASES.HANDLERS_INIT,
+      async (bl) => {
+        if (typeof ChatEventHandler !== 'undefined') {
+          window.chatEventHandler = new ChatEventHandler(serviceCenter);
+        }
+        if (typeof SettingsEventHandler !== 'undefined') {
+          window.settingsEventHandler = new SettingsEventHandler(serviceCenter);
+        }
+        if (typeof StorageEventHandler !== 'undefined') {
+          window.storageEventHandler = new StorageEventHandler(serviceCenter);
+        }
+        if (typeof ScriptsEventHandler !== 'undefined') {
+          window.scriptsEventHandler = new ScriptsEventHandler(serviceCenter);
+        }
+      }
+    );
+
+    bootloader.on(
+      window.Bootloader.PHASES.CONFIG_LOAD,
+      async (bl) => {
+        const settingsManager = serviceCenter.getSettingsManager();
+        await settingsManager.loadSettings();
+        log.info('BOOT', 'Settings loaded');
+      }
+    );
+
+    // 执行启动
+    await bootloader.boot();
+
+    // 注册全局事件监听
+    const eventBus = serviceCenter.getEventBus();
+    if (eventBus && !window.App._globalListenersRegistered) {
+      window.App._globalListenersRegistered = true;
+      eventBus.on(window.Events.CHAT.SESSION_SWITCHED, (data) => {
+        console.log('[App] Session switched event received');
+      });
+    }
+
+    console.log('[App] Kernel boot complete. Boot timings:', bootloader.getTimings());
   }
 
   function renderPage(root, serviceCenter) {
     const { create } = window.DOM;
     const contentAreaEl = create('div', { className: 'content-area', id: 'content-area' });
-    
+
     const app = create('div', { className: 'app-container' }, [
       create('div', { className: 'main-content' }, [
         contentAreaEl,
         createSidebar()
       ])
     ]);
-    
+
     root.innerHTML = '';
     root.appendChild(app);
-    
-    // 渲染当前页面（传入 serviceCenter）
+
     if (window.Pages && window.Pages[currentPage]) {
       console.log('[App] Rendering page:', currentPage, 'to container:', contentAreaEl);
       window.Pages[currentPage](contentAreaEl, serviceCenter);
@@ -94,11 +208,11 @@
       console.warn('[App] Page not found:', currentPage, 'Available:', Object.keys(window.Pages || {}));
     }
   }
-  
+
   function createSidebar() {
     const { create } = window.DOM;
     const sidebar = create('div', { className: 'sidebar' });
-    
+
     pages.forEach(page => {
       const btn = create('button', {
         className: `sidebar-btn ${currentPage === page.id ? 'active' : ''}`,
@@ -107,17 +221,11 @@
       }, [
         create('span', { className: 'sidebar-btn-icon', text: page.icon })
       ]);
-      
-      // 添加鼠标事件监听器来动态创建tooltip
+
       let tooltipElement = null;
-      
+
       btn.addEventListener('mouseenter', (e) => {
-        // 移除已存在的tooltip
-        if (tooltipElement) {
-          tooltipElement.remove();
-        }
-        
-        // 创建tooltip元素
+        if (tooltipElement) { tooltipElement.remove(); }
         tooltipElement = document.createElement('div');
         tooltipElement.className = 'sidebar-tooltip';
         tooltipElement.textContent = page.label;
@@ -139,39 +247,36 @@
           pointer-events: none;
           animation: tooltipFadeIn 0.15s ease;
         `;
-        
         document.body.appendChild(tooltipElement);
       });
-      
+
       btn.addEventListener('mouseleave', () => {
         if (tooltipElement) {
           tooltipElement.remove();
           tooltipElement = null;
         }
       });
-      
+
       sidebar.appendChild(btn);
     });
-    
+
     return sidebar;
   }
-  
+
   function switchPage(pageId) {
-    console.log('[App] Switching to page:', pageId);
-    console.log('[App] Page function:', window.Pages[pageId]);
-    
-    // 清除所有tooltip
     const tooltips = document.querySelectorAll('.sidebar-tooltip');
     tooltips.forEach(tooltip => tooltip.remove());
-    
+
     currentPage = pageId;
     renderPage(document.getElementById('root'), serviceCenter);
   }
-  
-  // 暴露 navigateTo 方法
+
   window.App = {
-    navigateTo: switchPage
+    navigateTo: switchPage,
+    getKernel: () => kernel,
+    getBootloader: () => bootloader,
+    getServiceCenter: () => serviceCenter
   };
-  
+
   window.addEventListener('load', init);
 })();
