@@ -184,6 +184,38 @@ class ISessionManager {
   deleteMessage(messageId, sessionId = null) {
     throw new Error('Method not implemented: deleteMessage');
   }
+
+  // ==================== 上下文管理 ====================
+
+  /**
+   * 获取用于 API 请求的消息窗口
+   * @param {Session} session - 会话对象
+   * @param {Object} settings - { autoContextTruncation: boolean, contextWindowSize?: number }
+   * @returns {Array<Message>}
+   */
+  getContextWindow(session, settings = {}) {
+    throw new Error('Method not implemented: getContextWindow');
+  }
+
+  /**
+   * 基于 token 预算的消息截断（用于无 Provider 缓存的场景）
+   * @param {Session} session - 会话对象
+   * @param {Object} options - { contextLength, maxTokens, contextWindowRatio }
+   * @returns {Array<Message>}
+   */
+  getMessagesByTokenBudget(session, options = {}) {
+    throw new Error('Method not implemented: getMessagesByTokenBudget');
+  }
+
+  /**
+   * 准备用于 API 发送的消息列表（应用上下文截断）
+   * @param {Session} session - 会话对象
+   * @param {Object} settings - 应用设置
+   * @returns {Array<Message>}
+   */
+  getMessagesForAPI(session, settings = {}) {
+    throw new Error('Method not implemented: getMessagesForAPI');
+  }
 }
 
 // 导出到全局

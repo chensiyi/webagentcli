@@ -44,22 +44,22 @@ class OpenRouterService extends OpenAIService {
     // OpenRouter 通过给 system / 历史消息上加 cache_control: { type: 'ephemeral' } 启用 Anthropic-style 缓存
     // - 命中后计费降到原价 ~10%
     // - cache_control 字段会透传到上游 provider，不支持的 provider 会忽略
-    if (this._shouldApplyCache(request)) {
+    if (this.shouldApplyCache(request)) {
       this._applyCacheControl(body);
     }
     return body;
   }
 
   /**
-   * 覆盖 _shouldApplyCache：OpenRouter 缓存策略与 OpenAI 不同
-   * 任何 sessionId 存在 + messages >= 2 即可应用（由 cache_control 控制粒度）
+   * 覆盖缓存决策：OpenRouter 缓存策略与 OpenAI 不同
+   * OpenRouter 的 Anthropic-style 缓存更激进，即使少消息也值得
    * @override
    */
-  _shouldApplyCache(request) {
+  shouldApplyCache(request) {
     if (!this.cacheOptions.enabled) return false;
     if (!this.cacheOptions.sessionCacheKey) return false;
     const msgCount = Array.isArray(request.messages) ? request.messages.length : 0;
-    return msgCount >= 2;
+    return msgCount >= 2; // OpenRouter 缓存粒度更细，比OpenAI更早启用
   }
 
   /**

@@ -29,11 +29,27 @@ class IProviderAPIService {
     // - 命中后 token 成本与首 token 延迟可下降 50-90%
     // - 默认开启，Provider 内部决定是否可应用
     this.cacheOptions = {
-      enabled: true,         // 是否启用缓存
-      sessionCacheKey: null, // 调用时由 ChatController 注入
-      ttlSeconds: 600,       // 缓存生存时间（各 Provider 实现可调整）
-      minPrefixTokens: 1024  // 小于此 token 数的前缀不缓存，避免不划算
+      enabled: true,              // 是否启用缓存
+      sessionCacheKey: null,      // 调用时由 ChatController 注入
+      ttlSeconds: 600,            // 缓存生存时间（各 Provider 实现可调整）
+      minMessageCount: 2,         // 最少消息数才启用缓存
+      minPrefixTokens: 1024       // 小于此 token 数的前缀不缓存，避免不划算
     };
+  }
+
+  /**
+   * 统一的缓存决策逻辑（各 Provider 应调用此方法或覆盖以实现自己的策略）
+   * @param {MessagesRequest} request - 消息请求对象
+   * @returns {boolean} 是否应该应用缓存
+   * @protected
+   */
+  shouldApplyCache(request) {
+    // 默认实现：基础检查
+    if (!this.cacheOptions.enabled) return false;
+    if (!this.cacheOptions.sessionCacheKey) return false;
+    
+    const msgCount = Array.isArray(request.messages) ? request.messages.length : 0;
+    return msgCount >= this.cacheOptions.minMessageCount;
   }
 
   /**

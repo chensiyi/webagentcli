@@ -450,7 +450,258 @@ class SessionManager extends window.ISessionManager {
     return result;
   }
 
+  // ==================== 上下文管理（支持 Provider 缓存优化） ====================
+
+  /**
+   * 获取用于 API 请求的消息窗口
+   * 
+   * 设计目标：
+   * 1. 结合 Provider 端前缀缓存，减少网络 payload
+   * 2. 保持本地上下文窗口足够大，保证响应质量
+   * 3. 配合 ChatController 中的 Provider 缓存 key 使用
+   *
+   * 策略：
+   * - 当 autoContextTruncation 启用时，返回截断后的最后 N 条消息
+   * - 关键约束：tool_call 消息必须与其对应的 tool_result 消息成对保留
+   * - 如果窗口切割点落在 tool_call/tool_result 对中间，向前扩展以保持完整性
+   * 
+   * @param {Session} session - 会话对象
+   * @param {Object} settings - 应用设置 { autoContextTruncation: boolean, contextWindowSize?: number }
+   * @returns {Array<Message>} 截断后的消息列表（用于 API 请求）
+   */
+  getContextWindow(session, settings = {}) {
+    if (!session || !Array.isArray(session.messages)) {
+      console.log('[SessionManager] getContextWindow: no session or empty messages');
+      return [];
+    }
+    
+    const messages = session.messages;
+    if (messages.length === 0) {
+      console.log('[SessionManager] getContextWindow: session has 0 messages');
+      return [];
+    }
+
+    // 如果禁用上下文截断，返回全部消息
+    if (!settings.autoContextTruncation) {
+      console.log(`[SessionManager] getContextWindow: truncation disabled, returning all ${messages.length} messages`);
+      return messages;
+    }
+
+    // 默认窗口大小：最后 20 条消息（约 2-3 轮完整对话）
+    const windowSize = settings.contextWindowSize || 20;
+    
+    if (messages.length <= windowSize) {
+      console.log(`[SessionManager] getContextWindow: ${messages.length} msgs ≤ windowSize ${windowSize}, no truncation needed`);
+      return messages;
+    }
+
+    // === 关键：安全截断，保证 tool-call/result 对完整性 ===
+    // OpenAI 协议要求：assistant 消息的 tool_calls 必须有对应的 tool result 消息紧随其后。
+    // 如果截断点恰好砍在 tool_call 和 tool_result 之间，Provider 会返回 400 错误。
+    let safeIndex = messages.length - windowSize;
+
+    // 从截断点向前扫描，找到最近一个"安全边界"（非 tool 消息的位置）
+    while (safeIndex > 0) {
+      const candidate = messages[safeIndex];
+      const prevMsg = messages[safeIndex - 1];
+      
+      // 如果 candidate 是 tool result 消息，且前一条是 assistant（可能有 tool_calls），
+      // 那么截断点在这里会导致 assistant 的 tool_calls 没有对应 result —— 向前移
+      if (candidate.role === 'tool' && prevMsg && prevMsg.role === 'assistant' && prevMsg.toolCalls && prevMsg.toolCalls.length > 0) {
+        safeIndex--;
+        continue;
+      }
+      
+      // 如果 candidate 是 assistant 消息且有 tool_calls，但前一条不是 tool result（即没有对应的 request），
+      // 这意味着截断点砍掉了 tool_calls 的上游 —— 向前移
+      if (candidate.role === 'assistant' && candidate.toolCalls && candidate.toolCalls.length > 0) {
+        // assistant 有 tool_calls，需要确保它前面有对应的 tool result
+        // 实际上 tool_calls 后面会跟 tool result，只要不砍断后面就行
+        // 但如果 assistant 本身是截断后的第一条，且前面的 user message 有 tool_calls 的前因...
+        // 安全起见：如果当前消息是 tool result，继续向前
+        break;
+      }
+      
+      // 如果 candidate 是 tool result 消息，说明前面有一轮完整的 tool 调用链
+      // 截断点应该在 tool result 之前或之后（不会砍断对）
+      if (candidate.role === 'tool') {
+        safeIndex--;
+        continue;
+      }
+      
+      // 普通消息（user/assistant/system），安全边界
+      break;
+    }
+
+    // 注意：连续窗口截断不做跳跃保留（会破坏消息顺序）
+    // 如需保留第一条 user 消息作为对话锚点，需另行设计 system 提示插入逻辑
+    const truncated = messages.slice(safeIndex);
+    const dropped = messages.length - truncated.length;
+
+    // === 详细截断日志 ===
+    if (dropped > 0) {
+      const roleCounts = { user: 0, assistant: 0, tool: 0, system: 0 };
+      truncated.forEach(m => { roleCounts[m.role] = (roleCounts[m.role] || 0) + 1; });
+      
+      console.log(
+        `[SessionManager] Context truncated: ${messages.length} → ${truncated.length} messages ` +
+        `(dropped ${dropped}, safeIndex=${safeIndex}, windowSize=${windowSize}, session=${session.id})`
+      );
+      console.log(
+        `[SessionManager]   Kept roles: user=${roleCounts.user}, assistant=${roleCounts.assistant}, ` +
+        `tool=${roleCounts.tool}, system=${roleCounts.system}`
+      );
+    }
+
+    return truncated;
+  }
+
+  /**
+   * 基于 token 预算的消息截断（用于无 Provider 缓存的场景）
+   * 
+   * 策略：
+   * 1. 粗估每条消息的 token 数（chars / 4）
+   * 2. 从尾部向前累加，直到接近 token 预算上限
+   * 3. 始终保证 tool_call 和 tool_result 成对
+   * 
+   * @param {Session} session - 会话对象
+   * @param {Object} options
+   * @param {number} options.contextLength - 模型最大上下文长度（tokens）
+   * @param {number} options.maxTokens - 模型最大输出 tokens
+   * @param {number} [options.contextWindowRatio=0.8] - 输入侧比例
+   * @param {number} [options.toolsTokenEstimate=500] - 工具定义占用的 token 估算
+   * @returns {Array<Message>} 截断后的消息列表
+   */
+  getMessagesByTokenBudget(session, options = {}) {
+    if (!session || !Array.isArray(session.messages)) {
+      console.log('[SessionManager] getMessagesByTokenBudget: no session or empty messages');
+      return [];
+    }
+
+    const messages = session.messages;
+    if (messages.length === 0) {
+      console.log('[SessionManager] getMessagesByTokenBudget: session has 0 messages');
+      return [];
+    }
+
+    const contextLength = options.contextLength || 8192;
+    const maxTokens = options.maxTokens || 2000;
+    const ratio = options.contextWindowRatio || 0.8;
+    const toolsTokenEstimate = options.toolsTokenEstimate || 500;
+
+    // 可用于消息的 token 预算 = contextLength × ratio - maxTokens - 工具定义
+    const inputBudget = Math.floor(contextLength * ratio) - maxTokens - toolsTokenEstimate;
+
+    console.log(
+      `[SessionManager] getMessagesByTokenBudget: ` +
+      `contextLength=${contextLength}, maxTokens=${maxTokens}, ratio=${ratio}, ` +
+      `toolsEstimate=${toolsTokenEstimate}, inputBudget=${inputBudget} tokens`
+    );
+
+    // 估算单条消息的 token 数
+    const estimateTokens = (msg) => {
+      let tokens = 0;
+      // content
+      if (typeof msg.content === 'string') {
+        tokens += Math.ceil(msg.content.length / 4);
+      } else if (Array.isArray(msg.content)) {
+        msg.content.forEach(block => {
+          if (block.text) tokens += Math.ceil(block.text.length / 4);
+          if (block.data) tokens += Math.ceil(block.data.length / 4); // base64 图片
+        });
+      }
+      // reasoning_content
+      if (msg.reasoning_content) {
+        tokens += Math.ceil(msg.reasoning_content.length / 4);
+      }
+      // tool_calls (序列化后的 arguments)
+      if (msg.toolCalls && msg.toolCalls.length > 0) {
+        msg.toolCalls.forEach(tc => {
+          tokens += Math.ceil(JSON.stringify(tc.arguments || {}).length / 4);
+          tokens += 20; // name + id 开销
+        });
+      }
+      // role + overhead
+      tokens += 4;
+      return tokens;
+    };
+
+    // 从尾部向前累加，直到超出预算
+    let totalTokens = 0;
+    let startIndex = messages.length;
+
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msgTokens = estimateTokens(messages[i]);
+      if (totalTokens + msgTokens > inputBudget) {
+        startIndex = i + 1;
+        break;
+      }
+      totalTokens += msgTokens;
+      startIndex = i;
+    }
+
+    // === 安全边界：保证 tool-call/result 对完整性 ===
+    while (startIndex > 0) {
+      const candidate = messages[startIndex];
+      const prevMsg = messages[startIndex - 1];
+
+      if (!candidate) break;
+
+      // candidate 是 tool result，前一条是 assistant 有 tool_calls → 向前扩展
+      if (candidate.role === 'tool' && prevMsg && prevMsg.role === 'assistant' 
+          && prevMsg.toolCalls && prevMsg.toolCalls.length > 0) {
+        startIndex--;
+        totalTokens += estimateTokens(messages[startIndex]);
+        continue;
+      }
+
+      // candidate 是孤立的 tool result → 向前扩展
+      if (candidate.role === 'tool') {
+        startIndex--;
+        totalTokens += estimateTokens(messages[startIndex]);
+        continue;
+      }
+
+      break;
+    }
+
+    const truncated = messages.slice(startIndex);
+    const dropped = startIndex;
+
+    if (dropped > 0) {
+      const roleCounts = { user: 0, assistant: 0, tool: 0, system: 0 };
+      truncated.forEach(m => { roleCounts[m.role] = (roleCounts[m.role] || 0) + 1; });
+
+      console.log(
+        `[SessionManager] Token-budget truncation: ${messages.length} → ${truncated.length} messages ` +
+        `(dropped ${dropped}, estimatedTokens=${totalTokens}/${inputBudget}, session=${session.id})`
+      );
+      console.log(
+        `[SessionManager]   Kept roles: user=${roleCounts.user}, assistant=${roleCounts.assistant}, ` +
+        `tool=${roleCounts.tool}, system=${roleCounts.system}`
+      );
+    } else {
+      console.log(
+        `[SessionManager] Token-budget: all ${messages.length} messages fit within ${inputBudget} token budget`
+      );
+    }
+
+    return truncated;
+  }
+
+  /**
+   * 准备用于 API 发送的消息列表（应用上下文截断）
+   * 
+   * @param {Session} session - 会话对象
+   * @param {Object} settings - 应用设置
+   * @returns {Array<Message>} 用于 API 请求的消息列表
+   */
+  getMessagesForAPI(session, settings = {}) {
+    return this.getContextWindow(session, settings);
+  }
+
   // ==================== 内部方法 ====================
+
 
   /**
    * 同步会话环境配置

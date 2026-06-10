@@ -195,10 +195,26 @@ window.ChatComponents = {
     }
     
     // 消息内容：Markdown 渲染
+    // 如果 content 为空但有 reasoning，显示提示（避免空气泡）
+    const rawContent = msg.content || '';
+    const hasContent = rawContent.trim().length > 0;
+    const hasReasoningContent = msg.reasoning_content && msg.reasoning_content.trim().length > 0;
+    
+    let contentHtml;
+    if (hasContent) {
+      contentHtml = typeof marked !== 'undefined' ? marked.parse(rawContent) : rawContent;
+    } else if (hasReasoningContent && !isUser) {
+      // 后端返回了 reasoning 但 content 为空（常见于 OpenRouter free 模型的思考模式）
+      // 避免空气泡：显示提示文字
+      contentHtml = '<span style="color: var(--color-text-secondary, #999); font-style: italic;">（仅有思考过程，请展开上方查看）</span>';
+    } else {
+      contentHtml = typeof marked !== 'undefined' ? marked.parse(rawContent) : rawContent;
+    }
+    
     bodyChildren.push(create('div', { 
       className: 'message-content',
-      attrs: { 'data-full-content': msg.content || '' },
-      html: typeof marked !== 'undefined' ? marked.parse(msg.content || '') : (msg.content || '')
+      attrs: { 'data-full-content': rawContent },
+      html: contentHtml
     }));
     
     const bubble = create('div', {

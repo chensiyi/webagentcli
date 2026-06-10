@@ -23,6 +23,8 @@ class Settings extends window.BaseModel {
     
     // 上下文管理
     this.autoContextTruncation = options.autoContextTruncation !== false;
+    this.contextWindowSize = options.contextWindowSize || 20; // 有 Provider 缓存时的固定窗口大小
+    this.contextWindowRatio = options.contextWindowRatio || 0.8; // 无缓存时，输入侧最多使用模型 contextLength 的 80%
     
     // 思考模式配置（单一变量）
     // 'off' 表示关闭，其他值表示开启并使用对应强度
@@ -67,6 +69,8 @@ class Settings extends window.BaseModel {
       ...this.maxTokens !== undefined && { maxTokens: this.maxTokens },
       ...this.systemPrompt && { systemPrompt: this.systemPrompt },
       ...this.autoContextTruncation !== undefined && { autoContextTruncation: this.autoContextTruncation },
+      ...this.contextWindowSize !== undefined && { contextWindowSize: this.contextWindowSize },
+      ...this.contextWindowRatio !== undefined && { contextWindowRatio: this.contextWindowRatio },
       ...this.reasoningEffort && { reasoningEffort: this.reasoningEffort },
       ...this.theme && { theme: this.theme },
       ...this.models && { models: this.models }

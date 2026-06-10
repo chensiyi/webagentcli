@@ -67,9 +67,16 @@ class ChatController {
       const freshSession = sessionManager.getSession(session.id);
       const tools = this.serviceCenter.getToolDefinitionsForLLM();
 
+      // === 客户端上下文截断（按 sessionId 减少 IO）===
+      // 含义：
+      // 1. 网络 payload 只发送"安全窗口内"的消息（而不是整个 session 的全量历史）
+      // 2. Provider 端前缀缓存结合 prompt_cache_key 可让被裁掉的部分仍被服务器记住
+      // 3. autoContextTruncation=true 时生效；用户可在设置中关闭
+      const messagesForRequest = this._truncateMessagesForRequest(freshSession, settings, modelId);
+
       const request = new MessagesRequest({
         model: modelId,
-        messages: freshSession.messages,
+        messages: messagesForRequest,
         stream: true,
         thinking: thinkingEffort !== 'off' ? new window.MessageContent.ThinkingConfig(thinkingEffort) : null,
         tools: tools.length > 0 ? tools : null
@@ -79,7 +86,14 @@ class ChatController {
       // 以 sessionId 作为 cache key，后同会话中可复用前缀 KV cache
       // 各 Provider 在 _shouldApplyCache() 决定是否采用
       if (service && service.cacheOptions) {
-        service.cacheOptions.sessionCacheKey = `webagentcli:session:${session.id}`;
+        const cacheKey = `webagentcli:session:${session.id}`;
+        service.cacheOptions.sessionCacheKey = cacheKey;
+        console.log(
+          `[ChatController] Provider cache key injected: ${cacheKey} ` +
+          `(provider=${service.name}, cacheEnabled=${service.cacheOptions.enabled})`
+        );
+      } else {
+        console.warn('[ChatController] No service.cacheOptions available — provider caching disabled');
       }
 
       const assistantMsg = new window.Message({ role: 'assistant', content: '' });
@@ -99,11 +113,13 @@ class ChatController {
       });
 
       // chatStream 返回 Promise<StandardResponse>
-      // onChunk 只接收 {content, reasoning_content} 用于 UI
+      // onChunk 接收 {content, reasoning_content} 用于 UI
+      // 注意：即使 thinkingEffort='off'，后端也可能返回 reasoning_content（如 OpenRouter free 模型）
+      // 必须始终传递，否则会丢失数据导致空气泡
       const result = await service.chatStream(request, (chunk) => {
         if (this.currentRequest) this.currentRequest.lastActiveAt = Date.now();
         const content = chunk.content || '';
-        const reasoning = (thinkingEffort !== 'off') ? (chunk.reasoning_content || '') : '';
+        const reasoning = chunk.reasoning_content || '';
 
         if (reasoning && this.state !== window.Events.CHAT.STATE.THINKING) {
           this._setState(window.Events.CHAT.STATE.THINKING);
@@ -251,6 +267,102 @@ class ChatController {
 
   _notifyActivityState() {
     this.eventBus.emit(window.Events.CHAT.ACTIVITY_STATE_CHANGED, this.getQueueStatus());
+  }
+
+  /**
+   * 判断当前 Provider 是否有 KV cache 能力
+   * 有缓存 → 可以用固定窗口截断（Provider 记住被裁的前缀）
+   * 无缓存 → 必须基于 token 预算截断（裁掉就真的丢了）
+   * 
+   * @private
+   * @param {IProviderAPIService} service - Provider 服务实例
+   * @param {string} modelId - 当前模型 ID
+   * @returns {boolean}
+   */
+  _providerHasCache(service, modelId) {
+    if (!service || !service.cacheOptions || !service.cacheOptions.enabled) {
+      return false;
+    }
+    
+    // 不同 Provider 的缓存能力判断
+    switch (service.name) {
+      case 'openai':
+        // OpenAI 自动缓存只对特定模型有效
+        return /^(o\d|gpt-4\.1|gpt-4o)/i.test(modelId || '');
+      case 'openrouter':
+        // OpenRouter 通过 cache_control 支持（仅付费模型）
+        // free 模型不支持
+        return !modelId?.includes('free');
+      case 'lm-studio':
+        // LM Studio 本地运行，缓存始终有效（零成本）
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  _truncateMessagesForRequest(session, settings, modelId) {
+    const sessionManager = this.serviceCenter.getSessionManager();
+    const totalMessages = session.messages.length;
+    const autoTruncate = settings?.autoContextTruncation !== false;
+    const hasCache = this._providerHasCache(
+      this.serviceCenter.getCurrentProviderService(), modelId
+    );
+    
+    console.log(
+      `[ChatController] Preparing request messages: ` +
+      `total=${totalMessages}, autoTruncation=${autoTruncate}, ` +
+      `providerCache=${hasCache}, model=${modelId}, session=${session.id}`
+    );
+    
+    let messages;
+    
+    if (hasCache) {
+      // === 有 Provider 缓存：固定窗口截断 ===
+      // Provider 端会记住被裁掉的前缀，多轮中可以复用 KV cache
+      const windowSize = settings?.contextWindowSize || 20;
+      messages = sessionManager.getContextWindow(session, {
+        autoContextTruncation: autoTruncate,
+        contextWindowSize: windowSize
+      });
+      
+      if (messages.length < totalMessages) {
+        console.log(
+          `[ChatController] ⚡ Window truncation (cache-enabled): ${totalMessages} → ${messages.length} messages ` +
+          `(window=${windowSize}, model=${modelId}, session=${session.id})`
+        );
+      } else {
+        console.log(
+          `[ChatController] No truncation needed: ${messages.length}/${totalMessages} messages in payload`
+        );
+      }
+    } else {
+      // === 无 Provider 缓存：token 预算截断 ===
+      // 基于模型 contextLength 计算输入预算，尽可能保留更多历史
+      const modelObj = this.serviceCenter.getModelManager().getModel(modelId);
+      const contextLength = modelObj?.contextLength || 8192;
+      const maxTokens = settings?.maxTokens || 2000;
+      const ratio = settings?.contextWindowRatio || 0.8;
+      
+      messages = sessionManager.getMessagesByTokenBudget(session, {
+        contextLength,
+        maxTokens,
+        contextWindowRatio: ratio
+      });
+      
+      if (messages.length < totalMessages) {
+        console.log(
+          `[ChatController] ⚡ Token-budget truncation (no cache): ${totalMessages} → ${messages.length} messages ` +
+          `(contextLength=${contextLength}, maxTokens=${maxTokens}, ratio=${ratio}, model=${modelId})`
+        );
+      } else {
+        console.log(
+          `[ChatController] No truncation needed: ${messages.length}/${totalMessages} messages fit in token budget`
+        );
+      }
+    }
+
+    return messages;
   }
 }
 

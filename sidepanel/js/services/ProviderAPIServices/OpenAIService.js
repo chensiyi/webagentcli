@@ -59,7 +59,7 @@ class OpenAIService extends window.IProviderAPIService {
     // OpenAI gpt-4o / gpt-4.1 / o-series 自动启用 prompt caching
     // - 提供 prompt_cache_key 则是手动控制（仅 o-series、gpt-4.1 等付费 KV cache 模型）
     // - 不支持时该字段会被忽略，不影响请求
-    if (this._shouldApplyCache(request)) {
+    if (this.shouldApplyCache(request) && this._isModelCacheable(request.model)) {
       body.prompt_cache_key = this.cacheOptions.sessionCacheKey;
     }
 
@@ -68,20 +68,14 @@ class OpenAIService extends window.IProviderAPIService {
 
   /**
    * 判断本次请求是否应应用 Provider 端缓存
+   * OpenAI 只对支持缓存的模型提供 prompt_cache_key
    * @private
    */
-  _shouldApplyCache(request) {
-    if (!this.cacheOptions.enabled) return false;
-    const key = this.cacheOptions.sessionCacheKey;
-    if (!key) return false;
-
-    // OpenAI 自动缓存只对长度足够的前缀划算
-    const msgCount = Array.isArray(request.messages) ? request.messages.length : 0;
-    if (msgCount < 4) return false;  // 低于 2 轮交互不值得缓存
-
+  _isModelCacheable(modelId) {
+    const model = modelId || this.config?.defaultModel || '';
     // 支持缓存的模型（只对需要 KV cache 的模型传 key，避免额外 1 token 推断成本）
     const cacheable = /^(o\d|gpt-4\.1|gpt-4o)/i;
-    return cacheable.test(request.model || this.config.defaultModel || '');
+    return cacheable.test(model);
   }
 
   /** 公用的 API 调用后处理：生成 StandardResponse，将 OpenAI tool_calls 转为 ToolCall[] */
