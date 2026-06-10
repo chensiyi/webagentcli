@@ -78,7 +78,7 @@ class ChatController {
         model: modelId,
         messages: messagesForRequest,
         stream: true,
-        thinking: thinkingEffort !== 'off' ? new window.MessageContent.ThinkingConfig(thinkingEffort) : null,
+        thinking: new window.MessageContent.ThinkingConfig(thinkingEffort),
         tools: tools.length > 0 ? tools : null
       });
 
