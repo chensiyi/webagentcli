@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
@@ -54,8 +54,8 @@
   <!-- Markdown Parser: marked.js -->
   <script src="js/utils/marked.min.js"></script>
   
-  <!-- Core: Events（Kernel IPC 是唯一消息总线） -->
-  <script src="js/core/events/Events.js"></script>
+  <!-- Core: Events（Kernel IPC 是唯一消息总线）-->
+  <script src="js/events.js"></script>
   
   <!-- ★ Kernel 内核子系统 -->
   <script src="../kernel/KernelLog.js"></script>
@@ -79,6 +79,7 @@
   <script src="../kernel/models/Settings.js"></script>
   <script src="../kernel/models/Storage.js"></script>
   <script src="../kernel/models/Scripts.js"></script>
+
   
   <!-- ★ Kernel 服务接口 -->
   <script src="../kernel/services/ISessionManager.js"></script>
@@ -88,10 +89,15 @@
   <script src="../kernel/services/IScriptsManager.js"></script>
   <script src="../kernel/services/IModelManager.js"></script>
   <script src="../kernel/services/IToolService.js"></script>
+
   
-  <!-- ★ Kernel 内置工具 -->
-  <script src="../kernel/tools/RunUserScriptTool.js"></script>
-  <script src="../kernel/tools/ManageUserScriptsTool.js"></script>
+  <!-- ★ Shell 侧工具和服务（Chrome 专用）-->
+  <script src="js/services/ChromeStorageAdapter.js"></script>
+  <script src="js/services/ScriptInjector.js"></script>
+  
+  <!-- ★ Shell 侧工具 -->
+  <script src="js/tools/RunUserScriptTool.js"></script>
+  <script src="js/tools/ManageUserScriptsTool.js"></script>
   
   <!-- ★ Kernel AI Provider 实现 -->
   <script src="../kernel/services/ProviderAPIServices/OpenAIService.js"></script>
@@ -104,8 +110,10 @@
   <script src="../kernel/services/SettingsManager.js"></script>
   <script src="../kernel/services/ScriptsManager.js"></script>
   <script src="../kernel/services/ModelManager.js"></script>
+
+
   
-  <!-- ★ Kernel ServiceCenter（向后兼容） -->
+  <!-- ★ Kernel ServiceCenter（向后兼容）-->
   <script src="../kernel/services/ServiceCenter.js"></script>
   
   <!-- Settings: Pages Base Interface -->
@@ -120,13 +128,13 @@
   <!-- Controllers -->
   <script src="js/controllers/ChatController.js"></script>
   
-  <!-- UI: Page Event Handlers (每个 Page 对应的 EventHandler) -->
-  <script src="js/pages/ChatEventHandler.js"></script>
-  <script src="js/pages/SettingsEventHandler.js"></script>
-  <script src="js/pages/StorageEventHandler.js"></script>
-  <script src="js/pages/ScriptsEventHandler.js"></script>
+  <!-- UI: Page Event Handlers（每个 Page 对应的 EventHandler）-->
+  <script src="js/event-handlers/ChatEventHandler.js"></script>
+  <script src="js/event-handlers/SettingsEventHandler.js"></script>
+  <script src="js/event-handlers/StorageEventHandler.js"></script>
+  <script src="js/event-handlers/ScriptsEventHandler.js"></script>
   
-  <!-- UI: Pages (每个 Page 内部使用自己的 EventHandler) -->
+  <!-- UI: Pages（每个 Page 内部使用自己的 EventHandler）-->
   <script src="js/pages/ChatPage.js"></script>
   <script src="js/pages/HistoryPage.js"></script>
   <script src="js/pages/SettingsPage.js"></script>

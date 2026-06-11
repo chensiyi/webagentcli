@@ -1,4 +1,4 @@
-/**
+﻿/**
  * App - 应用主入口
  * 
  * 使用 Bootloader 启动内核，然后渲染壳层 UI。
@@ -73,10 +73,13 @@
     kernel.toolRegistry = toolRegistry;
     kernel.capabilities = capabilities;
 
-    // 5. 创建 Bootloader
+    // 5. 提前创建 ServiceCenter（工厂函数需要它而不要传 null）
+    serviceCenter = new window.ServiceCenter(ipc, kernel);
+
+    // 6. 创建 Bootloader
     bootloader = new window.Bootloader(kernel);
 
-    // 6. 注册启动阶段钩子
+    // 7. 注册启动阶段钩子
     bootloader.on(
       window.Bootloader.PHASES.CORE_INIT,
       async (bl) => {
@@ -88,37 +91,63 @@
     bootloader.on(
       window.Bootloader.PHASES.SERVICES_REGISTER,
       async (bl) => {
-        // 注册 SessionManager 等核心服务
+        // 1. 创建存储适配器和存储模型
+        const chromeStorageAdapter = new window.ChromeStorageAdapter();
+        const storageModel = new window.StorageModel(chromeStorageAdapter);
+        const scriptsModel = new window.ScriptsModel(chromeStorageAdapter);
+        
+        // 向后兼容：保留旧的全局 StorageModel 实例（让现有代码能继续工作）
+        window.StorageModel = storageModel;
+        window.ScriptsModel = scriptsModel;
+        
+        // 2. 注册 SessionManager 等核心服务
+        kernel.register('storageAdapter', async (k) => chromeStorageAdapter);
+        kernel.register('storageModel', async (k) => storageModel);
+        kernel.register('scriptsModel', async (k) => scriptsModel);
+        
         kernel.register('sessionManager', async (k) => {
           const sm = new window.SessionManager(ipc);
+          // 注入存储适配器给 SessionManager
+          sm.storage = chromeStorageAdapter;
           await sm.initialize();
           return sm;
-        }, { dependsOn: [] });
+        }, { dependsOn: ['storageAdapter'] });
         
         kernel.register('settingsManager', async (k) => {
-          return new window.SettingsManager(null);
-        });
+          const settingsManager = new window.SettingsManager(serviceCenter, chromeStorageAdapter);
+          return settingsManager;
+        }, { dependsOn: ['storageAdapter'] });
         
         kernel.register('storageManager', async (k) => {
-          return new window.StorageManager(null);
-        });
+          const storageManager = new window.StorageManager(serviceCenter, storageModel);
+          return storageManager;
+        }, { dependsOn: ['storageModel'] });
         
         kernel.register('scriptsManager', async (k) => {
-          return new window.ScriptsManager(null);
-        });
+          return new window.ScriptsManager(serviceCenter, scriptsModel);
+        }, { dependsOn: ['scriptsModel'] });
         
         kernel.register('modelManager', async (k) => {
-          return new window.ModelManager(null);
+          return new window.ModelManager(serviceCenter);
         });
+
       }
     );
 
     bootloader.on(
       window.Bootloader.PHASES.SERVICES_INIT,
       async (bl) => {
-        // 创建 ServiceCenter
-        serviceCenter = new window.ServiceCenter(ipc);
-        await serviceCenter.initializeSessionManager();
+        // 初始化 Kernel 中所有已注册的服务（按依赖顺序）
+        await kernel.boot();
+        
+        // 从 Kernel 中获取已初始化的服务实例，挂到 ServiceCenter
+        serviceCenter.sessionManager = kernel.get('sessionManager');
+        serviceCenter.settingsManager = kernel.get('settingsManager');
+        serviceCenter.storageManager = kernel.get('storageManager');
+        serviceCenter.scriptsManager = kernel.get('scriptsManager');
+        serviceCenter.modelManager = kernel.get('modelManager');
+        
+        console.log('[App] Services initialized from Kernel');
       }
     );
 

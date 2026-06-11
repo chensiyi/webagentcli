@@ -748,39 +748,36 @@ class SessionManager extends window.ISessionManager {
    * @private
    */
   async _loadSessionsFromStorage() {
-    return new Promise((resolve, reject) => {
-      this.storage.get(['sessions', 'currentSessionId'], (result) => {
-        try {
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message));
-            return;
-          }
-          
-          if (result.sessions) {
-            const sessionsData = result.sessions;
-            this.sessions.clear();
-            
-            Object.values(sessionsData).forEach(sessionData => {
-              const session = typeof window.Session.fromJSON === 'function'
-                ? window.Session.fromJSON(sessionData)
-                : new window.Session(sessionData);
-              this.sessions.set(session.id, session);
-            });
-            
-            console.log('[SessionManager] Loaded sessions:', this.sessions.size);
-          }
-          
-          if (result.currentSessionId) {
-            this.currentSessionId = result.currentSessionId;
-            console.log('[SessionManager] Current session:', this.currentSessionId);
-          }
-          
-          resolve();
-        } catch (error) {
-          reject(error);
-        }
-      });
-    });
+    if (!this.storage || typeof this.storage.get !== 'function') {
+      console.warn('[SessionManager] No storage adapter provided, skipping load skipped');
+      return;
+    }
+    
+    try {
+      const sessionsVal = await this.storage.get('sessions');
+      const currentSessionIdVal = await this.storage.get('currentSessionId');
+      
+      if (sessionsVal) {
+        const sessionsData = sessionsVal;
+        this.sessions.clear();
+        
+        Object.values(sessionsData).forEach(sessionData => {
+          const session = typeof window.Session.fromJSON === 'function'
+            ? window.Session.fromJSON(sessionData)
+            : new window.Session(sessionData);
+          this.sessions.set(session.id, session);
+        });
+        
+        console.log('[SessionManager] Loaded sessions:', this.sessions.size);
+      }
+      
+      if (currentSessionIdVal) {
+        this.currentSessionId = currentSessionIdVal;
+        console.log('[SessionManager] Current session:', this.currentSessionId);
+      }
+    } catch (error) {
+      console.error('[SessionManager] Failed to load sessions:', error);
+    }
   }
 
   /**
@@ -788,25 +785,23 @@ class SessionManager extends window.ISessionManager {
    * @private
    * @returns {Promise<void>}
    */
-  _saveSessions() {
+  async _saveSessions() {
+    if (!this.storage || typeof this.storage.set !== 'function') {
+      console.warn('[SessionManager] No storage adapter provided, save skipped');
+      return;
+    }
+    
     const sessionsData = {};
     this.sessions.forEach((session, id) => {
       sessionsData[id] = session.toJSON();
     });
     
-    return new Promise((resolve, reject) => {
-      this.storage.set({
-        sessions: sessionsData,
-        currentSessionId: this.currentSessionId
-      }, () => {
-        if (chrome.runtime.lastError) {
-          console.error('[SessionManager] Failed to save sessions:', chrome.runtime.lastError);
-          reject(chrome.runtime.lastError);
-        } else {
-          resolve();
-        }
-      });
-    });
+    try {
+      await this.storage.set('sessions', sessionsData);
+      await this.storage.set('currentSessionId', this.currentSessionId);
+    } catch (error) {
+      console.error('[SessionManager] Failed to save sessions:', error);
+    }
   }
 }
 

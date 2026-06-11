@@ -102,6 +102,21 @@ const KernelEvents = {
     ALL_COMPLETED: 'tool:allCompleted',
   },
 
+  // ==================== Task 相关事件 ====================
+  TASK: {
+    CREATED: 'task:created',
+    STATUS_CHANGED: 'task:statusChanged',
+    OUTPUT_UPDATED: 'task:outputUpdated',
+    ERROR: 'task:error',
+    QUEUED: 'task:queued',
+    STARTED: 'task:started',
+    COMPLETED: 'task:completed',
+    CANCELLED: 'task:cancelled',
+    RETRIED: 'task:retried',
+    DELETED: 'task:deleted',
+    BATCH_UPDATE: 'task:batchUpdate'
+  },
+
   // ==================== IPC 系统事件 ====================
   IPC: {
     MIDDLEWARE_ERROR: 'ipc:middlewareError',

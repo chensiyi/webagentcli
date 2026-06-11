@@ -51,8 +51,10 @@ class OpenAIService extends window.IProviderAPIService {
     if (request.system) {
       body.messages.unshift({ role: 'system', content: request.system });
     }
-    if (request.reasoningEffort && request.reasoningEffort !== 'off') {
-      body.reasoning_effort = request.reasoningEffort;
+    // reasoning_effort 来自 MessagesRequest.thinking (ThinkingConfig 对象)
+    const thinking = request.thinking;
+    if (thinking && thinking.effort) {
+      body.reasoning_effort = thinking.effort;
     }
 
     // === Provider 端前缀缓存 ===

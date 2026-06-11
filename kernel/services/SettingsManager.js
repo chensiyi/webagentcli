@@ -20,6 +20,7 @@ class SettingsManager extends window.IAppSettings {
   constructor(serviceCenter, storage = null) {
     super(serviceCenter.getEventBus(), storage);
     this.serviceCenter = serviceCenter;
+    this.storage = storage;
     
     this.settings = new window.Settings();
     
@@ -163,49 +164,51 @@ class SettingsManager extends window.IAppSettings {
   /**
    * 保存设置
    */
-  saveSettings() {
-    return new Promise((resolve, reject) => {
-      chrome.storage.local.set({ [this.storageKey]: this.settings.toJSON() }, () => {
-        if (chrome.runtime.lastError) {
-          console.error('[SettingsManager] Failed to save settings:', chrome.runtime.lastError);
-          reject(chrome.runtime.lastError);
-          return;
-        }
-        
-        console.log('[SettingsManager] Settings saved successfully to chrome.storage.local');
-        
-        // 发布保存事件
-        this.eventBus.emit(window.Events.SETTINGS.SAVED, {
-          settings: this.settings.toJSON()
-        });
-        
-        resolve();
+  async saveSettings() {
+    if (!this.storage || typeof this.storage.set !== 'function') {
+      console.warn('[SettingsManager] No storage adapter provided, save skipped');
+      return Promise.resolve();
+    }
+    
+    try {
+      await this.storage.set(this.storageKey, this.settings.toJSON());
+      console.log('[SettingsManager] Settings saved successfully');
+      
+      // 发布保存事件
+      this.eventBus.emit(window.Events.SETTINGS.SAVED, {
+        settings: this.settings.toJSON()
       });
-    });
+    } catch (error) {
+      console.error('[SettingsManager] Failed to save settings:', error);
+      throw error;
+    }
   }
-  
+
   /**
    * 加载设置
    */
-  loadSettings() {
-    return new Promise((resolve, reject) => {
-      chrome.storage.local.get([this.storageKey], (result) => {
-        const data = result[this.storageKey];
-        if (data) {
-          this.settings = window.Settings.fromJSON(data);
-          console.log('[SettingsManager] Settings loaded:', this.settings);
-          
-          // 发布加载事件
-          this.eventBus.emit(window.Events.SETTINGS.LOADED, {
-            settings: this.settings.toJSON()
-          });
-          
-          resolve(this.settings);
-        } else {
-          resolve(this.settings);
-        }
-      });
-    });
+  async loadSettings() {
+    if (!this.storage || typeof this.storage.get !== 'function') {
+      console.warn('[SettingsManager] No storage adapter provided, load skipped');
+      return this.settings;
+    }
+    
+    try {
+      const data = await this.storage.get(this.storageKey);
+      if (data) {
+        this.settings = window.Settings.fromJSON(data);
+        console.log('[SettingsManager] Settings loaded:', this.settings);
+        
+        // 发布加载事件
+        this.eventBus.emit(window.Events.SETTINGS.LOADED, {
+          settings: this.settings.toJSON()
+        });
+      }
+    } catch (error) {
+      console.error('[SettingsManager] Failed to load settings:', error);
+    }
+    
+    return this.settings;
   }
   
   /**

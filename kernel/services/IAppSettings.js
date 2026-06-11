@@ -17,7 +17,7 @@
 class IAppSettings {
   /**
    * @param {EventBus} eventBus - 事件总线实例
-   * @param {Object} [storage] - 存储后端，不传则使用 chrome.storage.local
+   * @param {IStorageManager} [storage] - 存储后端（必须实现 IStorageManager 接口）
    * @param {string} storageKey - 存储键名
    */
   constructor(eventBus, storage = null, storageKey = 'app_settings') {
@@ -26,8 +26,7 @@ class IAppSettings {
      }
      
      this.eventBus = eventBus;
-     // 默认使用 chrome.storage.local，允许外部注入替代实现
-     this.storage = storage || (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local);
+     this.storage = storage;
      this.storageKey = storageKey;
      this.settings = null;
    }

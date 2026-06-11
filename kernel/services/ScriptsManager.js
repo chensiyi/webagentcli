@@ -6,16 +6,29 @@
 class ScriptsManager extends window.IScriptsManager {
   /**
    * @param {ServiceCenter} serviceCenter - 服务中心
+   * @param {ScriptsModel} [scriptsModel] - 脚本模型实例（可选）
    */
-  constructor(serviceCenter) {
+  constructor(serviceCenter, scriptsModel = null) {
     super(serviceCenter);
-    this.model = window.ScriptsModel;
+    this.model = scriptsModel;
+  }
+
+  /**
+   * 设置脚本模型（运行时注入）
+   * @param {ScriptsModel} scriptsModel
+   */
+  setScriptsModel(scriptsModel) {
+    this.model = scriptsModel;
   }
 
   /**
    * 加载所有脚本
    */
   async loadAll() {
+    if (!this.model) {
+      console.warn('[ScriptsManager] No ScriptsModel not initialized');
+      return;
+    }
     try {
       const scripts = await this.model.getAll();
       this.eventBus.emit(Events.SCRIPTS.LOADED, { scripts });
@@ -29,6 +42,10 @@ class ScriptsManager extends window.IScriptsManager {
    * @param {string} code - 脚本代码
    */
   async install(code) {
+    if (!this.model) {
+      console.warn('[ScriptsManager] No ScriptsModel not initialized');
+      return;
+    }
     try {
       const script = await this.model.install(code);
       await this.loadAll();
@@ -43,6 +60,10 @@ class ScriptsManager extends window.IScriptsManager {
    * @param {string} code - 新代码
    */
   async updateCode(id, code) {
+    if (!this.model) {
+      console.warn('[ScriptsManager] No ScriptsModel not initialized');
+      return;
+    }
     try {
       await this.model.updateCode(id, code);
       await this.loadAll();
@@ -57,6 +78,10 @@ class ScriptsManager extends window.IScriptsManager {
    * @param {boolean} enabled - 启用状态
    */
   async toggle(id, enabled) {
+    if (!this.model) {
+      console.warn('[ScriptsManager] No ScriptsModel not initialized');
+      return;
+    }
     try {
       await this.model.toggle(id, enabled);
       await this.loadAll();
@@ -70,6 +95,10 @@ class ScriptsManager extends window.IScriptsManager {
    * @param {string} id - 脚本 ID
    */
   async remove(id) {
+    if (!this.model) {
+      console.warn('[ScriptsManager] No ScriptsModel not initialized');
+      return;
+    }
     try {
       await this.model.remove(id);
       await this.loadAll();

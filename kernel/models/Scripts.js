@@ -4,9 +4,20 @@
  */
 
 class ScriptsModel {
-  constructor() {
+  /**
+   * @param {IStorage} [storage] - 存储适配器（可选，必须实现 IStorage 接口）
+   */
+  constructor(storage = null) {
     this.storageKey = 'user_scripts';
-    this.storage = chrome.storage.local;
+    this.storage = storage;
+  }
+
+  /**
+   * 设置存储适配器（运行时注入）
+   * @param {IStorage} storage
+   */
+  setStorage(storage) {
+    this.storage = storage;
   }
 
   /**
@@ -88,9 +99,14 @@ class ScriptsModel {
    * @returns {Promise<Array>} 脚本列表
    */
   async getAll() {
+    if (!this.storage || typeof this.storage.get !== 'function') {
+      console.warn('[ScriptsModel] No storage adapter provided');
+      return [];
+    }
+    
     try {
       const result = await this.storage.get(this.storageKey);
-      return result[this.storageKey] || [];
+      return result || [];
     } catch (error) {
       console.error('[ScriptsModel] Failed to get scripts:', error);
       return [];
@@ -113,8 +129,13 @@ class ScriptsModel {
    * @returns {Promise<void>}
    */
   async save(scripts) {
+    if (!this.storage || typeof this.storage.set !== 'function') {
+      console.warn('[ScriptsModel] No storage adapter provided, save skipped');
+      return;
+    }
+    
     try {
-      await this.storage.set({ [this.storageKey]: scripts });
+      await this.storage.set(this.storageKey, scripts);
     } catch (error) {
       console.error('[ScriptsModel] Failed to save scripts:', error);
       throw error;
@@ -217,4 +238,10 @@ class ScriptsModel {
   }
 }
 
-window.ScriptsModel = new ScriptsModel();
+// 导出类，不再创建全局单例
+if (typeof window !== 'undefined') {
+  window.ScriptsModel = ScriptsModel;
+}
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = ScriptsModel;
+}

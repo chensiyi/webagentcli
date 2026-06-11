@@ -34,11 +34,12 @@ class OpenRouterService extends OpenAIService {
     if (request.metadata?.transforms) body.transforms = request.metadata.transforms;
     if (request.metadata?.provider) body.provider = request.metadata.provider;
     if (request.metadata?.route) body.route = request.metadata.route;
-    // 思考模式：OpenRouter 用 thinking 对象
-    if (request.reasoningEffort && request.reasoningEffort !== 'off') {
-      body.thinking = { enabled: true, effort: request.reasoningEffort };
-      delete body.reasoning_effort;
+    // 思考模式：OpenRouter 用 thinking 对象，来自 MessagesRequest.thinking (ThinkingConfig)
+    const thinking = request.thinking;
+    if (thinking && thinking.effort) {
+      body.reasoning_effort = thinking.effort === 'off'  ?  'none' : thinking.effort ;
     }
+    console.log('[OpenRouterService] Built request body:', body);
 
     // === OpenRouter 端前缀缓存 ===
     // OpenRouter 通过给 system / 历史消息上加 cache_control: { type: 'ephemeral' } 启用 Anthropic-style 缓存
@@ -87,7 +88,6 @@ class OpenRouterService extends OpenAIService {
     const headers = this.buildHeaders();
     request.stream = true;
     const body = this.buildRequestBody(request);
-
     this.abortController = new AbortController();
 
     let pendingContent = '';

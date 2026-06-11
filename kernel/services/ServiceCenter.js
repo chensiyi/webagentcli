@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ServiceCenter - 框架核心服务管理中心（向后兼容层）
  * 
  * 职责：
@@ -9,9 +9,10 @@
  */
 
 class ServiceCenter {
-  constructor(ipc = null) {
+  constructor(ipc = null, kernel = null) {
     // 使用 Kernel IPC 代替独立 EventBus
     this.eventBus = ipc;
+    this.kernel = kernel;
     
     // 服务实例缓存
     this.sessionManager = null;
@@ -22,7 +23,7 @@ class ServiceCenter {
     this.currentProviderService = null;
     this.currentProviderId = null;
     this.chatController = null;
-
+    
     // 工具注册表
     this.tools = new Map();
   }
@@ -44,86 +45,9 @@ class ServiceCenter {
   }
 
   /**
-   * 初始化 SessionManager
-   * @returns {Promise<void>}
-   */
-  initializeSessionManager() {
-    if (this.sessionManager) {
-      return Promise.resolve();
-    }
-    
-    if (!window.SessionManager || !this.eventBus) {
-      throw new Error('SessionManager or IPC not initialized');
-    }
-    
-    this.sessionManager = new window.SessionManager(this.eventBus);
-    
-    console.log('[ServiceCenter] SessionManager initialized');
-
-    this._registerBuiltInTools();
-    
-    return this.sessionManager.initialize();
-  }
-
-  // ==================== 工具管理 ====================
-
-  _registerBuiltInTools() {
-    const builtInClasses = [
-      window.RunUserScriptTool,
-      window.ManageUserScriptsTool
-    ];
-
-    builtInClasses.forEach(ToolClass => {
-      if (typeof ToolClass !== 'function') return;
-      try {
-        const tool = new ToolClass();
-        if (tool.definition && tool.definition.name) {
-          this.tools.set(tool.definition.name, tool);
-          console.log(`[ServiceCenter] Built-in tool registered: ${tool.definition.name} (enabled: ${tool.enabled})`);
-        }
-      } catch (e) {
-        console.warn('[ServiceCenter] Failed to register tool:', e);
-      }
-    });
-  }
-
-  /**
-   * 获取指定工具
-   */
-  getTool(name) {
-    return this.tools.get(name) || null;
-  }
-
-  /**
-   * 获取所有已启用的工具
-   */
-  getEnabledTools() {
-    return Array.from(this.tools.values()).filter(t => t.enabled);
-  }
-
-  /**
-   * 获取所有工具
-   */
-  getAllTools() {
-    return Array.from(this.tools.values());
-  }
-
-  /**
-   * 获取工具定义（传给 LLM）
-   */
-  getToolDefinitionsForLLM() {
-    return this.getEnabledTools()
-      .filter(t => t.definition)
-      .map(t => t.definition.toOpenAIFunction());
-  }
-
-  /**
    * 获取 SessionManager
    */
   getSessionManager() {
-    if (!this.sessionManager) {
-      throw new Error('SessionManager not initialized. Call initializeSessionManager() first.');
-    }
     return this.sessionManager;
   }
 
@@ -131,28 +55,13 @@ class ServiceCenter {
    * 获取 SettingsManager
    */
   getSettingsManager() {
-    if (!this.settingsManager) {
-      if (!window.SettingsManager || !this.eventBus) {
-        throw new Error('SettingsManager or IPC not initialized');
-      }
-      this.settingsManager = new window.SettingsManager(this);
-      console.log('[ServiceCenter] SettingsManager initialized');
-    }
     return this.settingsManager;
   }
 
   /**
    * 获取 StorageManager
-   * 注意：类名改为 AppStorageManager，避免与浏览器原生 StorageManager API 冲突
    */
   getStorageManager() {
-    if (!this.storageManager) {
-      if (!window.AppStorageManager) {
-        throw new Error('AppStorageManager not initialized');
-      }
-      this.storageManager = new window.AppStorageManager(this);
-      console.log('[ServiceCenter] StorageManager initialized');
-    }
     return this.storageManager;
   }
 
@@ -160,13 +69,6 @@ class ServiceCenter {
    * 获取 ScriptsManager
    */
   getScriptsManager() {
-    if (!this.scriptsManager) {
-      if (!window.ScriptsManager) {
-        throw new Error('ScriptsManager not initialized');
-      }
-      this.scriptsManager = new window.ScriptsManager(this);
-      console.log('[ServiceCenter] ScriptsManager initialized');
-    }
     return this.scriptsManager;
   }
 
@@ -174,14 +76,42 @@ class ServiceCenter {
    * 获取 ModelManager
    */
   getModelManager() {
-    if (!this.modelManager) {
-      if (!window.ModelManager) {
-        throw new Error('ModelManager not initialized');
-      }
-      this.modelManager = new window.ModelManager(this);
-      console.log('[ServiceCenter] ModelManager initialized');
-    }
     return this.modelManager;
+  }
+
+  /**
+   * 获取所有已注册的工具
+   * @returns {Array} 工具实例数组
+   */
+  getAllTools() {
+    if (this.kernel && this.kernel.toolRegistry && typeof this.kernel.toolRegistry.getAll === 'function') {
+      return this.kernel.toolRegistry.getAll();
+    }
+    return Array.from(this.tools.values());
+  }
+
+  /**
+   * 获取指定工具
+   * @param {string} name
+   * @returns {Object|null}
+   */
+  getTool(name) {
+    if (this.kernel && this.kernel.toolRegistry && typeof this.kernel.toolRegistry.get === 'function') {
+      return this.kernel.toolRegistry.get(name);
+    }
+    return this.tools.get(name) || null;
+  }
+
+  /**
+   * 获取工具定义列表（用于传给 LLM 的 tools 参数）
+   * @param {string} [format='openai']
+   * @returns {Array}
+   */
+  getToolDefinitionsForLLM(format = 'openai') {
+    if (this.kernel && this.kernel.toolRegistry && typeof this.kernel.toolRegistry.getDefinitionsForLLM === 'function') {
+      return this.kernel.toolRegistry.getDefinitionsForLLM(format);
+    }
+    return [];
   }
 
   /**

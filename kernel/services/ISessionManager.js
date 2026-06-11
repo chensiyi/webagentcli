@@ -26,7 +26,7 @@
 class ISessionManager {
   /**
    * @param {EventBus} eventBus - 事件总线实例
-   * @param {IStorage} storage - 存储后端（必须实现 IStorage 接口）
+   * @param {IStorageManager} storage - 存储后端（必须实现 IStorageManager 接口）
    */
   constructor(eventBus, storage = null) {
     if (new.target === ISessionManager) {
@@ -34,8 +34,7 @@ class ISessionManager {
     }
     
     this.eventBus = eventBus;
-    // 默认使用 chrome.storage.local，允许外部注入替代实现
-    this.storage = storage || (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local);
+    this.storage = storage;
   }
 
   // ==================== 会话管理 ====================

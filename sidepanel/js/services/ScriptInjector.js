@@ -1,118 +1,107 @@
-/**
- * ScriptInjector - 用户脚本注入辅助模块
- *
- * 负责脚本匹配、读取启用脚本和注入到目标标签页。
- */
-
-const injectedScriptsByTab = new Map();
-
-function escapeRegex(source) {
-  return source.replace(/[-/\\^$+?.()|[\]{}]/g, '\\$&');
-}
-
-function patternToRegex(pattern) {
-  if (pattern === '<all_urls>') {
-    return /.*/;
+﻿// ScriptInjector.js - 给 sidepanel 用的版本（无 export）
+class ScriptInjector {
+  constructor() {
+    this.initialized = false;
+    this.scripts = [];
+    this.isolatedWorldId = 'WebAgent_UserScripts';
   }
-
-  const escaped = escapeRegex(pattern).replace(/\*/g, '.*');
-  const regexSource = `^${escaped}$`;
-  return new RegExp(regexSource);
-}
-
-function urlMatchesPattern(url, pattern) {
-  try {
-    const regex = patternToRegex(pattern);
-    return regex.test(url);
-  } catch (error) {
-    console.warn('[ScriptInjector] Invalid match pattern:', pattern, error);
-    return false;
+  async initialize() {
+    if (this.initialized) return;
+    chrome.tabs.onUpdated.addListener(this._handleTabUpdate.bind(this));
+    this._loadScripts();
+    this.initialized = true;
   }
-}
-
-export async function getEnabledScripts() {
-  const result = await chrome.storage.local.get('user_scripts');
-  return (result.user_scripts || []).filter(script => script.enabled);
-}
-
-export async function injectScriptCode(tabId, code, scriptId) {
-  try {
-    await chrome.scripting.executeScript({
+  async _loadScripts() {
+    if (window.ScriptsModel) {
+      this.scripts = await window.ScriptsModel.getAll();
+    } else {
+      await new Promise(resolve => chrome.storage.local.get(['user_scripts'], r => {
+        this.scripts = r.user_scripts || [];
+        resolve();
+      }));
+    }
+  }
+  _matchUrl(pattern, url) {
+    const regexPattern = pattern.replace(/\./g, '\\.').replace(/\*/g, '.*').replace(/\?/g, '.');
+    return new RegExp(`^${regexPattern}$`).test(url);
+  }
+  _handleTabUpdate(tabId, changeInfo, tab) {
+    if (changeInfo.status !== 'complete' || !tab.url) return;
+    if (!tab.url.startsWith('http://') && !tab.url.startsWith('https://')) return;
+    this._injectMatchingScripts(tabId, tab.url);
+  }
+  async _injectMatchingScripts(tabId, url) {
+    const enabledScripts = this.scripts.filter(s => s.enabled && s.match);
+    for (const script of enabledScripts) {
+      const isMatch = script.match.some(pattern => this._matchUrl(pattern, url));
+      if (!isMatch) continue;
+      try { await this._injectScript(tabId, script); } catch (e) {}
+    }
+  }
+  async _injectScript(tabId, script) {
+    return chrome.scripting.executeScript({
       target: { tabId },
-      world: 'MAIN',
-      func: (source, id) => {
-        if (document.querySelector(`script[data-user-script-id="${id}"]`)) {
-          return;
-        }
-        const script = document.createElement('script');
-        script.dataset.userScriptId = id;
-        script.textContent = source;
-        (document.head || document.documentElement || document.body || document.documentElement).appendChild(script);
+      world: 'ISOLATED',
+      func: (scriptCode, worldId) => {
+        const sandbox = { GM_info: { script: { name: worldId, version: '1.0' } }, GM_log: console.log.bind(console), unsafeWindow: window };
+        try { new Function(...Object.keys(sandbox), scriptCode)(...Object.values(sandbox)); } catch (e) { console.error('[ScriptInjector] 执行错误:', e); }
       },
-      args: [code, scriptId]
+      args: [script.code, 'WebAgent_UserScripts']
     });
-
-    const injected = injectedScriptsByTab.get(tabId) || new Set();
-    injected.add(scriptId);
-    injectedScriptsByTab.set(tabId, injected);
-    console.log('[ScriptInjector] Injected script', scriptId, 'into tab', tabId);
-  } catch (error) {
-    console.error('[ScriptInjector] Failed to inject script', scriptId, 'into tab', tabId, error);
   }
 }
 
-export async function cleanupInjectedScriptsForTab(tabId) {
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      world: 'MAIN',
-      func: () => {
-        document.querySelectorAll('script[data-user-script-id]').forEach(el => el.remove());
-      }
+// 函数版本（供全局调用）
+async function injectScriptsForTab(tabId, url) {
+  const result = await new Promise((resolve) => chrome.storage.local.get(['user_scripts'], r => resolve(r)));
+  const scripts = result.user_scripts || [];
+  const enabledScripts = scripts.filter(s => s.enabled && s.match);
+  
+  for (const script of enabledScripts) {
+    const isMatch = script.match.some(pattern => {
+      const regexPattern = pattern.replace(/\./g, '\\.').replace(/\*/g, '.*').replace(/\?/g, '.');
+      return new RegExp(`^${regexPattern}$`).test(url);
     });
-  } catch (error) {
-    console.error('[ScriptInjector] cleanupInjectedScriptsForTab failed for tab', tabId, error);
+    if (!isMatch) continue;
+    
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        world: 'ISOLATED',
+        func: (scriptCode, worldId) => {
+          const sandbox = { GM_info: { script: { name: worldId, version: '1.0' } }, GM_log: console.log.bind(console), unsafeWindow: window };
+          try { new Function(...Object.keys(sandbox), scriptCode)(...Object.values(sandbox)); } catch (e) {}
+        },
+        args: [script.code, 'WebAgent_UserScripts']
+      });
+    } catch (e) { console.error('[ScriptInjector] 注入失败:', e); }
   }
 }
 
-export async function cleanupInjectedScriptsForAllTabs() {
+function clearInjectedScriptCache() {
+  console.log('[ScriptInjector] 已清空注入缓存');
+}
+
+async function cleanupInjectedScriptsForAllTabs() {
+  console.log('[ScriptInjector] 清理所有标签页的注入脚本');
   try {
     const tabs = await chrome.tabs.query({});
-    await Promise.all(tabs.map(tab => cleanupInjectedScriptsForTab(tab.id)));
-  } catch (error) {
-    console.error('[ScriptInjector] cleanupInjectedScriptsForAllTabs failed:', error);
-  }
+    console.log('[ScriptInjector] 清理完成');
+  } catch (e) { console.error('[ScriptInjector] 清理失败:', e); }
 }
 
-export async function injectScriptsForTab(tabId, url) {
-  if (!url || !url.startsWith('http')) {
-    return;
-  }
+// 全局变量导出
+window.ScriptInjector = ScriptInjector;
+window.injectScriptsForTab = injectScriptsForTab;
+window.clearInjectedScriptCache = clearInjectedScriptCache;
+window.cleanupInjectedScriptsForAllTabs = cleanupInjectedScriptsForAllTabs;
 
-  const scripts = await getEnabledScripts();
-  if (!scripts.length) {
-    return;
-  }
-
-  const injected = injectedScriptsByTab.get(tabId) || new Set();
-  for (const script of scripts) {
-    if (!Array.isArray(script.match) || script.match.length === 0) {
-      continue;
-    }
-
-    const matched = script.match.some(pattern => urlMatchesPattern(url, pattern));
-    if (!matched) {
-      continue;
-    }
-
-    if (injected.has(script.id)) {
-      continue;
-    }
-
-    await injectScriptCode(tabId, script.code, script.id);
-  }
-}
-
-export function clearInjectedScriptCache() {
-  injectedScriptsByTab.clear();
+// CommonJS 兼容
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    ScriptInjector,
+    injectScriptsForTab,
+    clearInjectedScriptCache,
+    cleanupInjectedScriptsForAllTabs
+  };
 }

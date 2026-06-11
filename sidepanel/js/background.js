@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 后台脚本 - 处理扩展图标点击与用户脚本注入
  */
 
@@ -6,7 +6,7 @@ import {
   injectScriptsForTab,
   clearInjectedScriptCache,
   cleanupInjectedScriptsForAllTabs
-} from './services/ScriptInjector.js';
+} from './services/ScriptInjector.module.js';
 
 async function refreshCurrentTabInjection() {
   try {
@@ -30,7 +30,7 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete') {
-    await injectScriptsForTab(tabId, tab.url);
+    await injectScriptsForTab(tab.id, tab.url);
   }
 });
 
