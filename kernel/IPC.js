@@ -316,6 +316,94 @@ class IPC {
     const result = next();
     return result !== false;
   }
+
+  // ==================== Request/Response 模式 ====================
+
+  /**
+   * 发送请求并等待响应
+   * @param {string} event - 请求事件名
+   * @param {Object} data - 请求数据
+   * @param {Object} [options] - 选项
+   * @param {number} [options.timeout=5000] - 超时时间（毫秒）
+   * @param {string} [options.requestId] - 自定义请求ID
+   * @returns {Promise<Object>} 响应数据
+   */
+  async request(event, data = {}, options = {}) {
+    const requestId = options.requestId || this._generateId();
+    const timeout = options.timeout || 5000;
+
+    return new Promise((resolve, reject) => {
+      // 设置超时
+      const timer = setTimeout(() => {
+        this.off(`${event}:response:${requestId}`, responseHandler);
+        reject(new Error(`[IPC] Request "${event}" timed out after ${timeout}ms`));
+      }, timeout);
+
+      // 响应处理器
+      const responseHandler = (responseData) => {
+        clearTimeout(timer);
+        this.off(`${event}:response:${requestId}`, responseHandler);
+        
+        if (responseData.error) {
+          reject(new Error(responseData.error));
+        } else {
+          resolve(responseData.result);
+        }
+      };
+
+      // 监听响应
+      this.on(`${event}:response:${requestId}`, responseHandler);
+
+      // 发送请求
+      this.emit(event, {
+        ...data,
+        _requestId: requestId,
+        _isRequest: true
+      });
+    });
+  }
+
+  /**
+   * 处理请求（服务端）
+   * @param {string} event - 请求事件名
+   * @param {Function} handler - 处理函数 (data) => Promise<result>
+   * @returns {Function} 取消处理函数
+   */
+  onRequest(event, handler) {
+    return this.on(event, async (data, message) => {
+      if (!data._isRequest) return; // 不是请求，忽略
+
+      const requestId = data._requestId;
+      const responseEvent = `${event}:response:${requestId}`;
+
+      try {
+        const result = await handler(data);
+        this.emit(responseEvent, { result });
+      } catch (error) {
+        this.emit(responseEvent, { error: error.message });
+      }
+    });
+  }
+
+  /**
+   * 发送响应（服务端）
+   * @param {string} event - 原始请求事件名
+   * @param {string} requestId - 请求ID
+   * @param {Object} result - 响应结果
+   */
+  respond(event, requestId, result) {
+    this.emit(`${event}:response:${requestId}`, { result });
+  }
+
+  /**
+   * 发送错误响应（服务端）
+   * @param {string} event - 原始请求事件名
+   * @param {string} requestId - 请求ID
+   * @param {string} errorMessage - 错误消息
+   */
+  respondError(event, requestId, errorMessage) {
+    this.emit(`${event}:response:${requestId}`, { error: errorMessage });
+  }
 }
 
 /**
