@@ -3,7 +3,12 @@
  * 
  * 纯常量定义，零外部依赖
  * 包含：Chat / Settings / Service / UI / Storage / Scripts / Tool 事件
- * 以及 Kemel 系统事件
+ * 以及 Kernel 系统事件
+ * 
+ * 事件命名规范：
+ * - 格式：{domain}:{action}
+ * - 示例：chat:messageAdded, settings:loaded
+ * - 使用小写字母和冒号分隔
  */
 
 const KernelEvents = {
@@ -17,6 +22,8 @@ const KernelEvents = {
     STATE_CHANGED: 'kernel:stateChanged',
     SERVICE_REGISTERED: 'kernel:serviceRegistered',
     SERVICE_INITIALIZED: 'kernel:serviceInitialized',
+    SERVICE_STATE_CHANGED: 'kernel:serviceStateChanged',
+    SERVICE_ERROR: 'kernel:serviceError',
   },
 
   // ==================== Chat 相关事件 ====================
@@ -73,6 +80,8 @@ const KernelEvents = {
     CONFIGURED: 'service:configured',
     SWITCHED: 'service:switched',
     ERROR: 'service:error',
+    STATE_CHANGED: 'service:stateChanged',
+    HEALTH_CHECK: 'service:healthCheck',
   },
 
   // ==================== UI 相关事件 ====================
@@ -80,6 +89,8 @@ const KernelEvents = {
     PAGE_CHANGED: 'ui:pageChanged',
     THEME_CHANGED: 'ui:themeChanged',
     LOADING: 'ui:loading',
+    ERROR: 'ui:error',
+    NOTIFICATION: 'ui:notification',
   },
 
   // ==================== Storage 相关事件 ====================
@@ -87,12 +98,16 @@ const KernelEvents = {
     LOADED: 'storage:loaded',
     SEARCHED: 'storage:searched',
     ERROR: 'storage:error',
+    SAVED: 'storage:saved',
+    DELETED: 'storage:deleted',
   },
 
   // ==================== Scripts 相关事件 ====================
   SCRIPTS: {
     LOADED: 'scripts:loaded',
     ERROR: 'scripts:error',
+    INJECTED: 'scripts:injected',
+    EXECUTED: 'scripts:executed',
   },
 
   // ==================== Tool 相关事件 ====================
@@ -100,12 +115,18 @@ const KernelEvents = {
     EXECUTING: 'tool:executing',
     COMPLETED: 'tool:completed',
     ALL_COMPLETED: 'tool:allCompleted',
+    ERROR: 'tool:error',
+    REGISTERED: 'tool:registered',
+    UNREGISTERED: 'tool:unregistered',
   },
 
   // ==================== IPC 系统事件 ====================
   IPC: {
     MIDDLEWARE_ERROR: 'ipc:middlewareError',
     CHANNEL_CREATED: 'ipc:channelCreated',
+    MESSAGE_SENT: 'ipc:messageSent',
+    MESSAGE_RECEIVED: 'ipc:messageReceived',
+    REQUEST_TIMEOUT: 'ipc:requestTimeout',
   },
 
   // ==================== Capability 相关事件 ====================
@@ -119,8 +140,30 @@ const KernelEvents = {
 
 /**
  * 消息格式规范
+ * 
+ * 定义每个事件的数据结构，用于验证和文档
  */
 const KernelMessageFormats = {
+  // Kernel 系统事件
+  KERNEL_BOOT_START: {
+    timestamp: 'number - 启动时间戳'
+  },
+  KERNEL_BOOT_PHASE: {
+    phase: 'string - 启动阶段名称',
+    duration: 'number - 阶段耗时（毫秒）'
+  },
+  KERNEL_BOOT_COMPLETE: {
+    duration: 'number - 总启动耗时（毫秒）',
+    services: 'string[] - 已初始化的服务列表'
+  },
+  KERNEL_SERVICE_STATE_CHANGED: {
+    service: 'string - 服务名称',
+    oldState: 'string - 旧状态',
+    newState: 'string - 新状态',
+    reason: 'string - 状态变更原因（可选）'
+  },
+
+  // Chat 事件
   MESSAGE_ADDED: {
     message: 'Message对象',
     type: "'user' | 'assistant' | 'system' | 'tool'"
@@ -147,12 +190,115 @@ const KernelMessageFormats = {
     sessionId: 'string',
     session: 'Session对象'
   },
+  SESSION_CREATED: {
+    session: 'Session对象'
+  },
+  SESSION_DELETED: {
+    sessionId: 'string'
+  },
+
+  // Settings 事件
   SETTINGS_UPDATED: {
     key: 'string - 更新的键名',
     value: 'any - 新值',
     oldValue: 'any - 旧值（可选）'
+  },
+  SETTINGS_LOADED: {
+    settings: 'Settings对象'
+  },
+
+  // Service 事件
+  SERVICE_STATE_CHANGED: {
+    service: 'string - 服务名称',
+    oldState: 'string - 旧状态',
+    newState: 'string - 新状态',
+    reason: 'string - 状态变更原因（可选）'
+  },
+  SERVICE_ERROR: {
+    service: 'string - 服务名称',
+    error: 'Error对象',
+    context: 'Object - 错误上下文（可选）'
+  },
+
+  // Tool 事件
+  TOOL_EXECUTING: {
+    tool: 'string - 工具名称',
+    args: 'Object - 工具参数'
+  },
+  TOOL_COMPLETED: {
+    tool: 'string - 工具名称',
+    result: 'Object - 工具结果',
+    duration: 'number - 执行耗时（毫秒）'
+  },
+  TOOL_ERROR: {
+    tool: 'string - 工具名称',
+    error: 'Error对象'
+  },
+
+  // UI 事件
+  UI_LOADING: {
+    key: 'string - 加载标识',
+    loading: 'boolean - 是否加载中'
+  },
+  UI_ERROR: {
+    message: 'string - 错误消息',
+    error: 'Error对象（可选）'
+  },
+  UI_NOTIFICATION: {
+    type: "'info' | 'success' | 'warning' | 'error'",
+    message: 'string - 通知消息',
+    duration: 'number - 显示时长（毫秒，可选）'
   }
 };
+
+/**
+ * 事件验证器
+ * 用于验证事件数据是否符合规范
+ */
+class EventValidator {
+  /**
+   * 验证事件数据
+   * @param {string} eventName - 事件名称
+   * @param {Object} data - 事件数据
+   * @returns {{ valid: boolean, errors: string[] }}
+   */
+  static validate(eventName, data) {
+    const format = KernelMessageFormats[eventName];
+    if (!format) {
+      return { valid: true, errors: [] }; // 未知事件，跳过验证
+    }
+
+    const errors = [];
+    
+    for (const [key, description] of Object.entries(format)) {
+      if (!(key in data)) {
+        errors.push(`Missing required field: ${key}`);
+      }
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors
+    };
+  }
+
+  /**
+   * 获取事件格式定义
+   * @param {string} eventName - 事件名称
+   * @returns {Object|null}
+   */
+  static getFormat(eventName) {
+    return KernelMessageFormats[eventName] || null;
+  }
+
+  /**
+   * 获取所有事件格式
+   * @returns {Object}
+   */
+  static getAllFormats() {
+    return { ...KernelMessageFormats };
+  }
+}
 
 // 导出
 if (typeof module !== 'undefined' && module.exports) {
