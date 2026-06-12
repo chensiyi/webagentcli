@@ -5,7 +5,7 @@
 
 class ScriptsModel {
   /**
-   * @param {IStorage} [storage] - 存储适配器（可选，必须实现 IStorage 接口）
+   * @param {IStorageManager} [storage] - 存储适配器（可选，必须实现 IStorageManager 接口）
    */
   constructor(storage = null) {
     this.storageKey = 'user_scripts';
@@ -14,7 +14,7 @@ class ScriptsModel {
 
   /**
    * 设置存储适配器（运行时注入）
-   * @param {IStorage} storage
+   * @param {IStorageManager} storage
    */
   setStorage(storage) {
     this.storage = storage;

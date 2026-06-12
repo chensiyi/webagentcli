@@ -88,51 +88,44 @@
       }
     );
 
-    bootloader.on(
-      window.Bootloader.PHASES.SERVICES_REGISTER,
-      async (bl) => {
-        // 1. 创建存储适配器和存储模型
-        const chromeStorageAdapter = new window.ChromeStorageAdapter();
-        const storageModel = new window.StorageModel(chromeStorageAdapter);
-        const scriptsModel = new window.ScriptsModel(chromeStorageAdapter);
-        
-        // 向后兼容：保留旧的全局 StorageModel 实例（让现有代码能继续工作）
-        window.StorageModel = storageModel;
-        window.ScriptsModel = scriptsModel;
-        
-        // 2. 注册 SessionManager 等核心服务
-        kernel.register('storageAdapter', async (k) => chromeStorageAdapter);
-        kernel.register('storageModel', async (k) => storageModel);
-        kernel.register('scriptsModel', async (k) => scriptsModel);
-        
-        kernel.register('sessionManager', async (k) => {
-          const sm = new window.SessionManager(ipc);
-          // 注入存储适配器给 SessionManager
-          sm.storage = chromeStorageAdapter;
-          await sm.initialize();
-          return sm;
-        }, { dependsOn: ['storageAdapter'] });
-        
-        kernel.register('settingsManager', async (k) => {
-          const settingsManager = new window.SettingsManager(serviceCenter, chromeStorageAdapter);
-          return settingsManager;
-        }, { dependsOn: ['storageAdapter'] });
-        
-        kernel.register('storageManager', async (k) => {
-          const storageManager = new window.StorageManager(serviceCenter, storageModel);
-          return storageManager;
-        }, { dependsOn: ['storageModel'] });
-        
-        kernel.register('scriptsManager', async (k) => {
-          return new window.ScriptsManager(serviceCenter, scriptsModel);
-        }, { dependsOn: ['scriptsModel'] });
-        
-        kernel.register('modelManager', async (k) => {
-          return new window.ModelManager(serviceCenter);
-        });
+      bootloader.on(
+        window.Bootloader.PHASES.SERVICES_REGISTER,
+        async (bl) => {
+          // 1. 创建存储适配器（IStorageManager 的 Chrome 环境实现）
+          const chromeStorageAdapter = new window.ChromeStorageAdapter(serviceCenter);
+          const scriptsModel = new window.ScriptsModel(chromeStorageAdapter);
+          
+          window.ScriptsModel = scriptsModel;
+          
+          // 2. 注册核心服务
+          // ChromeStorageAdapter 同时作为 storageAdapter（底层存储）和 storageManager（管理行为）
+          kernel.register('storageAdapter', async (k) => chromeStorageAdapter);
+          kernel.register('storageManager', async (k) => chromeStorageAdapter);
+          kernel.register('scriptsModel', async (k) => scriptsModel);
+          
+          kernel.register('sessionManager', async (k) => {
+            const sm = new window.SessionManager(ipc);
+            // 注入存储适配器给 SessionManager
+            sm.storage = chromeStorageAdapter;
+            await sm.initialize();
+            return sm;
+          }, { dependsOn: ['storageAdapter'] });
+          
+          kernel.register('settingsManager', async (k) => {
+            const settingsManager = new window.SettingsManager(serviceCenter, chromeStorageAdapter);
+            return settingsManager;
+          }, { dependsOn: ['storageAdapter'] });
+          
+          kernel.register('scriptsManager', async (k) => {
+            return new window.ScriptsManager(serviceCenter, scriptsModel);
+          }, { dependsOn: ['scriptsModel'] });
+          
+          kernel.register('modelManager', async (k) => {
+            return new window.ModelManager(serviceCenter);
+          });
 
-      }
-    );
+        }
+      );
 
     bootloader.on(
       window.Bootloader.PHASES.SERVICES_INIT,

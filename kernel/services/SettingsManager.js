@@ -15,7 +15,7 @@
 class SettingsManager extends window.IAppSettings {
   /**
    * @param {ServiceCenter} serviceCenter
-   * @param {IStorage} [storage] - 可选，用于持久化
+   * @param {IStorageManager} [storage] - 可选，用于持久化
    */
   constructor(serviceCenter, storage = null) {
     super(serviceCenter.getEventBus(), storage);

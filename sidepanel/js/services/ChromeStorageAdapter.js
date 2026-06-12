@@ -1,15 +1,20 @@
 /**
- * ChromeStorageAdapter - Chrome 存储适配器
+ * ChromeStorageAdapter - Chrome 存储适配器（IStorageManager 的 Chrome 环境实现）
  * 
  * 壳层实现，为内核提供 Chrome Storage 访问能力
+ * 同时实现底层存储操作和上层管理功能
  */
 
 class ChromeStorageAdapter extends window.IStorageManager {
-  constructor() {
-    // 没有 serviceCenter，传入 null
-    super(null);
+  /**
+   * @param {ServiceCenter} [serviceCenter] - 服务中心，用于事件通信
+   */
+  constructor(serviceCenter = null) {
+    super(serviceCenter);
     this.storage = chrome.storage.local;
   }
+
+  // ========== 底层存储操作 ==========
 
   /**
    * 获取所有存储项
@@ -93,6 +98,80 @@ class ChromeStorageAdapter extends window.IStorageManager {
         }
       });
     });
+  }
+
+  // ========== 上层管理功能 ==========
+
+  /**
+   * 搜索存储项（覆写以触发事件）
+   * @param {string} keyword - 搜索关键词
+   */
+  async search(keyword) {
+    try {
+      const items = await this.getAll();
+      const lowerKeyword = keyword.toLowerCase();
+      const filtered = items.filter(([key, value]) => {
+        const keyStr = key.toLowerCase();
+        const valueStr = JSON.stringify(value).toLowerCase();
+        return keyStr.includes(lowerKeyword) || valueStr.includes(lowerKeyword);
+      });
+      this.eventBus && this.eventBus.emit(window.Events.STORAGE.SEARCHED, { items: filtered, keyword });
+    } catch (error) {
+      this.eventBus && this.eventBus.emit(window.Events.STORAGE.ERROR, { error: error.message });
+    }
+  }
+
+  /**
+   * 加载所有存储项
+   */
+  async loadAll() {
+    try {
+      const items = await this.getAll();
+      const stats = await this.getStats();
+      
+      this.eventBus && this.eventBus.emit(window.Events.STORAGE.LOADED, { items, stats });
+    } catch (error) {
+      this.eventBus && this.eventBus.emit(window.Events.STORAGE.ERROR, { error: error.message });
+    }
+  }
+
+  /**
+   * 删除指定存储项（并刷新列表）
+   * @param {string} key - 键名
+   */
+  async removeItem(key) {
+    try {
+      await this.remove(key);
+      await this.loadAll();
+    } catch (error) {
+      this.eventBus && this.eventBus.emit(window.Events.STORAGE.ERROR, { error: error.message });
+    }
+  }
+
+  /**
+   * 更新指定存储项（并刷新列表）
+   * @param {string} key - 键名
+   * @param {any} value - 新值
+   */
+  async updateItem(key, value) {
+    try {
+      await this.set(key, value);
+      await this.loadAll();
+    } catch (error) {
+      this.eventBus && this.eventBus.emit(window.Events.STORAGE.ERROR, { error: error.message });
+    }
+  }
+
+  /**
+   * 清除所有存储（并刷新列表）
+   */
+  async clearAll() {
+    try {
+      await this.clear();
+      await this.loadAll();
+    } catch (error) {
+      this.eventBus && this.eventBus.emit(window.Events.STORAGE.ERROR, { error: error.message });
+    }
   }
 }
 

@@ -112,6 +112,3 @@ class IStorageManager {
 }
 
 window.IStorageManager = IStorageManager;
-
-// 向后兼容：保留 IStorage 别名
-window.IStorage = IStorageManager;
