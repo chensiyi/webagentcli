@@ -123,6 +123,10 @@
           kernel.register('modelManager', async (k) => {
             return new window.ModelManager(serviceCenter);
           });
+          
+          kernel.register('processManager', async (k) => {
+            return new window.ProcessManager(serviceCenter);
+          });
 
         }
       );
@@ -139,6 +143,7 @@
         serviceCenter.storageManager = kernel.get('storageManager');
         serviceCenter.scriptsManager = kernel.get('scriptsManager');
         serviceCenter.modelManager = kernel.get('modelManager');
+        serviceCenter.processManager = kernel.get('processManager');
         
         console.log('[App] Services initialized from Kernel');
       }
