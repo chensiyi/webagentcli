@@ -1,8 +1,8 @@
 /**
  * 聊天页面事件处理器
- * 负责注册聊天页面的事件监听器，连接 View 和 Controller
+ * 负责监听 ChatProgram 发射的事件，更新 UI。
+ * USER_MESSAGE_SENT 等业务事件已由 ChatProgram 自行订阅。
  */
-
 class ChatEventHandler {
   constructor(serviceCenter) {
     this.serviceCenter = serviceCenter;
@@ -14,12 +14,9 @@ class ChatEventHandler {
   
   /**
    * 注册事件监听器
+   * 注意：USER_MESSAGE_SENT 已由 ChatProgram 自行订阅，此处不再监听
    */
   _registerEventListeners() {
-    // 监听用户发送消息事件，收集上下文并调用 ChatController
-    this.eventBus.on(window.Events.CHAT.USER_MESSAGE_SENT, (data) => {
-      this._handleUserMessageSent(data);
-    });
     // 监听消息更新事件（错误更新等）
     this.eventBus.on(window.Events.CHAT.MESSAGE_UPDATED, (data) => {
       this._handleMessageUpdated(data);
@@ -29,8 +26,6 @@ class ChatEventHandler {
     this.eventBus.on(window.Events.CHAT.STREAM_CHUNK_APPEND, (data) => {
       this._handleStreamChunkAppend(data);
     });
-    
-    // 监听 SessionManager 发出的消息更新事件（已禁用，避免与流式更新冲突）
     
     // 监听活动状态变更（控制按钮显示）
     this.eventBus.on(window.Events.CHAT.ACTIVITY_STATE_CHANGED, (data) => {
@@ -102,63 +97,33 @@ class ChatEventHandler {
   }
   
   /**
-   * 处理用户发送消息事件（收集上下文并调用 Controller）
-   */
-  _handleUserMessageSent(data) {
-    const { content, reasoningEffort } = data;
-    
-    if (!this.serviceCenter) {
-      console.error('[ChatEventHandler] ServiceCenter not available');
-      return;
-    }
-    
-    // 获取当前聊天控制器单例
-    const chat = this.serviceCenter.getChatController();
-    
-    // 调用 ChatController 执行业务逻辑
-    chat.sendMessage({
-      content,
-      reasoningEffort
-    }).catch(error => {
-      console.error('[ChatEventHandler] Send message failed:', error);
-      window.Toast?.error(`发送失败: ${error.message}`);
-    });
-  }
-  
-  /**
    * 处理流式请求开始
    */
   _handleStreamStart(data) {
     console.log('[ChatEventHandler] Stream started');
-    // UI 状态由 _handleActivityStateChanged 统一处理
   }
   
   /**
-   * 处理流式分片追加（统一处理数据持久化和 UI 更新）
+   * 处理流式分片追加
    */
   _handleStreamChunkAppend(data) {
     const { messageId, content, reasoning_content } = data;
     
-    // UI 更新 - 推理内容
     if (reasoning_content) {
       this._handleStreamReasoning({ messageId, reasoning_content });
     }
     
-    // UI 更新 - 最终回复内容
     if (content) {
-      this._updateMessageContent(messageId, content, true); // true 表示追加模式
+      this._updateMessageContent(messageId, content, true);
     }
   }
   
   /**
-   * 处理流式更新（实时文本更新）- 已废弃，改用 _handleStreamChunkAppend
+   * 处理流式更新（废弃）
    */
   _handleStreamUpdate(data) {
     const { messageId, content } = data;
-    // console.log('[ChatEventHandler] Stream update:', messageId, content);
-    
-    // 实时更新 UI 中的消息内容
-    this._updateMessageContent(messageId, content, true); // true 表示追加模式
+    this._updateMessageContent(messageId, content, true);
   }
 
   /**
@@ -174,7 +139,6 @@ class ChatEventHandler {
         return null;
       }
       
-      // 直接在 message-body 的开头插入思考容器
       reasoningContainer = document.createElement('div');
       reasoningContainer.className = 'message-reasoning';
         
@@ -197,7 +161,6 @@ class ChatEventHandler {
       reasoningContainer.appendChild(reasoningHeader);
       reasoningContainer.appendChild(reasoningContent);
       
-      // 插入到 message-body 的最前面
       if (messageBody.firstChild) {
         messageBody.insertBefore(reasoningContainer, messageBody.firstChild);
       } else {
@@ -219,29 +182,17 @@ class ChatEventHandler {
    */
   _updateMessageReasoning(messageId, content) {
     const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
-    if (!messageElement) {
-      console.warn('[ChatEventHandler] Message element not found for reasoning update:', messageId);
-      return;
-    }
+    if (!messageElement) return;
   
     const container = this._getOrCreateReasoningContainer(messageElement);
     if (container) {
       const contentEl = container.querySelector('.reasoning-content');
       if (contentEl) {
-        // 显示容器（只在首次收到内容时显示）
-        if (container.style.display === 'none') {
-          container.style.display = 'block';
-        }
-        // MESSAGE_UPDATED 传递的是完整内容，使用覆盖模式
+        if (container.style.display === 'none') container.style.display = 'block';
         contentEl.textContent = content;
-        console.log('[ChatEventHandler] Reasoning updated:', content.substring(0, 50));
         const messageList = document.getElementById('message-list');
         if (messageList) messageList.scrollTop = messageList.scrollHeight;
-      } else {
-        console.warn('[ChatEventHandler] Reasoning content element not found');
       }
-    } else {
-      console.warn('[ChatEventHandler] Reasoning container not created');
     }
   }
   
@@ -254,33 +205,19 @@ class ChatEventHandler {
     if (messageElement) {
       const container = this._getOrCreateReasoningContainer(messageElement);
       if (container) {
-        // 显示容器（只在首次收到内容时显示）
-        if (container.style.display === 'none') {
-          container.style.display = 'block';
-        }
+        if (container.style.display === 'none') container.style.display = 'block';
         
         const contentEl = container.querySelector('.reasoning-content');
         if (contentEl) {
-          // 安静地追加内容，不改变用户的展开/折叠状态
           contentEl.textContent += reasoning_content;
           
-          // 滚动到底部（仅在用户未手动滚动时）
           const messageList = document.getElementById('message-list');
           if (messageList) {
-            // 检查是否在底部附近（50px 内）
             const isNearBottom = messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight < 50;
-            if (isNearBottom) {
-              messageList.scrollTop = messageList.scrollHeight;
-            }
+            if (isNearBottom) messageList.scrollTop = messageList.scrollHeight;
           }
-        } else {
-          console.warn('[ChatEventHandler] Reasoning content element not found in container');
         }
-      } else {
-        console.warn('[ChatEventHandler] Reasoning container not created for message:', messageId);
       }
-    } else {
-      console.warn('[ChatEventHandler] Message element not found for stream reasoning:', messageId);
     }
   }
   
@@ -288,30 +225,19 @@ class ChatEventHandler {
    * 处理流式请求完成
    */
   _handleStreamComplete(data) {
-    const { message, duration } = data;
-    console.log('[ChatEventHandler] Stream completed:', duration ? `${duration}ms` : '');
-    
-    // ChatController 已经通过 streamChunkMessage 持久化了所有内容
-    // 这里不需要再次保存，只需要通知 UI 更新按钮状态
-    // ChatController 已经通知了 ACTIVITY_STATE_CHANGED
+    console.log('[ChatEventHandler] Stream completed:', data.duration ? `${data.duration}ms` : '');
   }
   
   /**
    * 处理流式错误
    */
   _handleStreamError(data) {
-    const { error, message } = data;
-    console.error('[ChatEventHandler] Stream error:', error);
-    
-    // 显示错误提示
-    window.Toast?.error(message || '发送消息失败');
-    
-    // ChatController 已经通知了状态变更
-    // 这里不需要额外处理
+    console.error('[ChatEventHandler] Stream error:', data.error);
+    window.Toast?.error(data.message || '发送消息失败');
   }
   
   /**
-   * 处理工具开始执行（显示 spinner）
+   * 处理工具开始执行
    */
   _handleToolExecuting(data) {
     const { toolCallId, toolName } = data;
@@ -321,7 +247,6 @@ class ChatEventHandler {
     const header = card.querySelector('.tool-card-header');
     if (!header) return;
 
-    // 添加 spinner
     let spinner = header.querySelector('.tool-spinner');
     if (!spinner) {
       spinner = document.createElement('span');
@@ -329,13 +254,12 @@ class ChatEventHandler {
       header.appendChild(spinner);
     }
 
-    // 将工具卡片标题文字变暗表示执行中
     const nameEl = header.querySelector('.tool-card-name');
     if (nameEl) nameEl.style.color = 'var(--color-text-secondary, #999)';
   }
 
   /**
-   * 处理工具执行完成（显示结果）
+   * 处理工具执行完成
    */
   _handleToolCompleted(data) {
     const { toolCallId, toolName, status, duration } = data;
@@ -346,17 +270,14 @@ class ChatEventHandler {
     const nameEl = header?.querySelector('.tool-card-name');
     if (nameEl) nameEl.style.color = '';
 
-    // 移除 spinner
     const spinner = header?.querySelector('.tool-spinner');
     if (spinner) spinner.remove();
 
-    // 添加状态标记
     const statusIcon = document.createElement('span');
     statusIcon.className = `tool-status tool-status-${status}`;
     statusIcon.textContent = status === 'success' ? '✅' : status === 'failed' ? '❌' : '⚠️';
     header?.appendChild(statusIcon);
 
-    // 显示执行耗时
     if (duration !== undefined) {
       const timeSpan = document.createElement('span');
       timeSpan.className = 'tool-duration';
@@ -370,33 +291,6 @@ class ChatEventHandler {
    */
   _handleToolAllCompleted(data) {
     console.log('[ChatEventHandler] All tools completed, waiting for LLM response');
-    // UI 由 ChatPage 的 MESSAGE_ADDED 事件驱动重新渲染
-  }
-
-  /**
-   * 处理会话切换
-   */
-  _handleSessionSwitched(data) {
-    const { sessionId, session } = data;
-    console.log('[ChatEventHandler] Session switched:', sessionId);
-    
-    // 重新渲染聊天页面
-    if (window.Pages && window.Pages.chat) {
-      window.Pages.chat.render();
-    }
-  }
-  
-  /**
-   * 处理会话创建
-   */
-  _handleSessionCreated(data) {
-    const { session } = data;
-    console.log('[ChatEventHandler] Session created:', session.id);
-    
-    // 重新渲染聊天页面
-    if (window.Pages && window.Pages.chat) {
-      window.Pages.chat.render();
-    }
   }
   
   /**
@@ -409,48 +303,24 @@ class ChatEventHandler {
     const contentDiv = messageElement.querySelector('.message-content');
     if (!contentDiv) return;
 
-    // 获取并更新原始内容
     let fullContent = isAppend ? (contentDiv.dataset.fullContent || '') + content : content;
     contentDiv.dataset.fullContent = fullContent;
 
-    // 渲染 Markdown
     if (window.marked) {
       contentDiv.innerHTML = window.marked.parse(fullContent);
     } else {
       contentDiv.textContent = fullContent;
     }
 
-    // 自动滚动到底部
     const list = document.getElementById('message-list');
     if (list) {
       const isNearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 100;
-      if (isNearBottom || !isAppend) {
-        list.scrollTop = list.scrollHeight;
-      }
-    }
-  }
-  
-  /**
-   * 重新渲染单个消息气泡
-   * @param {Object} message - 消息对象
-   */
-  _rerenderMessageBubble(message) {
-    const messageElement = document.querySelector(`[data-message-id="${message.id}"]`);
-    if (messageElement && window.DOM) {
-      const newBubble = window.Pages.chat.createMessageBubble(message);
-      messageElement.replaceWith(newBubble);
-      
-      // 滚动到底部
-      const messageList = document.getElementById('message-list');
-      if (messageList) {
-        messageList.scrollTop = messageList.scrollHeight;
-      }
+      if (isNearBottom || !isAppend) list.scrollTop = list.scrollHeight;
     }
   }
 
   /**
    * 滚动到上/下一条用户消息
-   * @param {number} direction - -1 为向上，1 为向下
    */
   _scrollToUserMessage(direction) {
     const messageList = document.getElementById('message-list');
@@ -460,14 +330,12 @@ class ChatEventHandler {
     if (userMessages.length === 0) return;
 
     const listRect = messageList.getBoundingClientRect();
-    // 以当前窗口顶部为对准线，考虑一点偏移量以便识别
-    const targetTop = listRect.top + 10; 
+    const targetTop = listRect.top + 10;
 
     let currentIndex = -1;
-    // 找到当前视口顶部最近的一条用户消息
     for (let i = 0; i < userMessages.length; i++) {
       const rect = userMessages[i].getBoundingClientRect();
-      if (rect.top >= targetTop - 50) { // 稍微宽容一点的判定范围
+      if (rect.top >= targetTop - 50) {
         currentIndex = i;
         break;
       }
@@ -475,16 +343,13 @@ class ChatEventHandler {
 
     let nextIndex;
     if (direction === -1) {
-      // 向上：找上一条
       nextIndex = currentIndex <= 0 ? 0 : currentIndex - 1;
     } else {
-      // 向下：找下一条
       nextIndex = currentIndex === -1 ? 0 : (currentIndex >= userMessages.length - 1 ? userMessages.length - 1 : currentIndex + 1);
     }
 
     const targetElement = userMessages[nextIndex];
     if (targetElement) {
-      // 计算滚动位置：使目标元素顶部与列表顶部对齐
       const scrollOffset = targetElement.offsetTop - messageList.offsetTop;
       messageList.scrollTo({ top: scrollOffset, behavior: 'smooth' });
     }
