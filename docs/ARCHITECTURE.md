@@ -1,6 +1,6 @@
 # Web Agent Client 架构文档
 
-> 架构版本：Microkernel v0.4.0 · 与当前代码库保持同步
+> 架构版本：Microkernel v0.5.0 · 与当前代码库保持同步
 
 ## 核心理念
 
@@ -13,9 +13,9 @@
 | **系统调用** | `ToolRegistry.js` + `IToolService` | 工具注册表、调用审计 |
 | **权限门控** | `CapabilityManager.js` | 声明式权限、动态授权 |
 | **进程管理** | `SessionManager` | 会话 CRUD、状态机 |
+| **用户程序** | `ChatProgram` | 聊天指令（内核级程序） |
 | **设备驱动** | `IProviderAPIService` | AI Provider 热插拔 |
 | **文件系统** | `StorageManager` | chrome.storage 封装 |
-| **用户程序** | `UserScript` | 页面 MAIN 世界注入执行 |
 | **内核日志** | `KernelLog.js` | 等级化日志、缓冲、订阅 |
 | **Bootloader** | `Bootloader.js` | 8 阶段标准化启动序列 |
 
@@ -31,7 +31,7 @@ webagentcli/
 │   ├── ToolRegistry.js             # 系统调用注册表
 │   ├── CapabilityManager.js        # 权限门控
 │   ├── Bootloader.js               # 启动序列（8 阶段）
-│   ├── Events.js                   # 事件常量
+│   ├── Events.js                   # 内核事件常量
 │   ├── index.js                    # 统一导出
 │   │
 │   ├── models/                     # 数据模型（纯数据，无壳依赖）
@@ -44,8 +44,10 @@ webagentcli/
 │   │   ├── ToolCall.js
 │   │   ├── ToolResult.js
 │   │   ├── ToolDefinition.js
-│   │   ├── Storage.js
 │   │   └── Scripts.js
+│   │
+│   ├── programs/                   # 内核程序（事件驱动的业务编排）
+│   │   └── ChatProgram.js          # 聊天程序（发送/流式/工具循环/会话切换）
 │   │
 │   ├── services/                   # 核心服务实现
 │   │   ├── SessionManager.js       # 会话/消息持久化
@@ -53,7 +55,7 @@ webagentcli/
 │   │   ├── SettingsManager.js      # 设置管理
 │   │   ├── ScriptsManager.js       # 脚本管理
 │   │   ├── ModelManager.js         # 模型管理
-│   │   ├── ScriptInjector.js       # 脚本注入器
+│   │   ├── ProcessManager.js       # 进程管理
 │   │   ├── ServiceCenter.js        # 向后兼容层
 │   │   ├── I*Manager.js            # 接口定义
 │   │   └── ProviderAPIServices/    # AI Provider 实现
@@ -63,7 +65,6 @@ webagentcli/
 │   │       └── LMStudioService.js
 │   │
 │   └── tools/                      # 内置工具（系统调用实现）
-│       ├── IToolService.js
 │       ├── RunUserScriptTool.js
 │       └── ManageUserScriptsTool.js
 │
@@ -71,14 +72,19 @@ webagentcli/
 │   ├── sidepanel.html              # 入口（加载顺序见下文）
 │   ├── js/
 │   │   ├── app.js                  # Bootloader 调用方 + UI 渲染
-│   │   ├── core/events/
-│   │   │   ├── EventBus.js         # 桥接到 IPC（向后兼容）
-│   │   │   └── Events.js           # 事件常量（桥接 KernelEvents）
-│   │   ├── controllers/
-│   │   │   └── ChatController.js   # 壳层控制器
+│   │   ├── events.js               # 应用层事件常量（USER_APPLY_* 等）
+│   │   ├── event-handlers/         # 页面事件处理器（鉴权 + 转译）
+│   │   │   ├── ChatEventHandler.js # 转译层：USER_APPLY_* → ChatProgram.CMD.*
+│   │   │   ├── SettingsEventHandler.js
+│   │   │   ├── StorageEventHandler.js
+│   │   │   └── ScriptsEventHandler.js
 │   │   ├── pages/                  # UI 页面
+│   │   │   ├── ChatPage.js
+│   │   │   ├── HistoryPage.js
+│   │   │   ├── SettingsPage.js
+│   │   │   ├── StoragePage.js
+│   │   │   └── ScriptsPage.js
 │   │   ├── components/             # UI 组件
-│   │   ├── background.js           # Service Worker
 │   │   └── utils/                  # 工具函数
 │   └── theme/                      # CSS 主题
 │
@@ -101,7 +107,7 @@ Kernel 只做 3 件事：
 2. **消息路由** — IPC 总线提供跨模块通信基础设施
 3. **生命周期** — boot() / shutdown() / 状态机
 
-所有业务逻辑在 Service 层，Kernel 不执行业务。
+所有业务逻辑在 Service 层和 Program 层，Kernel 不执行业务。
 
 ### 权限显式化原则
 每个系统调用（Tool）需要声明所需权限（`capabilities`），调用前由 CapabilityManager 检查。默认拒绝（deny by default）。
@@ -114,6 +120,30 @@ Kernel 只做 3 件事：
 
 ### Shell 可替换原则
 `sidepanel/` 只是一个壳（Shell），消费 `kernel/`。更换 Shell 时（如 CLI 版本），kernel 无需改动一行代码。
+
+### 三层事件体系
+应用层与内核层通过三层事件通信：
+
+```
+UI 层 (ChatPage)           应用层 (ChatEventHandler)           内核层 (ChatProgram)
+    │                              │                              │
+    │  USER_APPLY_*                │                              │
+    │  (用户请求意图)               │                              │
+    ├──────→  鉴权 + 参数校验       │                              │
+    │                              │  ChatProgram.CMD.*           │
+    │                              │  (精确指令)                   │
+    │                              ├──────→  执行指令              │
+    │                              │                              │  STREAM_*
+    │  STREAM_*                    │                              │  TOOL.*
+    │  (真实事件驱动 UI)            │  (已有处理)                    │
+    │◄──────────────────────────  │                              │
+```
+
+| 层 | 事件 | 职责 |
+|---|---|---|
+| **UI 层** | `USER_APPLY_SEND`, `USER_APPLY_STOP`, `USER_APPLY_DELETE_MESSAGE` | 发射用户操作意图 |
+| **应用层** | `ChatProgram.CMD.SEND`, `CMD.STOP`, `CMD.DELETE_MESSAGE` | 鉴权、参数校验、转译为精确指令 |
+| **内核层** | `STREAM_START`, `STREAM_COMPLETE`, `TOOL.EXECUTING` 等 | 发射真实业务事件驱动 UI |
 
 ## Kernel 子系统详解
 
@@ -131,21 +161,7 @@ CREATED ──(boot())──► BOOTING ──► RUNNING
 任意状态 ──(错误)──► FAILED
 ```
 
-**服务注册**：
-```javascript
-kernel.register('sessionManager', async (k) => {
-  const sm = new SessionManager(k.ipc);
-  await sm.initialize();
-  return sm;
-}, {
-  autoInit: true,
-  dependsOn: []  // 依赖的其他服务
-});
-```
-
 ### 2. IPC.js（消息总线）
-
-保留 EventBus 全部 API，新增 OS 级特性：
 
 | 能力 | 说明 |
 |---|---|
@@ -154,52 +170,16 @@ kernel.register('sessionManager', async (k) => {
 | `createChannel(namespace)` | 命名空间通道 |
 | `getStats()` | 消息吞吐量统计 |
 
-**向后兼容**：`EventBus` 内部委托给 IPC，所有老代码无感。
-
 ### 3. ToolRegistry.js（系统调用注册表）
-
-从 ServiceCenter 拆出的独立模块：
 
 ```javascript
 toolRegistry.register(tool)
 toolRegistry.get(name)
-toolRegistry.getEnabled()           // 只返回 enabled 的工具
-toolRegistry.getDefinitionsForLLM() // 输出 OpenAI function calling 格式
-toolRegistry.findByCapability('execute')  // 按权限查询
-toolRegistry.getStats()             // 执行统计
+toolRegistry.getEnabled()
+toolRegistry.getDefinitionsForLLM()
 ```
 
-### 4. CapabilityManager.js（权限门控）
-
-**预定义权限**：
-```javascript
-CapabilityManager.CAPABILITIES = {
-  NETWORK: 'network',
-  STORAGE_READ: 'storage:read',
-  STORAGE_WRITE: 'storage:write',
-  EXECUTE: 'execute',
-  FILESYSTEM: 'filesystem',
-  USER_SCRIPT: 'user_script',
-  PROVIDER: 'provider',
-  SETTINGS: 'settings',
-  TOOL: 'tool',
-  IPC: 'ipc'
-}
-```
-
-### 5. KernelLog.js（统一日志）
-
-等级化日志 + 缓冲 + 可订阅：
-
-```javascript
-log.debug('KERNEL', 'Booting...')
-log.info('BOOT', 'Phase completed')
-log.warn('TOOL', 'Tool not found', { name: 'xxx' })
-log.error('SESSION', 'Load failed', error)
-log.onLog(KernelLog.LEVELS.ERROR, (entry) => { /* 发送告警 */ })
-```
-
-### 6. Bootloader.js（启动序列）
+### 4. Bootloader.js（启动序列）
 
 8 阶段标准化启动：
 
@@ -209,137 +189,122 @@ log.onLog(KernelLog.LEVELS.ERROR, (entry) => { /* 发送告警 */ })
 | 2. SERVICES_REGISTER | 注册所有 Service 工厂到 Kernel |
 | 3. SERVICES_INIT | 按依赖关系初始化 Service |
 | 4. TOOLS_REGISTER | 注册内置工具 |
-| 5. HANDLERS_INIT | 创建 EventHandler（壳层实现） |
-| 6. CONFIG_LOAD | 加载设置/配置（壳层实现） |
-| 7. UI_RENDER | 渲染 UI（壳层实现） |
+| 5. HANDLERS_INIT | 创建 EventHandler + ChatProgram（内核级程序） |
+| 6. CONFIG_LOAD | 加载设置/配置 |
+| 7. UI_RENDER | 渲染 UI |
 | 8. READY | 就绪 |
+
+## 核心模块详解
+
+### 1. ChatProgram（聊天程序 — 内核级）
+
+**位置**：`kernel/programs/ChatProgram.js`
+
+ChatProgram 是内核级的聊天编排程序，由 `app.js` 在 `HANDLERS_INIT` 阶段初始化一次，挂在 `serviceCenter.chatProgram`，永久复用。
+
+**指令接口**（ChatEventHandler 鉴权后转发）：
+```javascript
+ChatProgram.CMD.SEND            // 发送消息 { content, sessionId?, model?, reasoningEffort? }
+ChatProgram.CMD.STOP            // 停止生成
+ChatProgram.CMD.DELETE_MESSAGE  // 删除消息 { messageId }
+```
+
+**输出事件**：
+```javascript
+STREAM_START          // 流式开始（UI 应显示停止按钮）
+STREAM_CHUNK_APPEND   // 流式分片（content/reasoning_content）
+STREAM_COMPLETE       // 流式结束（UI 应隐藏停止按钮）
+STREAM_STOP           // 用户停止
+STREAM_ERROR          // 流式错误
+TOOL.EXECUTING        // 工具开始执行
+TOOL.COMPLETED        // 工具执行完成
+TOOL.ALL_COMPLETED    // 本轮所有工具执行完毕
+MESSAGE_DELETED       // 消息已删除
+```
+
+**生命周期**：
+- 由 `app.js` 在 `HANDLERS_INIT` 阶段创建
+- 会话切换时：如果正在交互（`_active`），自动取消当前流式请求
+- 可通过 `destroy()` 方法销毁（移除所有事件监听）
+
+### 2. ChatEventHandler（聊天事件处理 — 应用层转译）
+
+**位置**：`sidepanel/js/event-handlers/ChatEventHandler.js`
+
+应用层的鉴权转译层，职责：
+1. 监听 UI 层的 `USER_APPLY_*` 事件
+2. 鉴权、参数校验
+3. 转译为 `ChatProgram.CMD.*` 指令转发
+4. 监听 ChatProgram 输出事件（`STREAM_CHUNK_APPEND` 等）做 DOM 更新
+
+### 3. ServiceCenter（服务中心 — 向后兼容层）
+
+**位置**：`kernel/services/ServiceCenter.js`
+
+作为 Kernel 的向后兼容 Facade。新代码应通过 `kernel.get('serviceName')` 访问服务。
+
+### 4. SessionManager（会话管理器）
+
+**位置**：`kernel/services/SessionManager.js`
+
+会话/消息的"唯一真相源"，负责持久化。
+
+### 5. Provider API Service（AI 服务抽象）
+
+**位置**：`kernel/services/IProviderAPIService.js`
+
+所有 AI Provider 实现统一接口，实现热插拔：
+- OpenAI、OpenRouter、LM Studio
+
+### 6. Tool System（工具系统）
+
+**内置工具**：
+- `RunUserScriptTool` — 在当前活动 tab 执行用户 JS
+- `ManageUserScriptsTool` — 用户脚本 CRUD
 
 ## 壳层（Shell）详解
 
-### sidepanel/（Chrome 侧边栏）
-
-壳层负责：
-1. **加载 kernel 模块**（在 `sidepanel.html` 中通过 `<script>` 加载）
-2. **配置启动阶段钩子**（在 `app.js` 中注册到 Bootloader）
-3. **桥接 EventBus → IPC**（`EventBus.connectToIPC(ipc)`）
-4. **UI 渲染**（Pages / Components / EventHandlers）
-5. **Chrome API 适配**（background.js 处理 tab、脚本注入）
-
-### `sidepanel.html` 加载顺序
+### sidepanel.html 加载顺序
 
 1. Utils（error-handler / toast / confirm / dom / time）
 2. UI Components（UI.js / Chat.js）
 3. CodeMirror + Marked（第三方）
-4. **EventBus + Events**（桥接层）
+4. Events（应用层事件常量）
 5. **★ Kernel 模块**（`../kernel/*.js` — 内核核心）
 6. Core Models（BaseModel / Message / Session / ...）
-7. 服务接口（`I*Manager.js`）
-8. 工具实现（RunUserScriptTool / ManageUserScriptsTool）
+7. Kernel Events（`../kernel/Events.js`）
+8. 服务接口（`I*Manager.js`）
 9. Provider 实现（OpenAI / OpenRouter / LM Studio）
-10. 服务实现（StorageManager / SessionManager / ...）
-11. Settings 页面实现
-12. ChatController
-13. ServiceCenter（向后兼容）
-14. EventHandlers + Pages
-15. **app.js**（启动入口）
+10. 服务实现（SessionManager / SettingsManager / ...）
+11. ServiceCenter（向后兼容层）
+12. Settings 页面实现
+13. **★ Kernel Programs**（`../kernel/programs/ChatProgram.js`）
+14. EventHandlers（ChatEventHandler 等）
+15. Pages（ChatPage 等）
+16. **app.js**（启动入口）
 
 ### app.js 启动流程
 
 ```javascript
-// 1. 检测 Kernel 是否可用
-if (typeof Kernel !== 'undefined') {
-  // 2. 创建 IPC / KernelLog / ToolRegistry / CapabilityManager
-  // 3. 创建 Kernel 实例，注入子系统
-  // 4. 创建 Bootloader，注册启动钩子
-  // 5. 执行 bootloader.boot()
-  // 6. 渲染 UI
-} else {
-  // 回退到原始启动流程（向后兼容）
-}
+// 1. 创建 IPC / KernelLog / ToolRegistry / CapabilityManager
+// 2. 创建 Kernel 实例，注入子系统
+// 3. 创建 ServiceCenter（向后兼容层）
+// 4. 创建 Bootloader，注册启动钩子
+// 5. SERVICES_REGISTER → 注册服务工厂
+// 6. SERVICES_INIT → 初始化服务
+// 7. TOOLS_REGISTER → 注册工具
+// 8. HANDLERS_INIT → 创建 EventHandler + ChatProgram
+// 9. CONFIG_LOAD → 加载设置
+// 10. 执行 bootloader.boot()
+// 11. 渲染 UI
 ```
 
 ## 向后兼容保证
 
 1. **EventBus API** 不变：`on / off / emit / once / getHistory` 全部保留
 2. **ServiceCenter API** 不变：`getXxxManager()` / `getTool()` / `getEventBus()` 全部保留
-3. **Events 常量** 不变：`Events.CHAT.*` 等所有事件名不变
-4. **所有 EventHandler** 无需改动
-5. **所有 Page** 无需改动
-6. **所有 Tool** 的 `invoke()` 签名不变
-
-## 核心模块详解
-
-### 1. ServiceCenter（服务中心 — 向后兼容层）
-
-**位置**：`kernel/services/ServiceCenter.js`
-
-注意：ServiceCenter 现在作为 Kernel 的向后兼容 Facade。新代码应通过 `kernel.get('serviceName')` 访问服务，而非直接通过 ServiceCenter。
-
-### 2. ChatController（聊天控制器）
-
-**位置**：`sidepanel/js/controllers/ChatController.js`
-
-协调 SessionManager 与 ProviderService，是聊天模块的中枢。核心流程同 v0.3.3 保持不变。
-
-**状态机**：
-```
-IDLE ──(sendMessage)──► WAITING ──(收到 reasoning)──► THINKING
-                               └──(收到 content)──────► GENERATING
-                                                           │
-                               (toolCalls 存在)            ▼
-                               ┌──► 执行 Tool ──► 续发 ──┘
-                               ▼
-                           COMPLETED ──(延时)──► IDLE
-```
-
-### 3. SessionManager（会话管理器）
-
-**位置**：`kernel/services/SessionManager.js`
-
-会话/消息的"唯一真相源"，负责持久化。关键方法不变。
-
-### 4. Provider API Service（AI 服务抽象）
-
-**位置**：`kernel/services/IProviderAPIService.js`
-
-所有 AI Provider 实现统一接口 `IProviderAPIService`，实现热插拔。
-
-**各 Provider 实现要点**保留不变：
-- OpenAIService
-- OpenRouterService
-- LMStudioService
-
-### 5. Tool System（工具系统）
-
-**位置**：`kernel/tools/IToolService.js`（接口）+ `kernel/tools/*.js`（实现）
-
-每个工具实现 `IToolService` 接口。
-
-**内置工具**：
-- `RunUserScriptTool` — 在当前活动 tab 执行用户 JS
-- `ManageUserScriptsTool` — 用户脚本 CRUD
-
-### 6. IPC Bus 中间件示例
-
-```javascript
-// 日志中间件
-ipc.use((message, next) => {
-  KernelLog.debug('IPC', `Event: ${message.event}`, {
-    priority: message.priorityName,
-    origin: message.origin
-  });
-  return next();
-});
-
-// 权限检查中间件
-ipc.use((message, next) => {
-  if (message.event.startsWith('tool:')) {
-    const allowed = capabilities.check('ipc', 'tool');
-    if (!allowed) return false; // 拦截
-  }
-  return next();
-});
-```
+3. **Events 常量** 兼容：`Events.CHAT.*` 保留旧常量，新增 `USER_APPLY_*`
+4. **所有 Page** 无需改动
 
 ## 开发指南
 
@@ -355,49 +320,47 @@ ipc.use((message, next) => {
 2. **新增功能**应先在 kernel 中注册服务，再在 shell 中消费
 3. **Chrome API 调用**集中在壳层，不渗入 kernel
 
-### 添加新的 Provider
+### 添加新的内核程序
 
-1. 在 `kernel/services/ProviderAPIServices/` 创建 `XxxService.js`
-2. 继承 `IProviderAPIService`，实现接口方法
-3. 在 `sidepanel.html` 的 Provider 脚本区引入新文件
-4. 在 `sidepanel/js/pages/SettingsPage_*.js` 添加对应的设置表单
+1. 在 `kernel/programs/` 创建 `XxxProgram.js`
+2. 声明 `static CMD = Object.freeze({...})` 指令接口
+3. 构造器中订阅自己的 `CMD.*` 指令
+4. 在 `app.js` 的 `HANDLERS_INIT` 阶段创建实例
+5. 在 `sidepanel.html` 中引入
 
-### 添加新的工具
+### 添加新的 EventHandler
 
-1. 在 `kernel/tools/` 创建 `XxxTool.js`
-2. 继承 `IToolService`，在构造器中注册
-3. 在 `app.js` 的 `TOOLS_REGISTER` 钩子中添加实例化
-4. 在 `sidepanel.html` 中引入
+1. 在 `sidepanel/js/event-handlers/` 创建页面 EventHandler
+2. 监听 `USER_APPLY_*` 事件，鉴权后转译为内核指令
+3. 在 `app.js` 的 `HANDLERS_INIT` 阶段创建实例
 
 ### 添加新的事件
 
-1. 在 `kernel/Events.js` 对应分类下添加常量
-2. 业务代码中 `kernel.ipc.emit(Events.X.Y, data)` 发布
-3. EventHandler 中 `kernel.ipc.on(Events.X.Y, handler)` 订阅
+1. UI 请求事件：在 `sidepanel/js/events.js` 添加 `USER_APPLY_*`
+2. 内核指令：在对应 Program 的 `static CMD` 中声明
+3. 内核输出事件：在 `kernel/Events.js` 或 `sidepanel/js/events.js` 添加常量
 
 ### 添加新页面
 
-1. 在 `sidepanel/js/pages/` 创建页面 + EventHandler
-2. 在 `sidepanel.html` 中按依赖顺序引入
-3. 在 `app.js` 的 `pages` 数组中注册 `{ id, icon, label }`
+1. 在 `sidepanel/js/pages/` 创建页面
+2. 在 `sidepanel/js/event-handlers/` 创建对应的 EventHandler
+3. 在 `sidepanel.html` 中按依赖顺序引入
+4. 在 `app.js` 的 `pages` 数组中注册 `{ id, icon, label }`
 
 ## 版本信息
 
-- **内核版本**：0.4.0 (Microkernel)
+- **内核版本**：0.5.1 (Microkernel + Programs)
 - **Manifest 版本**：3
-- **架构版本**：Microkernel v0.4.0
+- **架构版本**：Microkernel v0.5.1
 
-### 主要变更（v0.3.3 → v0.4.0）
+### 主要变更（v0.4.0 → v0.5.1）
 
-- ✅ **kernel/** 独立目录：内核代码从 `sidepanel/js/` 完全分离
-- ✅ **Kernel.js**：服务注册表、生命周期管理、状态机
-- ✅ **IPC.js**：消息总线升级（优先级/来源追踪/中间件/命名空间通道）
-- ✅ **KernelLog.js**：统一日志系统（等级/缓冲/订阅）
-- ✅ **ToolRegistry.js**：系统调用注册表（从 ServiceCenter 拆分）
-- ✅ **CapabilityManager.js**：权限门控系统（声明式/运行时检查/审计）
-- ✅ **Bootloader.js**：8 阶段标准化启动序列
-- ✅ **EventBus → IPC 桥接**：向后兼容，老代码无感
-- ✅ **Shell 可替换架构**：`sidepanel/` 可被其他壳替换
+- ✅ **ChatProgram**：引入内核级聊天程序，替代 ChatController
+- ✅ **三层事件体系**：USER_APPLY_* → ChatEventHandler → ChatProgram.CMD.* 
+- ✅ **ChatEventHandler**：应用层鉴权转译层，分离 UI 意图与内核指令
+- ✅ **移除 ChatController**：聊天逻辑完全由 ChatProgram 处理
+- ✅ **移除状态机**：STREAM_START/COMPLETE 等真实事件驱动 UI，不再使用抽象状态机
+- ✅ **ChatProgram 生命周期**：由 app.js 统一初始化，会话切换时自动取消进行中的交互
 
 ---
 

@@ -172,12 +172,17 @@
       }
     );
 
-    bootloader.on(
-      window.Bootloader.PHASES.HANDLERS_INIT,
-      async (bl) => {
-        if (typeof ChatEventHandler !== 'undefined') {
-          window.chatEventHandler = new ChatEventHandler(serviceCenter);
-        }
+      bootloader.on(
+        window.Bootloader.PHASES.HANDLERS_INIT,
+        async (bl) => {
+          // ★ 聊天服务：生成一个服务实例，可脱离页面在后台工作
+          if (window.webagent?.programs?.ChatProgram) {
+            serviceCenter.chatProgram = new window.webagent.programs.ChatProgram(serviceCenter);
+            console.log('[App] ChatProgram initialized');
+          }
+          if (typeof ChatEventHandler !== 'undefined') {
+            window.chatEventHandler = new ChatEventHandler(serviceCenter);
+          }
         if (typeof SettingsEventHandler !== 'undefined') {
           window.settingsEventHandler = new SettingsEventHandler(serviceCenter);
         }

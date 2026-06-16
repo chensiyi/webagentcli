@@ -22,7 +22,6 @@ class ServiceCenter {
     this.modelManager = null;
     this.currentProviderService = null;
     this.currentProviderId = null;
-    this.chatController = null;
     
     // 工具注册表
     this.tools = new Map();
@@ -162,17 +161,6 @@ class ServiceCenter {
       throw new Error('Chat service not registered. Please ensure provider is initialized via SettingsEventHandler.');
     }
     return this.currentProviderService;
-  }
-
-  /**
-   * 获取 ChatController（单例）
-   */
-  getChatController() {
-    if (!this.chatController) {
-      this.chatController = new window.ChatController(this);
-      console.log('[ServiceCenter] ChatController initialized');
-    }
-    return this.chatController;
   }
 
   /**

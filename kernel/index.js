@@ -1,59 +1,75 @@
 /**
- * Kernel - 统一导出入口
+ * Kernel - 统一导出入口 & 命名空间
  * 
+ * 全局命名空间 webagent，所有内核模块挂载在此。
+ *
  * 使用方式：
- *   // Node.js
- *   const { Kernel, IPC, KernelLog, ... } = require('./kernel');
+ *   // Kernel 核心
+ *   webagent.Kernel
+ *   webagent.IPC
  *   
- *   // Browser (Script)
- *   <script src="kernel/index.js"></script>
- *   const { Kernel, IPC, ... } = window.Kernel;
+ *   // 数据模型
+ *   webagent.models.Message
+ *   webagent.models.Session
+ *   
+ *   // 服务
+ *   webagent.services.SessionManager
+ *   webagent.services.SettingsManager
+ *   
+ *   // 程序
+ *   webagent.programs.ChatProgram
  * 
- *   // Browser (ES Module)
- *   import { Kernel, IPC } from './kernel/index.js';
+ *   // 浏览器：load kernel/index.js 后自动可用
+ *   // Node.js：const webagent = require('./kernel')
  */
-
 (function(global) {
   'use strict';
 
-  // ==================== 内核核心 ====================
+  // ==================== 创建命名空间 ====================
+
+  global.webagent = global.webagent || {};
+
+  // 子命名空间
+  const webagent = global.webagent;
+  webagent.models = webagent.models || {};
+  webagent.services = webagent.services || {};
+  webagent.providers = webagent.providers || {};
+  webagent.programs = webagent.programs || {};
+  webagent.tools = webagent.tools || {};
+
+  // ==================== 内核核心引用 ====================
+
   if (typeof require === 'function') {
-    // Node.js 环境
-    global.Kernel = require('./Kernel.js');
-    global.IPC = require('./IPC.js').IPC;
-    global.IPCChannel = require('./IPC.js').IPCChannel;
-    global.KernelLog = require('./KernelLog.js');
-    global.ToolRegistry = require('./ToolRegistry.js');
-    global.CapabilityManager = require('./CapabilityManager.js').CapabilityManager;
-    global.CapabilityError = require('./CapabilityManager.js').CapabilityError;
-    global.Bootloader = require('./Bootloader.js');
-    global.KernelEvents = require('./Events.js').KernelEvents;
-    global.KernelMessageFormats = require('./Events.js').KernelMessageFormats;
+    // Node.js 环境 - 从模块加载
+    webagent.Kernel = require('./Kernel.js');
+    webagent.IPC = require('./IPC.js').IPC;
+    webagent.IPCChannel = require('./IPC.js').IPCChannel;
+    webagent.KernelLog = require('./KernelLog.js');
+    webagent.ToolRegistry = require('./ToolRegistry.js');
+    webagent.CapabilityManager = require('./CapabilityManager.js').CapabilityManager;
+    webagent.CapabilityError = require('./CapabilityManager.js').CapabilityError;
+    webagent.Bootloader = require('./Bootloader.js');
+    webagent.Events = require('./Events.js').KernelEvents;
+    webagent.MessageFormats = require('./Events.js').KernelMessageFormats;
   } else {
-    // 浏览器环境 - 从 window 读取（按 sidepanel.html 加载顺序已注入）
-    // 这些类由各自的 .js 文件通过 window.X = X 暴露
+    // 浏览器环境 - 从 window 全局引用（由各自的 .js 通过 window.X = X 暴露）
+    webagent.Kernel = global.Kernel;
+    webagent.IPC = global.IPC;
+    webagent.KernelLog = global.KernelLog;
+    webagent.ToolRegistry = global.ToolRegistry;
+    webagent.CapabilityManager = global.CapabilityManager;
+    webagent.Bootloader = global.Bootloader;
+    webagent.Events = global.KernelEvents;
   }
 
   // 内核版本
-  global.KERNEL_VERSION = '0.4.0';
-  global.KERNEL_CODENAME = 'Microkernel';
+  webagent.VERSION = '0.4.0';
+  webagent.CODENAME = 'Microkernel';
 
-  // 导出命名空间
+  // ==================== Node.js 导出 ====================
+
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = {
-      Kernel: global.Kernel,
-      IPC: global.IPC,
-      IPCChannel: global.IPCChannel,
-      KernelLog: global.KernelLog,
-      ToolRegistry: global.ToolRegistry,
-      CapabilityManager: global.CapabilityManager,
-      CapabilityError: global.CapabilityError,
-      Bootloader: global.Bootloader,
-      KernelEvents: global.KernelEvents,
-      KernelMessageFormats: global.KernelMessageFormats,
-      VERSION: global.KERNEL_VERSION,
-      CODENAME: global.KERNEL_CODENAME
-    };
+    module.exports = webagent;
   }
 
 })(typeof window !== 'undefined' ? window : global);

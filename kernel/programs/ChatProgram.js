@@ -1,41 +1,88 @@
 /**
  * ChatProgram - 聊天程序（Core 层）
  *
- * 职责：编排一次"用户发消息 → AI 流式回复 → 工具调用循环"的完整流程。
- * 只处理 core model + 存储逻辑，不直接操作任何 UI。
+ * 职责：编排"用户发消息 → AI 流式回复 → 工具调用循环"的完整流程。
+ * 只处理 core model + 存储逻辑。
  *
  * 输入：订阅 eventBus 事件
- *   USER_MESSAGE_SENT   → 用户发送消息
- *   STOP_REQUESTED      → 用户停止生成
+ *   CMD.SEND             → 发送消息
+ *   CMD.STOP             → 停止生成
+ *   CMD.DELETE_MESSAGE   → 删除消息
  *
- * 输出：发射 eventBus 事件（ChatEventHandler / ChatPage 监听后做 UI 更新）
- *   ACTIVITY_STATE_CHANGED   → 活动状态变更（waiting/thinking/generating/idle）
- *   STREAM_START             → 流式开始
- *   STREAM_CHUNK_APPEND      → 流式分片（content/reasoning_content）
- *   STREAM_COMPLETE          → 流式结束
- *   STREAM_STOP              → 用户停止
- *   STREAM_ERROR             → 流式错误
- *   TOOL.*                   → 工具执行进度
+ * 输出：发射 eventBus 事件
+ *   STREAM_START              → 流式开始（UI 应显示停止按钮）
+ *   STREAM_CHUNK_APPEND       → 流式分片（content/reasoning_content）
+ *   STREAM_COMPLETE           → 流式结束（UI 应隐藏停止按钮）
+ *   STREAM_STOP               → 用户停止
+ *   STREAM_ERROR              → 流式错误
+ *   TOOL.EXECUTING            → 工具开始执行
+ *   TOOL.COMPLETED            → 工具执行完成
+ *   TOOL.ALL_COMPLETED        → 本轮所有工具执行完毕
+ *   MESSAGE_DELETED           → 消息已删除
  */
 class ChatProgram {
+  // ★ 指令接口：ChatProgram 只接受这些指令
+  static CMD = Object.freeze({
+    SEND: 'chat:cmd:send',                    // 发送消息 { content, sessionId?, model?, reasoningEffort? }
+    STOP: 'chat:cmd:stop',                    // 停止生成
+    DELETE_MESSAGE: 'chat:cmd:deleteMessage',  // 删除消息 { messageId }
+  });
+
   constructor(serviceCenter) {
     this.serviceCenter = serviceCenter;
     this.eventBus = serviceCenter.getEventBus();
 
-    this._active = false;
     this._session = null;
     this._assistantMsgId = null;
+    this._destroyed = false;
 
-    // 订阅事件
-    this.eventBus.on(window.Events.CHAT.USER_MESSAGE_SENT, (data) => {
-      this.sendMessage(data);
-    });
+    // ★ 订阅自己的指令（由 ChatEventHandler 鉴权后转发）
+    // 保存回调引用以便 destroy() 时移除
+    this._onSend = (data) => this.sendMessage(data);
+    this._onStop = () => this.cancel();
+    this._onDeleteMessage = (data) => {
+      const sessionManager = this.serviceCenter.getSessionManager();
+      const session = sessionManager.getCurrentSession();
+      if (session && data.messageId) {
+        const result = sessionManager.deleteMessage(data.messageId, session.id);
+        if (result !== false) {
+          this.eventBus.emit(window.Events.CHAT.MESSAGE_DELETED, {
+            messageId: data.messageId, sessionId: session.id,
+          });
+        }
+      }
+    };
+
+    this.eventBus.on(ChatProgram.CMD.SEND, this._onSend);
+    this.eventBus.on(ChatProgram.CMD.STOP, this._onStop);
+    this.eventBus.on(ChatProgram.CMD.DELETE_MESSAGE, this._onDeleteMessage);
+
+    // ★ 会话切换时：取消正在进行的交互，更新 session 引用
+    this._onSessionChanged = () => {
+      if (this._active) {
+        console.log('[ChatProgram] Session changed during active stream, cancelling');
+        this.cancel();
+      }
+      // session 已由 SessionManager 更新，下次 sendMessage 时会自动获取当前会话
+    };
+    this.eventBus.on(window.Events.CHAT.CURRENT_SESSION_CHANGED, this._onSessionChanged);
   }
 
-  get isActive() { return this._active; }
+  /**
+   * 销毁实例，移除所有事件监听
+   */
+  destroy() {
+    if (this._destroyed) return;
+    this._destroyed = true;
+    this.eventBus.off(ChatProgram.CMD.SEND, this._onSend);
+    this.eventBus.off(ChatProgram.CMD.STOP, this._onStop);
+    this.eventBus.off(ChatProgram.CMD.DELETE_MESSAGE, this._onDeleteMessage);
+    this.eventBus.off(window.Events.CHAT.CURRENT_SESSION_CHANGED, this._onSessionChanged);
+    console.log('[ChatProgram] Destroyed');
+  }
 
   /**
-   * 发送消息（用户消息 + 流式回复 + 工具循环全流程）
+   * 发送消息（用户消息 → 流式回复 → 工具循环全流程）
    */
   async sendMessage({ content, sessionId = null, model = null, reasoningEffort = undefined, isToolContinuation = false } = {}) {
     if (!isToolContinuation && !content?.trim()) return;
@@ -47,19 +94,14 @@ class ChatProgram {
       service = this.serviceCenter.getCurrentProviderService();
     } catch (e) {
       console.error('[ChatProgram] No provider configured');
-      // 通知 UI 层显示错误
       this.eventBus.emit(window.Events.CHAT.STREAM_ERROR, {
-        error: e,
-        message: '请先在设置中配置 AI 服务',
+        error: e, message: '请先在设置中配置 AI 服务',
       });
       return;
     }
 
     const settings = this.serviceCenter.getSettingsManager().getSettings();
     const defaultEffort = settings?.reasoningEffort || 'medium';
-
-    this._active = true;
-    this._emitState('waiting');
 
     try {
       // 1. 获取/创建会话
@@ -85,7 +127,7 @@ class ChatProgram {
         await sessionManager.addMessage(userMsg, this._session.id);
       }
 
-      // 3. 截断消息 → 构建请求
+      // 3. 截断 → 构建请求
       const freshSession = sessionManager.getSession(this._session.id);
       const messages = this._truncateMessages(freshSession, settings, modelId);
       const tools = this.serviceCenter.getToolDefinitionsForLLM();
@@ -108,6 +150,7 @@ class ChatProgram {
       await sessionManager.addMessage(assistantMsg, this._session.id);
       this._assistantMsgId = assistantMsg.id;
 
+      // → 发射 STREAM_START（UI 应显示停止按钮）
       this.eventBus.emit(window.Events.CHAT.STREAM_START, {
         sessionId: this._session.id, messageId: this._assistantMsgId,
       });
@@ -117,15 +160,12 @@ class ChatProgram {
         const text = chunk.content || '';
         const reasoning = chunk.reasoning_content || '';
 
-        if (reasoning) this._emitState('thinking');
-        else if (text) this._emitState('generating');
-
-        // 持久化：写入 session
+        // 持久化写入 session
         sessionManager.streamChunkMessage(this._assistantMsgId, {
           content: text, reasoning_content: reasoning,
         }, this._session.id);
 
-        // 通知 UI 层更新
+        // UI 更新
         this.eventBus.emit(window.Events.CHAT.STREAM_CHUNK_APPEND, {
           sessionId: this._session.id,
           messageId: this._assistantMsgId,
@@ -143,6 +183,7 @@ class ChatProgram {
         }, this._session.id);
       }
 
+      // → 发射 STREAM_COMPLETE（UI 应隐藏停止按钮）
       this.eventBus.emit(window.Events.CHAT.STREAM_COMPLETE, {
         sessionId: this._session.id, messageId: this._assistantMsgId,
       });
@@ -150,9 +191,9 @@ class ChatProgram {
       // 7. 工具循环或结束
       if (result.toolCalls?.length > 0) {
         await this._executeToolCalls(result.toolCalls, this._session.id);
-      } else {
-        this._done();
       }
+
+      return result;
 
     } catch (error) {
       console.error('[ChatProgram] sendMessage failed:', error);
@@ -160,7 +201,6 @@ class ChatProgram {
         error, message: error.message,
         sessionId: this._session?.id, messageId: this._assistantMsgId,
       });
-      this._done();
     } finally {
       try { await sessionManager.flushAllStreamWrites(); } catch (e) { /* ignore */ }
     }
@@ -170,14 +210,12 @@ class ChatProgram {
    * 取消当前请求
    */
   cancel() {
-    if (!this._active) return;
     const service = this.serviceCenter.getCurrentProviderService();
     if (service?.cancel) service.cancel();
     this.eventBus.emit(window.Events.CHAT.STREAM_STOP, {
       sessionId: this._session?.id, messageId: this._assistantMsgId,
     });
     try { this.serviceCenter.getSessionManager().flushAllStreamWrites(); } catch (e) { /* ignore */ }
-    this._done();
   }
 
   // ==================== 工具循环 ====================
@@ -185,12 +223,15 @@ class ChatProgram {
   async _executeToolCalls(toolCalls, sessionId) {
     const sessionManager = this.serviceCenter.getSessionManager();
 
+    // → 发射 TOOL.EXECUTING 第一个工具开始（UI 可显示执行指示器）
+    if (toolCalls.length > 0) {
+      this.eventBus.emit(window.Events.TOOL.EXECUTING, {
+        toolName: toolCalls[0].toolName, toolCallId: toolCalls[0].id, sessionId,
+      });
+    }
+
     for (const tc of toolCalls) {
       const tool = this.serviceCenter.getTool(tc.toolName);
-
-      this.eventBus.emit(window.Events.TOOL.EXECUTING, {
-        toolName: tc.toolName, toolCallId: tc.id, sessionId,
-      });
 
       let toolResult;
       try {
@@ -217,24 +258,14 @@ class ChatProgram {
       await sessionManager.addMessage(toolMsg, sessionId);
     }
 
+    // → 发射 TOOL.ALL_COMPLETED（UI 可隐藏执行指示器）
     this.eventBus.emit(window.Events.TOOL.ALL_COMPLETED, { toolResults: Array.from(toolCalls), sessionId });
+
+    // 工具续发
     await this.sendMessage({ sessionId, isToolContinuation: true });
   }
 
   // ==================== 内部 ====================
-
-  _emitState(state) {
-    this.eventBus.emit(window.Events.CHAT.ACTIVITY_STATE_CHANGED, {
-      state, hasActive: state !== 'idle', sessionId: this._session?.id,
-    });
-  }
-
-  _done() {
-    this._active = false;
-    this._emitState('idle');
-    this._session = null;
-    this._assistantMsgId = null;
-  }
 
   _truncateMessages(session, settings, modelId) {
     const sessionManager = this.serviceCenter.getSessionManager();
@@ -271,4 +302,6 @@ class ChatProgram {
   }
 }
 
-window.ChatProgram = ChatProgram;
+window.webagent = window.webagent || {};
+window.webagent.programs = window.webagent.programs || {};
+window.webagent.programs.ChatProgram = ChatProgram;

@@ -2,7 +2,7 @@
  * ChatPage - 聊天主页面
  * 职责：
  * 1. 负责聊天界面的完整渲染
- * 2. 响应 ChatController 的状态变更（updateUIState）
+ * 2. 响应 ChatProgram 输出事件（STREAM_START/COMPLETE 等）控制 UI
  * 3. 处理用户输入与会话切换的 UI 逻辑
  */
 
@@ -12,68 +12,42 @@ window.Pages.chat = function(container, serviceCenter) {
   const { create, clear } = window.DOM;
   const eventBus = serviceCenter.getEventBus();
   const sessionManager = serviceCenter.getSessionManager();
-  const chatController = serviceCenter.getChatController();
 
-  // ==================== 状态管理 ====================
-  
-  /**
-   * 更新 UI 状态（由 EventHandler 调用）
-   * 响应 ChatController 的状态机
-   */
-  window.Pages.chat.updateUIState = function(data) {
-    const { state, hasActive } = data;
-    console.log('[ChatPage] updateUIState:', state);
+  // ★ ChatProgram 由 app.js 统一初始化，此处从 serviceCenter 获取引用
+  const chatProgram = serviceCenter.chatProgram || null;
 
+  // ==================== UI 状态控制（真实事件驱动） ====================
+
+  function _showStreamingUI() {
+    const sendBtn = document.getElementById('send-btn');
+    const stopBtn = document.getElementById('stop-btn');
+    if (sendBtn) sendBtn.style.display = 'none';
+    if (stopBtn) stopBtn.style.display = 'inline-block';
+  }
+
+  function _hideStreamingUI() {
     const sendBtn = document.getElementById('send-btn');
     const stopBtn = document.getElementById('stop-btn');
     const input = document.getElementById('message-input');
-    const statusText = document.getElementById('chat-status-text');
-
-    // 1. 按钮状态原子切换
-    if (sendBtn) sendBtn.style.display = hasActive ? 'none' : 'inline-block';
-    if (stopBtn) stopBtn.style.display = hasActive ? 'inline-block' : 'none';
-    
-    // 2. 输入框锁定策略：仅在 WAITING (等待首字节) 时锁定
-    // 生成中 (THINKING/GENERATING) 允许输入，提升交互效率
-    if (input) {
-      const shouldDisable = (state === window.Events.CHAT.STATE.WAITING);
-      if (input.disabled !== shouldDisable) {
-        input.disabled = shouldDisable;
-        if (!shouldDisable) input.focus();
-      }
-    }
-
-    // 3. 状态指示文本更新
-    if (statusText) {
-      const statusMap = {
-        [window.Events.CHAT.STATE.WAITING]: '⏳ 等待响应...',
-        [window.Events.CHAT.STATE.THINKING]: '💭 思考中...',
-        [window.Events.CHAT.STATE.GENERATING]: '✍️ 正在生成...',
-        [window.Events.CHAT.STATE.FAILED]: '❌ 请求失败',
-        [window.Events.CHAT.STATE.STOPPED]: '🛑 已停止'
-      };
-      const text = statusMap[state] || '';
-      statusText.textContent = text;
-      statusText.style.display = text ? 'block' : 'none';
-      
-      // 异常状态短暂停留后消失
-      if (state === window.Events.CHAT.STATE.FAILED || state === window.Events.CHAT.STATE.STOPPED) {
-        setTimeout(() => { if (statusText) statusText.style.display = 'none'; }, 2000);
-      }
-    }
-  };
+    if (sendBtn) sendBtn.style.display = 'inline-block';
+    if (stopBtn) stopBtn.style.display = 'none';
+    if (input) { input.disabled = false; input.focus(); }
+  }
 
   // ==================== 事件监听 ====================
-  // 消息增删或会话切换时触发全量渲染（为流式分片更新提供底层 DOM 结构）
+  // 流式生命周期 → 按钮状态
+  eventBus.on(window.Events.CHAT.STREAM_START, () => _showStreamingUI());
+  eventBus.on(window.Events.CHAT.STREAM_COMPLETE, () => _hideStreamingUI());
+  eventBus.on(window.Events.CHAT.STREAM_STOP, () => _hideStreamingUI());
+  eventBus.on(window.Events.CHAT.STREAM_ERROR, () => _hideStreamingUI());
+
+  // 消息增删或会话切换时触发全量渲染
   eventBus.on(window.Events.CHAT.MESSAGE_ADDED, () => render());
   eventBus.on(window.Events.CHAT.MESSAGE_DELETED, () => render());
   eventBus.on(window.Events.CHAT.CURRENT_SESSION_CHANGED, () => render());
 
   // ==================== 组件渲染 ====================
 
-  /**
-   * 渲染头部：标题 + 思考控制 + 新对话
-   */
   const pendingSettings = {
     reasoningEffort: serviceCenter.getSettingsManager().getSettings()?.reasoningEffort || 'medium'
   };
@@ -83,7 +57,6 @@ window.Pages.chat = function(container, serviceCenter) {
     const showThinkingControl = checkModelSupportsThinking();
     const thinkingSession = session || { reasoningEffort: pendingSettings.reasoningEffort };
 
-    // 思考强度控制（新对话状态也显示）
     if (showThinkingControl) {
       actions.push(window.ChatComponents.ThinkingControl(thinkingSession, {
         onUpdate: (val) => {
@@ -96,7 +69,6 @@ window.Pages.chat = function(container, serviceCenter) {
       }));
     }
 
-    // 新对话按钮
     actions.push(window.UI.Button({
       className: 'btn-primary btn-small',
       text: '+ 新对话',
@@ -115,9 +87,6 @@ window.Pages.chat = function(container, serviceCenter) {
     ]);
   }
 
-  /**
-   * 渲染消息列表：气泡流
-   */
   function renderMessageList(messages) {
     const list = create('div', { 
       className: 'page-content flex flex-col gap-12', 
@@ -140,7 +109,7 @@ window.Pages.chat = function(container, serviceCenter) {
               confirmText: '删除',
               type: 'danger'
             })) {
-              chatController.deleteMessage(id);
+              eventBus.emit(window.Events.CHAT.USER_APPLY_DELETE_MESSAGE, { messageId: id });
               window.Toast.success('已删除');
             }
           }
@@ -150,16 +119,7 @@ window.Pages.chat = function(container, serviceCenter) {
     return list;
   }
 
-  /**
-   * 渲染输入区：状态提示 + 文本框 + 操作按钮
-   */
   function renderInputArea() {
-    const statusText = create('div', { 
-      id: 'chat-status-text', 
-      className: 'chat-status-text mb-4',
-      style: { display: 'none' }
-    });
-
     const textarea = window.UI.Textarea({
       className: 'flex-1',
       id: 'message-input',
@@ -175,7 +135,6 @@ window.Pages.chat = function(container, serviceCenter) {
       }
     });
 
-    // 绑定快捷键
     textarea.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
@@ -195,10 +154,9 @@ window.Pages.chat = function(container, serviceCenter) {
       id: 'stop-btn',
       text: '停止',
       style: { display: 'none' },
-      onClick: () => chatController.stopGeneration()
+      onClick: () => eventBus.emit(window.Events.CHAT.USER_APPLY_STOP)
     });
 
-    // 工具按钮（工具面板展开/折叠）
     let toolPanelVisible = false;
     const toolBtn = window.UI.Button({
       className: 'btn-tool-toggle',
@@ -212,14 +170,10 @@ window.Pages.chat = function(container, serviceCenter) {
       }
     });
 
-    // 工具面板容器
     const toolPanel = create('div', { id: 'tool-panel', className: 'tool-panel', style: { display: 'none' } });
-
-    // 延迟填充工具列表（DOM 渲染后）
     setTimeout(() => populateToolPanel(toolPanel), 100);
 
     return create('div', { className: 'page-footer flex flex-col' }, [
-      statusText,
       toolPanel,
       create('div', { className: 'flex items-end gap-8' }, [
         toolBtn,
@@ -230,11 +184,8 @@ window.Pages.chat = function(container, serviceCenter) {
     ]);
   }
 
-  // ==================== 工具面板逻辑 ====================
+  // ==================== 工具面板 ====================
 
-  /**
-   * 填充工具面板列表（从 ServiceCenter 获取所有工具）
-   */
   function populateToolPanel(panel) {
     if (!panel) return;
     const allTools = serviceCenter.getAllTools();
@@ -244,7 +195,6 @@ window.Pages.chat = function(container, serviceCenter) {
       return;
     }
 
-    // 清空
     panel.innerHTML = '';
     panel.appendChild(create('div', { className: 'tool-panel-title', text: '可用工具' }));
 
@@ -265,7 +215,6 @@ window.Pages.chat = function(container, serviceCenter) {
             } else {
               tool.enable();
             }
-            // 本地更新 UI
             toolBtnText.textContent = tool.enabled ? '已启用' : '已禁用';
             toolBtnText.className = tool.enabled ? 'btn btn-small btn-success tool-toggle-btn' : 'btn btn-small btn-secondary tool-toggle-btn';
           }
@@ -276,11 +225,9 @@ window.Pages.chat = function(container, serviceCenter) {
       panel.appendChild(toolItem);
     });
 
-    // 工具执行进度指示区域
     const progressArea = create('div', { id: 'tool-progress-area', className: 'tool-progress-area' });
     panel.appendChild(progressArea);
 
-    // 监听工具执行进度
     eventBus.on(window.Events.TOOL.EXECUTING, (data) => {
       appendToolProgress(progressArea, 'executing', data);
     });
@@ -289,9 +236,6 @@ window.Pages.chat = function(container, serviceCenter) {
     });
   }
 
-  /**
-   * 追加工具执行进度条目
-   */
   function appendToolProgress(area, type, data) {
     if (!area) return;
     const icon = type === 'executing' ? '⏳' : (data.status === 'success' ? '✅' : '❌');
@@ -303,9 +247,7 @@ window.Pages.chat = function(container, serviceCenter) {
       create('span', { text, className: 'tool-progress-text' })
     ]);
     area.appendChild(entry);
-    // 自动滚动到底部
     area.scrollTop = area.scrollHeight;
-    // 最多保留 50 条
     while (area.children.length > 50) {
       area.removeChild(area.firstChild);
     }
@@ -313,26 +255,22 @@ window.Pages.chat = function(container, serviceCenter) {
 
   // ==================== 业务逻辑 ====================
 
-  async function handleSendMessage(content) {
+  function handleSendMessage(content) {
     if (!content.trim()) return;
     
-    // 发送前清空输入框
     const textarea = document.getElementById('message-input');
     if (textarea) {
       textarea.value = '';
       textarea.style.height = 'auto';
     }
 
-    // 触发发送事件（由 ChatEventHandler 处理后续逻辑）
-    eventBus.emit(window.Events.CHAT.USER_MESSAGE_SENT, {
+    // ★ 发射 USER_APPLY_SEND → ChatEventHandler 鉴权转译 → ChatProgram.CMD.SEND
+    eventBus.emit(window.Events.CHAT.USER_APPLY_SEND, {
       content,
       reasoningEffort: sessionManager.getCurrentSession()?.reasoningEffort || pendingSettings.reasoningEffort
     });
   }
 
-  /**
-   * 主渲染函数
-   */
   function render() {
     if (!container) return;
     clear(container);
@@ -347,19 +285,13 @@ window.Pages.chat = function(container, serviceCenter) {
     
     container.appendChild(page);
     
-    // 自动滚动到底部
     const list = page.querySelector('#message-list');
     if (list) list.scrollTop = list.scrollHeight;
 
-    // 状态自愈：如果 Controller 报告没有活跃活动，但 UI 状态不匹配，强制同步
-    const currentStatus = chatController.getQueueStatus();
-    window.Pages.chat.updateUIState(currentStatus);
+    // 默认显示发送按钮（STREAM_START 会切换到停止按钮）
+    _hideStreamingUI();
   }
 
-  /**
-   * 检查模型是否支持思考能力
-   * 通过 ModelManager 检测当前模型的能力
-   */
   function checkModelSupportsThinking() {
     try {
       const settings = serviceCenter.getSettingsManager().getSettings();
@@ -380,6 +312,5 @@ window.Pages.chat = function(container, serviceCenter) {
     }
   }
 
-  // 执行初始渲染
   render();
 };

@@ -1,53 +1,55 @@
 /**
- * 聊天页面事件处理器
- * 负责监听 ChatProgram 发射的事件，更新 UI。
- * USER_MESSAGE_SENT 等业务事件已由 ChatProgram 自行订阅。
+ * ChatEventHandler - 聊天事件处理（应用层）
+ * 
+ * 职责：
+ * 1. 监听 UI 层发出的 USER_APPLY_* 消息
+ * 2. 鉴权、参数校验
+ * 3. 转译为 ChatProgram.CMD.* 指令转发
+ * 
+ * 事件流：UI → ChatEventHandler（转译）→ ChatProgram.CMD.*（执行）
  */
 class ChatEventHandler {
   constructor(serviceCenter) {
     this.serviceCenter = serviceCenter;
     this.eventBus = serviceCenter.getEventBus();
-    
-    // 注册事件监听
+
     this._registerEventListeners();
   }
-  
+
   /**
-   * 注册事件监听器
-   * 注意：USER_MESSAGE_SENT 已由 ChatProgram 自行订阅，此处不再监听
+   * 注册事件监听
    */
   _registerEventListeners() {
-    // 监听消息更新事件（错误更新等）
+    // ★ 用户请求 → ChatProgram 指令 转译层
+    this.eventBus.on(window.Events.CHAT.USER_APPLY_SEND, (data) => {
+      this._handleApplySend(data);
+    });
+    this.eventBus.on(window.Events.CHAT.USER_APPLY_STOP, () => {
+      this._handleApplyStop();
+    });
+    this.eventBus.on(window.Events.CHAT.USER_APPLY_DELETE_MESSAGE, (data) => {
+      this._handleApplyDeleteMessage(data);
+    });
+
+    // ★ ChatProgram 输出事件 → UI 更新
     this.eventBus.on(window.Events.CHAT.MESSAGE_UPDATED, (data) => {
       this._handleMessageUpdated(data);
     });
-    
-    // 监听流式分片追加事件（UI 更新）
     this.eventBus.on(window.Events.CHAT.STREAM_CHUNK_APPEND, (data) => {
       this._handleStreamChunkAppend(data);
     });
-    
-    // 监听活动状态变更（控制按钮显示）
-    this.eventBus.on(window.Events.CHAT.ACTIVITY_STATE_CHANGED, (data) => {
-      this._handleActivityStateChanged(data);
+    this.eventBus.on(window.Events.CHAT.STREAM_START, () => {
+      console.log('[ChatEventHandler] Stream started');
     });
-    
-    // 监听流式请求开始
-    this.eventBus.on(window.Events.CHAT.STREAM_START, (data) => {
-      this._handleStreamStart(data);
-    });
-    
-    // 监听流式请求完成
     this.eventBus.on(window.Events.CHAT.STREAM_COMPLETE, (data) => {
-      this._handleStreamComplete(data);
+      console.log('[ChatEventHandler] Stream completed:', data.duration ? `${data.duration}ms` : '');
     });
-    
-    // 监听流式错误
     this.eventBus.on(window.Events.CHAT.STREAM_ERROR, (data) => {
-      this._handleStreamError(data);
+      console.error('[ChatEventHandler] Stream error:', data.error);
+      window.Toast?.error(data.message || '发送消息失败');
     });
 
-    // 监听工具执行进度
+    // 工具执行进度
     this.eventBus.on(window.Events.TOOL.EXECUTING, (data) => {
       this._handleToolExecuting(data);
     });
@@ -55,10 +57,10 @@ class ChatEventHandler {
       this._handleToolCompleted(data);
     });
     this.eventBus.on(window.Events.TOOL.ALL_COMPLETED, (data) => {
-      this._handleToolAllCompleted(data);
+      console.log('[ChatEventHandler] All tools completed');
     });
 
-    // 注册键盘快捷键：Ctrl + ArrowUp/Down 快速滑动用户消息
+    // 键盘快捷键
     document.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
         e.preventDefault();
@@ -66,181 +68,155 @@ class ChatEventHandler {
       }
     });
   }
-  
+
+  // ==================== 转译层：USER_APPLY → ChatProgram.CMD ====================
+
   /**
-   * 处理消息更新（流式更新或错误更新）
+   * USER_APPLY_SEND → ChatProgram.CMD.SEND
    */
+  _handleApplySend(data) {
+    const { content, reasoningEffort } = data;
+    
+    // 鉴权：检查 serviceCenter 是否可用
+    if (!this.serviceCenter) {
+      console.error('[ChatEventHandler] ServiceCenter not available');
+      return;
+    }
+
+    // 参数校验
+    if (!content?.trim()) {
+      console.warn('[ChatEventHandler] Empty content blocked');
+      return;
+    }
+
+    // 转译 → ChatProgram 指令
+    this.eventBus.emit(window.webagent.programs.ChatProgram.CMD.SEND, {
+      content,
+      reasoningEffort,
+    });
+  }
+
+  /**
+   * USER_APPLY_STOP → ChatProgram.CMD.STOP
+   */
+  _handleApplyStop() {
+    this.eventBus.emit(window.webagent.programs.ChatProgram.CMD.STOP);
+  }
+
+  /**
+   * USER_APPLY_DELETE_MESSAGE → ChatProgram.CMD.DELETE_MESSAGE
+   */
+  _handleApplyDeleteMessage(data) {
+    if (!data?.messageId) {
+      console.warn('[ChatEventHandler] Missing messageId');
+      return;
+    }
+
+    this.eventBus.emit(window.webagent.programs.ChatProgram.CMD.DELETE_MESSAGE, {
+      messageId: data.messageId,
+    });
+  }
+
+  // ==================== UI 更新：ChatProgram 输出事件 → DOM ====================
+
   _handleMessageUpdated(data) {
     const { message } = data;
     if (!message) return;
-    
-    console.log('[ChatEventHandler] Message updated:', message.id);
-    
-    // 直接更新 UI
     this._updateMessageContent(message.id, message.content);
-    
-    // 如果有推理内容，也更新
     if (message.reasoning_content) {
       this._updateMessageReasoning(message.id, message.reasoning_content);
     }
   }
-  
-  /**
-   * 处理活动状态变更
-   */
-  _handleActivityStateChanged(data) {
-    console.log('[ChatEventHandler] Activity state changed:', data.state);
-    // 转发给页面进行状态更新
-    if (window.Pages.chat.updateUIState) {
-      window.Pages.chat.updateUIState(data);
-    }
-  }
-  
-  /**
-   * 处理流式请求开始
-   */
-  _handleStreamStart(data) {
-    console.log('[ChatEventHandler] Stream started');
-  }
-  
-  /**
-   * 处理流式分片追加
-   */
+
   _handleStreamChunkAppend(data) {
     const { messageId, content, reasoning_content } = data;
-    
     if (reasoning_content) {
       this._handleStreamReasoning({ messageId, reasoning_content });
     }
-    
     if (content) {
       this._updateMessageContent(messageId, content, true);
     }
   }
-  
-  /**
-   * 处理流式更新（废弃）
-   */
-  _handleStreamUpdate(data) {
-    const { messageId, content } = data;
-    this._updateMessageContent(messageId, content, true);
+
+  _handleStreamReasoning(data) {
+    const { messageId, reasoning_content } = data;
+    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
+    if (!messageElement) return;
+
+    const container = this._getOrCreateReasoningContainer(messageElement);
+    if (!container) return;
+    if (container.style.display === 'none') container.style.display = 'block';
+
+    const contentEl = container.querySelector('.reasoning-content');
+    if (contentEl) {
+      contentEl.textContent += reasoning_content;
+      const messageList = document.getElementById('message-list');
+      if (messageList) {
+        const isNearBottom = messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight < 50;
+        if (isNearBottom) messageList.scrollTop = messageList.scrollHeight;
+      }
+    }
   }
 
-  /**
-   * 获取或创建思考容器
-   */
   _getOrCreateReasoningContainer(messageElement) {
-    let reasoningContainer = messageElement.querySelector('.message-reasoning');
-    if (!reasoningContainer) {
-      const messageBody = messageElement.querySelector('.message-body');
-      
-      if (!messageBody) {
-        console.warn('[ChatEventHandler] .message-body not found in message element');
-        return null;
-      }
-      
-      reasoningContainer = document.createElement('div');
-      reasoningContainer.className = 'message-reasoning';
-        
-      const reasoningHeader = document.createElement('div');
-      reasoningHeader.className = 'reasoning-header';
-        
-      const titleSpan = document.createElement('span');
-      titleSpan.textContent = '💭 思考过程';
-        
-      const toggleSpan = document.createElement('span');
-      toggleSpan.className = 'reasoning-toggle';
-      toggleSpan.textContent = '▼';
-        
-      reasoningHeader.appendChild(titleSpan);
-      reasoningHeader.appendChild(toggleSpan);
-        
-      const reasoningContent = document.createElement('div');
-      reasoningContent.className = 'reasoning-content';
-        
-      reasoningContainer.appendChild(reasoningHeader);
-      reasoningContainer.appendChild(reasoningContent);
-      
-      if (messageBody.firstChild) {
-        messageBody.insertBefore(reasoningContainer, messageBody.firstChild);
-      } else {
-        messageBody.appendChild(reasoningContainer);
-      }
-        
-      reasoningHeader.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const isHidden = reasoningContent.style.display === 'none';
-        reasoningContent.style.display = isHidden ? 'block' : 'none';
-        toggleSpan.style.transform = isHidden ? 'rotate(180deg)' : 'rotate(0deg)';
-      });
-    }
-    return reasoningContainer;
+    let container = messageElement.querySelector('.message-reasoning');
+    if (container) return container;
+
+    const messageBody = messageElement.querySelector('.message-body');
+    if (!messageBody) return null;
+
+    container = document.createElement('div');
+    container.className = 'message-reasoning';
+
+    const header = document.createElement('div');
+    header.className = 'reasoning-header';
+
+    const title = document.createElement('span');
+    title.textContent = '💭 思考过程';
+
+    const toggle = document.createElement('span');
+    toggle.className = 'reasoning-toggle';
+    toggle.textContent = '▼';
+
+    header.appendChild(title);
+    header.appendChild(toggle);
+
+    const content = document.createElement('div');
+    content.className = 'reasoning-content';
+
+    container.appendChild(header);
+    container.appendChild(content);
+
+    messageBody.insertBefore(container, messageBody.firstChild);
+
+    header.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isHidden = content.style.display === 'none';
+      content.style.display = isHidden ? 'block' : 'none';
+      toggle.style.transform = isHidden ? 'rotate(180deg)' : 'rotate(0deg)';
+    });
+
+    return container;
   }
-  
-  /**
-   * 更新消息推理内容
-   */
+
   _updateMessageReasoning(messageId, content) {
     const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
     if (!messageElement) return;
-  
+
     const container = this._getOrCreateReasoningContainer(messageElement);
     if (container) {
+      if (container.style.display === 'none') container.style.display = 'block';
       const contentEl = container.querySelector('.reasoning-content');
       if (contentEl) {
-        if (container.style.display === 'none') container.style.display = 'block';
         contentEl.textContent = content;
         const messageList = document.getElementById('message-list');
         if (messageList) messageList.scrollTop = messageList.scrollHeight;
       }
     }
   }
-  
-  /**
-   * 处理流式推理内容更新
-   */
-  _handleStreamReasoning(data) {
-    const { messageId, reasoning_content } = data;
-    const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
-    if (messageElement) {
-      const container = this._getOrCreateReasoningContainer(messageElement);
-      if (container) {
-        if (container.style.display === 'none') container.style.display = 'block';
-        
-        const contentEl = container.querySelector('.reasoning-content');
-        if (contentEl) {
-          contentEl.textContent += reasoning_content;
-          
-          const messageList = document.getElementById('message-list');
-          if (messageList) {
-            const isNearBottom = messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight < 50;
-            if (isNearBottom) messageList.scrollTop = messageList.scrollHeight;
-          }
-        }
-      }
-    }
-  }
-  
-  /**
-   * 处理流式请求完成
-   */
-  _handleStreamComplete(data) {
-    console.log('[ChatEventHandler] Stream completed:', data.duration ? `${data.duration}ms` : '');
-  }
-  
-  /**
-   * 处理流式错误
-   */
-  _handleStreamError(data) {
-    console.error('[ChatEventHandler] Stream error:', data.error);
-    window.Toast?.error(data.message || '发送消息失败');
-  }
-  
-  /**
-   * 处理工具开始执行
-   */
+
   _handleToolExecuting(data) {
-    const { toolCallId, toolName } = data;
+    const { toolCallId } = data;
     const card = document.querySelector(`.tool-card[data-tool-call-id="${toolCallId}"]`);
     if (!card) return;
 
@@ -258,11 +234,8 @@ class ChatEventHandler {
     if (nameEl) nameEl.style.color = 'var(--color-text-secondary, #999)';
   }
 
-  /**
-   * 处理工具执行完成
-   */
   _handleToolCompleted(data) {
-    const { toolCallId, toolName, status, duration } = data;
+    const { toolCallId, status, duration } = data;
     const card = document.querySelector(`.tool-card[data-tool-call-id="${toolCallId}"]`);
     if (!card) return;
 
@@ -286,16 +259,6 @@ class ChatEventHandler {
     }
   }
 
-  /**
-   * 处理本轮所有工具执行完毕
-   */
-  _handleToolAllCompleted(data) {
-    console.log('[ChatEventHandler] All tools completed, waiting for LLM response');
-  }
-  
-  /**
-   * 更新消息内容（流式追加）
-   */
   _updateMessageContent(messageId, content, isAppend = false) {
     const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
     if (!messageElement) return;
@@ -319,9 +282,6 @@ class ChatEventHandler {
     }
   }
 
-  /**
-   * 滚动到上/下一条用户消息
-   */
   _scrollToUserMessage(direction) {
     const messageList = document.getElementById('message-list');
     if (!messageList) return;

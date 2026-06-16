@@ -6,14 +6,16 @@
 const Events = {
   // ==================== Chat 相关事件 ====================
   CHAT: {
+    // 用户请求（UI 层统一使用 USER_APPLY_ 前缀触发）
+    USER_APPLY_SEND: 'chat:userApplySend',                     // 用户请求发送消息
+    USER_APPLY_STOP: 'chat:userApplyStop',                     // 用户请求停止生成
+    USER_APPLY_DELETE_MESSAGE: 'chat:userApplyDeleteMessage',  // 用户请求删除消息
+    
     // 消息生命周期
     MESSAGE_ADDED: 'chat:messageAdded',        // 消息已添加
     MESSAGE_UPDATED: 'chat:messageUpdated',    // 消息已更新
     MESSAGE_DELETED: 'chat:messageDeleted',    // 消息已删除
     MESSAGES_ADDED: 'chat:messagesAdded',      // 批量消息添加
-    
-    // 用户交互
-    USER_MESSAGE_SENT: 'chat:userMessageSent', // 用户发送消息
     
     // 流式请求
     STREAM_START: 'chat:streamStart',          // 流式请求开始
@@ -22,19 +24,8 @@ const Events = {
     STREAM_COMPLETE: 'chat:streamComplete',    // 流式请求完成
     STREAM_ERROR: 'chat:streamError',          // 流式请求出错
     STREAM_STOP: 'chat:streamStop',            // 用户停止生成
-    // 活动状态变更（用于按钮显示和 UI 锁定）
+    // 活动状态变更（已废弃 - 改为 STREAM_START/COMPLETE 真实事件驱动）
     ACTIVITY_STATE_CHANGED: 'chat:activityStateChanged',
-    
-    // 状态枚举
-    STATE: {
-      IDLE: 'idle',           // 空闲
-      WAITING: 'waiting',     // 等待响应中
-      THINKING: 'thinking',   // 思考中
-      GENERATING: 'generating', // 生成正文中
-      COMPLETED: 'completed', // 已完成
-      FAILED: 'failed',       // 失败
-      STOPPED: 'stopped'      // 已停止
-    },
     // 会话管理
     SESSION_CREATED: 'chat:sessionCreated',    // 会话创建
     SESSION_SWITCHED: 'chat:sessionSwitched',  // 会话切换

@@ -40,15 +40,6 @@ const KernelEvents = {
     STREAM_ERROR: 'chat:streamError',
     STREAM_STOP: 'chat:streamStop',
     ACTIVITY_STATE_CHANGED: 'chat:activityStateChanged',
-    STATE: {
-      IDLE: 'idle',
-      WAITING: 'waiting',
-      THINKING: 'thinking',
-      GENERATING: 'generating',
-      COMPLETED: 'completed',
-      FAILED: 'failed',
-      STOPPED: 'stopped'
-    },
     SESSION_CREATED: 'chat:sessionCreated',
     SESSION_SWITCHED: 'chat:sessionSwitched',
     SESSION_CLEARED: 'chat:sessionCleared',
