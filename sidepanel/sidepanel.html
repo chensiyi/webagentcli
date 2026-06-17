@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Web Agent Client</title>
-  <!-- Theme CSS (modular by UI element type) -->
   <link rel="stylesheet" href="theme/variables.css">
   <link rel="stylesheet" href="theme/utilities.css">
   <link rel="stylesheet" href="theme/layout.css">
@@ -19,29 +18,59 @@
   <link rel="stylesheet" href="theme/search-results.css">
   <link rel="stylesheet" href="theme/settings-ui.css">
   <link rel="stylesheet" href="theme/animations.css">
-  <!-- CodeMirror: editor for JSON/JS -->
   <link rel="stylesheet" href="js/utils/codemirror/codemirror.min.css">
   <link rel="stylesheet" href="js/utils/codemirror/foldgutter.css">
 </head>
 <body>
   <div id="root"></div>
-  
+
   <!-- Error Handler -->
   <script src="js/utils/error-handler.js"></script>
-  
+
+  <!-- ============ 内核 Bundle（IIFE，自动映射到 window）必需最先加载 ============ -->
+  <script src="../dist/kernel.bundle.js.iife.js"></script>
+
   <!-- Toast -->
   <script src="js/utils/toast.js"></script>
-  
+
   <!-- Confirm Dialog -->
   <script src="js/utils/confirm.js"></script>
-  
+
   <!-- DOM Utils -->
   <script src="js/utils/dom.js"></script>
   <script src="js/utils/time.js"></script>
+
   <!-- UI Components -->
   <script src="js/components/UI.js"></script>
-  <script src="js/components/Chat.js"></script>
-  <!-- CodeMirror: editor for JSON/JS -->
+
+  <!-- Pages / Event Handlers / Controllers -->
+  <script src="js/pages/ChatPage.js"></script>
+  <script src="js/pages/HistoryPage.js"></script>
+  <script src="js/pages/StoragePage.js"></script>
+  <script src="js/pages/ScriptsPage.js"></script>
+  <script src="js/pages/SettingsPage.js"></script>
+  <script src="js/pages/ISettings.js"></script>
+  <script src="js/pages/SettingsPage_Base.js"></script>
+  <script src="js/pages/SettingsPage_OpenAI.js"></script>
+  <script src="js/pages/SettingsPage_OpenRouter.js"></script>
+  <script src="js/pages/SettingsPage_LMStudio.js"></script>
+
+  <script src="js/controllers/ChatController.js"></script>
+
+  <script src="js/event-handlers/ChatEventHandler.js"></script>
+  <script src="js/event-handlers/SettingsEventHandler.js"></script>
+  <script src="js/event-handlers/StorageEventHandler.js"></script>
+  <script src="js/event-handlers/ScriptsEventHandler.js"></script>
+
+  <!-- Tools -->
+  <script src="js/tools/ManageUserScriptsTool.js"></script>
+  <script src="js/tools/RunUserScriptTool.js"></script>
+
+  <!-- Services -->
+  <script src="js/services/ChromeStorageAdapter.js"></script>
+  <script src="js/services/ScriptInjector.js"></script>
+
+  <!-- CodeMirror -->
   <script src="js/utils/codemirror/codemirror.min.js"></script>
   <script src="js/utils/codemirror/javascript.min.js"></script>
   <script src="js/utils/codemirror/matchbrackets.min.js"></script>
@@ -51,46 +80,13 @@
   <script src="js/utils/codemirror/foldgutter.min.js"></script>
   <script src="js/utils/codemirror/searchcursor.min.js"></script>
 
-  <!-- Markdown Parser: marked.js -->
+  <!-- Markdown Parser -->
   <script src="js/utils/marked.min.js"></script>
-  
-  <!-- Core: Events（Kernel IPC 是唯一消息总线）-->
+
+  <!-- Core Events -->
   <script src="js/events.js"></script>
-  
-  <!-- ★ Kernel bundle（一个文件包含所有内核模块，运行 node build.js 构建）-->
-  <script src="../dist/kernel.bundle.js"></script>
-  
-  <!-- ★ Shell 侧工具和服务（Chrome 专用）-->
-  <script src="js/services/ChromeStorageAdapter.js"></script>
-  <script src="js/services/ScriptInjector.js"></script>
-  
-  <!-- ★ Shell 侧工具 -->
-  <script src="js/tools/RunUserScriptTool.js"></script>
-  <script src="js/tools/ManageUserScriptsTool.js"></script>
-  
-  <!-- Settings: Pages Base Interface -->
-  <script src="js/pages/ISettings.js"></script>
-  
-  <!-- Settings: Pages Implementation -->
-  <script src="js/pages/SettingsPage_Base.js"></script>
-  <script src="js/pages/SettingsPage_OpenAI.js"></script>
-  <script src="js/pages/SettingsPage_OpenRouter.js"></script>
-  <script src="js/pages/SettingsPage_LMStudio.js"></script>
-  
-  <!-- UI: Page Event Handlers（每个 Page 对应的 EventHandler）-->
-  <script src="js/event-handlers/ChatEventHandler.js"></script>
-  <script src="js/event-handlers/SettingsEventHandler.js"></script>
-  <script src="js/event-handlers/StorageEventHandler.js"></script>
-  <script src="js/event-handlers/ScriptsEventHandler.js"></script>
-  
-  <!-- UI: Pages（每个 Page 内部使用自己的 EventHandler）-->
-  <script src="js/pages/ChatPage.js"></script>
-  <script src="js/pages/HistoryPage.js"></script>
-  <script src="js/pages/SettingsPage.js"></script>
-  <script src="js/pages/StoragePage.js"></script>
-  <script src="js/pages/ScriptsPage.js"></script>
-  
-  <!-- App -->
+
+  <!-- App entry -->
   <script src="js/app.js"></script>
 </body>
 </html>

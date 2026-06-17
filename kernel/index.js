@@ -1,75 +1,56 @@
 /**
- * Kernel - 统一导出入口 & 命名空间
- * 
- * 全局命名空间 webagent，所有内核模块挂载在此。
+ * Kernel - ES Module 统一入口
  *
- * 使用方式：
- *   // Kernel 核心
- *   webagent.Kernel
- *   webagent.IPC
- *   
- *   // 数据模型
- *   webagent.models.Message
- *   webagent.models.Session
- *   
- *   // 服务
- *   webagent.services.SessionManager
- *   webagent.services.SettingsManager
- *   
- *   // 程序
- *   webagent.programs.ChatProgram
- * 
- *   // 浏览器：load kernel/index.js 后自动可用
- *   // Node.js：const webagent = require('./kernel')
+ * 所有内核模块通过 import/export 组织，可在任何 ES module 环境运行。
+ * Vite 会将此入口打包为 Chrome 扩展兼容的 IIFE。
  */
-(function(global) {
-  'use strict';
 
-  // ==================== 创建命名空间 ====================
+// ==================== 内核核心 ====================
+export { KernelLog } from './KernelLog.js';
+export { IPC, IPCChannel } from './IPC.js';
+export { KernelEvents, KernelMessageFormats, EventValidator } from './Events.js';
+export { ToolRegistry } from './ToolRegistry.js';
+export { CapabilityManager, CapabilityError } from './CapabilityManager.js';
+export { Kernel } from './Kernel.js';
+export { Bootloader } from './Bootloader.js';
 
-  global.webagent = global.webagent || {};
+// ==================== 数据模型 ====================
+export { BaseModel } from './models/BaseModel.js';
+export { ToolDefinition } from './models/ToolDefinition.js';
+export { ToolCall } from './models/ToolCall.js';
+export { ToolResult } from './models/ToolResult.js';
+export { TextBlock, ImageBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock, ThinkingConfig, MediaContent, MessageStructure, MessagesRequest } from './models/MessageContent.js';
+export { Message, Role } from './models/Message.js';
+export { Session } from './models/Session.js';
+export { Settings } from './models/Settings.js';
+export { Model } from './models/Model.js';
+export { ScriptsModel } from './models/Scripts.js';
+export { Program } from './models/Program.js';
+export { Process } from './models/Process.js';
 
-  // 子命名空间
-  const webagent = global.webagent;
-  webagent.models = webagent.models || {};
-  webagent.services = webagent.services || {};
-  webagent.providers = webagent.providers || {};
-  webagent.programs = webagent.programs || {};
-  webagent.tools = webagent.tools || {};
+// ==================== 服务接口 ====================
+export { IStorageManager } from './services/IStorageManager.js';
+export { IAppSettings } from './services/IAppSettings.js';
+export { IModelManager } from './services/IModelManager.js';
+export { IProviderAPIService } from './services/IProviderAPIService.js';
+export { IScriptsManager } from './services/IScriptsManager.js';
+export { ISessionManager } from './services/ISessionManager.js';
+export { IToolService } from './services/IToolService.js';
 
-  // ==================== 内核核心引用 ====================
+// ==================== Provider 实现 ====================
+export { default as OpenAIService } from './services/ProviderAPIServices/OpenAIService.js';
 
-  if (typeof require === 'function') {
-    // Node.js 环境 - 从模块加载
-    webagent.Kernel = require('./Kernel.js');
-    webagent.IPC = require('./IPC.js').IPC;
-    webagent.IPCChannel = require('./IPC.js').IPCChannel;
-    webagent.KernelLog = require('./KernelLog.js');
-    webagent.ToolRegistry = require('./ToolRegistry.js');
-    webagent.CapabilityManager = require('./CapabilityManager.js').CapabilityManager;
-    webagent.CapabilityError = require('./CapabilityManager.js').CapabilityError;
-    webagent.Bootloader = require('./Bootloader.js');
-    webagent.Events = require('./Events.js').KernelEvents;
-    webagent.MessageFormats = require('./Events.js').KernelMessageFormats;
-  } else {
-    // 浏览器环境 - 从 window 全局引用（由各自的 .js 通过 window.X = X 暴露）
-    webagent.Kernel = global.Kernel;
-    webagent.IPC = global.IPC;
-    webagent.KernelLog = global.KernelLog;
-    webagent.ToolRegistry = global.ToolRegistry;
-    webagent.CapabilityManager = global.CapabilityManager;
-    webagent.Bootloader = global.Bootloader;
-    webagent.Events = global.KernelEvents;
-  }
+// ==================== 服务实现 ====================
+export { SessionManager } from './services/SessionManager.js';
+export { SettingsManager } from './services/SettingsManager.js';
+export { ScriptsManager } from './services/ScriptsManager.js';
+export { ModelManager } from './services/ModelManager.js';
+export { ProcessManager } from './services/ProcessManager.js';
+export { ServiceCenter } from './services/ServiceCenter.js';
 
-  // 内核版本
-  webagent.VERSION = '0.4.0';
-  webagent.CODENAME = 'Microkernel';
+// ==================== 内核程序 ====================
+export { default as ChatProgram } from './programs/ChatProgram.js';
 
-  // ==================== Node.js 导出 ====================
-
-  if (typeof module !== 'undefined' && module.exports) {
-    module.exports = webagent;
-  }
-
-})(typeof window !== 'undefined' ? window : global);
+// ==================== 版本信息 ====================
+export const VERSION = '0.5.2';
+export const CODENAME = 'Microkernel-Esm';

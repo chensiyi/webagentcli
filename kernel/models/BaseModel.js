@@ -7,36 +7,21 @@
  * 3. 规范构造函数模式（接收 options 对象）
  */
 
-class BaseModel {
+export class BaseModel {
   constructor(options = {}) {
-    if (new.target === BaseModel) {
-      throw new Error('Cannot instantiate BaseModel directly');
-    }
-    
-    // 所有模型通常都有一个 ID 和时间戳
+    if (new.target === BaseModel) throw new Error('Cannot instantiate BaseModel directly');
     this.id = options.id || this.generateId();
     this.createdAt = options.createdAt || Date.now();
     this.updatedAt = options.updatedAt || this.createdAt;
   }
 
-  /**
-   * 生成唯一 ID（子类可覆盖）
-   */
   generateId() {
     const prefix = this.constructor.name.toLowerCase();
     return `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
-  /**
-   * 更新时间戳
-   */
-  touch() {
-    this.updatedAt = Date.now();
-  }
+  touch() { this.updatedAt = Date.now(); }
 
-  /**
-   * 转换为纯 JSON 对象（子类应覆盖以包含特定字段）
-   */
   toJSON() {
     return {
       id: this.id,
@@ -45,13 +30,7 @@ class BaseModel {
     };
   }
 
-  /**
-   * 从 JSON 对象创建实例（抽象方法，由子类实现）
-   */
-  static fromJSON(data) {
-    throw new Error('static fromJSON() must be implemented by subclass');
-  }
+  static fromJSON(data) { throw new Error('static fromJSON() must be implemented by subclass'); }
 }
 
-// 导出到全局
-window.BaseModel = BaseModel;
+export default BaseModel;

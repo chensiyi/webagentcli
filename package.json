@@ -1,0 +1,28 @@
+{
+  "name": "webagentcli",
+  "version": "0.5.1",
+  "description": "> AI Agent Runtime Environment for Web · 基于 Chrome Manifest V3 的浏览器内 AI Agent 扩展",
+  "main": "build.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chensiyi/webagentcli.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/chensiyi/webagentcli/issues"
+  },
+  "homepage": "https://github.com/chensiyi/webagentcli#readme",
+  "devDependencies": {
+    "vite": "^8.0.16"
+  }
+}

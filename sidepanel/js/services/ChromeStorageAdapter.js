@@ -20,7 +20,7 @@ class ChromeStorageAdapter extends window.IStorageManager {
    * 获取所有存储项
    * @returns {Promise<Array<[string, any]>>} 键值对数组
    */
-  async getAll() {
+  async loadAll() {
     return new Promise((resolve, reject) => {
       this.storage.get(null, (result) => {
         if (chrome.runtime.lastError) {

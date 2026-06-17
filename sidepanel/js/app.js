@@ -74,7 +74,7 @@
     kernel.capabilities = capabilities;
 
     // 5. 提前创建 ServiceCenter（工厂函数需要它而不要传 null）
-    serviceCenter = new window.ServiceCenter(ipc, kernel);
+    serviceCenter = new window.ServiceCenter(kernel);
 
     // 6. 创建 Bootloader
     bootloader = new window.Bootloader(kernel);
@@ -176,8 +176,8 @@
         window.Bootloader.PHASES.HANDLERS_INIT,
         async (bl) => {
           // ★ 聊天服务：生成一个服务实例，可脱离页面在后台工作
-          if (window.webagent?.programs?.ChatProgram) {
-            serviceCenter.chatProgram = new window.webagent.programs.ChatProgram(serviceCenter);
+          if (window.ChatProgram) {
+            serviceCenter.chatProgram = new window.ChatProgram(serviceCenter);
             console.log('[App] ChatProgram initialized');
           }
           if (typeof ChatEventHandler !== 'undefined') {
