@@ -1,4 +1,4 @@
-﻿/**
+/**
  * App - 应用主入口
  * 
  * 使用 Bootloader 启动内核，然后渲染壳层 UI。
@@ -8,7 +8,6 @@
 
 (function() {
   let currentPage = 'chat';
-  let serviceCenter = null;
   let kernel = null;
   let bootloader = null;
 
@@ -36,7 +35,7 @@
       await bootWithKernel();
 
       // ========== Phase 2: 渲染 UI ==========
-      renderPage(root, serviceCenter);
+      renderPage(root, kernel);
 
     } catch (err) {
       console.error('[App] Initialization failed:', err);
@@ -48,33 +47,31 @@
    * 使用 Kernel + Bootloader 启动
    */
   async function bootWithKernel() {
-    console.log('[App] Booting with Kernel...');
+    console.log('[App] Booting with Kernel...'); //全app理论上唯一的控制台直接访问，后面通过kernel访问
 
     // 1. 创建内核子系统
-    const log = new window.KernelLog({ minLevel: window.KernelLog.LEVELS.INFO });
-    const ipc = new window.IPC({ origin: 'sidepanel', maxHistory: 200 });
+    this.log = new window.KernelLog({ minLevel: window.KernelLog.LEVELS.DEBUG });
+    this.ipc = new window.IPC({ origin: 'sidepanel', maxHistory: 200 });
 
     // 2. 创建 ToolRegistry 和 CapabilityManager
     const toolRegistry = new window.ToolRegistry();
     const capabilities = new window.CapabilityManager();
 
     // 3. 注册 IPC 日志中间件
-    ipc.use((message, next) => {
-      log.debug('IPC', `Event: ${message.event} (priority: ${message.priorityName}, origin: ${message.origin})`);
+    this.ipc.use((message, next) => {
+      this.log.debug('IPC', `Event: ${message.event} (priority: ${message.priorityName}, origin: ${message.origin})`);
       return next();
     });
 
     // 4. 创建 Kernel 实例
     kernel = new window.Kernel({
-      ipc,
-      log,
-      origin: 'webagentcli'
+      ipc: this.ipc,
+      log: this.log,
+      origin: 'webagentcli',
+      toolRegistry: toolRegistry,
+      capabilities: capabilities
     });
-    kernel.toolRegistry = toolRegistry;
-    kernel.capabilities = capabilities;
 
-    // 5. 提前创建 ServiceCenter（工厂函数需要它而不要传 null）
-    serviceCenter = new window.ServiceCenter(kernel);
 
     // 6. 创建 Bootloader
     bootloader = new window.Bootloader(kernel);
@@ -84,7 +81,7 @@
       window.Bootloader.PHASES.CORE_INIT,
       async (bl) => {
         // IPC 已创建，无需额外操作
-        log.info('BOOT', 'IPC ready');
+        this.log.info('BOOT', 'IPC ready');
       }
     );
 
@@ -92,7 +89,7 @@
         window.Bootloader.PHASES.SERVICES_REGISTER,
         async (bl) => {
           // 1. 创建存储适配器（IStorageManager 的 Chrome 环境实现）
-          const chromeStorageAdapter = new window.ChromeStorageAdapter(serviceCenter);
+          const chromeStorageAdapter = new window.ChromeStorageAdapter(kernel);
           const scriptsModel = new window.ScriptsModel(chromeStorageAdapter);
           
           window.ScriptsModel = scriptsModel;
@@ -104,29 +101,28 @@
           kernel.register('scriptsModel', async (k) => scriptsModel);
           
           kernel.register('sessionManager', async (k) => {
-            const sm = new window.SessionManager(ipc);
-            // 注入存储适配器给 SessionManager
-            sm.storage = chromeStorageAdapter;
+            const sm = new window.SessionManager({ ipc: this.ipc, storage: chromeStorageAdapter, log: this.log });
             await sm.initialize();
             return sm;
           }, { dependsOn: ['storageAdapter'] });
           
           kernel.register('settingsManager', async (k) => {
-            const settingsManager = new window.SettingsManager(serviceCenter, chromeStorageAdapter);
+            const settingsManager = new window.SettingsManager({ipc:this.ipc,storage:chromeStorageAdapter,log:this.log});
             return settingsManager;
           }, { dependsOn: ['storageAdapter'] });
           
           kernel.register('scriptsManager', async (k) => {
-            return new window.ScriptsManager(serviceCenter, scriptsModel);
+            return new window.ScriptsManager(kernel, scriptsModel);
           }, { dependsOn: ['scriptsModel'] });
           
-          kernel.register('modelManager', async (k) => {
-            return new window.ModelManager(serviceCenter);
-          });
           
           kernel.register('processManager', async (k) => {
-            return new window.ProcessManager(serviceCenter);
+            return new window.ProcessManager(kernel);
           });
+
+          kernel.register('providerFactory', async (k) => {
+            return new window.ProviderFactory(k);
+          }, { dependsOn: ['settingsManager'] });
 
         }
       );
@@ -136,16 +132,8 @@
       async (bl) => {
         // 初始化 Kernel 中所有已注册的服务（按依赖顺序）
         await kernel.boot();
-        
-        // 从 Kernel 中获取已初始化的服务实例，挂到 ServiceCenter
-        serviceCenter.sessionManager = kernel.get('sessionManager');
-        serviceCenter.settingsManager = kernel.get('settingsManager');
-        serviceCenter.storageManager = kernel.get('storageManager');
-        serviceCenter.scriptsManager = kernel.get('scriptsManager');
-        serviceCenter.modelManager = kernel.get('modelManager');
-        serviceCenter.processManager = kernel.get('processManager');
-        
-        console.log('[App] Services initialized from Kernel');
+
+        this.log.info('APP', 'Services initialized from Kernel');
       }
     );
 
@@ -163,10 +151,10 @@
             const tool = new ToolClass();
             if (tool.definition && tool.definition.name) {
               toolRegistry.register(tool);
-              log.info('TOOL', `Registered: ${tool.definition.name}`);
+              this.log.info('TOOL', `Registered: ${tool.definition.name}`);
             }
           } catch (e) {
-            log.warn('TOOL', 'Failed to register tool', e);
+            this.log.warn('TOOL', 'Failed to register tool', e);
           }
         });
       }
@@ -177,20 +165,20 @@
         async (bl) => {
           // ★ 聊天服务：生成一个服务实例，可脱离页面在后台工作
           if (window.ChatProgram) {
-            serviceCenter.chatProgram = new window.ChatProgram(serviceCenter);
-            console.log('[App] ChatProgram initialized');
+            this.chatProgram = new window.ChatProgram({kernel: kernel, name: 'main'});
+            this.log.info('APP', 'ChatProgram initialized');
           }
           if (typeof ChatEventHandler !== 'undefined') {
-            window.chatEventHandler = new ChatEventHandler(serviceCenter);
+            window.chatEventHandler = new ChatEventHandler(kernel);
           }
         if (typeof SettingsEventHandler !== 'undefined') {
-          window.settingsEventHandler = new SettingsEventHandler(serviceCenter);
+          window.settingsEventHandler = new SettingsEventHandler(kernel);
         }
         if (typeof StorageEventHandler !== 'undefined') {
-          window.storageEventHandler = new StorageEventHandler(serviceCenter);
+          window.storageEventHandler = new StorageEventHandler(kernel);
         }
         if (typeof ScriptsEventHandler !== 'undefined') {
-          window.scriptsEventHandler = new ScriptsEventHandler(serviceCenter);
+          window.scriptsEventHandler = new ScriptsEventHandler(kernel);
         }
       }
     );
@@ -198,28 +186,39 @@
     bootloader.on(
       window.Bootloader.PHASES.CONFIG_LOAD,
       async (bl) => {
-        const settingsManager = serviceCenter.getSettingsManager();
+        const settingsManager = kernel.getSettingsManager();
         await settingsManager.loadSettings();
-        log.info('BOOT', 'Settings loaded');
+        // ProviderFactory 已在 SERVICES_REGISTER 阶段注册并初始化
+        this.providerFactory = kernel.getProviderFactory();
+        this.log.info('APP', 'ProviderFactory accessed via kernel');
       }
     );
 
     // 执行启动
     await bootloader.boot();
 
+    // 打印会话状态（初始化后、渲染前）
+    const sm = kernel.getSessionManager();
+    if (sm) {
+      const allSessions = sm.getAllSessions();
+      const current = sm.getCurrentSession();
+      this.log?.info('SESSION', `After init: ${allSessions.length} sessions, current: ${current ? current.id : 'null'}`);
+    } else {
+      this.log?.warn('APP', 'sessionManager not available after boot');
+    }
+
     // 注册全局事件监听
-    const eventBus = serviceCenter.getEventBus();
-    if (eventBus && !window.App._globalListenersRegistered) {
+    if (this.ipc && !window.App._globalListenersRegistered) {
       window.App._globalListenersRegistered = true;
-      eventBus.on(window.Events.CHAT.SESSION_SWITCHED, (data) => {
-        console.log('[App] Session switched event received');
+      this.ipc.on(window.Events.CHAT.SESSION_SWITCHED, (data) => {
+        this.log.info('APP', 'Session switched event received');
       });
     }
 
     console.log('[App] Kernel boot complete. Boot timings:', bootloader.getTimings());
   }
 
-  function renderPage(root, serviceCenter) {
+  function renderPage(root, kernel) {
     const { create } = window.DOM;
     const contentAreaEl = create('div', { className: 'content-area', id: 'content-area' });
 
@@ -234,10 +233,10 @@
     root.appendChild(app);
 
     if (window.Pages && window.Pages[currentPage]) {
-      console.log('[App] Rendering page:', currentPage, 'to container:', contentAreaEl);
-      window.Pages[currentPage](contentAreaEl, serviceCenter);
+      this.log.info('APP', `Rendering page: ${currentPage}`);
+      window.Pages[currentPage](contentAreaEl, kernel);
     } else {
-      console.warn('[App] Page not found:', currentPage, 'Available:', Object.keys(window.Pages || {}));
+      this.log.warn('APP', `Page not found: ${currentPage}, available: ${Object.keys(window.Pages || {}).join(', ')}`);
     }
   }
 
@@ -300,14 +299,13 @@
     tooltips.forEach(tooltip => tooltip.remove());
 
     currentPage = pageId;
-    renderPage(document.getElementById('root'), serviceCenter);
+    renderPage(document.getElementById('root'), kernel);
   }
 
   window.App = {
     navigateTo: switchPage,
     getKernel: () => kernel,
-    getBootloader: () => bootloader,
-    getServiceCenter: () => serviceCenter
+    getBootloader: () => bootloader
   };
 
   window.addEventListener('load', init);

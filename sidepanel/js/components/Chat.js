@@ -18,6 +18,15 @@ function escapeHtml(str) {
     .replace(/'/g, String.fromCharCode(39)+'#039;');
 }
 
+/** 将 msg.content（可能为字符串或富文本数组）统一提取为纯文本字符串 */
+function extractText(content) {
+  if (!content) return '';
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) return content.filter(b => b.type === 'text').map(b => b.text || '').join('\n\n');
+  return String(content);
+}
+window.extractText = extractText;
+
 window.ChatComponents = {
 
   // ==================== ToolCallCard（AI 发起的工具调用） ====================
@@ -95,8 +104,9 @@ window.ChatComponents = {
   MessageBubble(msg, options = {}) {
     const { onDelete } = options;
     const { create } = window.DOM;
-    const isUser = msg.role === 'user';
-    const isTool = msg.role === 'tool';
+    const role = msg.role || '';
+    const isUser = role === 'user';
+    const isTool = role === 'tool';
     const bodyChildren = [];
 
     // ---- tool 角色：复用 assistant 的 markdown 渲染 ----
@@ -104,7 +114,7 @@ window.ChatComponents = {
       // tool 消息内容统一交给 marked.parse 渲染（与 assistant 路径一致）：
       //   - JSON 串被 ```...``` 包裹后会被 marked 渲染为原生 <pre><code> 代码块
       //   - 不再 escapeHtml，不再 500 字符截断，不再手动包 <pre class="tool-result-pre">
-      const raw = msg.content || '';
+      const raw = extractText(msg.content);
       const isJson = raw.startsWith('{') || raw.startsWith('[');
       const mdSource = isJson ? '```json\n' + raw + '\n```' : raw;
       const rendered = typeof marked !== 'undefined'
@@ -158,11 +168,11 @@ window.ChatComponents = {
 
     // ---- assistant / user / system：处理思考过程 ----
     if (!isUser) {
-      const hasReasoning = msg.reasoning_content && msg.reasoning_content.trim();
+      const hasReasoning = msg.reasoning_content && extractText(msg.reasoning_content).trim();
       
       const reasoningContent = create('div', {
         className: 'reasoning-content',
-        text: msg.reasoning_content || '',
+        text: extractText(msg.reasoning_content),
         style: { display: 'none' }
       });
       
@@ -196,9 +206,9 @@ window.ChatComponents = {
     
     // 消息内容：Markdown 渲染
     // 如果 content 为空但有 reasoning，显示提示（避免空气泡）
-    const rawContent = msg.content || '';
+    const rawContent = extractText(msg.content);
     const hasContent = rawContent.trim().length > 0;
-    const hasReasoningContent = msg.reasoning_content && msg.reasoning_content.trim().length > 0;
+    const hasReasoningContent = msg.reasoning_content && extractText(msg.reasoning_content).trim().length > 0;
     
     let contentHtml;
     if (hasContent) {

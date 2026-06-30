@@ -4,12 +4,13 @@
  */
 
 class ScriptsEventHandler {
-  constructor(serviceCenter) {
-    this.serviceCenter = serviceCenter;
-    this.eventBus = serviceCenter.getEventBus();
+  constructor(kernel) {
+    this.kernel = kernel;
+    this.ipc = kernel.getIPC();
+    this.scriptsChannel = this.ipc?.getOrCreateChannel('scripts') || this.ipc;
     
-    // 通过 ServiceCenter 获取 ScriptsManager
-    this.scriptsManager = serviceCenter.getScriptsManager();
+    // 通过 Kernel 获取 ScriptsManager
+    this.scriptsManager = kernel.getScriptsManager();
     
     // 注册事件监听
     this._registerEventListeners();
@@ -20,12 +21,12 @@ class ScriptsEventHandler {
    */
   _registerEventListeners() {
     // 监听脚本列表加载
-    this.eventBus.on(window.Events.SCRIPTS.LOADED, (data) => {
+    this.scriptsChannel.on(window.Events.SCRIPTS.LOADED, (data) => {
       this._handleScriptsLoaded(data);
     });
     
     // 监听错误
-    this.eventBus.on(window.Events.SCRIPTS.ERROR, (data) => {
+    this.scriptsChannel.on(window.Events.SCRIPTS.ERROR, (data) => {
       this._handleScriptsError(data);
     });
   }
@@ -71,7 +72,7 @@ class ScriptsEventHandler {
     try {
       await this.scriptsManager.toggle(id, enabled);
     } catch (error) {
-      this.eventBus.emit(window.Events.SCRIPTS.ERROR, { error: error.message });
+      this.scriptsChannel.emit(window.Events.SCRIPTS.ERROR, { error: error.message });
     }
   }
   
@@ -97,9 +98,9 @@ class ScriptsEventHandler {
     try {
       await this.scriptsManager.updateCode(id, code);
     } catch (error) {
-      this.eventBus.emit(window.Events.SCRIPTS.ERROR, { error: error.message });
+      this.scriptsChannel.emit(window.Events.SCRIPTS.ERROR, { error: error.message });
     }
   }
 }
 
-// 不导出到全局，仅在 app.js 中通过 new ScriptsEventHandler(serviceCenter) 创建实例
+// 不导出到全局，仅在 app.js 中通过 new ScriptsEventHandler(kernel) 创建实例

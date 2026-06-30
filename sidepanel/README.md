@@ -36,7 +36,7 @@
 - 创建各页面 `EventHandler`（Chat / Settings / Storage / Scripts）
 - 通过 `settingsManager.loadSettings()` 加载设置（触发 `SETTINGS.LOADED`，由 `SettingsEventHandler` 响应）
 - 注册全局事件监听（如 `CHAT.SESSION_SWITCHED`）
-- 渲染页面：构建 sidebar + content-area，调用 `window.Pages[currentPage](contentArea, serviceCenter)`
+- 渲染页面：构建 sidebar + content-area，调用 `window.Pages[currentPage](contentArea, kernel)`
 
 页面路由通过 `pages` 数组维护（`chat / history / storage / scripts / settings`），切换时调用 `renderPage()` 重新渲染。
 
@@ -91,7 +91,6 @@
 | `SettingsManager.js` | 设置加载与保存（基于 `chrome.storage.local`） |
 | `StorageManager.js` | 存储的高层封装（读写、搜索、清理） |
 | `ScriptsManager.js` | 用户脚本的增删改查（基于 `ScriptsModel`） |
-| `ModelManager.js` | 模型列表的加载、缓存、当前模型管理 |
 | `ScriptInjector.js` | 后台脚本注入器（background.js 导入） |
 
 #### Provider 实现
@@ -112,9 +111,9 @@
 
 `I*.js` 命名（**仅作类型说明，JavaScript 不强制**）：
 
-- `ISessionManager.js` / `IAppSettings.js` / `ISettings.js`
+- `ISessionManager.js` / `ISettings.js` / `ISettings.js`
 - `IProviderAPIService.js` — **抽象基类**，所有 Provider 必须继承
-- `IStorageManager.js` / `IScriptsManager.js` / `IModelManager.js`
+- `IStorageManager.js` / `IScriptsManager.js` 
 - `IToolService.js` — **抽象基类**，所有工具必须继承
 
 ### `js/controllers/`
@@ -177,11 +176,10 @@
 唯一实例在 `app.js` 中创建，所有页面、Controller、Manager 通过它访问服务：
 
 ```javascript
-const serviceCenter = new window.ServiceCenter();
-await serviceCenter.initializeSessionManager();
-const sessionManager = serviceCenter.getSessionManager();
-const providerService = serviceCenter.getCurrentProviderService();
-const chatController = serviceCenter.getChatController();
+const kernel = window.kernel;
+const sessionManager = kernel.getSessionManager();
+const providerService = kernel.getCurrentProviderService();
+const chatController = kernel.getChatController();
 ```
 
 ### 2. EventBus 事件机制
@@ -217,7 +215,7 @@ const chatController = serviceCenter.getChatController();
 - **Service Worker**：`chrome://extensions/` → 找到本扩展 → 点击 "服务工作线程" → DevTools
 - **Side Panel UI**：打开侧边栏 → 右键 → "检查" → DevTools
 - **查看事件流**（侧边栏控制台）：`window.EventBus.getHistory()` 返回最近 100 条事件
-- **查看服务状态**：`window.serviceCenter.getQueueStatus?.()` 或 `window.chatEventHandler`
+- **查看服务状态**：通过 `window.chatEventHandler` 查看
 - **清空数据**：`chrome.storage.local.clear()` 后重新加载扩展
 
 ## 🔧 常见修改点

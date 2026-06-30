@@ -8,13 +8,15 @@
 
 window.Pages = window.Pages || {};
 
-window.Pages.chat = function(container, serviceCenter) {
+window.Pages.chat = function(container, kernel) {
   const { create, clear } = window.DOM;
-  const eventBus = serviceCenter.getEventBus();
-  const sessionManager = serviceCenter.getSessionManager();
+  const ipc = kernel.getIPC();
+  const chatChannel = ipc?.getOrCreateChannel('chat') || ipc;
+  const toolChannel = ipc?.getOrCreateChannel('tool') || ipc;
+  const sessionManager = kernel.getSessionManager();
 
-  // ★ ChatProgram 由 app.js 统一初始化，此处从 serviceCenter 获取引用
-  const chatProgram = serviceCenter.chatProgram || null;
+  // ★ ChatProgram 由 app.js 统一初始化，此处从 window 全局获取引用
+  const chatProgram = window.chatProgram || null;
 
   // ==================== UI 状态控制（真实事件驱动） ====================
 
@@ -36,20 +38,20 @@ window.Pages.chat = function(container, serviceCenter) {
 
   // ==================== 事件监听 ====================
   // 流式生命周期 → 按钮状态
-  eventBus.on(window.Events.CHAT.STREAM_START, () => _showStreamingUI());
-  eventBus.on(window.Events.CHAT.STREAM_COMPLETE, () => _hideStreamingUI());
-  eventBus.on(window.Events.CHAT.STREAM_STOP, () => _hideStreamingUI());
-  eventBus.on(window.Events.CHAT.STREAM_ERROR, () => _hideStreamingUI());
+  chatChannel.on(window.Events.CHAT.STREAM_START, () => _showStreamingUI());
+  chatChannel.on(window.Events.CHAT.STREAM_COMPLETE, () => _hideStreamingUI());
+  chatChannel.on(window.Events.CHAT.STREAM_STOP, () => _hideStreamingUI());
+  chatChannel.on(window.Events.CHAT.STREAM_ERROR, () => _hideStreamingUI());
 
   // 消息增删或会话切换时触发全量渲染
-  eventBus.on(window.Events.CHAT.MESSAGE_ADDED, () => render());
-  eventBus.on(window.Events.CHAT.MESSAGE_DELETED, () => render());
-  eventBus.on(window.Events.CHAT.CURRENT_SESSION_CHANGED, () => render());
+  chatChannel.on(window.Events.CHAT.MESSAGE_ADDED, () => render());
+  chatChannel.on(window.Events.CHAT.MESSAGE_DELETED, () => render());
+  chatChannel.on(window.Events.CHAT.CURRENT_SESSION_CHANGED, () => render());
 
   // ==================== 组件渲染 ====================
 
   const pendingSettings = {
-    reasoningEffort: serviceCenter.getSettingsManager().getSettings()?.reasoningEffort || 'medium'
+    reasoningEffort: kernel.getSettingsManager().getSettings()?.reasoningEffort || 'medium'
   };
 
   function renderHeader(session) {
@@ -57,7 +59,7 @@ window.Pages.chat = function(container, serviceCenter) {
     const showThinkingControl = checkModelSupportsThinking();
     const thinkingSession = session || { reasoningEffort: pendingSettings.reasoningEffort };
 
-    if (showThinkingControl) {
+    if (showThinkingControl && window.ChatComponents && window.ChatComponents.ThinkingControl) {
       actions.push(window.ChatComponents.ThinkingControl(thinkingSession, {
         onUpdate: (val) => {
           if (session) {
@@ -109,7 +111,7 @@ window.Pages.chat = function(container, serviceCenter) {
               confirmText: '删除',
               type: 'danger'
             })) {
-              eventBus.emit(window.Events.CHAT.USER_APPLY_DELETE_MESSAGE, { messageId: id });
+              chatChannel.emit(window.Events.CHAT.USER_APPLY_DELETE_MESSAGE, { messageId: id });
               window.Toast.success('已删除');
             }
           }
@@ -154,7 +156,7 @@ window.Pages.chat = function(container, serviceCenter) {
       id: 'stop-btn',
       text: '停止',
       style: { display: 'none' },
-      onClick: () => eventBus.emit(window.Events.CHAT.USER_APPLY_STOP)
+      onClick: () => chatChannel.emit(window.Events.CHAT.USER_APPLY_STOP)
     });
 
     let toolPanelVisible = false;
@@ -188,7 +190,7 @@ window.Pages.chat = function(container, serviceCenter) {
 
   function populateToolPanel(panel) {
     if (!panel) return;
-    const allTools = serviceCenter.getAllTools();
+    const allTools = kernel.toolRegistry?.getAll();
     
     if (!allTools || allTools.length === 0) {
       panel.appendChild(create('div', { className: 'tool-panel-empty', text: '暂无可用工具' }));
@@ -228,10 +230,10 @@ window.Pages.chat = function(container, serviceCenter) {
     const progressArea = create('div', { id: 'tool-progress-area', className: 'tool-progress-area' });
     panel.appendChild(progressArea);
 
-    eventBus.on(window.Events.TOOL.EXECUTING, (data) => {
+    toolChannel.on(window.Events.TOOL.EXECUTING, (data) => {
       appendToolProgress(progressArea, 'executing', data);
     });
-    eventBus.on(window.Events.TOOL.COMPLETED, (data) => {
+    toolChannel.on(window.Events.TOOL.COMPLETED, (data) => {
       appendToolProgress(progressArea, 'completed', data);
     });
   }
@@ -265,7 +267,7 @@ window.Pages.chat = function(container, serviceCenter) {
     }
 
     // ★ 发射 USER_APPLY_SEND → ChatEventHandler 鉴权转译 → ChatProgram.CMD.SEND
-    eventBus.emit(window.Events.CHAT.USER_APPLY_SEND, {
+    chatChannel.emit(window.Events.CHAT.USER_APPLY_SEND, {
       content,
       reasoningEffort: sessionManager.getCurrentSession()?.reasoningEffort || pendingSettings.reasoningEffort
     });
@@ -294,20 +296,12 @@ window.Pages.chat = function(container, serviceCenter) {
 
   function checkModelSupportsThinking() {
     try {
-      const settings = serviceCenter.getSettingsManager().getSettings();
-      if (!settings || !settings.model) return false;
-      
-      const modelManager = serviceCenter.getModelManager();
-      const model = modelManager.getModel(settings.model);
-      
-      if (model && typeof model.supportsReasoning === 'function') {
-        return model.supportsReasoning();
-      }
-      if (model && model.capabilities) {
-        return !!model.capabilities.reasoning;
-      }
-      return false;
+      const settings = kernel.getSettingsManager().getSettings();
+      const result = !!(settings && settings.model);
+      kernel.log?.debug('CHAT', `checkModelSupportsThinking: ${result}, model: ${settings?.model}`);
+      return result;
     } catch (e) {
+      kernel.log?.warn('CHAT', `checkModelSupportsThinking error: ${e?.message}`);
       return false;
     }
   }

@@ -4,12 +4,13 @@
  */
 
 class StorageEventHandler {
-  constructor(serviceCenter) {
-    this.serviceCenter = serviceCenter;
-    this.eventBus = serviceCenter.getEventBus();
-    
-    // 通过 ServiceCenter 获取 StorageManager
-    this.storageManager = serviceCenter.getStorageManager();
+  constructor(kernel) {
+    this.kernel = kernel;
+
+    this.ipc = kernel.getIPC();
+    this.storageChannel = this.ipc?.getOrCreateChannel('storage') || this.ipc;
+    // 通过 Kernel 获取 StorageManager
+    this.storageManager = kernel.getStorageManager();
     
     // 注册事件监听
     this._registerEventListeners();
@@ -20,17 +21,17 @@ class StorageEventHandler {
    */
   _registerEventListeners() {
     // 监听存储数据加载
-    this.eventBus.on(window.Events.STORAGE.LOADED, (data) => {
+    this.storageChannel.on(window.Events.STORAGE.LOADED, (data) => {
       this._handleStorageLoaded(data);
     });
     
     // 监听搜索结果
-    this.eventBus.on(window.Events.STORAGE.SEARCHED, (data) => {
+    this.storageChannel.on(window.Events.STORAGE.SEARCHED, (data) => {
       this._handleStorageSearched(data);
     });
     
     // 监听错误
-    this.eventBus.on(window.Events.STORAGE.ERROR, (data) => {
+    this.storageChannel.on(window.Events.STORAGE.ERROR, (data) => {
       this._handleStorageError(data);
     });
   }
@@ -108,5 +109,5 @@ class StorageEventHandler {
   }
 }
 
-// 不导出到全局，仅在 app.js 中通过 new StorageEventHandler(serviceCenter) 创建实例
+// 不导出到全局，仅在 app.js 中通过 new StorageEventHandler(kernel) 创建实例
 window.StorageEventHandler = StorageEventHandler;

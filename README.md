@@ -14,7 +14,7 @@ Web Agent Client 是一个轻量级、可扩展的 Chrome 侧边栏扩展，为 
 - 📜 **用户脚本管理**：支持 Tampermonkey 风格元数据解析与按 `match` 规则自动注入
 - 🎨 **模块化主题**：CSS 按 UI 元素类型拆分（变量、布局、表单、卡片、聊天组件等），易于扩展深色/浅色模式
 - 🔍 **本地存储查看**：内置 Storage 页面，支持搜索、容量统计、缓存清理
-- 🪶 **零依赖**：仅依赖开源的 CodeMirror（编辑 JSON/JS）和 marked（Markdown 渲染），无构建步骤
+- 🦀 **TypeScript + Vite**：内核层使用 TypeScript 编写，Vite 构建为 ES Module IIFE，开发体验现代化
 
 ## 📂 项目结构
 
@@ -25,32 +25,49 @@ webagentcli/
 ├── LICENSE                    # 许可证
 ├── assets/icons/              # 扩展图标
 ├── docs/                      # 设计文档
-│   ├── ARCHITECTURE.md        # 架构设计（MVC + EventBus）
+│   ├── ARCHITECTURE.md        # 架构设计（Microkernel + EventBus）
 │   └── CORE_MODELS.md         # 数据模型详解
-└── sidepanel/                 # 侧边栏 UI（扩展主要逻辑）
-    ├── sidepanel.html         # 入口 HTML（按顺序加载所有模块）
-    ├── README.md              # Side Panel 模块说明
-    ├── js/                    # JavaScript 源码
-    │   ├── app.js             # 应用初始化与页面路由
-    │   ├── background.js      # Service Worker 入口
-    │   ├── core/              # 基础设施层
-    │   │   ├── events/        # EventBus + 事件常量
-    │   │   └── models/        # 数据模型
-    │   ├── services/          # 服务层（业务逻辑）
-    │   │   ├── ServiceCenter.js     # 服务中心（Facade）
-    │   │   ├── SessionManager.js    # 会话/消息持久化
-    │   │   ├── SettingsManager.js   # 设置管理
-    │   │   ├── StorageManager.js     # 存储封装
-    │   │   ├── ScriptsManager.js     # 脚本管理
-    │   │   ├── ModelManager.js       # 模型列表管理
-    │   │   ├── ScriptInjector.js     # 脚本注入器（后台用）
-    │   │   ├── tools/                # 内置工具
-    │   │   └── ProviderAPIServices/  # 各 Provider 实现
-    │   ├── controllers/       # 控制器层（适配 UI 与 Service）
-    │   ├── pages/             # 页面（View）
-    │   ├── components/        # 通用 UI 组件
-    │   └── utils/             # 工具函数
-    └── theme/                 # CSS 主题（按 UI 元素拆分子文件）
+├── kernel/                    # 核心内核（TypeScript）
+│   ├── index.ts               # ES Module 统一入口，Vite 打包入口
+│   ├── Kernel.ts              # 内核（服务注册/生命周期）
+│   ├── Bootloader.ts          # Bootloader（分阶段启动器）
+│   ├── IPC.ts                 # 进程间事件总线
+│   ├── Events.ts              # 事件常量与类型定义
+│   ├── ToolRegistry.ts        # 工具注册中心
+│   ├── models/                # 数据模型
+│   │   ├── Message.ts         # 消息（role/content/reasoning/toolCalls）
+│   │   ├── Session.ts         # 会话（含消息列表/思考强度）
+│   │   ├── Settings.ts        # 设置（Provider/Endpoint/Model）
+│   │   ├── ToolCall.ts        # 工具调用
+│   │   ├── ToolResult.ts      # 工具结果
+│   │   └── ...
+│   ├── programs/              # 内核程序
+│   │   └── ChatProgram.ts     # 聊天程序（流式/Tool循环/活动状态）
+│   └── services/              # 服务层实现
+│       ├── SessionManager.ts
+│       ├── SettingsManager.ts
+│       ├── ProviderFactory.ts  # Provider 工厂
+│       └── ProviderAPIServices/
+│           ├── OpenAIService.ts
+│           ├── OpenRouterService.ts
+│           └── LMStudioService.ts
+├── sidepanel/                 # 侧边栏 UI（Chrome 环境）
+│   ├── sidepanel.html         # 入口 HTML
+│   ├── README.md              # Side Panel 模块说明
+│   ├── js/                    # JavaScript UI 层
+│   │   ├── app.js             # 应用初始化与 Bootloader 启动
+│   │   ├── background.js      # Service Worker
+│   │   ├── event-handlers/    # 事件处理器（控制器层）
+│   │   ├── pages/             # 页面组件（View）
+│   │   ├── components/        # 通用 UI 组件
+│   │   └── services/          # Chrome 专用服务
+│   └── theme/                 # CSS 主题
+├── dist/                      # 构建产物
+│   └── kernel.bundle.iife.js  # Vite 打包 IIFE
+├── package.json               # 依赖与构建脚本
+├── tsconfig.json              # TypeScript 配置
+├── vite.config.ts             # Vite 构建配置
+└── vitest.config.ts           # Vitest 测试配置
 ```
 
 ## 🚀 快速开始
@@ -100,34 +117,35 @@ webagentcli/
 | 脚本 | `scripts` | 用户脚本的增删改查与启用管理 |
 | 设置 | `settings` | AI Provider、API Key、模型、思考模式配置 |
 
-## 🏗️ 架构概览
+## 🏗️ 架构概览（v0.6 — Microkernel）
 
 ```
-┌─────────────────────────────────────────────────┐
-│   View (pages + components + EventHandlers)    │
-│   ChatPage / HistoryPage / SettingsPage / ...   │
-└────────────┬────────────────────────────────────┘
-             │ 事件 & 调用
-             ▼
-┌─────────────────────────────────────────────────┐
-│   Controller (ChatController)                  │
-│   协调 Service：流式请求、Tool 循环、活动状态    │
-└────────────┬────────────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────────────┐
-│   Service (ServiceCenter)                      │
-│   Session / Settings / Storage / Scripts /      │
-│   Provider (OpenAI/OR/LMStudio)                │
-└────────────┬────────────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────────────────┐
-│   Core (Models + EventBus)                      │
-│   Message / Session / Settings / Model /        │
-│   ToolCall / ToolResult / ...                   │
-└─────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│   Shell (View + EventHandlers)                  │
+│   sidepanel/js/ · pages / components / handlers │
+│   （JavaScript · Chrome 环境）                    │
+└──────────────┬───────────────────────────────────┘
+               │ IPC EventBus
+               ▼
+┌──────────────────────────────────────────────────┐
+│   Kernel / Programs (ChatProgram)               │
+│   kernel/ · TypeScript · Platform-agnostic      │
+│   提供：流式请求、Tool 循环、会话、生命周期管理  │
+└──────────────┬───────────────────────────────────┘
+               │
+               ▼
+┌──────────────────────────────────────────────────┐
+│   Services + Models                              │
+│   SessionManager / ProviderFactory / ...          │
+│   Message / Session / Settings / ToolCall         │
+└──────────────────────────────────────────────────┘
 ```
+
+- **Microkernel 模式**：内核（`kernel/Kernel.ts`）只做服务注册和生命周期，不执行业务
+- **Bootloader 分阶段启动**：CORE_INIT → SERVICES_REGISTER → SERVICES_INIT → TOOLS_REGISTER → HANDLERS_INIT → CONFIG_LOAD → UI_RENDER → READY
+- **ProviderFactory 独立**：Provider 服务通过工厂创建，不再耦合在 Kernel 上
+- **Build 分离**：内核用 TypeScript + Vite 构建为 IIFE（`dist/kernel.bundle.iife.js`），侧边栏 UI 通过 `<script>` 加载
+- **`MessageStructure.toAPIFormat` 归一化**：所有消息在发送前统一转为 OpenAI API 格式，确保 role/content/tool_calls 字段完整
 
 详细分层与责任划分请阅读 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
@@ -140,9 +158,11 @@ webagentcli/
 
 ## 📦 版本
 
-- **扩展版本**：`0.3.3`（见 `manifest.json`）
-- **架构版本**：MVC v2.0（Controller + SessionManager + Provider 插件化）
+- **扩展版本**：`0.6.0`（见 `manifest.json` / `kernel/index.ts`）
+- **架构版本**：Microkernel（Kernel + Bootloader + ProviderFactory 解耦）
+- **构建系统**：TypeScript 6 + Vite 8 + Vitest 4
 - **Manifest**：V3
+- **v0.6 里程碑**：内核层纯 TypeScript 化，Vite 替换手写 IIFE，ProviderFactory 独立，消息序列化归一化
 
 ## 📄 许可
 

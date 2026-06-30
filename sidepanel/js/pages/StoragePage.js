@@ -4,17 +4,17 @@
 
 window.Pages = window.Pages || {};
 
-window.Pages.storage = function(container, serviceCenter) {
+window.Pages.storage = function(container, kernel) {
   const { create, clear } = window.DOM;
-  
-  if (!serviceCenter) {
-    console.error('[StoragePage] ServiceCenter not available');
+
+  if (!kernel) {
+    console.error('[StoragePage] Kernel not available');
     return;
   }
   
-  // 确保使用传入的 serviceCenter 创建或获取 EventHandler
+  // 确保使用传入的 kernel 创建或获取 EventHandler
   if (!window.storageEventHandler) {
-    window.storageEventHandler = new window.StorageEventHandler(serviceCenter);
+    window.storageEventHandler = new window.StorageEventHandler(kernel);
   }
   const eventHandler = window.storageEventHandler;
   

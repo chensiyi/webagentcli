@@ -4,11 +4,11 @@
 
 window.Pages = window.Pages || {};
 
-window.Pages.scripts = function(container, serviceCenter) {
+window.Pages.scripts = function(container, kernel) {
   const { create, clear } = window.DOM;
-  
-  if (!serviceCenter) {
-    console.error('[ScriptsPage] ServiceCenter not available');
+
+  if (!kernel) {
+    console.error('[ScriptsPage] Kernel not available');
     return;
   }
   

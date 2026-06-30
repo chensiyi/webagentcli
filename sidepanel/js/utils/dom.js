@@ -63,12 +63,6 @@ window.DOM = {
     theme === 'dark' 
       ? document.documentElement.setAttribute('data-theme', 'dark')
       : document.documentElement.removeAttribute('data-theme');
-    
-    chrome.storage.local.get(['settings'], (result) => {
-      const settings = result.settings || {};
-      settings.theme = theme;
-      chrome.storage.local.set({ settings });
-    });
   },
   
   getTheme() {

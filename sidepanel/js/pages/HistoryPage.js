@@ -4,16 +4,16 @@
 
 window.Pages = window.Pages || {};
 
-window.Pages.history = function(container, serviceCenter) {
+window.Pages.history = function(container, kernel) {
   const { create, clear } = window.DOM;
-  
-  if (!serviceCenter) {
-    console.error('[HistoryPage] ServiceCenter not available');
+
+  if (!kernel) {
+    console.error('[HistoryPage] Kernel not available');
     container.innerHTML = '<div class="empty-state">服务未初始化，请刷新页面重试</div>';
     return;
   }
   
-  const sessionManager = serviceCenter.getSessionManager();
+  const sessionManager = kernel.getSessionManager();
   
   let searchKeyword = '';
   let searchTimer = null;

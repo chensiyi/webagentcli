@@ -7,11 +7,15 @@
 
 class ChromeStorageAdapter extends window.IStorageManager {
   /**
-   * @param {ServiceCenter} [serviceCenter] - 服务中心，用于事件通信
+   * @param {Kernel} [kernel] - 内核实例，用于事件通信
    */
-  constructor(serviceCenter = null) {
-    super(serviceCenter);
+    constructor(kernel = null) {
+    super(kernel);
     this.storage = chrome.storage.local;
+    const ipc = kernel?.getIPC();
+    console.log('[ChromeStorageAdapter] ipc type:', ipc?.constructor?.name, 'methods:', Object.keys(ipc || {}));
+    this.ipc = ipc;
+    this.storageChannel = ipc?.getOrCreateChannel ? ipc.getOrCreateChannel('storage') : ipc;
   }
 
   // ========== 底层存储操作 ==========
@@ -20,7 +24,7 @@ class ChromeStorageAdapter extends window.IStorageManager {
    * 获取所有存储项
    * @returns {Promise<Array<[string, any]>>} 键值对数组
    */
-  async loadAll() {
+  async getAll() {
     return new Promise((resolve, reject) => {
       this.storage.get(null, (result) => {
         if (chrome.runtime.lastError) {
@@ -103,7 +107,7 @@ class ChromeStorageAdapter extends window.IStorageManager {
   // ========== 上层管理功能 ==========
 
   /**
-   * 搜索存储项（覆写以触发事件）
+   * 搜索存储项（触发搜索结果事件）
    * @param {string} keyword - 搜索关键词
    */
   async search(keyword) {
@@ -115,23 +119,23 @@ class ChromeStorageAdapter extends window.IStorageManager {
         const valueStr = JSON.stringify(value).toLowerCase();
         return keyStr.includes(lowerKeyword) || valueStr.includes(lowerKeyword);
       });
-      this.eventBus && this.eventBus.emit(window.Events.STORAGE.SEARCHED, { items: filtered, keyword });
+      this.storageChannel?.emit(window.Events.STORAGE.SEARCHED, { items: filtered, keyword });
     } catch (error) {
-      this.eventBus && this.eventBus.emit(window.Events.STORAGE.ERROR, { error: error.message });
+      this.storageChannel?.emit(window.Events.STORAGE.ERROR, { error: error.message });
     }
   }
 
   /**
-   * 加载所有存储项
+   * 加载所有存储项（触发 LOADED 事件）
    */
   async loadAll() {
     try {
       const items = await this.getAll();
-      const stats = await this.getStats();
+      const stats = { total: items.length };
       
-      this.eventBus && this.eventBus.emit(window.Events.STORAGE.LOADED, { items, stats });
+      this.storageChannel?.emit(window.Events.STORAGE.LOADED, { items, stats });
     } catch (error) {
-      this.eventBus && this.eventBus.emit(window.Events.STORAGE.ERROR, { error: error.message });
+      this.storageChannel?.emit(window.Events.STORAGE.ERROR, { error: error.message });
     }
   }
 
@@ -144,7 +148,7 @@ class ChromeStorageAdapter extends window.IStorageManager {
       await this.remove(key);
       await this.loadAll();
     } catch (error) {
-      this.eventBus && this.eventBus.emit(window.Events.STORAGE.ERROR, { error: error.message });
+      this.storageChannel?.emit(window.Events.STORAGE.ERROR, { error: error.message });
     }
   }
 
@@ -158,7 +162,7 @@ class ChromeStorageAdapter extends window.IStorageManager {
       await this.set(key, value);
       await this.loadAll();
     } catch (error) {
-      this.eventBus && this.eventBus.emit(window.Events.STORAGE.ERROR, { error: error.message });
+      this.storageChannel?.emit(window.Events.STORAGE.ERROR, { error: error.message });
     }
   }
 
@@ -170,7 +174,7 @@ class ChromeStorageAdapter extends window.IStorageManager {
       await this.clear();
       await this.loadAll();
     } catch (error) {
-      this.eventBus && this.eventBus.emit(window.Events.STORAGE.ERROR, { error: error.message });
+      this.storageChannel?.emit(window.Events.STORAGE.ERROR, { error: error.message });
     }
   }
 }

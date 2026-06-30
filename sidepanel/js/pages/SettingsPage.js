@@ -5,17 +5,18 @@
 
 window.Pages = window.Pages || {};
 
-window.Pages.settings = function(container, serviceCenter) {
+window.Pages.settings = function(container, kernel) {
   const { create, clear, setTheme, getTheme } = window.DOM;
-  const eventBus = serviceCenter.getEventBus();
+  const ipc = kernel.getIPC();
+  const settingsChannel = ipc?.getOrCreateChannel('settings') || ipc;
   
-  if (!serviceCenter) {
-    console.error('[SettingsPage] ServiceCenter not available');
+  if (!kernel) {
+    console.error('[SettingsPage] Kernel not available');
     return;
   }
   
-  // 通过 ServiceCenter 获取 SettingsManager
-  const settingsManager = serviceCenter.getSettingsManager();
+  // 通过 Kernel 获取 SettingsManager
+  const settingsManager = kernel.getSettingsManager();
   
   // UI 状态管理（仅用于渲染）
   let isLoadingModels = false;
@@ -28,21 +29,16 @@ window.Pages.settings = function(container, serviceCenter) {
   // 暴露 currentSettings 给 EventHandler 访问
   window.Pages.settings.currentSettings = null;
 
-  /**
-   * 渲染设置页面
-   */
-  async function render() {
-    clear(container);
-    
-    // 从 Manager 获取当前设置
-    if (settingsManager) {
+  function render() {
+    // 直接从 SettingsManager 内存读取（同步）
+    if (!currentSettings && settingsManager) {
       const settings = settingsManager.getSettings();
-      if (settings) {
-        currentSettings = settings.toJSON ? settings.toJSON() : settings;
-        // 同步到暴露的属性
-        window.Pages.settings.currentSettings = currentSettings;
-      }
+      currentSettings = settings.toJSON ? settings.toJSON() : settings;
+      window.Pages.settings.currentSettings = currentSettings;
+      console.log('[SettingsPage] Loaded settings from memory:', currentSettings);
     }
+    
+    clear(container);
     
     // 从设置中加载已保存的模型列表
     if (Array.isArray(currentSettings?.models) && currentSettings.models.length > 0) {
@@ -269,7 +265,7 @@ window.Pages.settings = function(container, serviceCenter) {
     currentSettings[field] = value;
     
     // 发布设置更新事件
-    eventBus.emit(window.Events.SETTINGS.UPDATED, {
+    settingsChannel.emit(window.Events.SETTINGS.UPDATED, {
       updates: { [field]: value },
       newSettings: currentSettings
     });
@@ -302,7 +298,7 @@ window.Pages.settings = function(container, serviceCenter) {
     // 2. 调用 rerenderProviderConfig() 重绘 UI
     
     // 发布 API 标准变更事件
-    eventBus.emit(window.Events.SETTINGS.API_STANDARD_CHANGED, {
+    settingsChannel.emit(window.Events.SETTINGS.API_STANDARD_CHANGED, {
       apiStandard
     });
     
@@ -401,7 +397,7 @@ window.Pages.settings = function(container, serviceCenter) {
     });
     
     // 发布模型加载请求事件
-    eventBus.emit(window.Events.SETTINGS.MODELS_REQUEST, {
+    settingsChannel.emit(window.Events.SETTINGS.MODELS_REQUEST, {
       apiKey: currentSettings.apiKey,
       apiEndpoint: currentSettings.apiEndpoint,
       apiStandard: currentSettings.apiStandard
@@ -417,8 +413,13 @@ window.Pages.settings = function(container, serviceCenter) {
     currentSettings.theme = theme;
     setTheme(theme);
     
+    // 跟随配置一起持久化到 app_settings
+    if (settingsManager) {
+      settingsManager.saveSetting('theme', theme);
+    }
+    
     // 发布主题变更事件
-    eventBus.emit(window.Events.UI.THEME_CHANGED, { theme });
+    settingsChannel.emit(window.Events.UI.THEME_CHANGED, { theme });
   }
 
   /**
@@ -440,7 +441,7 @@ window.Pages.settings = function(container, serviceCenter) {
     });
     
     // 发布保存请求事件
-    eventBus.emit(window.Events.SETTINGS.SAVE_REQUEST, {
+    settingsChannel.emit(window.Events.SETTINGS.SAVE_REQUEST, {
       settings: currentSettings
     });
   }

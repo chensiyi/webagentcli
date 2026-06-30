@@ -54,9 +54,7 @@ webagentcli/
 │   │   ├── StorageManager.js       # 存储封装
 │   │   ├── SettingsManager.js      # 设置管理
 │   │   ├── ScriptsManager.js       # 脚本管理
-│   │   ├── ModelManager.js         # 模型管理
 │   │   ├── ProcessManager.js       # 进程管理
-│   │   ├── ServiceCenter.js        # 向后兼容层
 │   │   ├── I*Manager.js            # 接口定义
 │   │   └── ProviderAPIServices/    # AI Provider 实现
 │   │       ├── IProviderAPIService.js
@@ -86,6 +84,8 @@ webagentcli/
 │   │   │   └── ScriptsPage.js
 │   │   ├── components/             # UI 组件
 │   │   └── utils/                  # 工具函数
+│   │   └── services/
+│   │       └── ChromeStorageAdapter.js
 │   └── theme/                      # CSS 主题
 │
 ├── popup/                          # ★ Shell B: (未来) 弹出窗口
@@ -200,7 +200,7 @@ toolRegistry.getDefinitionsForLLM()
 
 **位置**：`kernel/programs/ChatProgram.js`
 
-ChatProgram 是内核级的聊天编排程序，由 `app.js` 在 `HANDLERS_INIT` 阶段初始化一次，挂在 `serviceCenter.chatProgram`，永久复用。
+ChatProgram 是内核级的聊天编排程序，由 `app.js` 在 `HANDLERS_INIT` 阶段初始化一次，挂在 `window.chatProgram`，永久复用。
 
 **指令接口**（ChatEventHandler 鉴权后转发）：
 ```javascript
@@ -237,26 +237,20 @@ MESSAGE_DELETED       // 消息已删除
 3. 转译为 `ChatProgram.CMD.*` 指令转发
 4. 监听 ChatProgram 输出事件（`STREAM_CHUNK_APPEND` 等）做 DOM 更新
 
-### 3. ServiceCenter（服务中心 — 向后兼容层）
-
-**位置**：`kernel/services/ServiceCenter.js`
-
-作为 Kernel 的向后兼容 Facade。新代码应通过 `kernel.get('serviceName')` 访问服务。
-
-### 4. SessionManager（会话管理器）
+### 3. SessionManager（会话管理器）
 
 **位置**：`kernel/services/SessionManager.js`
 
 会话/消息的"唯一真相源"，负责持久化。
 
-### 5. Provider API Service（AI 服务抽象）
+### 4. Provider API Service（AI 服务抽象）
 
 **位置**：`kernel/services/IProviderAPIService.js`
 
 所有 AI Provider 实现统一接口，实现热插拔：
 - OpenAI、OpenRouter、LM Studio
 
-### 6. Tool System（工具系统）
+### 5. Tool System（工具系统）
 
 **内置工具**：
 - `RunUserScriptTool` — 在当前活动 tab 执行用户 JS
@@ -276,7 +270,7 @@ MESSAGE_DELETED       // 消息已删除
 8. 服务接口（`I*Manager.js`）
 9. Provider 实现（OpenAI / OpenRouter / LM Studio）
 10. 服务实现（SessionManager / SettingsManager / ...）
-11. ServiceCenter（向后兼容层）
+11. ChromeStorageAdapter（存储适配器）
 12. Settings 页面实现
 13. **★ Kernel Programs**（`../kernel/programs/ChatProgram.js`）
 14. EventHandlers（ChatEventHandler 等）
@@ -288,23 +282,22 @@ MESSAGE_DELETED       // 消息已删除
 ```javascript
 // 1. 创建 IPC / KernelLog / ToolRegistry / CapabilityManager
 // 2. 创建 Kernel 实例，注入子系统
-// 3. 创建 ServiceCenter（向后兼容层）
-// 4. 创建 Bootloader，注册启动钩子
-// 5. SERVICES_REGISTER → 注册服务工厂
-// 6. SERVICES_INIT → 初始化服务
-// 7. TOOLS_REGISTER → 注册工具
-// 8. HANDLERS_INIT → 创建 EventHandler + ChatProgram
-// 9. CONFIG_LOAD → 加载设置
-// 10. 执行 bootloader.boot()
-// 11. 渲染 UI
+// 3. 创建 Bootloader，注册启动钩子
+// 4. SERVICES_REGISTER → 注册服务工厂
+// 5. SERVICES_INIT → 初始化服务
+// 6. TOOLS_REGISTER → 注册工具
+// 7. HANDLERS_INIT → 创建 EventHandler + ChatProgram
+// 8. CONFIG_LOAD → 加载设置
+// 9. 执行 bootloader.boot()
+// 10. 渲染 UI
 ```
 
 ## 向后兼容保证
 
 1. **EventBus API** 不变：`on / off / emit / once / getHistory` 全部保留
-2. **ServiceCenter API** 不变：`getXxxManager()` / `getTool()` / `getEventBus()` 全部保留
-3. **Events 常量** 兼容：`Events.CHAT.*` 保留旧常量，新增 `USER_APPLY_*`
-4. **所有 Page** 无需改动
+2. **Events 常量** 兼容：`Events.CHAT.*` 保留旧常量，新增 `USER_APPLY_*`
+3. **所有 Page** 无需改动
+4. **服务访问** 统一通过 `kernel.get('serviceName')` 或 `kernel.getXxxManager()` 便捷方法
 
 ## 开发指南
 
@@ -349,11 +342,11 @@ MESSAGE_DELETED       // 消息已删除
 
 ## 版本信息
 
-- **内核版本**：0.5.1 (Microkernel + Programs)
+- **内核版本**：0.5.2 (Microkernel + Programs)
 - **Manifest 版本**：3
-- **架构版本**：Microkernel v0.5.1
+- **架构版本**：Microkernel v0.5.2
 
-### 主要变更（v0.4.0 → v0.5.1）
+### 主要变更（v0.4.0 → v0.5.2）
 
 - ✅ **ChatProgram**：引入内核级聊天程序，替代 ChatController
 - ✅ **三层事件体系**：USER_APPLY_* → ChatEventHandler → ChatProgram.CMD.* 
@@ -361,6 +354,7 @@ MESSAGE_DELETED       // 消息已删除
 - ✅ **移除 ChatController**：聊天逻辑完全由 ChatProgram 处理
 - ✅ **移除状态机**：STREAM_START/COMPLETE 等真实事件驱动 UI，不再使用抽象状态机
 - ✅ **ChatProgram 生命周期**：由 app.js 统一初始化，会话切换时自动取消进行中的交互
+- ✅ **移除 ServiceCenter**：所有引用已迁移至 Kernel，直接通过 `kernel.get('serviceName')` 访问服务
 
 ---
 
