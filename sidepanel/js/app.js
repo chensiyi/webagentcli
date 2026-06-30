@@ -90,7 +90,7 @@
         async (bl) => {
           // 1. 创建存储适配器（IStorageManager 的 Chrome 环境实现）
           const chromeStorageAdapter = new window.ChromeStorageAdapter(kernel);
-          const scriptsModel = new window.ScriptsModel(chromeStorageAdapter);
+          const scriptsModel = new window.ScriptsModel();
           
           window.ScriptsModel = scriptsModel;
           
@@ -112,7 +112,7 @@
           }, { dependsOn: ['storageAdapter'] });
           
           kernel.register('scriptsManager', async (k) => {
-            return new window.ScriptsManager(kernel, scriptsModel);
+            return new window.ScriptsManager(kernel);
           }, { dependsOn: ['scriptsModel'] });
           
           

@@ -1,4 +1,10 @@
+import { IPC } from 'kernel/IPC';
+import { IStorageManager } from './IStorageManager.js';
+
 export class ISessionManager {
+  ipc: IPC | null;
+  storage: IStorageManager | null;
+
   constructor(obj = null) {
     this.ipc = obj?.ipc || null;
     this.storage = obj?.storage || null;

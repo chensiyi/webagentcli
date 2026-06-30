@@ -1,6 +1,23 @@
 import { IScriptsManager } from './IScriptsManager.js';
 import { KernelEvents } from '../Events.js';
+import { Kernel } from 'kernel/Kernel.js';
+import { IPC } from 'kernel/IPC.js';
+
+/** ScriptsManager 内部存储的用户脚本数据 */
+interface UserScript {
+  id: string;
+  code: string;
+  enabled: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export class ScriptsManager extends IScriptsManager {
+  kernel: Kernel;
+  ipc: IPC | null;
+  scriptsChannel: IPC | null;
+  scripts: UserScript[];
+
   constructor(kernel) {
     super();
     this.kernel = kernel;

@@ -9,6 +9,7 @@
 
 import { IProviderAPIService } from './IProviderAPIService.js';
 import { KernelEvents } from '../Events.js';
+import { Settings } from '../models/Settings.js';
 import { OpenAIService } from './ProviderAPIServices/OpenAIService.js';
 import { OpenRouterService } from './ProviderAPIServices/OpenRouterService.js';
 import { LMStudioService } from './ProviderAPIServices/LMStudioService.js';
@@ -79,28 +80,28 @@ export class ProviderFactory {
     let service: IProviderAPIService | null = null;
     if (apiStandard === 'openai') {
       service = new OpenAIService();
-      service.config = {
+      service.config = Object.assign(new Settings(), {
+        provider: 'openai',
         endpoint: effective.apiEndpoint,
         apiKey: effective.apiKey,
         model: effective.model,
-        provider: 'openai'
-      };
+      });
     } else if (apiStandard === 'openrouter') {
       service = new OpenRouterService();
-      service.config = {
+      service.config = Object.assign(new Settings(), {
+        provider: 'openrouter',
         endpoint: effective.apiEndpoint,
         apiKey: effective.apiKey,
         model: effective.model,
-        provider: 'openrouter'
-      };
+      });
     } else if (apiStandard === 'lm-studio') {
       service = new LMStudioService();
-      service.config = {
+      service.config = Object.assign(new Settings(), {
+        provider: 'lm-studio',
         endpoint: effective.apiEndpoint,
         apiKey: effective.apiKey,
         model: effective.model,
-        provider: 'lm-studio'
-      };
+      });
     }
     if (service) {
       this.updateProvider(service);

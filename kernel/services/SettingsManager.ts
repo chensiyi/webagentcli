@@ -1,6 +1,13 @@
 import { ISettings } from './ISettings.js';
 import { KernelEvents } from '../Events.js';
+import { KernelLog } from '../KernelLog.js';
+import { IStorageManager } from './IStorageManager.js';
+
 export class SettingsManager extends ISettings {
+  storage: IStorageManager | null;
+  log: KernelLog | null;
+  _settings: Record<string, unknown>;
+
   constructor(obj = null) {
     super(obj);
     this.storage = obj?.storage || null;

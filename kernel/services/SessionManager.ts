@@ -1,10 +1,32 @@
 import { ISessionManager } from './ISessionManager.js';
+import { KernelLog } from '../KernelLog.js';
+
+/** 用于类型约束的轻量消息视图 */
+interface MessageSummary {
+  id: string;
+  toJSON?: () => Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+/** SessionManager 内部存储的会话数据（可序列化，非 Session 类实例） */
+interface SessionData {
+  id: string;
+  title: string;
+  messages: MessageSummary[];
+  reasoningEffort: string;
+  model: unknown;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export class SessionManager extends ISessionManager {
+  log: KernelLog | null;
+  currentSessionId: string | null;
+  sessions: SessionData[];
+
   constructor(obj = null) {
     super(obj);
     this.log = obj?.log || null;
-    this.storage = obj?.storage || null;
-    this.ipc = obj?.ipc || null;
     this.currentSessionId = null;
     this.sessions = [];
   }
@@ -72,7 +94,7 @@ export class SessionManager extends ISessionManager {
       } else {
         const raw = await this.storage.getAll();
         for (const [key, value] of raw) {
-          if (key.startsWith('session_') && value && value.id) {
+          if (key.startsWith('session_') && value && (value as Record<string, unknown>).id) {
             sessions.push(value);
           }
         }
@@ -84,7 +106,7 @@ export class SessionManager extends ISessionManager {
         try {
           const meta = await this.storage.get('currentSessionId');
           if (meta && sessions.some(s => s.id === meta)) {
-            this.currentSessionId = meta;
+            this.currentSessionId = meta as string;
             this.log?.info('SESSION', `Restored current session: ${meta}`);
           } else if (sessions.length > 0) {
             this.currentSessionId = sessions[0].id;
@@ -138,7 +160,7 @@ export class SessionManager extends ISessionManager {
       if (typeof updater === 'function') {
         updater(msg);
         if (typeof msg.toJSON === 'function') {
-          s.messages[idx] = msg.toJSON();
+          s.messages[idx] = msg.toJSON() as MessageSummary;
         }
       } else {
         s.messages[idx] = { ...msg, ...updater };
