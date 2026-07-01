@@ -46,6 +46,10 @@ export const KernelEvents = {
     SESSION_UPDATED: 'chat:sessionUpdated',
     CURRENT_SESSION_CHANGED: 'chat:currentSessionChanged',
     ALL_SESSIONS_CLEARED: 'chat:allSessionsCleared',
+    // Shell → ChatEventHandler 用户操作事件
+    USER_APPLY_SEND: 'chat:userApplySend',
+    USER_APPLY_STOP: 'chat:userApplyStop',
+    USER_APPLY_DELETE_MESSAGE: 'chat:userApplyDeleteMessage',
   },
   SETTINGS: {
     LOADED: 'settings:loaded',

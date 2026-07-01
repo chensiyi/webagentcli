@@ -28,17 +28,20 @@ export default defineConfig({
       },
       output: {
         entryFileNames: '[name].bundle.js',
+        assetFileNames: (assetInfo) => {
+          // 为 CSS 输出固定名称（无 hash），方便 HTML 入口直接引用
+          if (assetInfo.names?.some(n => n.endsWith('.css'))) {
+            return 'assets/[name][extname]';
+          }
+          // 其他资源（图片、字体等）保留 hash
+          return 'assets/[name]-[hash][extname]';
+        },
         format: 'es',
       },
     },
   },
   plugins: [
-    svelte({
-      compilerOptions: {
-        // Svelte 5 runes 模式（默认开启，显式声明）
-        runes: true,
-      },
-    }),
+    svelte(),
     {
       name: 'sync-manifest-version',
       writeBundle() {

@@ -29,7 +29,7 @@
     "type": "module"
   },
   "side_panel": {
-    "default_path": "sidepanel/sidepanel.html"
+    "default_path": "sidepanel/svelte-app.html"
   },
   "action": {
     "default_title": "Open Web Agent",

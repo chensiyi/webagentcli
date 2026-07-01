@@ -19,5 +19,5 @@
     "types": ["chrome"],
     "ignoreDeprecations": "6.0"
   },
-  "include": ["kernel/**/*.ts", "sidepanel/**/*.ts"]
+  "include": ["kernel/**/*.ts", "sidepanel/**/*.ts", "src/**/*.ts", "src/**/*.svelte"]
 }
