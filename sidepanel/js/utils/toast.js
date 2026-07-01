@@ -1,5 +1,5 @@
 // Toast 通知系统
-window.Toast = {
+export const Toast = {
   container: null,
   
   // 初始化容器

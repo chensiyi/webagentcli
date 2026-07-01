@@ -3,8 +3,8 @@ import { KernelEvents } from '../Events.js';
 import { MessagesRequest, ThinkingConfig, MessageStructure } from '../models/MessageContent.js';
 import { Message, Role } from '../models/Message.js';
 import { ToolResult } from '../models/ToolResult.js';
-import IPC from 'kernel/IPC.js';
-import { Kernel } from 'kernel/index.js';
+import { IPC } from '../IPC.js';
+import { Kernel } from '../Kernel.js';
 
 export const CMD = Object.freeze({
   SEND: 'chat:cmd:send',
@@ -24,6 +24,7 @@ const STATE = Object.freeze({
 
 export class ChatProgram extends Process {
   kernel: Kernel;
+  ipc: IPC | null;
   chatChannel: IPC | null;
   _assistantMsgId: string | null;
   _state: string;
@@ -187,7 +188,7 @@ export class ChatProgram extends Process {
         } else {
           let tabId = null;
           try { const tabs = await chrome.tabs.query({ active: true, currentWindow: true }); tabId = tabs[0]?.id; } catch (e) { /* ignore */ }
-          toolResult = await tool.invoke(tc, { sessionId, tabId });
+          toolResult = await tool.invoke(tc, { sessionId, tabId, kernel: this.kernel });
         }
       } catch (invokeError) {
         toolResult = new ToolResult({ toolCallId: tc.id, status: 'failed', error: invokeError.message || String(invokeError) });

@@ -2,7 +2,9 @@
  * SettingsPage_OpenAI - OpenAI Provider 设置页面
  */
 
-class SettingsPage_OpenAI extends window.SettingsPage_Base {
+import { SettingsPage_Base } from './SettingsPage_Base.js';
+
+class SettingsPage_OpenAI extends SettingsPage_Base {
   getProviderName() {
     return 'OpenAI';
   }
@@ -19,4 +21,4 @@ class SettingsPage_OpenAI extends window.SettingsPage_Base {
   }
 }
 
-window.SettingsPage_OpenAI = SettingsPage_OpenAI;
+export { SettingsPage_OpenAI };

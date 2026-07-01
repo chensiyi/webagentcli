@@ -25,9 +25,9 @@ import { Message, Role } from './models/Message.js';
 import { Session } from './models/Session.js';
 import { Settings } from './models/Settings.js';
 import { Model } from './models/Model.js';
-import { ScriptsModel } from './models/Scripts.js';
+import { UserScript } from './models/Scripts.js';
 import { Process } from './models/Process.js';
-export { BaseModel, ToolDefinition, ToolCall, ToolResult, TextBlock, ImageBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock, ThinkingConfig, MediaContent, MessageStructure, MessagesRequest, Message, Role, Session, Settings, Model, ScriptsModel, Process };
+export { BaseModel, ToolDefinition, ToolCall, ToolResult, TextBlock, ImageBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock, ThinkingConfig, MediaContent, MessageStructure, MessagesRequest, Message, Role, Session, Settings, Model, UserScript, Process };
 
 // ==================== 服务接口 ====================
 import { IStorageManager } from './services/IStorageManager.js';
@@ -57,7 +57,9 @@ import { ChatProgram } from './programs/ChatProgram.js';
 export { ChatProgram };
 
 // ==================== 版本信息 ====================
-export const VERSION = '0.6.0';
+// __VERSION__ 由 vite.config.ts 从 package.json 注入（唯一版本源）
+declare const __VERSION__: string;
+export const VERSION = __VERSION__;
 export const CODENAME = 'Microkernel-Esm';
 
 // ==================== 运行时：Shell 壳层桥接（将核心接口挂到 window） ====================

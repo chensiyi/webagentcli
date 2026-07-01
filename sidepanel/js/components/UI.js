@@ -3,7 +3,9 @@
  * 提供可复用的通用 UI 元素封装
  */
 
-window.UI = {
+import { DOM } from '../utils/dom.js';
+
+export const UI = {
   /**
    * 创建标准按钮
    */
@@ -18,7 +20,7 @@ window.UI = {
       title = ''
     } = options;
     
-    return window.DOM.create('button', {
+    return DOM.create('button', {
       className: `btn ${className}`,
       id,
       text,
@@ -49,7 +51,7 @@ window.UI = {
       id
     } = options;
     
-    return window.DOM.create('input', {
+    return DOM.create('input', {
       className: `input ${className}`,
       id,
       attrs: { type, placeholder },
@@ -67,7 +69,7 @@ window.UI = {
    * 创建卡片容器
    */
   Card(options = {}, children = []) {
-    return window.DOM.create('div', {
+    return DOM.create('div', {
       className: `card ${options.className || ''}`,
       id: options.id,
       style: options.style
@@ -86,7 +88,7 @@ window.UI = {
       maxWidth = '500px'
     } = options;
     
-    const { create } = window.DOM;
+    const { create } = DOM;
     
     const overlay = create('div', { className: 'dialog-overlay' });
     const dialogContent = create('div', { 
@@ -147,7 +149,7 @@ window.UI = {
    */
   EmptyState(options = {}) {
     const { icon = 'ℹ️', title = '暂无数据', desc = '' } = options;
-    const { create } = window.DOM;
+    const { create } = DOM;
     
     return create('div', { className: 'empty-state' }, [
       create('div', { className: 'empty-state-icon', text: icon }),
@@ -161,7 +163,7 @@ window.UI = {
    */
   Badge(options = {}) {
     const { text = '', type = 'info', className = '' } = options;
-    return window.DOM.create('span', {
+    return DOM.create('span', {
       className: `badge badge-${type} ${className}`,
       text
     });
@@ -181,7 +183,7 @@ window.UI = {
       style = {}
     } = options;
     
-    return window.DOM.create('textarea', {
+    return DOM.create('textarea', {
       className: `textarea ${className}`,
       id,
       attrs: { placeholder, rows },
@@ -203,7 +205,7 @@ window.UI = {
       className = ''
     } = options;
     
-    const { create } = window.DOM;
+    const { create } = DOM;
     const input = create('input', {
       className: `setting-checkbox ${className}`,
       id,
@@ -230,7 +232,7 @@ window.UI = {
       className = ''
     } = options;
     
-    const { create } = window.DOM;
+    const { create } = DOM;
     const select = create('select', {
       className: `input select ${className}`,
       id,
@@ -325,7 +327,7 @@ window.UI = {
    */
   FormGroup(options = {}, children = []) {
     const { label = '', desc = '', className = '' } = options;
-    const { create } = window.DOM;
+    const { create } = DOM;
     
     const group = create('div', { className: `setting-group ${className}` });
     

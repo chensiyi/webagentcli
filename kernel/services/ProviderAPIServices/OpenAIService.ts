@@ -10,7 +10,7 @@ export default class OpenAIService extends IProviderAPIService {
   buildHeaders() {
     return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.config.apiKey}` };
   }
-  buildRequestBody(request) {
+  buildRequestBody(request: Record<string, any>): Record<string, any> {
     return {
       model: request.model || this.config.model,
       messages: request.messages,

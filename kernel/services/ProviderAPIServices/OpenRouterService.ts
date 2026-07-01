@@ -6,7 +6,7 @@
  * tool_calls 处理与 OpenAI 一致，继承父类逻辑。
  */
 import { OpenAIService } from './OpenAIService.js';
-import { Settings } from '../models/Settings.js';
+import { Settings } from '../../models/Settings.js';
 import * as MessageContent from '../../models/MessageContent.js';
 
 export default class OpenRouterService extends OpenAIService {
@@ -16,12 +16,8 @@ export default class OpenRouterService extends OpenAIService {
   }
 
   configure(settings: Settings) {
-    this.config = {
-      endpoint: settings.endpoint || 'https://openrouter.ai/api/v1',
-      apiKey: settings.apiKey || '',
-      defaultModel: settings.model || 'openai/gpt-3.5-turbo',
-      ...settings
-    };
+    this.config = settings;
+    if (!this.config.endpoint) this.config.endpoint = 'https://openrouter.ai/api/v1';
     if (!this.config.apiKey) throw new Error('OpenRouter: apiKey is required');
   }
 

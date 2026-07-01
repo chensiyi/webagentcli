@@ -30,6 +30,8 @@ export class Kernel extends Process{
 
   state: string;
   origin: string;
+  log: KernelLog | null;
+  ipc: IPC | null;
   storage: IStorageManager | null;
   toolRegistry: ToolRegistry | null;
   capabilities: CapabilityManager | null;

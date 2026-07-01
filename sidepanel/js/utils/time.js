@@ -1,6 +1,6 @@
 // 时间工具函数
 
-window.TimeUtils = {
+export const TimeUtils = {
   /**
    * 获取当前时间的格式化字符串 (YYYY-MM-DD HH:mm)
    * 用于在 system prompt 中告诉大模型当前时间

@@ -1,20 +1,16 @@
-/** ProcessManager 内部存储的进程数据 */
-interface ProcessData {
-  id: string;
-  name: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'terminated';
-  output: unknown[];
-}
+import { Process } from '../models/Process.js';
 
 export class ProcessManager {
-  processes: Map<string, ProcessData>;
+  processes: Map<string, Process>;
 
   constructor() { this.processes = new Map(); }
-  create(name: string): ProcessData {
-    const p: ProcessData = { id: `proc_${Date.now()}`, name, status: 'pending', output: [] };
+
+  create(name: string): Process {
+    const p = new Process({ name, status: 'pending' });
     this.processes.set(p.id, p);
     return p;
   }
-  get(id: string): ProcessData | null { return this.processes.get(id) || null; }
-  remove(id: string): boolean { this.processes.delete(id); return true; }
+
+  get(id: string): Process | null { return this.processes.get(id) || null; }
+  remove(id: string): boolean { return this.processes.delete(id); }
 }

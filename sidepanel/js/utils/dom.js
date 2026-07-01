@@ -1,9 +1,9 @@
 // ==================== 简单 DOM 组件库 ====================
 
 // 页面注册表
-window.Pages = {};
+export const Pages = {};
 
-window.DOM = {
+export const DOM = {
   // 创建元素
   create(tag, options = {}, children = []) {
     const el = document.createElement(tag);

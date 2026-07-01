@@ -3,10 +3,16 @@
  * 只负责渲染和用户交互事件发布，业务逻辑由 EventHandler 处理
  */
 
-window.Pages = window.Pages || {};
+import { Pages, DOM } from '../utils/dom.js';
+import { UI } from '../components/UI.js';
+import { Events } from '../events.js';
+import { Toast } from '../utils/toast.js';
+import { SettingsPage_OpenAI } from './SettingsPage_OpenAI.js';
+import { SettingsPage_OpenRouter } from './SettingsPage_OpenRouter.js';
+import { SettingsPage_LMStudio } from './SettingsPage_LMStudio.js';
 
-window.Pages.settings = function(container, kernel) {
-  const { create, clear, setTheme, getTheme } = window.DOM;
+Pages.settings = function(container, kernel) {
+  const { create, clear, setTheme, getTheme } = DOM;
   const ipc = kernel.getIPC();
   const settingsChannel = ipc?.getOrCreateChannel('settings') || ipc;
   
@@ -21,20 +27,19 @@ window.Pages.settings = function(container, kernel) {
   // UI 状态管理（仅用于渲染）
   let isLoadingModels = false;
   let modelSearchValue = '';
-  let modelDropdownVisible = false;
   let currentSettings = null; // 从 Controller 加载的设置
   let cachedModels = []; // 缓存的模型列表
   let currentSettingsUI = null; // 当前 Provider 的 SettingsUI 实例
   
   // 暴露 currentSettings 给 EventHandler 访问
-  window.Pages.settings.currentSettings = null;
+  Pages.settings.currentSettings = null;
 
   function render() {
     // 直接从 SettingsManager 内存读取（同步）
     if (!currentSettings && settingsManager) {
       const settings = settingsManager.getSettings();
       currentSettings = settings.toJSON ? settings.toJSON() : settings;
-      window.Pages.settings.currentSettings = currentSettings;
+      Pages.settings.currentSettings = currentSettings;
       console.log('[SettingsPage] Loaded settings from memory:', currentSettings);
     }
     
@@ -77,7 +82,7 @@ window.Pages.settings = function(container, kernel) {
     
     // 底部保存按钮
     const footer = create('div', { className: 'page-footer' }, [
-      window.UI.Button({
+      UI.Button({
         className: 'btn-primary w-full',
         text: '保存设置',
         onClick: handleSaveSettings
@@ -117,13 +122,13 @@ window.Pages.settings = function(container, kernel) {
     let SettingsClass = null;
     switch (apiStandard) {
       case 'openai':
-        SettingsClass = window.SettingsPage_OpenAI;
+        SettingsClass = SettingsPage_OpenAI;
         break;
       case 'openrouter':
-        SettingsClass = window.SettingsPage_OpenRouter;
+        SettingsClass = SettingsPage_OpenRouter;
         break;
       case 'lm-studio':
-        SettingsClass = window.SettingsPage_LMStudio;
+        SettingsClass = SettingsPage_LMStudio;
         break;
     }
     
@@ -138,7 +143,7 @@ window.Pages.settings = function(container, kernel) {
     container.innerHTML = '';
     
     // 创建分组标题
-    const { create } = window.DOM;
+    const { create } = DOM;
     container.appendChild(create('h3', { 
       className: 'setting-group-title',
       style: { fontSize: '14px', fontWeight: '600', marginBottom: '12px', color: 'var(--color-text)' },
@@ -163,8 +168,8 @@ window.Pages.settings = function(container, kernel) {
       { value: 'lm-studio', label: 'LM Studio' }
     ];
     
-    return window.UI.FormGroup({ label: 'API 标准' }, [
-      window.UI.Select({
+    return UI.FormGroup({ label: 'API 标准' }, [
+      UI.Select({
         id: 'api-standard-select',
         options: supportedStandards,
         value: currentSettings?.apiStandard || 'openrouter',
@@ -177,12 +182,12 @@ window.Pages.settings = function(container, kernel) {
    * 创建模型选择区
    */
   function createModelSection() {
-    return window.UI.FormGroup({ 
+    return UI.FormGroup({ 
       label: '模型',
       className: 'relative'
     }, [
       create('div', { className: 'flex gap-8' }, [
-        window.UI.Input({
+        UI.Input({
           id: 'model-search',
           placeholder: cachedModels.length === 0 ? '点击加载模型' : '选择或搜索模型...',
           onInput: (e) => { 
@@ -191,7 +196,7 @@ window.Pages.settings = function(container, kernel) {
           },
           onClick: handleModelSearchClick
         }),
-        window.UI.Button({
+        UI.Button({
           className: 'btn-secondary btn-small',
           id: 'load-models-btn',
           text: isLoadingModels ? '加载中...' : '加载模型',
@@ -218,8 +223,8 @@ window.Pages.settings = function(container, kernel) {
    * 创建上下文管理区
    */
   function createContextSection() {
-    return window.UI.FormGroup({}, [
-      window.UI.Checkbox({
+    return UI.FormGroup({}, [
+      UI.Checkbox({
         id: 'auto-context-checkbox',
         label: '自动调整上下文窗口（根据模型限制智能截断历史消息）',
         checked: currentSettings?.autoContextTruncation !== false,
@@ -232,7 +237,7 @@ window.Pages.settings = function(container, kernel) {
    * 创建主题设置区
    */
   function createThemeSection() {
-    return window.UI.FormGroup({ label: '主题' }, [
+    return UI.FormGroup({ label: '主题' }, [
       create('div', { className: 'flex gap-16' }, [
         create('label', { className: 'setting-radio-label' }, [
           create('input', {
@@ -265,7 +270,7 @@ window.Pages.settings = function(container, kernel) {
     currentSettings[field] = value;
     
     // 发布设置更新事件
-    settingsChannel.emit(window.Events.SETTINGS.UPDATED, {
+    settingsChannel.emit(Events.SETTINGS.UPDATED, {
       updates: { [field]: value },
       newSettings: currentSettings
     });
@@ -294,11 +299,11 @@ window.Pages.settings = function(container, kernel) {
     // 2. 保留通用参数（temperature, maxTokens 等）
     // 3. 发布 API_ENDPOINT_CHANGED 事件
     // EventHandler 会监听该事件并：
-    // 1. 更新 window.Pages.settings.currentSettings
+    // 1. 更新 Pages.settings.currentSettings
     // 2. 调用 rerenderProviderConfig() 重绘 UI
     
     // 发布 API 标准变更事件
-    settingsChannel.emit(window.Events.SETTINGS.API_STANDARD_CHANGED, {
+    settingsChannel.emit(Events.SETTINGS.API_STANDARD_CHANGED, {
       apiStandard
     });
     
@@ -310,7 +315,7 @@ window.Pages.settings = function(container, kernel) {
    * 处理端点失去焦点
    */
   function handleEndpointBlur() {
-    // 移除自动加载模型的逻辑，用户需要手动点击“加载模型”按钮
+    // 移除自动加载模型的逻辑，用户需要手动点击"加载模型"按钮
   }
 
   /**
@@ -322,7 +327,7 @@ window.Pages.settings = function(container, kernel) {
     
     // 如果没有缓存的模型，提示用户先加载
     if (cachedModels.length === 0) {
-      window.Toast?.info('请先点击“加载模型”按钮获取模型列表');
+      Toast?.info('请先点击"加载模型"按钮获取模型列表');
       return;
     }
     
@@ -347,7 +352,6 @@ window.Pages.settings = function(container, kernel) {
     if (forceShowAll) {
       updateModelDropdown(true);
       dropdown.style.display = 'block';
-      modelDropdownVisible = true;
       return;
     }
 
@@ -393,11 +397,11 @@ window.Pages.settings = function(container, kernel) {
     console.log('[SettingsPage] requestLoadModels - current settings:', {
       apiStandard: currentSettings.apiStandard,
       apiEndpoint: currentSettings.apiEndpoint,
-      windowCurrentSettings: window.Pages.settings.currentSettings
+      windowCurrentSettings: Pages.settings.currentSettings
     });
     
     // 发布模型加载请求事件
-    settingsChannel.emit(window.Events.SETTINGS.MODELS_REQUEST, {
+    settingsChannel.emit(Events.SETTINGS.MODELS_REQUEST, {
       apiKey: currentSettings.apiKey,
       apiEndpoint: currentSettings.apiEndpoint,
       apiStandard: currentSettings.apiStandard
@@ -419,7 +423,7 @@ window.Pages.settings = function(container, kernel) {
     }
     
     // 发布主题变更事件
-    settingsChannel.emit(window.Events.UI.THEME_CHANGED, { theme });
+    settingsChannel.emit(Events.UI.THEME_CHANGED, { theme });
   }
 
   /**
@@ -430,7 +434,7 @@ window.Pages.settings = function(container, kernel) {
     
     if (!currentSettings) {
       console.error('[SettingsPage] currentSettings is null, cannot save');
-      window.Toast?.error('设置数据未加载，请稍后重试');
+      Toast?.error('设置数据未加载，请稍后重试');
       return;
     }
     
@@ -441,7 +445,7 @@ window.Pages.settings = function(container, kernel) {
     });
     
     // 发布保存请求事件
-    settingsChannel.emit(window.Events.SETTINGS.SAVE_REQUEST, {
+    settingsChannel.emit(Events.SETTINGS.SAVE_REQUEST, {
       settings: currentSettings
     });
   }
@@ -452,7 +456,7 @@ window.Pages.settings = function(container, kernel) {
   function fillForm(settings) {
     currentSettings = settings;
     // 同步到暴露的属性
-    window.Pages.settings.currentSettings = currentSettings;
+    Pages.settings.currentSettings = currentSettings;
     
     const apiStandardSelect = document.getElementById('api-standard-select');
     const modelSearch = document.getElementById('model-search');
@@ -518,7 +522,7 @@ window.Pages.settings = function(container, kernel) {
       
       // 上下文长度
       if (contextLength) {
-        infoLine.appendChild(window.UI.Badge({
+        infoLine.appendChild(UI.Badge({
           text: `📝 ${formatContextLength(contextLength)}`,
           type: 'primary-light'
         }));
@@ -528,7 +532,7 @@ window.Pages.settings = function(container, kernel) {
       if (pricing) {
         const priceText = formatPricing(pricing);
         if (priceText) {
-          infoLine.appendChild(window.UI.Badge({
+          infoLine.appendChild(UI.Badge({
             text: `💰 ${priceText}`,
             type: 'success-light'
           }));
@@ -544,7 +548,7 @@ window.Pages.settings = function(container, kernel) {
           'audio': '🎤'
         };
         const icons = inputModalities.map(m => modalityIcons[m] || m).join(' ');
-        infoLine.appendChild(window.UI.Badge({
+        infoLine.appendChild(UI.Badge({
           text: `📥 ${icons}`,
           type: 'warning-light'
         }));
@@ -597,7 +601,6 @@ window.Pages.settings = function(container, kernel) {
     const dropdown = document.getElementById('model-dropdown');
     if (dropdown) {
       dropdown.style.display = 'none';
-      modelDropdownVisible = false;
     }
   }
 
@@ -610,11 +613,9 @@ window.Pages.settings = function(container, kernel) {
     
     if (dropdown.style.display === 'block') {
       dropdown.style.display = 'none';
-      modelDropdownVisible = false;
     } else {
       updateModelDropdown();
       dropdown.style.display = 'block';
-      modelDropdownVisible = true;
     }
   }
 
@@ -886,23 +887,20 @@ window.Pages.settings = function(container, kernel) {
   }
 
   /**
-   * 绑定模型下拉列表事件
+   * 绑定模型下拉列表事件（仅注册一次，避免内存泄漏）
    */
+  let _modelDropdownBound = false;
   function bindModelDropdown() {
-    const dropdown = document.getElementById('model-dropdown');
-    if (!dropdown) return;
-    
-    // 防止点击下拉列表时输入框失去焦点
-    dropdown.addEventListener('mousedown', (e) => {
-      e.preventDefault();
-    });
-    
-    // 点击外部关闭下拉列表
+    if (_modelDropdownBound) return;
+    _modelDropdownBound = true;
+
+    // 点击外部关闭下拉列表（全局监听，只注册一次）
     document.addEventListener('click', (e) => {
+      const dropdown = document.getElementById('model-dropdown');
       const searchInput = document.getElementById('model-search');
+      if (!dropdown) return;
       if (searchInput && !searchInput.contains(e.target) && !dropdown.contains(e.target)) {
         dropdown.style.display = 'none';
-        modelDropdownVisible = false;
       }
     });
   }
@@ -928,7 +926,7 @@ window.Pages.settings = function(container, kernel) {
     cachedModels = models || [];
     if (currentSettings) {
       currentSettings.models = cachedModels;
-      window.Pages.settings.currentSettings = currentSettings;
+      Pages.settings.currentSettings = currentSettings;
     }
     
     // 更新输入框 placeholder
@@ -952,11 +950,11 @@ window.Pages.settings = function(container, kernel) {
   }
 
   // 暴露方法供 EventHandler 调用
-  window.Pages.settings.fillForm = fillForm;
-  window.Pages.settings.updateModelDropdown = updateModelDropdown;
-  window.Pages.settings.updateModelCache = updateModelCache;
-  window.Pages.settings.updateLoadButtonState = updateLoadButtonState;
-  window.Pages.settings.rerenderProviderConfig = renderProviderConfig;
+  Pages.settings.fillForm = fillForm;
+  Pages.settings.updateModelDropdown = updateModelDropdown;
+  Pages.settings.updateModelCache = updateModelCache;
+  Pages.settings.updateLoadButtonState = updateLoadButtonState;
+  Pages.settings.rerenderProviderConfig = renderProviderConfig;
 
   // 初始渲染
   render();

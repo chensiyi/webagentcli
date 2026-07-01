@@ -6,7 +6,7 @@
  * chat() 和 chatStream() 返回 StandardResponse，toolCalls 为 ToolCall[] 对象。
  */
 import { IProviderAPIService } from '../IProviderAPIService.js';
-import { Settings } from '../models/Settings.js';
+import { Settings } from '../../models/Settings.js';
 import * as MessageContent from '../../models/MessageContent.js';
 
 class LMStudioService extends IProviderAPIService {
@@ -16,12 +16,9 @@ class LMStudioService extends IProviderAPIService {
   }
 
   configure(settings: Settings) {
-    this.config = {
-      endpoint: settings.endpoint || 'http://localhost:1234',
-      apiKey: settings.apiKey || '',
-      defaultModel: settings.model || 'local-model',
-      ...settings
-    };
+    this.config = settings;
+    if (!this.config.endpoint) this.config.endpoint = 'http://localhost:1234';
+    if (!this.config.apiKey) this.config.apiKey = '';
   }
 
   buildUrl(path) {
@@ -40,9 +37,9 @@ class LMStudioService extends IProviderAPIService {
     return messages.map(msg => MessageStructure.toAPIFormat(msg, 'openai'));
   }
 
-  buildRequestBody(request) {
-    const body = {
-      model: request.model || this.config.defaultModel,
+  buildRequestBody(request: Record<string, any>): Record<string, any> {
+    const body: Record<string, any> = {
+      model: request.model || this.config.model,
       messages: this.formatMessages(request.messages || []),
       stream: request.stream ?? false
     };

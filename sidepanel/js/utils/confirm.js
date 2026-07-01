@@ -1,5 +1,5 @@
 // 确认对话框组件
-window.ConfirmDialog = {
+export const ConfirmDialog = {
   show(options = {}) {
     const {
       title = '确认',

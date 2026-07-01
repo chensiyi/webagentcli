@@ -6,17 +6,18 @@
  * 3. 处理用户输入与会话切换的 UI 逻辑
  */
 
-window.Pages = window.Pages || {};
+import { Pages, DOM } from '../utils/dom.js';
+import { Events } from '../events.js';
+import { UI } from '../components/UI.js';
+import { ChatComponents } from '../components/Chat.js';
+import { Toast } from '../utils/toast.js';
 
-window.Pages.chat = function(container, kernel) {
-  const { create, clear } = window.DOM;
+Pages.chat = function(container, kernel) {
+  const { create, clear } = DOM;
   const ipc = kernel.getIPC();
   const chatChannel = ipc?.getOrCreateChannel('chat') || ipc;
   const toolChannel = ipc?.getOrCreateChannel('tool') || ipc;
   const sessionManager = kernel.getSessionManager();
-
-  // ★ ChatProgram 由 app.js 统一初始化，此处从 window 全局获取引用
-  const chatProgram = window.chatProgram || null;
 
   // ==================== UI 状态控制（真实事件驱动） ====================
 
@@ -38,15 +39,15 @@ window.Pages.chat = function(container, kernel) {
 
   // ==================== 事件监听 ====================
   // 流式生命周期 → 按钮状态
-  chatChannel.on(window.Events.CHAT.STREAM_START, () => _showStreamingUI());
-  chatChannel.on(window.Events.CHAT.STREAM_COMPLETE, () => _hideStreamingUI());
-  chatChannel.on(window.Events.CHAT.STREAM_STOP, () => _hideStreamingUI());
-  chatChannel.on(window.Events.CHAT.STREAM_ERROR, () => _hideStreamingUI());
+  chatChannel.on(Events.CHAT.STREAM_START, () => _showStreamingUI());
+  chatChannel.on(Events.CHAT.STREAM_COMPLETE, () => _hideStreamingUI());
+  chatChannel.on(Events.CHAT.STREAM_STOP, () => _hideStreamingUI());
+  chatChannel.on(Events.CHAT.STREAM_ERROR, () => _hideStreamingUI());
 
   // 消息增删或会话切换时触发全量渲染
-  chatChannel.on(window.Events.CHAT.MESSAGE_ADDED, () => render());
-  chatChannel.on(window.Events.CHAT.MESSAGE_DELETED, () => render());
-  chatChannel.on(window.Events.CHAT.CURRENT_SESSION_CHANGED, () => render());
+  chatChannel.on(Events.CHAT.MESSAGE_ADDED, () => render());
+  chatChannel.on(Events.CHAT.MESSAGE_DELETED, () => render());
+  chatChannel.on(Events.CHAT.CURRENT_SESSION_CHANGED, () => render());
 
   // ==================== 组件渲染 ====================
 
@@ -59,8 +60,8 @@ window.Pages.chat = function(container, kernel) {
     const showThinkingControl = checkModelSupportsThinking();
     const thinkingSession = session || { reasoningEffort: pendingSettings.reasoningEffort };
 
-    if (showThinkingControl && window.ChatComponents && window.ChatComponents.ThinkingControl) {
-      actions.push(window.ChatComponents.ThinkingControl(thinkingSession, {
+    if (showThinkingControl && ChatComponents && ChatComponents.ThinkingControl) {
+      actions.push(ChatComponents.ThinkingControl(thinkingSession, {
         onUpdate: (val) => {
           if (session) {
             sessionManager.updateSession(session.id, (s) => s.reasoningEffort = val);
@@ -71,7 +72,7 @@ window.Pages.chat = function(container, kernel) {
       }));
     }
 
-    actions.push(window.UI.Button({
+    actions.push(UI.Button({
       className: 'btn-primary btn-small',
       text: '+ 新对话',
       onClick: () => {
@@ -96,23 +97,23 @@ window.Pages.chat = function(container, kernel) {
     });
     
     if (messages.length === 0) {
-      list.appendChild(window.UI.EmptyState({
+      list.appendChild(UI.EmptyState({
         icon: '💬',
         title: '开始新对话',
         desc: '支持 Markdown 渲染与思考过程显示'
       }));
     } else {
       messages.forEach(msg => {
-        list.appendChild(window.ChatComponents.MessageBubble(msg, {
+        list.appendChild(ChatComponents.MessageBubble(msg, {
           onDelete: async (id) => {
-            if (await window.Toast.confirm({ 
+            if (await Toast.confirm({ 
               title: '删除消息',
               message: '确定要删除这条消息吗？',
               confirmText: '删除',
               type: 'danger'
             })) {
-              chatChannel.emit(window.Events.CHAT.USER_APPLY_DELETE_MESSAGE, { messageId: id });
-              window.Toast.success('已删除');
+              chatChannel.emit(Events.CHAT.USER_APPLY_DELETE_MESSAGE, { messageId: id });
+              Toast.success('已删除');
             }
           }
         }));
@@ -122,7 +123,7 @@ window.Pages.chat = function(container, kernel) {
   }
 
   function renderInputArea() {
-    const textarea = window.UI.Textarea({
+    const textarea = UI.Textarea({
       className: 'flex-1',
       id: 'message-input',
       placeholder: '输入消息 (Ctrl+Enter 发送)',
@@ -144,23 +145,23 @@ window.Pages.chat = function(container, kernel) {
       }
     });
 
-    const sendBtn = window.UI.Button({
+    const sendBtn = UI.Button({
       className: 'btn-primary',
       id: 'send-btn',
       text: '发送',
       onClick: () => handleSendMessage(textarea.value)
     });
 
-    const stopBtn = window.UI.Button({
+    const stopBtn = UI.Button({
       className: 'btn-error',
       id: 'stop-btn',
       text: '停止',
       style: { display: 'none' },
-      onClick: () => chatChannel.emit(window.Events.CHAT.USER_APPLY_STOP)
+      onClick: () => chatChannel.emit(Events.CHAT.USER_APPLY_STOP)
     });
 
     let toolPanelVisible = false;
-    const toolBtn = window.UI.Button({
+    const toolBtn = UI.Button({
       className: 'btn-tool-toggle',
       text: '🔧 工具',
       title: '管理可用工具',
@@ -230,10 +231,10 @@ window.Pages.chat = function(container, kernel) {
     const progressArea = create('div', { id: 'tool-progress-area', className: 'tool-progress-area' });
     panel.appendChild(progressArea);
 
-    toolChannel.on(window.Events.TOOL.EXECUTING, (data) => {
+    toolChannel.on(Events.TOOL.EXECUTING, (data) => {
       appendToolProgress(progressArea, 'executing', data);
     });
-    toolChannel.on(window.Events.TOOL.COMPLETED, (data) => {
+    toolChannel.on(Events.TOOL.COMPLETED, (data) => {
       appendToolProgress(progressArea, 'completed', data);
     });
   }
@@ -267,7 +268,7 @@ window.Pages.chat = function(container, kernel) {
     }
 
     // ★ 发射 USER_APPLY_SEND → ChatEventHandler 鉴权转译 → ChatProgram.CMD.SEND
-    chatChannel.emit(window.Events.CHAT.USER_APPLY_SEND, {
+    chatChannel.emit(Events.CHAT.USER_APPLY_SEND, {
       content,
       reasoningEffort: sessionManager.getCurrentSession()?.reasoningEffort || pendingSettings.reasoningEffort
     });

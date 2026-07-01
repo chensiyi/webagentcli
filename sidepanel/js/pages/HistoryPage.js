@@ -2,10 +2,14 @@
  * HistoryPage - 历史会话管理页面
  */
 
-window.Pages = window.Pages || {};
+import { Pages, DOM } from '../utils/dom.js';
+import { UI } from '../components/UI.js';
+import { TimeUtils } from '../utils/time.js';
+import { Toast } from '../utils/toast.js';
+import { appState } from '../state.js';
 
-window.Pages.history = function(container, kernel) {
-  const { create, clear } = window.DOM;
+Pages.history = function(container, kernel) {
+  const { create, clear } = DOM;
 
   if (!kernel) {
     console.error('[HistoryPage] Kernel not available');
@@ -42,13 +46,8 @@ window.Pages.history = function(container, kernel) {
     return content.substring(0, 20) + (content.length > 20 ? '...' : '');
   }
 
-  async function loadConversations() {
-    // SessionManager 在初始化时已经加载了
-    return Promise.resolve();
-  }
-  
   async function deleteConversation(id) {
-    const confirmed = await window.Toast.confirm({
+    const confirmed = await Toast.confirm({
       title: '删除对话',
       message: '确定删除此对话？此操作不可恢复。'
     });
@@ -58,14 +57,14 @@ window.Pages.history = function(container, kernel) {
     // 历史页面删除会话时不自动切换，避免影响用户当前浏览的页面
     sessionManager.deleteSession(id, false);
     render();
-    window.Toast.success('对话已删除');
+    Toast.success('对话已删除');
   }
   
   async function loadConversation(id) {
     sessionManager.setCurrentSession(id);
     
-    if (window.App && window.App.navigateTo) {
-      window.App.navigateTo('chat');
+    if (appState.App && appState.App.navigateTo) {
+      appState.App.navigateTo('chat');
     }
   }
   
@@ -81,7 +80,7 @@ window.Pages.history = function(container, kernel) {
     const content = create('div', { className: 'page-content' });
     
     // 搜索框
-    const searchBox = window.UI.Input({
+    const searchBox = UI.Input({
       className: 'mb-12',
       placeholder: '搜索对话...',
       onInput: (e) => {
@@ -129,7 +128,7 @@ window.Pages.history = function(container, kernel) {
     listContainer.innerHTML = '';
     
     if (filteredConversations.length === 0) {
-      listContainer.appendChild(window.UI.EmptyState({
+      listContainer.appendChild(UI.EmptyState({
         icon: '📋',
         title: searchKeyword ? '没有找到匹配的对话' : '暂无历史对话'
       }));
@@ -141,7 +140,7 @@ window.Pages.history = function(container, kernel) {
         });
         
         const title = generateSmartTitle(conv.messages);
-        const timeStr = window.TimeUtils.formatTimestamp(conv.updated_at || conv.updatedAt || Date.now());
+        const timeStr = TimeUtils.formatTimestamp(conv.updated_at || conv.updatedAt || Date.now());
         const msgCount = conv.messages ? conv.messages.filter(m => m.role === 'user').length : 0;
         
         const contentDiv = create('div', {
@@ -158,7 +157,7 @@ window.Pages.history = function(container, kernel) {
           className: 'history-item-meta flex items-center gap-8 mt-4',
         }, [
           create('span', { text: timeStr }),
-          window.UI.Badge({
+          UI.Badge({
             type: 'info-light',
             text: `${msgCount} 消息`
           })
@@ -166,7 +165,7 @@ window.Pages.history = function(container, kernel) {
         
         item.appendChild(contentDiv);
         
-        const deleteBtn = window.UI.Button({
+        const deleteBtn = UI.Button({
           className: 'history-item-delete btn-text',
           text: '🗑',
           title: '删除对话',
@@ -183,7 +182,5 @@ window.Pages.history = function(container, kernel) {
   }
   
   // 初始化
-  loadConversations().then(() => {
-    render();
-  });
+  render();
 };

@@ -5,7 +5,10 @@
  * 同时实现底层存储操作和上层管理功能
  */
 
-class ChromeStorageAdapter extends window.IStorageManager {
+import { IStorageManager } from '../../../kernel/services/IStorageManager.js';
+import { Events } from '../events.js';
+
+class ChromeStorageAdapter extends IStorageManager {
   /**
    * @param {Kernel} [kernel] - 内核实例，用于事件通信
    */
@@ -119,9 +122,9 @@ class ChromeStorageAdapter extends window.IStorageManager {
         const valueStr = JSON.stringify(value).toLowerCase();
         return keyStr.includes(lowerKeyword) || valueStr.includes(lowerKeyword);
       });
-      this.storageChannel?.emit(window.Events.STORAGE.SEARCHED, { items: filtered, keyword });
+      this.storageChannel?.emit(Events.STORAGE.SEARCHED, { items: filtered, keyword });
     } catch (error) {
-      this.storageChannel?.emit(window.Events.STORAGE.ERROR, { error: error.message });
+      this.storageChannel?.emit(Events.STORAGE.ERROR, { error: error.message });
     }
   }
 
@@ -133,9 +136,9 @@ class ChromeStorageAdapter extends window.IStorageManager {
       const items = await this.getAll();
       const stats = { total: items.length };
       
-      this.storageChannel?.emit(window.Events.STORAGE.LOADED, { items, stats });
+      this.storageChannel?.emit(Events.STORAGE.LOADED, { items, stats });
     } catch (error) {
-      this.storageChannel?.emit(window.Events.STORAGE.ERROR, { error: error.message });
+      this.storageChannel?.emit(Events.STORAGE.ERROR, { error: error.message });
     }
   }
 
@@ -148,7 +151,7 @@ class ChromeStorageAdapter extends window.IStorageManager {
       await this.remove(key);
       await this.loadAll();
     } catch (error) {
-      this.storageChannel?.emit(window.Events.STORAGE.ERROR, { error: error.message });
+      this.storageChannel?.emit(Events.STORAGE.ERROR, { error: error.message });
     }
   }
 
@@ -162,7 +165,7 @@ class ChromeStorageAdapter extends window.IStorageManager {
       await this.set(key, value);
       await this.loadAll();
     } catch (error) {
-      this.storageChannel?.emit(window.Events.STORAGE.ERROR, { error: error.message });
+      this.storageChannel?.emit(Events.STORAGE.ERROR, { error: error.message });
     }
   }
 
@@ -174,12 +177,9 @@ class ChromeStorageAdapter extends window.IStorageManager {
       await this.clear();
       await this.loadAll();
     } catch (error) {
-      this.storageChannel?.emit(window.Events.STORAGE.ERROR, { error: error.message });
+      this.storageChannel?.emit(Events.STORAGE.ERROR, { error: error.message });
     }
   }
 }
 
-// 导出
-if (typeof window !== 'undefined') {
-  window.ChromeStorageAdapter = ChromeStorageAdapter;
-}
+export { ChromeStorageAdapter };

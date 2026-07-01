@@ -2,18 +2,20 @@
  * Scripts Page UI - 用户脚本管理页面
  */
 
-window.Pages = window.Pages || {};
+import { Pages, DOM } from '../utils/dom.js';
+import { UI } from '../components/UI.js';
+import { Toast } from '../utils/toast.js';
+import { appState } from '../state.js';
 
-window.Pages.scripts = function(container, kernel) {
-  const { create, clear } = window.DOM;
+Pages.scripts = function(container, kernel) {
+  const { create, clear } = DOM;
 
   if (!kernel) {
     console.error('[ScriptsPage] Kernel not available');
     return;
   }
   
-  // ScriptsEventHandler 已在 app.js 中创建，通过 window.scriptsEventHandler 访问
-  const eventHandler = window.scriptsEventHandler;
+  const eventHandler = appState.scriptsEventHandler;
   
   if (!eventHandler) {
     console.error('[ScriptsPage] ScriptsEventHandler not available');
@@ -37,7 +39,7 @@ window.Pages.scripts = function(container, kernel) {
     // 头部
     const header = create('div', { className: 'page-header' }, [
       create('h1', { className: 'page-title', text: '用户脚本' }),
-      window.UI.Button({
+      UI.Button({
         className: 'btn-primary btn-small',
         text: showForm ? '取消' : '安装脚本',
         onClick: () => {
@@ -58,7 +60,7 @@ window.Pages.scripts = function(container, kernel) {
     } else if (editingScriptId) {
       content.appendChild(createEditForm());
     } else if (scripts.length === 0) {
-      content.appendChild(window.UI.EmptyState({
+      content.appendChild(UI.EmptyState({
         icon: '📜',
         title: '暂无脚本',
         desc: '点击右上角"安装脚本"开始添加'
@@ -78,14 +80,14 @@ window.Pages.scripts = function(container, kernel) {
    */
   function createScriptCard(script) {
     const badges = [
-      window.UI.Badge({
+      UI.Badge({
         type: script.enabled ? 'success' : 'error',
         text: script.enabled ? '已启用' : '已禁用'
       })
     ];
 
     if (script.match && script.match.length > 0) {
-      badges.push(window.UI.Badge({
+      badges.push(UI.Badge({
         type: 'info',
         text: `${script.match.length} 匹配规则`
       }));
@@ -110,17 +112,17 @@ window.Pages.scripts = function(container, kernel) {
         create('div', { className: 'mt-4 flex gap-4' }, badges)
       ]),
       create('div', { className: 'flex gap-8 flex-shrink-0' }, [
-        window.UI.Button({
+        UI.Button({
           className: 'btn-small btn-text',
           text: '编辑',
           onClick: () => startEdit(script.id)
         }),
-        window.UI.Button({
+        UI.Button({
           className: `btn-small ${script.enabled ? 'btn-warning' : 'btn-success'}`,
           text: script.enabled ? '禁用' : '启用',
           onClick: () => eventHandler.handleToggle(script.id, !script.enabled)
         }),
-        window.UI.Button({
+        UI.Button({
           className: 'btn-small btn-error',
           text: '删除',
           onClick: async () => {
@@ -130,7 +132,7 @@ window.Pages.scripts = function(container, kernel) {
       ])
     ]);
 
-    return window.UI.Card({}, [headerRow]);
+    return UI.Card({}, [headerRow]);
   }
 
   /**
@@ -142,13 +144,13 @@ window.Pages.scripts = function(container, kernel) {
       style: { border: '1px solid var(--color-border)', borderRadius: '6px', overflow: 'hidden', marginBottom: '16px' }
     });
 
-    const installBtn = window.UI.Button({
+    const installBtn = UI.Button({
       className: 'btn-success w-full',
       text: '安装',
       onClick: async () => {
         const code = editorInstance ? editorInstance.getValue() : '';
         if (!code.trim()) {
-          window.Toast?.warning('请输入脚本代码');
+          Toast?.warning('请输入脚本代码');
           return;
         }
         await eventHandler.handleInstall(code);
@@ -159,7 +161,7 @@ window.Pages.scripts = function(container, kernel) {
 
     // DOM 渲染后初始化 CodeMirror
     setTimeout(() => {
-      editorInstance = window.UI.CodeEditor(editorContainer, {
+      editorInstance = UI.CodeEditor(editorContainer, {
         value: '',
         mode: 'javascript',
         height: 300
@@ -201,13 +203,13 @@ window.Pages.scripts = function(container, kernel) {
       style: { border: '1px solid var(--color-border)', borderRadius: '6px', overflow: 'hidden', marginBottom: '16px' }
     });
 
-    const saveBtn = window.UI.Button({
+    const saveBtn = UI.Button({
       className: 'btn-success flex-1',
       text: '保存',
       onClick: async () => {
         const code = editorInstance ? editorInstance.getValue() : '';
         if (!code.trim()) {
-          window.Toast?.warning('脚本代码不能为空');
+          Toast?.warning('脚本代码不能为空');
           return;
         }
         eventHandler.handleEdit(editingScriptId, code);
@@ -216,7 +218,7 @@ window.Pages.scripts = function(container, kernel) {
       }
     });
 
-    const cancelBtn = window.UI.Button({
+    const cancelBtn = UI.Button({
       className: 'btn-text flex-1',
       text: '取消',
       onClick: () => {
@@ -227,7 +229,7 @@ window.Pages.scripts = function(container, kernel) {
 
     // DOM 渲染后初始化 CodeMirror
     setTimeout(() => {
-      editorInstance = window.UI.CodeEditor(editorContainer, {
+      editorInstance = UI.CodeEditor(editorContainer, {
         value: editCode,
         mode: 'javascript',
         height: 300
@@ -256,7 +258,7 @@ window.Pages.scripts = function(container, kernel) {
   }
 
   // 暴露方法供 EventHandler 调用
-  window.Pages.scripts.updateScripts = updateScripts;
+  Pages.scripts.updateScripts = updateScripts;
 
   // 初始加载
   eventHandler.scriptsManager.loadAll();

@@ -50,4 +50,4 @@ class ISettings {
   }
 }
 
-window.ISettings = ISettings;
+export { ISettings };

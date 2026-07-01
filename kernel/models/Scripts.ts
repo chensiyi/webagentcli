@@ -1,20 +1,13 @@
-export class ScriptsModel {
-  scripts: Array<{ id: string; [key: string]: unknown }>;
+/**
+ * UserScript — 用户脚本数据原型
+ *
+ * 纯数据模型。脚本集合的增删改由 ScriptsManager 统一管理。
+ */
 
-  constructor() {
-    this.scripts = [];
-  }
-
-  load(data) {
-    if (!Array.isArray(data)) return;
-    this.scripts = data.map(s => ({ ...s }));
-  }
-
-  add(script) { this.scripts.push({ ...script, id: script.id || `script_${Date.now()}_${Math.random().toString(36).substr(2, 6)}` }); return this; }
-  remove(id) { const i = this.scripts.findIndex(s => s.id === id); if (i !== -1) this.scripts.splice(i, 1); return this; }
-  get(id) { return this.scripts.find(s => s.id === id) || null; }
-  getAll() { return [...this.scripts]; }
-  clear() { this.scripts = []; return this; }
+export interface UserScript {
+  id: string;
+  code: string;
+  enabled: boolean;
+  createdAt: number;
+  updatedAt: number;
 }
-
-export default ScriptsModel;

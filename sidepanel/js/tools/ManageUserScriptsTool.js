@@ -1,11 +1,17 @@
 /**
  * ManageUserScriptsTool - 用户脚本管理工具
  * 允许 AI 查看、安装、编辑、启用、禁用和删除用户脚本
+ * 通过 kernel 的 storageAdapter 访问 chrome.storage，不直接调用 chrome API
  */
-class ManageUserScriptsTool extends window.IToolService {
+import { IToolService } from '../../../kernel/services/IToolService.js';
+import { ToolDefinition } from '../../../kernel/models/ToolDefinition.js';
+
+const STORAGE_KEY = 'user_scripts';
+
+class ManageUserScriptsTool extends IToolService {
   constructor() {
     super();
-    const definition = new window.ToolDefinition({
+    const definition = new ToolDefinition({
       name: 'manage_user_scripts',
       description: '查看、安装、编辑、启用、禁用和删除用户脚本',
       parameters: {
@@ -25,103 +31,88 @@ class ManageUserScriptsTool extends window.IToolService {
       requiresApproval: true
     });
     const handler = async (args, context) => {
-      // 确保 ScriptsModel 可用
-      if (!window.ScriptsModel) {
-        // 创建临时 ScriptsModel（需要 chrome.storage）
-        window.ScriptsModel = new (function() {
-          const storageKey = 'user_scripts';
-          this.getAll = () => new Promise((resolve, reject) => {
-            chrome.storage.local.get([storageKey], (result) => {
-              if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
-              resolve(result[storageKey] || []);
-            });
-          });
-          this.save = (scripts) => new Promise((resolve, reject) => {
-            chrome.storage.local.set({ [storageKey]: scripts }, () => {
-              if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
-              resolve();
-            });
-          });
-          this.parseMetadata = (code) => {
-            const metadata = { name: '', namespace: '', version: '', description: '', author: '', match: [], grant: [] };
-            const match = code.match(/==UserScript==([\s\S]*?)==\/UserScript==/);
-            if (!match) throw new Error('无效的 UserScript 格式');
-            const block = match[1];
-            const nameMatch = block.match(/@name\s+(.+)/);
-            if (nameMatch) metadata.name = nameMatch[1].trim();
-            const nsMatch = block.match(/@namespace\s+(.+)/);
-            if (nsMatch) metadata.namespace = nsMatch[1].trim();
-            const vMatch = block.match(/@version\s+(.+)/);
-            if (vMatch) metadata.version = vMatch[1].trim();
-            const dMatch = block.match(/@description\s+(.+)/);
-            if (dMatch) metadata.description = dMatch[1].trim();
-            const aMatch = block.match(/@author\s+(.+)/);
-            if (aMatch) metadata.author = aMatch[1].trim();
-            const matchRegex = /@match\s+(.+)/g;
-            let m; while ((m = matchRegex.exec(block)) !== null) metadata.match.push(m[1].trim());
-            const grantRegex = /@grant\s+(.+)/g;
-            let g; while ((g = grantRegex.exec(block)) !== null) metadata.grant.push(g[1].trim());
-            if (!metadata.name) metadata.name = '未命名脚本';
-            return metadata;
-          };
-          this.generateId = () => `script_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-          this.install = async (code) => {
-            const metadata = this.parseMetadata(code);
-            const id = this.generateId();
-            const script = { id, name: metadata.name, namespace: metadata.namespace, version: metadata.version, description: metadata.description, author: metadata.author, match: metadata.match, grant: metadata.grant, enabled: true, code, createdAt: Date.now(), updatedAt: Date.now() };
-            const scripts = await this.getAll();
-            scripts.push(script);
-            await this.save(scripts);
-            return script;
-          };
-          this.updateCode = async (id, code) => {
-            const scripts = await this.getAll();
-            const index = scripts.findIndex(s => s.id === id);
-            if (index === -1) throw new Error('脚本不存在');
-            const metadata = this.parseMetadata(code);
-            scripts[index] = { ...scripts[index], name: metadata.name, namespace: metadata.namespace, version: metadata.version, description: metadata.description, author: metadata.author, match: metadata.match, grant: metadata.grant, code, updatedAt: Date.now() };
-            await this.save(scripts);
-            return scripts[index];
-          };
-          this.toggle = async (id, enabled) => {
-            const scripts = await this.getAll();
-            const index = scripts.findIndex(s => s.id === id);
-            if (index === -1) throw new Error('脚本不存在');
-            scripts[index].enabled = enabled;
-            scripts[index].updatedAt = Date.now();
-            await this.save(scripts);
-            return scripts[index];
-          };
-          this.remove = async (id) => {
-            const scripts = await this.getAll();
-            await this.save(scripts.filter(s => s.id !== id));
-          };
-        })();
-      }
+      const storage = context?.kernel?.getStorageManager?.()
+                   || context?.kernel?.get?.('storageManager');
+      if (!storage) throw new Error('Storage manager not available');
+
+      const getAllScripts = () => storage.get(STORAGE_KEY).then(v => v || []);
+      const saveScripts = (scripts) => storage.set(STORAGE_KEY, scripts);
+
+      const parseMetadata = (code) => {
+        const metadata = { name: '', namespace: '', version: '', description: '', author: '', match: [], grant: [] };
+        const match = code.match(/==UserScript==([\s\S]*?)==\/UserScript==/);
+        if (!match) throw new Error('无效的 UserScript 格式');
+        const block = match[1];
+        ['name','namespace','version','description','author'].forEach(k => {
+          const m = block.match(new RegExp('@'+k+'\\s+(.+)'));
+          if (m) metadata[k] = m[1].trim();
+        });
+        const matchRegex = /@match\s+(.+)/g;
+        let m; while ((m = matchRegex.exec(block)) !== null) metadata.match.push(m[1].trim());
+        const grantRegex = /@grant\s+(.+)/g;
+        let g; while ((g = grantRegex.exec(block)) !== null) metadata.grant.push(g[1].trim());
+        if (!metadata.name) metadata.name = '未命名脚本';
+        return metadata;
+      };
+
+      const installScript = async (code) => {
+        const meta = parseMetadata(code);
+        const id = `script_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const script = { id, name: meta.name, namespace: meta.namespace, version: meta.version, description: meta.description, author: meta.author, match: meta.match, grant: meta.grant, enabled: true, code, createdAt: Date.now(), updatedAt: Date.now() };
+        const scripts = await getAllScripts();
+        scripts.push(script);
+        await saveScripts(scripts);
+        return script;
+      };
+
+      const updateScriptCode = async (id, code) => {
+        const scripts = await getAllScripts();
+        const idx = scripts.findIndex(s => s.id === id);
+        if (idx === -1) throw new Error('脚本不存在');
+        const meta = parseMetadata(code);
+        scripts[idx] = { ...scripts[idx], name: meta.name, namespace: meta.namespace, version: meta.version, description: meta.description, author: meta.author, match: meta.match, grant: meta.grant, code, updatedAt: Date.now() };
+        await saveScripts(scripts);
+        return scripts[idx];
+      };
+
+      const toggleScript = async (id, enabled) => {
+        const scripts = await getAllScripts();
+        const idx = scripts.findIndex(s => s.id === id);
+        if (idx === -1) throw new Error('脚本不存在');
+        scripts[idx].enabled = enabled;
+        scripts[idx].updatedAt = Date.now();
+        await saveScripts(scripts);
+        return scripts[idx];
+      };
+
+      const removeScript = async (id) => {
+        const scripts = await getAllScripts();
+        await saveScripts(scripts.filter(s => s.id !== id));
+      };
 
       switch (args.action) {
         case 'list':
-          return await window.ScriptsModel.getAll();
-        
+          return await getAllScripts();
+
         case 'install':
           if (!args.code) throw new Error('code is required');
-          return await window.ScriptsModel.install(args.code);
-        
+          return await installScript(args.code);
+
         case 'update':
           if (!args.id) throw new Error('id is required');
           if (!args.code) throw new Error('code is required');
-          return await window.ScriptsModel.updateCode(args.id, args.code);
-        
+          return await updateScriptCode(args.id, args.code);
+
         case 'toggle':
           if (!args.id) throw new Error('id is required');
           if (args.enabled === undefined) throw new Error('enabled is required');
-          return await window.ScriptsModel.toggle(args.id, args.enabled);
-        
+          return await toggleScript(args.id, args.enabled);
+
         case 'delete':
           if (!args.id) throw new Error('id is required');
-          await window.ScriptsModel.remove(args.id);
+          await removeScript(args.id);
           return { success: true, id: args.id };
-        
+
         default:
           throw new Error(`Unknown action: ${args.action}`);
       }
@@ -129,4 +120,4 @@ class ManageUserScriptsTool extends window.IToolService {
     this.register(definition, handler);
   }
 }
-if (typeof window !== 'undefined') window.ManageUserScriptsTool = ManageUserScriptsTool;
+export { ManageUserScriptsTool };

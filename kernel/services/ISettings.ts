@@ -1,4 +1,4 @@
-import { IPC } from 'kernel/IPC';
+import { IPC } from '../IPC.js';
 
 export class ISettings {
   ipc: IPC | null;

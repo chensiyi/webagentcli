@@ -2,26 +2,44 @@ import { defineConfig } from 'vite';
 import { resolve } from 'path';
 import { readFileSync, writeFileSync } from 'fs';
 
+// 唯一版本源：package.json
+const pkg = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf-8'));
+const VERSION = pkg.version;
+
 export default defineConfig({
+  define: {
+    __VERSION__: JSON.stringify(VERSION),
+  },
+  resolve: {
+    alias: {
+      kernel: resolve(__dirname, 'kernel'),
+    },
+  },
   build: {
     outDir: 'dist',
     emptyOutDir: false,
-    lib: {
-      entry: resolve(__dirname, 'kernel/index.ts'),
-      name: 'webagent',
-      formats: ['iife'],
-      fileName: 'kernel.bundle'
-    }
+    rollupOptions: {
+      input: {
+        sidepanel: resolve(__dirname, 'sidepanel/js/app.js'),
+      },
+      output: {
+        entryFileNames: 'sidepanel.bundle.js',
+        format: 'es',
+      },
+    },
   },
-  plugins: [{
-    name: 'kernel-window-expose',
-    closeBundle() {
-      const p = resolve(__dirname, 'dist/kernel.bundle.iife.js');
-      const src = readFileSync(p, 'utf-8');
-      if (!src.includes('webagent')) return;
-      const trailer = "\n;;(function(){try{for(var k in webagent){if(webagent.hasOwnProperty(k)){window[k]=webagent[k];}}}catch(e){console.warn('[kernel-window]',e.message);}})();";
-      const out = src.includes('for(var k in webagent)') ? src : src + trailer;
-      writeFileSync(p, out, 'utf-8');
-    }
-  }]
+  plugins: [
+    {
+      name: 'sync-manifest-version',
+      writeBundle() {
+        const manifestPath = resolve(__dirname, 'manifest.json');
+        const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'));
+        if (manifest.version !== VERSION) {
+          manifest.version = VERSION;
+          writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+          console.log(`  ✓ manifest.json → ${VERSION}`);
+        }
+      },
+    },
+  ],
 });

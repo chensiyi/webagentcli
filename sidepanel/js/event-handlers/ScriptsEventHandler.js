@@ -3,6 +3,10 @@
  * 负责注册脚本页面的事件监听器，连接 View 和 Controller
  */
 
+import { Events } from '../events.js';
+import { Toast } from '../utils/toast.js';
+import { Pages } from '../utils/dom.js';
+
 class ScriptsEventHandler {
   constructor(kernel) {
     this.kernel = kernel;
@@ -21,12 +25,12 @@ class ScriptsEventHandler {
    */
   _registerEventListeners() {
     // 监听脚本列表加载
-    this.scriptsChannel.on(window.Events.SCRIPTS.LOADED, (data) => {
+    this.scriptsChannel.on(Events.SCRIPTS.LOADED, (data) => {
       this._handleScriptsLoaded(data);
     });
     
     // 监听错误
-    this.scriptsChannel.on(window.Events.SCRIPTS.ERROR, (data) => {
+    this.scriptsChannel.on(Events.SCRIPTS.ERROR, (data) => {
       this._handleScriptsError(data);
     });
   }
@@ -39,8 +43,8 @@ class ScriptsEventHandler {
     console.log('[ScriptsEventHandler] Scripts loaded:', scripts.length);
     
     // 通知页面更新
-    if (window.Pages && window.Pages.scripts) {
-      window.Pages.scripts.updateScripts(scripts);
+    if (Pages && Pages.scripts) {
+      Pages.scripts.updateScripts(scripts);
     }
   }
   
@@ -50,7 +54,7 @@ class ScriptsEventHandler {
   _handleScriptsError(data) {
     const { error } = data;
     console.error('[ScriptsEventHandler] Error:', error);
-    window.Toast?.error(error);
+    Toast?.error(error);
   }
   
   /**
@@ -58,7 +62,7 @@ class ScriptsEventHandler {
    */
   async handleInstall(code) {
     if (!code.trim()) {
-      window.Toast?.warning('请输入脚本代码');
+      Toast?.warning('请输入脚本代码');
       return;
     }
     
@@ -72,7 +76,7 @@ class ScriptsEventHandler {
     try {
       await this.scriptsManager.toggle(id, enabled);
     } catch (error) {
-      this.scriptsChannel.emit(window.Events.SCRIPTS.ERROR, { error: error.message });
+      this.scriptsChannel.emit(Events.SCRIPTS.ERROR, { error: error.message });
     }
   }
   
@@ -80,14 +84,14 @@ class ScriptsEventHandler {
    * 处理删除脚本（由页面调用）
    */
   async handleDelete(id) {
-    const confirmed = await window.Toast?.confirm?.({
+    const confirmed = await Toast?.confirm?.({
       title: '删除脚本',
       message: '确定删除此脚本？此操作不可恢复。'
     });
     
     if (confirmed) {
       await this.scriptsManager.remove(id);
-      window.Toast?.success('脚本已删除');
+      Toast?.success('脚本已删除');
     }
   }
   
@@ -98,9 +102,9 @@ class ScriptsEventHandler {
     try {
       await this.scriptsManager.updateCode(id, code);
     } catch (error) {
-      this.scriptsChannel.emit(window.Events.SCRIPTS.ERROR, { error: error.message });
+      this.scriptsChannel.emit(Events.SCRIPTS.ERROR, { error: error.message });
     }
   }
 }
 
-// 不导出到全局，仅在 app.js 中通过 new ScriptsEventHandler(kernel) 创建实例
+export { ScriptsEventHandler };

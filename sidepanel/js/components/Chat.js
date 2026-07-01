@@ -7,6 +7,10 @@
  * - tool 消息渲染为 ToolResultCard（紧凑折叠）
  */
 
+import { DOM } from '../utils/dom.js';
+import { UI } from './UI.js';
+import { ToolCall } from '../../../kernel/models/ToolCall.js';
+
 /** HTML 安全转义（防止 XSS） */
 function escapeHtml(str) {
   if (!str) return '';
@@ -25,15 +29,15 @@ function extractText(content) {
   if (Array.isArray(content)) return content.filter(b => b.type === 'text').map(b => b.text || '').join('\n\n');
   return String(content);
 }
-window.extractText = extractText;
+export { extractText };
 
-window.ChatComponents = {
+export const ChatComponents = {
 
   // ==================== ToolCallCard（AI 发起的工具调用） ====================
 
   ToolCallCard(toolCall) {
-    const { create } = window.DOM;
-    const isToolCallObj = toolCall instanceof window.ToolCall;
+    const { create } = DOM;
+    const isToolCallObj = toolCall instanceof ToolCall;
     const tcId = isToolCallObj ? toolCall.id : (toolCall.id || '');
     const tcName = isToolCallObj ? toolCall.toolName : (toolCall.toolName || 'unknown');
     const tcArgs = isToolCallObj ? (toolCall.arguments || {}) : (toolCall.arguments || {});
@@ -77,7 +81,7 @@ window.ChatComponents = {
   // ==================== ToolResultCard（工具执行结果） ====================
 
   ToolResultCard(toolResult) {
-    const { create } = window.DOM;
+    const { create } = DOM;
     const status = toolResult.status;
     const statusIcon = { success: '✅', failed: '❌', cancelled: '⚠️' }[status] || '⋯';
     const duration = toolResult.duration ? ` · ${toolResult.duration}ms` : '';
@@ -103,7 +107,7 @@ window.ChatComponents = {
 
   MessageBubble(msg, options = {}) {
     const { onDelete } = options;
-    const { create } = window.DOM;
+    const { create } = DOM;
     const role = msg.role || '';
     const isUser = role === 'user';
     const isTool = role === 'tool';
@@ -157,7 +161,7 @@ window.ChatComponents = {
         attrs: { 'data-message-id': msg.id, 'data-tool-call-id': msg.toolCallId || '' }
       }, [
         create('div', { className: 'message-body' }, bodyChildren),
-        onDelete ? window.UI.Button({
+        onDelete ? UI.Button({
           className: 'message-delete-btn',
           title: '删除结果',
           text: '×',
@@ -198,7 +202,7 @@ window.ChatComponents = {
       if (Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0) {
         const toolCards = create('div', { className: 'tool-calls-container' });
         msg.toolCalls.forEach(tc => {
-          toolCards.appendChild(window.ChatComponents.ToolCallCard(tc));
+          toolCards.appendChild(ChatComponents.ToolCallCard(tc));
         });
         bodyChildren.push(toolCards);
       }
@@ -232,7 +236,7 @@ window.ChatComponents = {
       attrs: { 'data-message-id': msg.id }
     }, [
       create('div', { className: 'message-body' }, bodyChildren),
-      window.UI.Button({
+      UI.Button({
         className: 'message-delete-btn',
         title: '删除消息',
         text: '×',
@@ -251,7 +255,7 @@ window.ChatComponents = {
    */
   ThinkingControl(session, options = {}) {
     const { onUpdate } = options;
-    const { create } = window.DOM;
+    const { create } = DOM;
     
     const efforts = [
       { value: 'high', label: '高', icon: '🚀' },
@@ -270,7 +274,7 @@ window.ChatComponents = {
       style: { display: 'none' }
     });
 
-    const btn = window.UI.Button({
+    const btn = UI.Button({
       className: `btn-small ${session.reasoningEffort !== 'off' ? 'btn-primary' : 'btn-secondary'}`,
       text: 'think' + session.reasoningEffort || 'off',
       onClick: (e) => {

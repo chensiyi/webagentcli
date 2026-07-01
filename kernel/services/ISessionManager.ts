@@ -1,4 +1,4 @@
-import { IPC } from 'kernel/IPC';
+import { IPC } from '../IPC.js';
 import { IStorageManager } from './IStorageManager.js';
 
 export class ISessionManager {

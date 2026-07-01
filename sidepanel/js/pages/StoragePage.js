@@ -2,10 +2,15 @@
  * Storage Page UI - 存储管理页面
  */
 
-window.Pages = window.Pages || {};
+import { Pages, DOM } from '../utils/dom.js';
+import { UI } from '../components/UI.js';
+import { Events } from '../events.js';
+import { Toast } from '../utils/toast.js';
+import { StorageEventHandler } from '../event-handlers/StorageEventHandler.js';
+import { appState } from '../state.js';
 
-window.Pages.storage = function(container, kernel) {
-  const { create, clear } = window.DOM;
+Pages.storage = function(container, kernel) {
+  const { create, clear } = DOM;
 
   if (!kernel) {
     console.error('[StoragePage] Kernel not available');
@@ -13,10 +18,10 @@ window.Pages.storage = function(container, kernel) {
   }
   
   // 确保使用传入的 kernel 创建或获取 EventHandler
-  if (!window.storageEventHandler) {
-    window.storageEventHandler = new window.StorageEventHandler(kernel);
+  if (!appState.storageEventHandler) {
+    appState.storageEventHandler = new StorageEventHandler(kernel);
   }
-  const eventHandler = window.storageEventHandler;
+  const eventHandler = appState.storageEventHandler;
   
   let storageItems = [];
   let filteredItems = [];
@@ -37,7 +42,7 @@ window.Pages.storage = function(container, kernel) {
     // 页面头部
     const header = create('div', { className: 'page-header' }, [
       create('h1', { className: 'page-title', text: '存储管理' }),
-      window.UI.Button({
+      UI.Button({
         className: 'btn-primary btn-small',
         text: '刷新',
         onClick: () => eventHandler.handleRefresh()
@@ -48,7 +53,7 @@ window.Pages.storage = function(container, kernel) {
     const content = create('div', { className: 'page-content' });
 
     // 搜索框
-    const searchBox = window.UI.Input({
+    const searchBox = UI.Input({
       className: 'mb-12',
       placeholder: '搜索存储项...',
       onInput: (e) => {
@@ -85,18 +90,18 @@ window.Pages.storage = function(container, kernel) {
    * 创建统计卡片
    */
   function createStatsCard() {
-    return window.UI.Card({
+    return UI.Card({
       className: 'flex justify-between items-center'
     }, [
       create('div', {
         className: 'text-sm text-secondary',
         text: `共 ${filteredItems.length} 项 · 总计 ${stats.totalSizeKB || 0} KB`
       }),
-      window.UI.Button({
+      UI.Button({
         className: 'btn-error btn-small',
         text: '清除所有',
         onClick: async () => {
-          const confirmed = await window.Toast.confirm({
+          const confirmed = await Toast.confirm({
             title: '清除所有存储',
             message: '确定要清除所有存储数据吗？此操作不可撤销。',
             confirmText: '确定清除',
@@ -104,7 +109,7 @@ window.Pages.storage = function(container, kernel) {
           });
           if (confirmed) {
             await eventHandler.storageManager.clearAll();
-            window.Toast.success('已清空');
+            Toast.success('已清空');
             eventHandler.handleRefresh();
           }
         }
@@ -121,7 +126,7 @@ window.Pages.storage = function(container, kernel) {
     const pageItems = filteredItems.slice(startIndex, endIndex);
 
     if (pageItems.length === 0) {
-      content.appendChild(window.UI.EmptyState({
+      content.appendChild(UI.EmptyState({
         icon: '💾',
         title: '暂无存储数据',
         desc: searchKeyword ? '未找到匹配的存储项' : '存储为空'
@@ -144,7 +149,7 @@ window.Pages.storage = function(container, kernel) {
           })
         ]),
         create('div', { className: 'flex flex-col gap-8 flex-shrink-0' }, [
-          window.UI.Button({
+          UI.Button({
             className: 'btn-small btn-text whitespace-nowrap',
             text: '编辑',
             onClick: (e) => {
@@ -152,7 +157,7 @@ window.Pages.storage = function(container, kernel) {
               openEditDialog(key, value);
             }
           }),
-          window.UI.Button({
+          UI.Button({
             className: 'btn-small btn-error whitespace-nowrap',
             text: '删除',
             onClick: async (e) => {
@@ -163,7 +168,7 @@ window.Pages.storage = function(container, kernel) {
         ])
       ]);
 
-      content.appendChild(window.UI.Card({}, [headerRow]));
+      content.appendChild(UI.Card({}, [headerRow]));
     });
   }
 
@@ -179,7 +184,7 @@ window.Pages.storage = function(container, kernel) {
     });
 
     // 上一页
-    pagination.appendChild(window.UI.Button({
+    pagination.appendChild(UI.Button({
       className: 'btn-small',
       text: '上一页',
       disabled: currentPage === 1,
@@ -198,7 +203,7 @@ window.Pages.storage = function(container, kernel) {
     }));
 
     // 下一页
-    pagination.appendChild(window.UI.Button({
+    pagination.appendChild(UI.Button({
       className: 'btn-small',
       text: '下一页',
       disabled: currentPage === totalPages,
@@ -221,7 +226,7 @@ window.Pages.storage = function(container, kernel) {
       style: { border: '1px solid var(--color-border)', borderRadius: '6px', overflow: 'hidden' }
     });
 
-    const dialog = window.UI.Dialog({
+    const dialog = UI.Dialog({
       title: `编辑: ${key}`,
       content: editorContainer,
       actions: [
@@ -238,12 +243,12 @@ window.Pages.storage = function(container, kernel) {
             try {
               const newValue = JSON.parse(editorInstance.getValue());
               await eventHandler.storageManager.updateItem(key, newValue);
-              window.Toast.success('已更新');
+              Toast.success('已更新');
               editorInstance.destroy();
               dialog.close();
               eventHandler.handleRefresh();
             } catch (e) {
-              window.Toast.error(`JSON 格式错误: ${e.message}`);
+              Toast.error(`JSON 格式错误: ${e.message}`);
             }
           }
         }
@@ -254,7 +259,7 @@ window.Pages.storage = function(container, kernel) {
     dialog.open();
     // CodeMirror 需要 DOM 渲染后才能挂载
     setTimeout(() => {
-      editorInstance = window.UI.CodeEditor(editorContainer, {
+      editorInstance = UI.CodeEditor(editorContainer, {
         value: JSON.stringify(value, null, 2),
         mode: 'application/json',
         height: 300
@@ -284,8 +289,8 @@ window.Pages.storage = function(container, kernel) {
   }
 
   // 暴露方法供 EventHandler 调用
-  window.Pages.storage.updateData = updateData;
-  window.Pages.storage.updateSearchResults = updateSearchResults;
+Pages.storage.updateData = updateData;
+  Pages.storage.updateSearchResults = updateSearchResults;
 
   // 初始加载
   eventHandler.handleRefresh();

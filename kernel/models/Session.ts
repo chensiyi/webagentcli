@@ -1,3 +1,10 @@
+/**
+ * Session — 会话数据原型
+ *
+ * 纯数据模型，不含集合管理方法（addMessage/removeMessage/clearMessages 等
+ * 已移入 SessionManager）。会话消息的增删改由 SessionManager 统一管理。
+ */
+
 import { BaseModel } from './BaseModel.js';
 
 export class Session extends BaseModel {
@@ -19,20 +26,17 @@ export class Session extends BaseModel {
     }
   }
 
-  addMessage(message: unknown): this { this.messages.push(message); this.touch(); return this; }
-  getMessage(id: string): unknown { return this.messages.find((m: { id: string }) => m.id === id) || null; }
-  removeMessage(id: string): this { const i = this.messages.findIndex((m: { id: string }) => m.id === id); if (i !== -1) this.messages.splice(i, 1); this.touch(); return this; }
-  clearMessages(): this { this.messages = []; this.touch(); return this; }
-
   toJSON(): Record<string, unknown> {
     return {
       ...(super.toJSON() as Record<string, unknown>),
       title: this.title,
-      messages: this.messages.map(m => (m as { toJSON: () => unknown }).toJSON()),
+      messages: this.messages.map(m => (m as { toJSON: () => unknown }).toJSON?.() ?? m),
       reasoningEffort: this.reasoningEffort,
       model: this.model,
       createdAt: this.createdAt,
       updatedAt: this.updatedAt
     };
   }
+
+  static fromJSON(data: Record<string, unknown>): Session { return new Session(data); }
 }

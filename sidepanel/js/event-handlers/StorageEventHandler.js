@@ -3,6 +3,10 @@
  * 负责注册存储页面的事件监听器，连接 View 和 Controller
  */
 
+import { Events } from '../events.js';
+import { Toast } from '../utils/toast.js';
+import { Pages } from '../utils/dom.js';
+
 class StorageEventHandler {
   constructor(kernel) {
     this.kernel = kernel;
@@ -21,17 +25,17 @@ class StorageEventHandler {
    */
   _registerEventListeners() {
     // 监听存储数据加载
-    this.storageChannel.on(window.Events.STORAGE.LOADED, (data) => {
+    this.storageChannel.on(Events.STORAGE.LOADED, (data) => {
       this._handleStorageLoaded(data);
     });
     
     // 监听搜索结果
-    this.storageChannel.on(window.Events.STORAGE.SEARCHED, (data) => {
+    this.storageChannel.on(Events.STORAGE.SEARCHED, (data) => {
       this._handleStorageSearched(data);
     });
     
     // 监听错误
-    this.storageChannel.on(window.Events.STORAGE.ERROR, (data) => {
+    this.storageChannel.on(Events.STORAGE.ERROR, (data) => {
       this._handleStorageError(data);
     });
   }
@@ -44,8 +48,8 @@ class StorageEventHandler {
     console.log('[StorageEventHandler] Storage loaded:', items.length, 'items');
     
     // 通知页面更新
-    if (window.Pages && window.Pages.storage) {
-      window.Pages.storage.updateData(items, stats);
+    if (Pages && Pages.storage) {
+      Pages.storage.updateData(items, stats);
     }
   }
   
@@ -57,8 +61,8 @@ class StorageEventHandler {
     console.log('[StorageEventHandler] Search results:', items.length, 'items for', keyword);
     
     // 通知页面更新
-    if (window.Pages && window.Pages.storage) {
-      window.Pages.storage.updateSearchResults(items, keyword);
+    if (Pages && Pages.storage) {
+      Pages.storage.updateSearchResults(items, keyword);
     }
   }
   
@@ -68,7 +72,7 @@ class StorageEventHandler {
   _handleStorageError(data) {
     const { error } = data;
     console.error('[StorageEventHandler] Error:', error);
-    window.Toast?.error(error);
+    Toast?.error(error);
   }
   
   /**
@@ -92,10 +96,10 @@ class StorageEventHandler {
    */
   async handleDelete(key) {
     console.log('[StorageEventHandler] handleDelete called for key:', key);
-    console.log('[StorageEventHandler] window.Toast:', window.Toast);
-    console.log('[StorageEventHandler] window.Toast.confirm:', window.Toast?.confirm);
+    console.log('[StorageEventHandler] Toast:', Toast);
+    console.log('[StorageEventHandler] Toast.confirm:', Toast?.confirm);
     
-    const confirmed = await window.Toast.confirm({
+    const confirmed = await Toast.confirm({
       title: '删除存储项',
       message: `确定要删除 "${key}" 吗？`,
       confirmText: '删除',
@@ -104,10 +108,10 @@ class StorageEventHandler {
     
     if (confirmed) {
       await this.storageManager.removeItem(key);
-      window.Toast.success('已删除');
+      Toast.success('已删除');
     }
   }
 }
 
 // 不导出到全局，仅在 app.js 中通过 new StorageEventHandler(kernel) 创建实例
-window.StorageEventHandler = StorageEventHandler;
+export { StorageEventHandler };

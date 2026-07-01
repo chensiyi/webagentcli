@@ -3,10 +3,13 @@
  * 使用油猴脚本方案：基于 chrome.scripting.executeScript() 在页面中执行脚本代码
  * 相比 chrome.userScripts API 更稳定，支持更好的隔离和控制
  */
-class RunUserScriptTool extends window.IToolService {
+import { IToolService } from '../../../kernel/services/IToolService.js';
+import { ToolDefinition } from '../../../kernel/models/ToolDefinition.js';
+
+class RunUserScriptTool extends IToolService {
   constructor() {
     super();
-    const definition = new window.ToolDefinition({
+    const definition = new ToolDefinition({
       name: 'run_user_script',
       description: '在页面中执行一段用户脚本代码，并返回执行结果',
       parameters: {
@@ -52,4 +55,4 @@ class RunUserScriptTool extends window.IToolService {
     this.register(definition, handler);
   }
 }
-if (typeof window !== 'undefined') window.RunUserScriptTool = RunUserScriptTool;
+export { RunUserScriptTool };

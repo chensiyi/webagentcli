@@ -4,7 +4,9 @@
  * LM Studio 是本地服务，不需要 API Key，额外支持上下文窗口配置
  */
 
-class SettingsPage_LMStudio extends window.SettingsPage_Base {
+import { SettingsPage_Base } from './SettingsPage_Base.js';
+
+class SettingsPage_LMStudio extends SettingsPage_Base {
   getProviderName() {
     return 'LM Studio';
   }
@@ -31,4 +33,4 @@ class SettingsPage_LMStudio extends window.SettingsPage_Base {
   }
 }
 
-window.SettingsPage_LMStudio = SettingsPage_LMStudio;
+export { SettingsPage_LMStudio };

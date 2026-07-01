@@ -155,5 +155,4 @@ const MessageFormats = {
 };
 
 // 导出到全局
-window.Events = Events;
-window.MessageFormats = MessageFormats;
+export { Events, MessageFormats };

@@ -2,7 +2,9 @@
  * SettingsPage_OpenRouter - OpenRouter Provider 设置页面
  */
 
-class SettingsPage_OpenRouter extends window.SettingsPage_Base {
+import { SettingsPage_Base } from './SettingsPage_Base.js';
+
+class SettingsPage_OpenRouter extends SettingsPage_Base {
   getProviderName() {
     return 'OpenRouter';
   }
@@ -19,4 +21,4 @@ class SettingsPage_OpenRouter extends window.SettingsPage_Base {
   }
 }
 
-window.SettingsPage_OpenRouter = SettingsPage_OpenRouter;
+export { SettingsPage_OpenRouter };

@@ -4,7 +4,11 @@
  * 实现通用的 Provider 配置项渲染逻辑
  */
 
-class SettingsPage_Base extends window.ISettings {
+import { ISettings } from './ISettings.js';
+import { DOM } from '../utils/dom.js';
+import { UI } from '../components/UI.js';
+
+class SettingsPage_Base extends ISettings {
   constructor() {
     super();
   }
@@ -20,7 +24,7 @@ class SettingsPage_Base extends window.ISettings {
    * 渲染设置表单
    */
   render(container, settings, onUpdate) {
-    const { create } = window.DOM;
+    const { create } = DOM;
     
     // API Key（如果需要）
     if (this.requiresApiKey()) {
@@ -95,8 +99,8 @@ class SettingsPage_Base extends window.ISettings {
   // ==================== 通用配置项创建方法 ====================
 
   _createApiKeySection(settings, onUpdate) {
-    return window.UI.FormGroup({ label: 'API Key' }, [
-      window.UI.Input({
+    return UI.FormGroup({ label: 'API Key' }, [
+      UI.Input({
         id: 'settings-api-key',
         type: 'password',
         placeholder: '输入 API Key（保密内容不显示）',
@@ -107,8 +111,8 @@ class SettingsPage_Base extends window.ISettings {
   }
 
   _createApiEndpointSection(settings, onUpdate) {
-    return window.UI.FormGroup({ label: 'API Endpoint' }, [
-      window.UI.Input({
+    return UI.FormGroup({ label: 'API Endpoint' }, [
+      UI.Input({
         id: 'settings-api-endpoint',
         placeholder: 'https://api.example.com/v1',
         value: settings.apiEndpoint || '',
@@ -118,8 +122,8 @@ class SettingsPage_Base extends window.ISettings {
   }
 
   _createTemperatureSection(settings, onUpdate) {
-    return window.UI.FormGroup({ label: '温度 (0-2)' }, [
-      window.UI.Input({
+    return UI.FormGroup({ label: '温度 (0-2)' }, [
+      UI.Input({
         id: 'settings-temperature',
         type: 'number',
         placeholder: '0.7',
@@ -130,8 +134,8 @@ class SettingsPage_Base extends window.ISettings {
   }
 
   _createMaxTokensSection(settings, onUpdate) {
-    return window.UI.FormGroup({ label: '最大 Token' }, [
-      window.UI.Input({
+    return UI.FormGroup({ label: '最大 Token' }, [
+      UI.Input({
         id: 'settings-max-tokens',
         type: 'number',
         placeholder: '4000',
@@ -142,8 +146,8 @@ class SettingsPage_Base extends window.ISettings {
   }
 
   _createSystemPromptSection(settings, onUpdate) {
-    return window.UI.FormGroup({ label: '系统提示词' }, [
-      window.UI.Textarea({
+    return UI.FormGroup({ label: '系统提示词' }, [
+      UI.Textarea({
         id: 'settings-system-prompt',
         placeholder: '可选，设置 AI 的行为和角色',
         value: settings.systemPrompt || '',
@@ -160,8 +164,8 @@ class SettingsPage_Base extends window.ISettings {
       { value: 'high', label: '高 (深入)' }
     ];
 
-    return window.UI.FormGroup({ label: '默认思考强度 (Reasoning Effort)' }, [
-      window.UI.Select({
+    return UI.FormGroup({ label: '默认思考强度 (Reasoning Effort)' }, [
+      UI.Select({
         id: 'settings-reasoning-effort',
         options: options,
         value: settings.reasoningEffort || 'medium',
@@ -172,4 +176,4 @@ class SettingsPage_Base extends window.ISettings {
 }
 
 // 导出到全局
-window.SettingsPage_Base = SettingsPage_Base;
+export { SettingsPage_Base };

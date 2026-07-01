@@ -1,17 +1,21 @@
-import { BaseModel } from "./BaseModel";
-import { KernelLog } from '../KernelLog.js';
-import { IPC } from '../IPC.js';
+/**
+ * Process — 进程数据原型
+ *
+ * 纯数据模型，不含 infra 依赖（log/ipc 已移入各自使用方）：
+ * - Kernel 自行持有 log/ipc
+ * - ChatProgram 自行持有 log/ipc
+ */
+
+import { BaseModel } from "./BaseModel.js";
 
 export class Process extends BaseModel {
   name: string;
   status: string;
-  log: KernelLog | null;
-  ipc: IPC | null;
   output: unknown[];
   metadata: Record<string, unknown>;
 
   constructor(options: Record<string, unknown> = {}) {
-    super(options)
+    super(options);
     this.id = (options.id as string) || `proc_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     this.name = (options.name as string) || '';
     this.status = (options.status as string) || 'pending';
@@ -21,6 +25,6 @@ export class Process extends BaseModel {
 
   setStatus(status: string): this { this.status = status; return this; }
   appendOutput(text: unknown): this { this.output.push(text); return this; }
-  async shutdown(): Promise<void> { this.setStatus('terminated'); }
 }
+
 export default Process;
