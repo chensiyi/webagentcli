@@ -6,6 +6,7 @@
  * 3. 处理用户输入与会话切换的 UI 逻辑
  */
 
+import { Log } from '../../../kernel/services/Log.js';
 import { Pages, DOM } from '../utils/dom.js';
 import { Events } from '../events.js';
 import { UI } from '../components/UI.js';
@@ -76,6 +77,7 @@ Pages.chat = function(container, kernel) {
       className: 'btn-primary btn-small',
       text: '+ 新对话',
       onClick: () => {
+        Log.info('ChatPage', 'New session created');
         sessionManager.setCurrentSession(null);
         render();
       }
@@ -157,7 +159,10 @@ Pages.chat = function(container, kernel) {
       id: 'stop-btn',
       text: '停止',
       style: { display: 'none' },
-      onClick: () => chatChannel.emit(Events.CHAT.USER_APPLY_STOP)
+      onClick: () => {
+        Log.debug('ChatPage', 'Stop button clicked');
+        chatChannel.emit(Events.CHAT.USER_APPLY_STOP);
+      }
     });
 
     let toolPanelVisible = false;
@@ -218,6 +223,7 @@ Pages.chat = function(container, kernel) {
             } else {
               tool.enable();
             }
+            Log.info('ChatPage', 'Tool toggled:', tool.definition?.name, '→', tool.enabled ? 'enabled' : 'disabled');
             toolBtnText.textContent = tool.enabled ? '已启用' : '已禁用';
             toolBtnText.className = tool.enabled ? 'btn btn-small btn-success tool-toggle-btn' : 'btn btn-small btn-secondary tool-toggle-btn';
           }
@@ -299,10 +305,10 @@ Pages.chat = function(container, kernel) {
     try {
       const settings = kernel.getSettingsManager().getSettings();
       const result = !!(settings && settings.model);
-      kernel.log?.debug('CHAT', `checkModelSupportsThinking: ${result}, model: ${settings?.model}`);
+      Log.debug('ChatPage', `checkModelSupportsThinking: ${result}, model: ${settings?.model}`);
       return result;
     } catch (e) {
-      kernel.log?.warn('CHAT', `checkModelSupportsThinking error: ${e?.message}`);
+      Log.warn('ChatPage', `checkModelSupportsThinking error: ${e?.message}`);
       return false;
     }
   }

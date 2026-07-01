@@ -3,6 +3,8 @@
  * 提供可复用的通用 UI 元素封装
  */
 
+import { Log } from '../../../kernel/services/Log.js';
+
 import { DOM } from '../utils/dom.js';
 
 export const UI = {
@@ -270,7 +272,7 @@ export const UI = {
 
     // CodeMirror 在 UI.js 加载后才会存在，这里延迟引用
     if (typeof CodeMirror === 'undefined') {
-      console.error('[UI.CodeEditor] CodeMirror not loaded');
+      Log.error('UI.CodeEditor', 'CodeMirror not loaded');
       container.textContent = 'Error: CodeMirror not loaded';
       return null;
     }

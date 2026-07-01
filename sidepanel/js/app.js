@@ -5,8 +5,7 @@
  *
  * Shell 已全量 Vite 化，所有依赖通过 ES module import。
  */
-
-import { KernelLog } from '../../kernel/KernelLog.js';
+import { ConsoleLogger } from '../../kernel/services/ConsoleLogger.js';
 import { IPC } from '../../kernel/IPC.js';
 import { ToolRegistry } from '../../kernel/ToolRegistry.js';
 import { CapabilityManager } from '../../kernel/CapabilityManager.js';
@@ -72,7 +71,7 @@ async function bootWithKernel() {
   console.log('[App] Booting with Kernel...');
   const app = {};
 
-  app.log = new KernelLog({ minLevel: KernelLog.LEVELS.DEBUG });
+  app.log = new ConsoleLogger();
   app.ipc = new IPC({ origin: 'sidepanel', maxHistory: 200 });
 
   const toolRegistry = new ToolRegistry();

@@ -1,15 +1,13 @@
-import { ISessionManager } from './ISessionManager.js';
+import { BaseSessionManager } from './ISessionManager.js';
 import { Session } from '../models/Session.js';
-import { KernelLog } from '../KernelLog.js';
+import { Log } from './Log.js';
 
-export class SessionManager extends ISessionManager {
-  log: KernelLog | null;
+export class SessionManager extends BaseSessionManager {
   currentSessionId: string | null;
   sessions: Session[];
 
   constructor(obj = null) {
     super(obj);
-    this.log = obj?.log || null;
     this.currentSessionId = null;
     this.sessions = [];
   }
@@ -131,7 +129,7 @@ export class SessionManager extends ISessionManager {
 
   async initialize(): Promise<void> {
     if (!this.storage) {
-      this.log?.warn('SESSION', 'No storage, skipping init');
+      Log.warn('SESSION', 'No storage, skipping init');
       return;
     }
     try {
@@ -139,7 +137,7 @@ export class SessionManager extends ISessionManager {
       const stored = await this.storage.get('sessions');
       if (Array.isArray(stored)) {
         sessions = stored.filter((s: Record<string, unknown>) => s && s.id).map((d: Record<string, unknown>) => new Session(d));
-        this.log?.info('SESSION', `Loaded ${sessions.length} sessions from storage`);
+        Log.info('SESSION', `Loaded ${sessions.length} sessions from storage`);
       } else {
         const raw = await this.storage.getAll();
         for (const [key, value] of raw) {
@@ -147,7 +145,7 @@ export class SessionManager extends ISessionManager {
             sessions.push(new Session(value as Record<string, unknown>));
           }
         }
-        this.log?.info('SESSION', `Loaded ${sessions.length} sessions (fallback scan)`);
+        Log.info('SESSION', `Loaded ${sessions.length} sessions (fallback scan)`);
       }
       sessions.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
       this.sessions = sessions;
@@ -156,19 +154,19 @@ export class SessionManager extends ISessionManager {
           const meta = await this.storage.get('currentSessionId');
           if (meta && sessions.some(s => s.id === meta)) {
             this.currentSessionId = meta as string;
-            this.log?.info('SESSION', `Restored current session: ${meta}`);
+            Log.info('SESSION', `Restored current session: ${meta}`);
           } else if (sessions.length > 0) {
             this.currentSessionId = sessions[0].id;
-            this.log?.debug('SESSION', `First session set as current: ${this.currentSessionId}`);
+            Log.debug('SESSION', `First session set as current: ${this.currentSessionId}`);
           } else {
-            this.log?.info('SESSION', 'No sessions found in storage');
+            Log.info('SESSION', 'No sessions found in storage');
           }
         } catch (e) {
-          this.log?.warn('SESSION', `currentSessionId restore error: ${(e as Error)?.message}`);
+          Log.warn('SESSION', `currentSessionId restore error: ${(e as Error)?.message}`);
         }
       }
     } catch (e) {
-      this.log?.warn('SESSION', `initialize error: ${(e as Error)?.message}`);
+      Log.warn('SESSION', `initialize error: ${(e as Error)?.message}`);
     }
   }
 
@@ -177,7 +175,7 @@ export class SessionManager extends ISessionManager {
     try {
       await this.storage.set('sessions', this.sessions.map(s => s.toJSON()));
     } catch (e) {
-      this.log?.warn('SESSION', `persistSessions error: ${(e as Error)?.message}`);
+      Log.warn('SESSION', `persistSessions error: ${(e as Error)?.message}`);
     }
   }
 
@@ -186,7 +184,7 @@ export class SessionManager extends ISessionManager {
     try {
       await this.storage.set('currentSessionId', this.currentSessionId);
     } catch (e) {
-      this.log?.warn('SESSION', `persistCurrentSessionId error: ${(e as Error)?.message}`);
+      Log.warn('SESSION', `persistCurrentSessionId error: ${(e as Error)?.message}`);
     }
   }
 

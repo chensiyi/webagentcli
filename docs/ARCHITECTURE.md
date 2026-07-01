@@ -16,7 +16,7 @@
 | **用户程序** | `ChatProgram` | 聊天指令（内核级程序） |
 | **设备驱动** | `IProviderAPIService` | AI Provider 热插拔 |
 | **文件系统** | `StorageManager` | chrome.storage 封装 |
-| **内核日志** | `KernelLog.js` | 等级化日志、缓冲、订阅 |
+| **内核日志** | `ConsoleLogger.js` | 控制台日志输出 |
 | **Bootloader** | `Bootloader.js` | 8 阶段标准化启动序列 |
 
 ## 目录结构
@@ -27,7 +27,6 @@ webagentcli/
 ├── kernel/                          # ★ 独立内核（零外部依赖）
 │   ├── Kernel.js                   # 核心内核：服务注册、生命周期、状态机
 │   ├── IPC.js                      # 消息总线（优先级、来源追踪、中间件）
-│   ├── KernelLog.js                # 统一日志系统
 │   ├── ToolRegistry.js             # 系统调用注册表
 │   ├── CapabilityManager.js        # 权限门控
 │   ├── Bootloader.js               # 启动序列（8 阶段）
@@ -55,6 +54,8 @@ webagentcli/
 │   │   ├── SettingsManager.js      # 设置管理
 │   │   ├── ScriptsManager.js       # 脚本管理
 │   │   ├── ProcessManager.js       # 进程管理
+│   │   ├── ILogger.js              # 日志接口
+│   │   ├── ConsoleLogger.js        # 控制台日志实现
 │   │   ├── I*Manager.js            # 接口定义
 │   │   └── ProviderAPIServices/    # AI Provider 实现
 │   │       ├── IProviderAPIService.js
@@ -185,7 +186,7 @@ toolRegistry.getDefinitionsForLLM()
 
 | 阶段 | 职责 |
 |---|---|
-| 1. CORE_INIT | 初始化 IPC、KernelLog、CapabilityManager、ToolRegistry |
+| 1. CORE_INIT | 初始化 IPC、ILogger/ConsoleLogger、CapabilityManager、ToolRegistry |
 | 2. SERVICES_REGISTER | 注册所有 Service 工厂到 Kernel |
 | 3. SERVICES_INIT | 按依赖关系初始化 Service |
 | 4. TOOLS_REGISTER | 注册内置工具 |
@@ -280,7 +281,7 @@ MESSAGE_DELETED       // 消息已删除
 ### app.js 启动流程
 
 ```javascript
-// 1. 创建 IPC / KernelLog / ToolRegistry / CapabilityManager
+// 1. 创建 IPC / ILogger / ConsoleLogger / ToolRegistry / CapabilityManager
 // 2. 创建 Kernel 实例，注入子系统
 // 3. 创建 Bootloader，注册启动钩子
 // 4. SERVICES_REGISTER → 注册服务工厂

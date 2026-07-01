@@ -5,7 +5,7 @@ export interface CacheOptions {
 
 import { Settings } from '../models/Settings.js';
 
-export class IProviderAPIService {
+export class BaseProviderAPIService {
   name: string;
   config: Settings;
   cacheOptions: CacheOptions;
@@ -27,4 +27,4 @@ export class IProviderAPIService {
   shouldApplyCache(request: any): boolean { return false; }
   cancel(): void {}
 }
-export default IProviderAPIService;
+export default BaseProviderAPIService;

@@ -3,6 +3,7 @@
  * 负责注册存储页面的事件监听器，连接 View 和 Controller
  */
 
+import { Log } from '../../../kernel/services/Log.js';
 import { Events } from '../events.js';
 import { Toast } from '../utils/toast.js';
 import { Pages } from '../utils/dom.js';
@@ -45,7 +46,7 @@ class StorageEventHandler {
    */
   _handleStorageLoaded(data) {
     const { items, stats } = data;
-    console.log('[StorageEventHandler] Storage loaded:', items.length, 'items');
+    Log.info('StorageEventHandler', 'Storage loaded:', items.length, 'items');
     
     // 通知页面更新
     if (Pages && Pages.storage) {
@@ -58,7 +59,7 @@ class StorageEventHandler {
    */
   _handleStorageSearched(data) {
     const { items, keyword } = data;
-    console.log('[StorageEventHandler] Search results:', items.length, 'items for', keyword);
+    Log.info('StorageEventHandler', 'Search results:', items.length, 'items for', keyword);
     
     // 通知页面更新
     if (Pages && Pages.storage) {
@@ -71,7 +72,7 @@ class StorageEventHandler {
    */
   _handleStorageError(data) {
     const { error } = data;
-    console.error('[StorageEventHandler] Error:', error);
+    Log.error('StorageEventHandler', 'Error:', error);
     Toast?.error(error);
   }
   
@@ -79,6 +80,7 @@ class StorageEventHandler {
    * 处理刷新（由页面调用）
    */
   handleRefresh() {
+    Log.info('StorageEventHandler', 'Refresh requested');
     this.storageManager.loadAll();
   }
   
@@ -86,6 +88,7 @@ class StorageEventHandler {
    * 处理搜索（由页面调用）
    */
   handleSearch(keyword) {
+    Log.info('StorageEventHandler', 'Search:', keyword);
     if (keyword.trim()) {
       this.storageManager.search(keyword);
     }
@@ -95,9 +98,7 @@ class StorageEventHandler {
    * 处理删除（由页面调用）
    */
   async handleDelete(key) {
-    console.log('[StorageEventHandler] handleDelete called for key:', key);
-    console.log('[StorageEventHandler] Toast:', Toast);
-    console.log('[StorageEventHandler] Toast.confirm:', Toast?.confirm);
+    Log.info('StorageEventHandler', 'Delete item:', key);
     
     const confirmed = await Toast.confirm({
       title: '删除存储项',

@@ -2,6 +2,7 @@
  * Storage Page UI - 存储管理页面
  */
 
+import { Log } from '../../../kernel/services/Log.js';
 import { Pages, DOM } from '../utils/dom.js';
 import { UI } from '../components/UI.js';
 import { Events } from '../events.js';
@@ -13,7 +14,7 @@ Pages.storage = function(container, kernel) {
   const { create, clear } = DOM;
 
   if (!kernel) {
-    console.error('[StoragePage] Kernel not available');
+    Log.error('StoragePage', 'Kernel not available');
     return;
   }
   

@@ -8,6 +8,7 @@
 import { OpenAIService } from './OpenAIService.js';
 import { Settings } from '../../models/Settings.js';
 import * as MessageContent from '../../models/MessageContent.js';
+import { Log } from '../Log.js';
 
 export default class OpenRouterService extends OpenAIService {
   constructor() {
@@ -23,6 +24,7 @@ export default class OpenRouterService extends OpenAIService {
 
   buildHeaders() {
     const headers = super.buildHeaders();
+    // FIXME: window 依赖 — 已知浏览器环境耦合（参见 MEMORY.md）
     headers['HTTP-Referer'] = window.location.href || 'http://localhost';
     headers['X-Title'] = 'Web Agent Client';
     return headers;
@@ -37,7 +39,8 @@ export default class OpenRouterService extends OpenAIService {
     if (thinking && thinking.effort) {
       body.reasoning_effort = thinking.effort === 'off' ? 'none' : thinking.effort;
     }
-    console.log('[OpenRouterService] Built request body:', body);
+    // 不记录完整请求体（含 API Key），仅记录关键元数据
+    Log.debug('OpenRouterService', `Request: model=${body.model}, messages=${body.messages?.length}, reasoning_effort=${body.reasoning_effort || 'none'}`);
     if (this.shouldApplyCache(request)) {
       this._applyCacheControl(body);
     }
@@ -77,6 +80,8 @@ export default class OpenRouterService extends OpenAIService {
     const pendingToolCalls: any = {};
     let pendingFinishReason: string | null = null;
 
+    Log.info('OpenRouterService', `Stream request: model=${body.model}, messages=${body.messages?.length}`);
+
     return new Promise((resolve, reject) => {
       fetch(url, {
         method: 'POST', headers, body: JSON.stringify(body),
@@ -84,7 +89,10 @@ export default class OpenRouterService extends OpenAIService {
       })
       .then(response => {
         if (!response.ok) {
-          return response.text().then(t => { throw new Error(`OpenRouter API error: ${response.status} - ${t}`); });
+          return response.text().then(t => {
+            Log.error('OpenRouterService', `HTTP ${response.status}: ${t.substring(0, 200)}`);
+            throw new Error(`OpenRouter API error: ${response.status} - ${t}`);
+          });
         }
         const reader = response.body?.getReader();
         if (!reader) return Promise.resolve(null);
@@ -95,6 +103,7 @@ export default class OpenRouterService extends OpenAIService {
           return reader.read().then(({ done, value }) => {
             if (done) {
               const { MessageStructure } = MessageContent;
+              Log.info('OpenRouterService', `Stream completed: content=${pendingContent.length}chars, finishReason=${pendingFinishReason || 'stop'}`);
               resolve({
                 content: pendingContent,
                 reasoning_content: pendingReasoning,
@@ -145,7 +154,7 @@ export default class OpenRouterService extends OpenAIService {
                   onChunk({ content: contentChunk, reasoning_content: reasoningChunk });
                 }
               } catch (e) {
-                console.warn('[OpenRouterService] Failed to parse chunk:', e);
+                Log.warn('OpenRouterService', 'Failed to parse chunk:', e);
               }
             }
             return processStream();
@@ -155,9 +164,10 @@ export default class OpenRouterService extends OpenAIService {
       })
       .catch(error => {
         if (error.name === 'AbortError') {
-          console.log('[OpenRouterService] Stream cancelled');
+          Log.info('OpenRouterService', 'Stream cancelled');
           resolve(null);
         } else {
+          Log.error('OpenRouterService', 'Stream failed:', error);
           reject(error);
         }
       })
@@ -181,12 +191,20 @@ export default class OpenRouterService extends OpenAIService {
 
   listModels() {
     const modelsEndpoint = this.config.endpoint.replace(/\/$/, '') + '/models';
+    Log.info('OpenRouterService', 'Fetching model list');
     return fetch(modelsEndpoint, {
       method: 'GET',
       headers: { 'Authorization': `Bearer ${this.config.apiKey}` }
     })
-    .then(r => { if (!r.ok) return r.text().then(t => { throw new Error(`HTTP ${r.status}: ${t.substring(0,200)}`); }); return r.json(); })
-    .then((result: any) => (result.data || []).map((m: any) => ({
+    .then(r => {
+      if (!r.ok) return r.text().then(t => {
+        Log.error('OpenRouterService', `listModels HTTP ${r.status}: ${t.substring(0, 200)}`);
+        throw new Error(`HTTP ${r.status}: ${t.substring(0,200)}`);
+      });
+      return r.json();
+    })
+    .then((result: any) => {
+      const models = (result.data || []).map((m: any) => ({
       id: m.id, name: m.name || m.id, created: m.created,
       owned_by: m.owned_by || m.owner || 'openrouter',
       context_length: m.context_length || null, max_output_tokens: m.max_output_tokens || null,
@@ -195,7 +213,10 @@ export default class OpenRouterService extends OpenAIService {
       supports_reasoning: (m.supported_parameters || []).includes('reasoning'),
       supports_tools: (m.supported_parameters || []).includes('tools'),
       description: m.description || null, ...m
-    })));
+    }));
+    Log.info('OpenRouterService', `Model list fetched: ${models.length} models`);
+    return models;
+    });
   }
 
   getModelDetails(modelId: string) {

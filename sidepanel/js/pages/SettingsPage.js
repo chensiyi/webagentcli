@@ -3,6 +3,7 @@
  * 只负责渲染和用户交互事件发布，业务逻辑由 EventHandler 处理
  */
 
+import { Log } from '../../../kernel/services/Log.js';
 import { Pages, DOM } from '../utils/dom.js';
 import { UI } from '../components/UI.js';
 import { Events } from '../events.js';
@@ -17,7 +18,7 @@ Pages.settings = function(container, kernel) {
   const settingsChannel = ipc?.getOrCreateChannel('settings') || ipc;
   
   if (!kernel) {
-    console.error('[SettingsPage] Kernel not available');
+    Log.error('SettingsPage', 'Kernel not available');
     return;
   }
   
@@ -40,7 +41,7 @@ Pages.settings = function(container, kernel) {
       const settings = settingsManager.getSettings();
       currentSettings = settings.toJSON ? settings.toJSON() : settings;
       Pages.settings.currentSettings = currentSettings;
-      console.log('[SettingsPage] Loaded settings from memory:', currentSettings);
+      Log.info('SettingsPage', 'Loaded settings from memory:', currentSettings);
     }
     
     clear(container);
@@ -48,7 +49,7 @@ Pages.settings = function(container, kernel) {
     // 从设置中加载已保存的模型列表
     if (Array.isArray(currentSettings?.models) && currentSettings.models.length > 0) {
       cachedModels = currentSettings.models;
-      console.log('[SettingsPage] Loaded persisted model list from settings:', cachedModels.length);
+      Log.info('SettingsPage', 'Loaded persisted model list from settings:', cachedModels.length);
     }
     
     const page = create('div', { className: 'page' });
@@ -133,7 +134,7 @@ Pages.settings = function(container, kernel) {
     }
     
     if (!SettingsClass) {
-      console.warn('[SettingsPage] No Settings for:', apiStandard);
+      Log.warn('SettingsPage', 'No Settings for:', apiStandard);
       return;
     }
     
@@ -285,8 +286,8 @@ Pages.settings = function(container, kernel) {
       currentSettings = {};
     }
     
-    console.log('[SettingsPage] API standard change requested:', apiStandard);
-    console.log('[SettingsPage] Current settings before change:', { 
+    Log.info('SettingsPage', 'API standard change requested:', apiStandard);
+    Log.info('SettingsPage', 'Current settings before change:', { 
       apiStandard: currentSettings.apiStandard,
       apiEndpoint: currentSettings.apiEndpoint,
       temperature: currentSettings.temperature,
@@ -308,7 +309,7 @@ Pages.settings = function(container, kernel) {
     });
     
     // 不需要在这里手动重绘，EventHandler 会自动处理
-    console.log('[SettingsPage] API standard change event emitted, waiting for EventHandler to update UI');
+    Log.info('SettingsPage', 'API standard change event emitted, waiting for EventHandler to update UI');
   }
 
   /**
@@ -390,11 +391,11 @@ Pages.settings = function(container, kernel) {
    */
   function requestLoadModels() {
     if (!currentSettings) {
-      console.error('[SettingsPage] currentSettings is null, cannot load models');
+      Log.error('SettingsPage', 'currentSettings is null, cannot load models');
       return;
     }
     
-    console.log('[SettingsPage] requestLoadModels - current settings:', {
+    Log.info('SettingsPage', 'requestLoadModels - current settings:', {
       apiStandard: currentSettings.apiStandard,
       apiEndpoint: currentSettings.apiEndpoint,
       windowCurrentSettings: Pages.settings.currentSettings
@@ -416,6 +417,7 @@ Pages.settings = function(container, kernel) {
     
     currentSettings.theme = theme;
     setTheme(theme);
+    Log.info('SettingsPage', 'Theme changed:', theme);
     
     // 跟随配置一起持久化到 app_settings
     if (settingsManager) {
@@ -430,15 +432,15 @@ Pages.settings = function(container, kernel) {
    * 处理保存设置
    */
   function handleSaveSettings() {
-    console.log('[SettingsPage] handleSaveSettings called, currentSettings:', currentSettings);
+    Log.info('SettingsPage', 'handleSaveSettings called, currentSettings:', currentSettings);
     
     if (!currentSettings) {
-      console.error('[SettingsPage] currentSettings is null, cannot save');
+      Log.error('SettingsPage', 'currentSettings is null, cannot save');
       Toast?.error('设置数据未加载，请稍后重试');
       return;
     }
     
-    console.log('[SettingsPage] Emitting SAVE_REQUEST event with settings:', {
+    Log.info('SettingsPage', 'Emitting SAVE_REQUEST event with settings:', {
       apiStandard: currentSettings.apiStandard,
       apiEndpoint: currentSettings.apiEndpoint,
       model: currentSettings.model
@@ -480,7 +482,7 @@ Pages.settings = function(container, kernel) {
   function updateModelDropdown(forceShowAll = false) {
     const dropdown = document.getElementById('model-dropdown');
     
-    console.log('[SettingsPage] updateModelDropdown ',dropdown)
+    Log.info('SettingsPage', 'updateModelDropdown ', dropdown);
     if (!dropdown) return;
     
     const filtered = getFilteredModels(forceShowAll);
@@ -592,6 +594,7 @@ Pages.settings = function(container, kernel) {
     
     currentSettings.model = modelId;
     modelSearchValue = modelId;
+    Log.info('SettingsPage', 'Model selected:', modelId);
     
     const searchInput = document.getElementById('model-search');
     if (searchInput) {
@@ -946,7 +949,7 @@ Pages.settings = function(container, kernel) {
       }
     }
     
-    console.log('[SettingsPage] Model cache updated:', cachedModels.length, 'models');
+    Log.info('SettingsPage', 'Model cache updated:', cachedModels.length, 'models');
   }
 
   // 暴露方法供 EventHandler 调用

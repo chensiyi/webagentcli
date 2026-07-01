@@ -1,19 +1,22 @@
 /**
- * Kernel - ES Module 统一入口
+ * Kernel — ES Module 统一入口
  *
  * 所有内核模块通过 import/export 组织，可在任何 ES module 环境运行。
- * Vite 会将此入口打包为 Chrome 扩展兼容的 IIFE。
+ * 通过 Vite 统包为 dist/sidepanel.bundle.js（ES module 格式），
+ * 与 Shell 层合并为一个 bundle，由 sidepanel.html 以 type="module" 加载。
+ *
+ * 底部 _sidepanelShim 为历史遗留的 window 桥接，
+ * Shell 已全量 ES import，无消费者——待 Shell TS 化后移除。
  */
 
 // ==================== 内核核心 ====================
-import { KernelLog } from './KernelLog.js';
 import { IPC } from './IPC.js';
 import { KernelEvents } from './Events.js';
 import { ToolRegistry } from './ToolRegistry.js';
 import { CapabilityManager, CapabilityError } from './CapabilityManager.js';
 import { Kernel } from './Kernel.js';
 import { Bootloader } from './Bootloader.js';
-export { KernelLog, IPC, KernelEvents, ToolRegistry, CapabilityManager, CapabilityError, Kernel, Bootloader };
+export { IPC, KernelEvents, ToolRegistry, CapabilityManager, CapabilityError, Kernel, Bootloader };
 
 // ==================== 数据模型 ====================
 import { BaseModel } from './models/BaseModel.js';
@@ -31,12 +34,12 @@ export { BaseModel, ToolDefinition, ToolCall, ToolResult, TextBlock, ImageBlock,
 
 // ==================== 服务接口 ====================
 import { IStorageManager } from './services/IStorageManager.js';
-import { ISettings } from './services/ISettings.js';
-import { IProviderAPIService } from './services/IProviderAPIService.js';
-import { IScriptsManager } from './services/IScriptsManager.js';
-import { ISessionManager } from './services/ISessionManager.js';
+import { BaseSettings } from './services/ISettings.js';
+import { BaseProviderAPIService } from './services/IProviderAPIService.js';
+import { BaseScriptsManager } from './services/IScriptsManager.js';
+import { BaseSessionManager } from './services/ISessionManager.js';
 import { IToolService } from './services/IToolService.js';
-export { IStorageManager, ISettings, IProviderAPIService, IScriptsManager, ISessionManager, IToolService };
+export { IStorageManager, BaseSettings, BaseProviderAPIService, BaseScriptsManager, BaseSessionManager, IToolService };
 
 // ==================== Provider 实现 ====================
 import OpenAIService from './services/ProviderAPIServices/OpenAIService.js';
@@ -50,7 +53,9 @@ import { SettingsManager } from './services/SettingsManager.js';
 import { ScriptsManager } from './services/ScriptsManager.js';
 import { ProcessManager } from './services/ProcessManager.js';
 import { ProviderFactory } from './services/ProviderFactory.js';
-export { SessionManager, SettingsManager, ScriptsManager, ProcessManager, ProviderFactory };
+import { ConsoleLogger } from './services/ConsoleLogger.js';
+import { Log } from './services/Log.js';
+export { SessionManager, SettingsManager, ScriptsManager, ProcessManager, ProviderFactory, ConsoleLogger, Log };
 
 // ==================== 内核程序 ====================
 import { ChatProgram } from './programs/ChatProgram.js';
@@ -67,15 +72,14 @@ export const CODENAME = 'Microkernel-Esm';
 // Shell 壳层尚未迁移到 TS，需通过 window.X 访问 Kernel 类。Shell 迁移完成后可移除。
 const _sidepanelShim = [
   ['IStorageManager', IStorageManager],
-  ['ISettings', ISettings],
-  ['IProviderAPIService', IProviderAPIService],
-  ['IScriptsManager', IScriptsManager],
-  ['ISessionManager', ISessionManager],
+  ['BaseSettings', BaseSettings],
+  ['BaseProviderAPIService', BaseProviderAPIService],
+  ['BaseScriptsManager', BaseScriptsManager],
+  ['BaseSessionManager', BaseSessionManager],
   ['IToolService', IToolService],
   ['OpenAIService', OpenAIService],
   ['OpenRouterService', OpenRouterService],
   ['LMStudioService', LMStudioService],
-  ['KernelLog', KernelLog],
   ['IPC', IPC],
   ['ToolRegistry', ToolRegistry],
   ['CapabilityManager', CapabilityManager],

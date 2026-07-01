@@ -1,16 +1,18 @@
-import { IScriptsManager } from './IScriptsManager.js';
+import { BaseScriptsManager } from './IScriptsManager.js';
 import { KernelEvents } from '../Events.js';
-import { Kernel } from '../Kernel.js';
 import { IPC } from '../IPC.js';
 import { UserScript } from '../models/Scripts.js';
 
-export class ScriptsManager extends IScriptsManager {
-  kernel: Kernel;
+/** 最小 Kernel 接口，避免与 Kernel.ts 产生循环引用 */
+interface KernelRef { getIPC(): IPC | null; }
+
+export class ScriptsManager extends BaseScriptsManager {
+  kernel: KernelRef;
   ipc: IPC | null;
   scriptsChannel: IPC | null;
   scripts: UserScript[];
 
-  constructor(kernel: Kernel) {
+  constructor(kernel: KernelRef) {
     super();
     this.kernel = kernel;
     this.ipc = kernel?.getIPC();

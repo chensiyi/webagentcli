@@ -3,6 +3,7 @@
  * 负责注册设置页面的事件监听器，连接 View 和 Controller
  */
 
+import { Log } from '../../../kernel/services/Log.js';
 import { Events } from '../events.js';
 import { Toast } from '../utils/toast.js';
 import { Pages } from '../utils/dom.js';
@@ -55,51 +56,54 @@ class SettingsEventHandler {
   }
   
   _handleApiStandardChanged(data) {
+    Log.info('SettingsEventHandler', 'API standard changed:', data.apiStandard);
     if (this.settingsManager) this.settingsManager._handleApiStandardChange(data);
   }
   
   async _handleModelsRequest(data) {
+    Log.info('SettingsEventHandler', 'Models request:', { apiStandard: data.apiStandard, apiEndpoint: data.apiEndpoint });
     if (this.settingsManager) await this.settingsManager._handleModelsRequest(data);
   }
   
   _handleSettingsUpdate(data) {
+    Log.info('SettingsEventHandler', 'Settings updated:', Object.keys(data.updates || {}));
     if (this.settingsManager) this.settingsManager._handleSettingsUpdate(data);
   }
   
   async _handleSaveRequest(data) {
     const { settings } = data;
-    console.log('[SettingsEventHandler] Save request received:', { apiStandard: settings.apiStandard, apiEndpoint: settings.apiEndpoint, model: settings.model });
+    Log.info('SettingsEventHandler', 'Save request received:', { apiStandard: settings.apiStandard, apiEndpoint: settings.apiEndpoint, model: settings.model });
     try {
       if (this.settingsManager) {
         this.settingsManager.updateSettings(settings);
-        console.log('[SettingsEventHandler] Settings update delegated to SettingsManager');
+        Log.info('SettingsEventHandler', 'Settings update delegated to SettingsManager');
       }
     } catch (error) {
-      console.error('[SettingsEventHandler] Save error:', error);
+      Log.error('SettingsEventHandler', 'Save error:', error);
       Toast?.error('保存失败: ' + error.message);
     }
   }
   
   _handleApiEndpointChanged(data) {
     const { endpoint, isAutoFilled, apiStandard } = data;
-    console.log('[SettingsEventHandler] API_ENDPOINT_CHANGED received:', { endpoint, isAutoFilled, apiStandard, hasPages: !!Pages, hasSettingsPage: !!(Pages && Pages.settings) });
+    Log.info('SettingsEventHandler', 'API_ENDPOINT_CHANGED received:', { endpoint, isAutoFilled, apiStandard, hasPages: !!Pages, hasSettingsPage: !!(Pages && Pages.settings) });
     if (isAutoFilled && Pages && Pages.settings) {
       if (Pages.settings.currentSettings) {
-        console.log('[SettingsEventHandler] Before update - currentSettings:', { apiStandard: Pages.settings.currentSettings.apiStandard, apiEndpoint: Pages.settings.currentSettings.apiEndpoint });
+        Log.info('SettingsEventHandler', 'Before update - currentSettings:', { apiStandard: Pages.settings.currentSettings.apiStandard, apiEndpoint: Pages.settings.currentSettings.apiEndpoint });
         Pages.settings.currentSettings.apiEndpoint = endpoint;
         Pages.settings.currentSettings.apiStandard = apiStandard;
-        console.log('[SettingsEventHandler] After update - currentSettings:', { apiStandard: Pages.settings.currentSettings.apiStandard, apiEndpoint: Pages.settings.currentSettings.apiEndpoint });
+        Log.info('SettingsEventHandler', 'After update - currentSettings:', { apiStandard: Pages.settings.currentSettings.apiStandard, apiEndpoint: Pages.settings.currentSettings.apiEndpoint });
       } else {
-        console.warn('[SettingsEventHandler] Pages.settings.currentSettings is null!');
+        Log.warn('SettingsEventHandler', 'Pages.settings.currentSettings is null!');
       }
       const fillForm = Pages.settings.fillForm;
       if (typeof fillForm === 'function') {
-        console.log('[SettingsEventHandler] Calling fillForm with:', { apiStandard: Pages.settings.currentSettings?.apiStandard, apiEndpoint: Pages.settings.currentSettings?.apiEndpoint });
+        Log.info('SettingsEventHandler', 'Calling fillForm with:', { apiStandard: Pages.settings.currentSettings?.apiStandard, apiEndpoint: Pages.settings.currentSettings?.apiEndpoint });
         fillForm(Pages.settings.currentSettings);
       }
       const rerenderProviderConfig = Pages.settings.rerenderProviderConfig;
       if (typeof rerenderProviderConfig === 'function') rerenderProviderConfig();
-      console.log('[SettingsEventHandler] Auto-filled endpoint and re-rendered UI:', endpoint);
+      Log.info('SettingsEventHandler', 'Auto-filled endpoint and re-rendered UI:', endpoint);
     }
   }
   
@@ -113,7 +117,7 @@ class SettingsEventHandler {
     }
     const source = fromCache ? '（缓存）' : '';
     Toast?.success(`成功加载 ${count} 个模型${source}`);
-    console.log('[SettingsEventHandler] Models loaded:', count, fromCache ? '(from cache)' : '(from API)');
+    Log.info('SettingsEventHandler', 'Models loaded:', count, fromCache ? '(from cache)' : '(from API)');
   }
   
   _handleModelsError(data) {
@@ -121,12 +125,12 @@ class SettingsEventHandler {
     Toast?.error('加载失败: ' + error.message);
     const btn = document.getElementById('load-models-btn');
     if (btn) { btn.textContent = '加载模型'; btn.disabled = false; }
-    console.error('[SettingsEventHandler] Models load error:', error);
+    Log.error('SettingsEventHandler', 'Models load error:', error);
   }
   
   _handleSettingsSaved(data) {
     const { settings } = data;
-    console.log('[SettingsEventHandler] Settings saved successfully:', { apiStandard: settings.apiStandard, apiEndpoint: settings.apiEndpoint, model: settings.model });
+    Log.info('SettingsEventHandler', 'Settings saved successfully:', { apiStandard: settings.apiStandard, apiEndpoint: settings.apiEndpoint, model: settings.model });
     Toast?.success('设置已保存');
   }
   
@@ -162,7 +166,7 @@ class SettingsEventHandler {
     }
     if (providerService && this.kernel) {
       this.kernel.getProviderFactory().updateProvider(providerService);
-      console.log('[SettingsEventHandler] Provider service updated via ProviderFactory:', apiStandard, providerService.config);
+      Log.info('SettingsEventHandler', 'Provider service updated via ProviderFactory:', apiStandard, providerService.config);
     }
     // Agent 重构暂不可用，保留占位
     // if (window.Agent) { ... }
@@ -174,11 +178,12 @@ class SettingsEventHandler {
       const fillForm = Pages.settings.fillForm;
       if (typeof fillForm === 'function') fillForm(settings);
     }
-    console.log('[SettingsEventHandler] Settings loaded');
+    Log.info('SettingsEventHandler', 'Settings loaded');
   }
   
   async _handleConfirmReloadModels(data) {
     const { apiKey, apiEndpoint, apiStandard } = data;
+    Log.info('SettingsEventHandler', 'Reload models confirmed');
     const dialogResult = await new Promise((resolve) => {
       if (ConfirmDialog) {
         ConfirmDialog.show({ title: '刷新模型', message: '确定要重新从 API 拉取模型列表吗？这将清除当前缓存。', confirmText: '确定', cancelText: '取消', onConfirm: () => resolve(true) });

@@ -5,11 +5,12 @@
  * 同时支持 v1 output 数组格式和 OpenAI 兼容格式。
  * chat() 和 chatStream() 返回 StandardResponse，toolCalls 为 ToolCall[] 对象。
  */
-import { IProviderAPIService } from '../IProviderAPIService.js';
+import { BaseProviderAPIService } from '../IProviderAPIService.js';
 import { Settings } from '../../models/Settings.js';
 import * as MessageContent from '../../models/MessageContent.js';
+import { Log } from '../Log.js';
 
-class LMStudioService extends IProviderAPIService {
+class LMStudioService extends BaseProviderAPIService {
   constructor() {
     super();
     this.name = 'lm-studio';
@@ -136,6 +137,7 @@ class LMStudioService extends IProviderAPIService {
     request.stream = false;
     const body = this.buildRequestBody(request);
 
+    Log.info('LMStudioService', `Chat request: model=${body.model}, messages=${body.messages?.length}`);
     this.abortController = new AbortController();
 
     return fetch(url, {
@@ -143,12 +145,23 @@ class LMStudioService extends IProviderAPIService {
       signal: this.abortController.signal
     })
     .then(response => {
-      if (!response.ok) return response.text().then(t => { throw new Error(`LM Studio API error: ${response.status} - ${t}`); });
+      if (!response.ok) return response.text().then(t => {
+        Log.error('LMStudioService', `Chat HTTP ${response.status}: ${t.substring(0, 200)}`);
+        throw new Error(`LM Studio API error: ${response.status} - ${t}`);
+      });
       return response.json();
     })
-    .then(data => this._parseResponse(data))
+    .then(data => {
+      const result = this._parseResponse(data);
+      Log.info('LMStudioService', `Chat response received: finishReason=${result.finishReason}`);
+      return result;
+    })
     .catch(error => {
-      if (error.name === 'AbortError') { console.log('[LMStudioService] cancelled'); return null; }
+      if (error.name === 'AbortError') {
+        Log.info('LMStudioService', 'Chat cancelled');
+        return null;
+      }
+      Log.error('LMStudioService', 'Chat failed:', error);
       throw error;
     })
     .finally(() => { this.abortController = null; });
@@ -168,13 +181,18 @@ class LMStudioService extends IProviderAPIService {
     const pendingToolCalls = {}; // index → raw
     let pendingFinishReason = null;
 
+    Log.info('LMStudioService', `Stream request: model=${body.model}, messages=${body.messages?.length}`);
+
     return new Promise((resolve, reject) => {
       fetch(url, {
         method: 'POST', headers, body: JSON.stringify(body),
         signal: this.abortController.signal
       })
       .then(response => {
-        if (!response.ok) return response.text().then(t => { throw new Error(`LM Studio API error: ${response.status} - ${t}`); });
+        if (!response.ok) return response.text().then(t => {
+          Log.error('LMStudioService', `Stream HTTP ${response.status}: ${t.substring(0, 200)}`);
+          throw new Error(`LM Studio API error: ${response.status} - ${t}`);
+        });
 
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -184,6 +202,7 @@ class LMStudioService extends IProviderAPIService {
           return reader.read().then(({ done, value }) => {
             if (done) {
               const { MessageStructure } = MessageContent;
+              Log.info('LMStudioService', `Stream completed: content=${pendingContent.length}chars, finishReason=${pendingFinishReason || 'stop'}`);
               resolve({
                 content: pendingContent,
                 reasoning_content: pendingReasoning,
@@ -233,7 +252,7 @@ class LMStudioService extends IProviderAPIService {
                   onChunk({ content: raw.contentChunk || '', reasoning_content: raw.reasoningChunk || '' });
                 }
               } catch (e) {
-                console.warn('[LMStudioService] Failed to parse chunk:', e);
+                Log.warn('LMStudioService', 'Failed to parse chunk:', e);
               }
             }
             return processStream();
@@ -243,9 +262,10 @@ class LMStudioService extends IProviderAPIService {
       })
       .catch(error => {
         if (error.name === 'AbortError') {
-          console.log('[LMStudioService] Stream cancelled');
+          Log.info('LMStudioService', 'Stream cancelled');
           resolve(null);
         } else {
+          Log.error('LMStudioService', 'Stream failed:', error);
           reject(error);
         }
       })
@@ -276,7 +296,7 @@ class LMStudioService extends IProviderAPIService {
         if (result.data?.length) modelsArray = result.data;
         else if (result.models?.length) modelsArray = result.models;
         if (modelsArray.length === 0) return tryEndpoint(index + 1);
-        return modelsArray.map(m => ({
+        const mappedModels = modelsArray.map(m => ({
           id: m.key || m.id, name: m.name || m.key || m.id,
           context_length: m.max_context_length || m.context_length || null,
           max_output_tokens: m.max_output_tokens || null,
@@ -288,8 +308,10 @@ class LMStudioService extends IProviderAPIService {
           pricing: { prompt: 0, completion: 0 },
           ...m
         }));
+        Log.info('LMStudioService', `Model list fetched: ${mappedModels.length} models from ${url}`);
+        return mappedModels;
       })
-      .catch(e => { console.warn(`[LMStudioService] Failed from ${endpoints[index]}:`, e); return tryEndpoint(index + 1); });
+      .catch(e => { Log.warn('LMStudioService', `Failed from ${endpoints[index]}:`, e); return tryEndpoint(index + 1); });
     };
     return tryEndpoint(0);
   }

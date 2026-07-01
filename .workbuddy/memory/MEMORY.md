@@ -95,11 +95,10 @@ CORE_INIT → SERVICES_REGISTER → SERVICES_INIT → TOOLS_REGISTER → HANDLER
 - Programs 可脱离 UI 运行（如 ChatProgram 可以在后台独立运行）
 
 ## 待解决问题
-- 残留环境依赖：
+- 残留环境依赖（已加 FIXME 注释）：
   - `OpenRouterService.ts` 用 `window.location.href` 设 HTTP-Referer header
   - `ChatProgram.ts` 用 `chrome.tabs.query` 取 tabId 传给工具
 - **tsconfig 根源问题**：`strict:false` 等于关闭类型检查，建议逐步收紧
-- **待推进**：`I*` 前缀是 class 非 interface、大量 `unknown/any`、Manager 创建裸对象
 - `index.ts` 末尾 `_sidepanelShim` 是 Shell(JS) 桥接边界，Shell 迁移到 TS 后可移除
 
 ## 测试基础设施
@@ -116,4 +115,22 @@ CORE_INIT → SERVICES_REGISTER → SERVICES_INIT → TOOLS_REGISTER → HANDLER
 - **Shell msg.content 可为数组**：OpenAI 富文本格式 `[{type:'text', text:'...'}]`，Shell 代码需用 `extractText()` 统一处理（已暴露为 `window.extractText`）
 - **Provider 导出模式**：所有 ProviderService 采用双重导出 `export default class X` + `export { X };`（同时支持 default import 和 named import）
 - **`_sidepanelShim` 已无消费者**：Shell 统一用 ES import 后，kernel/index.ts 的 window 桥接代码不再被任何代码引用，Shell 全量 TS 化后可整块移除
-- **error-handler.js 仍需要**：内核 KernelLog 只做内部日志，不捕获浏览器级 `window.onerror` / `unhandledrejection`；error-handler.js 作为普通 `<script>` 在 HTML 中最先加载，二者互补不重叠
+- **日志系统统一**：`kernel/services/Log.ts` 全局单例，所有模块通过 `import { Log }` 使用
+  - 统一格式：`[HH:mm:ss] [TAG] message`
+  - API: `Log.debug/info/warn/error/fatal(tag, ...args)`
+  - 默认后端 ConsoleLogger（模块加载即可用），Kernel boot 时可 `Log.setLogger()` 升级
+  - `Log.setLevel('warn')` 级别过滤
+  - 已移除旧 IPC LOG 事件转发系统（Events.ts LOG 常量 + Kernel.ts 中 ~15 行监听代码）
+  - Kernel 服务层（SessionManager/SettingsManager）不再 DI 注入 log，改用 Log 单例
+  - 构建大小：59 模块，~130 kB
+
+## 2026-07-01 代码质量审查修复
+- **命名规范**：`ISessionManager/ISettings/IProviderAPIService/IScriptsManager` 全部是 class 非 interface → 重命名为 `BaseSessionManager/BaseSettings/BaseProviderAPIService/BaseScriptsManager`（12 文件）
+- **Kernel/ChatProgram**：不再 `extends Process`，直接声明 `name` 属性，消除 `state` 与 `status` 字段冗余
+- **循环依赖**：Kernel↔ScriptsManager 和 Kernel↔ProviderFactory 已解除，使用 `KernelRef` 最小接口替代直接 import
+- **Events 统一**：`sidepanel/js/events.js` 从 `kernel/Events.ts` 导入，不再重复定义事件常量
+- **ProviderFactory**：`off()` 修复（存储回调引用精确移除）；消除 if-else 三块重复代码；`kernel/ipc/settingsChannel` 从 `any` 改为正确类型
+- **安全修复**：OpenRouterService 不再日志打印含 API Key 的完整请求体；Settings.toJSON() apiKey 脱敏
+- **Bug 修复**：ChatProgram.createSession() 未 await（导致 session.id 为 undefined）
+- **死代码清理**：ChatProgram._onSessionChangedHandler 空方法、SettingsManager 4 个 stub 方法、CapabilityManager._audit 激活使用、SettingsManager 3 处无意义注释
+- **文档标注**：OpenRouterService window 依赖和 ChatProgram chrome.tabs 依赖添加 FIXME 注释

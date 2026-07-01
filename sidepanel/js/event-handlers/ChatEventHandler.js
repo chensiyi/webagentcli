@@ -8,6 +8,7 @@
  * 
  * 事件流：UI → ChatEventHandler（转译）→ ChatProgram.CMD.*（执行）
  */
+import { Log } from '../../../kernel/services/Log.js';
 import { Events } from '../events.js';
 import { Toast } from '../utils/toast.js';
 import { extractText } from '../components/Chat.js';
@@ -49,16 +50,16 @@ class ChatEventHandler {
 
     this.chatChannel.on(Events.CHAT.MESSAGE_UPDATED, (data) => this._handleMessageUpdated(data));
     this.chatChannel.on(Events.CHAT.STREAM_CHUNK_APPEND, (data) => this._handleStreamChunkAppend(data));
-    this.chatChannel.on(Events.CHAT.STREAM_START, () => console.log('[ChatEventHandler] Stream started'));
-    this.chatChannel.on(Events.CHAT.STREAM_COMPLETE, (data) => console.log('[ChatEventHandler] Stream completed:', data.duration ? `${data.duration}ms` : ''));
+    this.chatChannel.on(Events.CHAT.STREAM_START, () => Log.info('ChatEventHandler', 'Stream started'));
+    this.chatChannel.on(Events.CHAT.STREAM_COMPLETE, (data) => Log.info('ChatEventHandler', 'Stream completed:', data.duration ? `${data.duration}ms` : ''));
     this.chatChannel.on(Events.CHAT.STREAM_ERROR, (data) => {
-      console.error('[ChatEventHandler] Stream error:', data.error);
+      Log.error('ChatEventHandler', 'Stream error:', data.error);
       Toast?.error(data.message || '发送消息失败');
     });
 
     this.chatChannel.on(Events.TOOL.EXECUTING, (data) => this._handleToolExecuting(data));
     this.chatChannel.on(Events.TOOL.COMPLETED, (data) => this._handleToolCompleted(data));
-    this.chatChannel.on(Events.TOOL.ALL_COMPLETED, () => console.log('[ChatEventHandler] All tools completed'));
+    this.chatChannel.on(Events.TOOL.ALL_COMPLETED, () => Log.info('ChatEventHandler', 'All tools completed'));
 
     document.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
@@ -74,8 +75,9 @@ class ChatEventHandler {
 
   _handleApplySend(data) {
     const { content, reasoningEffort } = data;
-    if (!this.kernel) { console.error('[ChatEventHandler] Kernel not available'); return; }
-    if (!content?.trim()) { console.warn('[ChatEventHandler] Empty content blocked'); return; }
+    if (!this.kernel) { Log.error('ChatEventHandler', 'Kernel not available'); return; }
+    if (!content?.trim()) { Log.warn('ChatEventHandler', 'Empty content blocked'); return; }
+    Log.info('ChatEventHandler', `User send message: contentLength=${content.length}, reasoningEffort=${reasoningEffort || 'none'}`);
     const chatProgram = this.kernel?.chatProgram;
     if (chatProgram && typeof chatProgram.sendMessage === 'function') {
       chatProgram.sendMessage({ content, reasoningEffort });
@@ -85,6 +87,7 @@ class ChatEventHandler {
   }
 
   _handleApplyStop() {
+    Log.info('ChatEventHandler', 'User requested stop');
     const chatProgram = this.kernel?.chatProgram;
     if (chatProgram && typeof chatProgram.cancel === 'function') {
       chatProgram.cancel();
@@ -94,7 +97,8 @@ class ChatEventHandler {
   }
 
   _handleApplyDeleteMessage(data) {
-    if (!data?.messageId) { console.warn('[ChatEventHandler] Missing messageId'); return; }
+    if (!data?.messageId) { Log.warn('ChatEventHandler', 'Missing messageId'); return; }
+    Log.info('ChatEventHandler', 'Delete message:', data.messageId);
     const chatProgram = this.kernel?.chatProgram;
     if (chatProgram && typeof chatProgram.deleteMessage === 'function') {
       chatProgram.deleteMessage(data.messageId);
@@ -172,6 +176,7 @@ class ChatEventHandler {
 
   _handleToolExecuting(data) {
     const { toolCallId } = data;
+    Log.debug('ChatEventHandler', 'Tool executing:', toolCallId);
     const card = document.querySelector(`.tool-card[data-tool-call-id="${toolCallId}"]`);
     if (!card) return;
     const header = card.querySelector('.tool-card-header');
@@ -184,6 +189,7 @@ class ChatEventHandler {
 
   _handleToolCompleted(data) {
     const { toolCallId, status, duration } = data;
+    Log.debug('ChatEventHandler', 'Tool completed:', toolCallId, status, duration ? `${duration}ms` : '');
     const card = document.querySelector(`.tool-card[data-tool-call-id="${toolCallId}"]`);
     if (!card) return;
     const header = card.querySelector('.tool-card-header');

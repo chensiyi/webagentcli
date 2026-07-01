@@ -1,7 +1,7 @@
 import { IPC } from '../IPC.js';
 import { IStorageManager } from './IStorageManager.js';
 
-export class ISessionManager {
+export class BaseSessionManager {
   ipc: IPC | null;
   storage: IStorageManager | null;
 

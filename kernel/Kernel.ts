@@ -3,7 +3,7 @@
  * 
  * 职责：
  * - 服务注册表：管理所有服务的注册、懒加载、生命周期
- * - 承载内核子系统引用（IPC / ToolRegistry / CapabilityManager / KernelLog）
+ * - 承载内核子系统引用（IPC / ToolRegistry / CapabilityManager）
  * - 提供统一的 boot() / shutdown() 生命周期
  * - 零外部依赖，可在任何 JS 环境运行
  * 
@@ -12,10 +12,9 @@
  * - 所有业务逻辑在 Service 层，Kernel 不执行业务
  * - Kernel 不持有 window、chrome.*、document 引用
  */
-import { Process } from './models/Process.js';
 import { IStorageManager } from './services/IStorageManager.js';
-import { KernelLog } from './KernelLog.js';
 import { IPC } from './IPC.js';
+import { Log } from './services/Log.js';
 import { ToolRegistry } from './ToolRegistry.js';
 import { CapabilityManager } from './CapabilityManager.js';
 import { ProviderFactory } from './services/ProviderFactory.js';
@@ -23,14 +22,13 @@ import { ProcessManager } from './services/ProcessManager.js';
 import { ScriptsManager } from './services/ScriptsManager.js';
 import { SessionManager } from './services/SessionManager.js';
 import { SettingsManager } from './services/SettingsManager.js';
-import { Settings } from './models/Settings.js';
 
-export class Kernel extends Process{
+export class Kernel {
   static STATE = Object.freeze({ CREATED: 'created', BOOTING: 'booting', RUNNING: 'running', SHUTTING_DOWN: 'shutting_down', SHUTDOWN: 'shutdown', FAILED: 'failed' });
 
+  name: string;
   state: string;
   origin: string;
-  log: KernelLog | null;
   ipc: IPC | null;
   storage: IStorageManager | null;
   toolRegistry: ToolRegistry | null;
@@ -39,12 +37,10 @@ export class Kernel extends Process{
   private _hooks: { beforeBoot: unknown[]; afterBoot: unknown[]; beforeShutdown: unknown[]; afterShutdown: unknown[] };
   private _bootOrder: string[];
 
-  constructor(options: { name?: string; origin?: string; log?: KernelLog | null; ipc?: IPC | null; storage?: IStorageManager | null; toolRegistry?: ToolRegistry | null; capabilities?: CapabilityManager | null } = {}) {
-    super(options);
+  constructor(options: { name?: string; origin?: string; ipc?: IPC | null; storage?: IStorageManager | null; toolRegistry?: ToolRegistry | null; capabilities?: CapabilityManager | null } = {}) {
     this.name = options.name || 'kernel';
     this.state = Kernel.STATE.CREATED;
     this.origin = options.origin || 'kernel';
-    this.log = options.log || null;
     this.ipc = options.ipc || null;
     this.storage = options.storage || null;
     this.toolRegistry = options.toolRegistry || null;
@@ -57,22 +53,22 @@ export class Kernel extends Process{
   async boot() {
     if (this.state !== Kernel.STATE.CREATED) throw new Error(`[Kernel] Cannot boot: current state is "${this.state}"`);
     this.state = Kernel.STATE.BOOTING;
-    this.log?.info('KERNEL', 'Booting kernel...');
+    Log.info('KERNEL', 'Booting kernel...');
     try {
       await this._runHooks('beforeBoot');
       for (const [name, entry] of this._services) {
         if (entry.options.autoInit !== false) {
-          this.log?.debug('KERNEL', `Initializing service: ${name}`);
+          Log.debug('KERNEL', `Initializing service: ${name}`);
           await this._initService(name, entry);
           this._bootOrder.push(name);
         }
       }
       await this._runHooks('afterBoot');
       this.state = Kernel.STATE.RUNNING;
-      this.log?.info('KERNEL', `Kernel booted. Services: ${this._services.size} registered, ${this._bootOrder.length} initialized`);
+      Log.info('KERNEL', `Kernel booted. Services: ${this._services.size} registered, ${this._bootOrder.length} initialized`);
     } catch (error) {
       this.state = Kernel.STATE.FAILED;
-      this.log?.error('KERNEL', 'Kernel boot failed', error);
+      Log.error('KERNEL', 'Kernel boot failed', error);
       throw error;
     }
   }
@@ -80,24 +76,24 @@ export class Kernel extends Process{
   async shutdown() {
     if (this.state !== Kernel.STATE.RUNNING) return;
     this.state = Kernel.STATE.SHUTTING_DOWN;
-    this.log?.info('KERNEL', 'Shutting down kernel...');
+    Log.info('KERNEL', 'Shutting down kernel...');
     try {
       await this._runHooks('beforeShutdown');
       const initialized = Array.from(this._services.entries()).filter(([, e]) => e.instance !== null);
       for (const [name, entry] of initialized.reverse()) {
         if (entry.instance && typeof entry.instance.shutdown === 'function') {
-          this.log?.debug('KERNEL', `Shutting down service: ${name}`);
-          try { await entry.instance.shutdown(); } catch (e) { this.log?.warn('KERNEL', `Service "${name}" shutdown error`, e); }
+          Log.debug('KERNEL', `Shutting down service: ${name}`);
+          try { await entry.instance.shutdown(); } catch (e) { Log.warn('KERNEL', `Service "${name}" shutdown error`, e); }
         }
         entry.instance = null;
       }
       await this._runHooks('afterShutdown');
-      this.toolRegistry?.destroy(); this.capabilities?.destroy(); this.ipc?.destroy(); this.log?.destroy();
+      this.toolRegistry?.destroy(); this.capabilities?.destroy(); this.ipc?.destroy(); Log.getLogger()?.destroy();
       this.state = Kernel.STATE.SHUTDOWN;
-      this.log?.info('KERNEL', 'Kernel shutdown complete');
+      Log.info('KERNEL', 'Kernel shutdown complete');
     } catch (error) {
       this.state = Kernel.STATE.FAILED;
-      this.log?.error('KERNEL', 'Kernel shutdown failed', error);
+      Log.error('KERNEL', 'Kernel shutdown failed', error);
       throw error;
     }
   }
@@ -106,7 +102,7 @@ export class Kernel extends Process{
     if (this._services.has(name)) throw new Error(`[Kernel] Service "${name}" already registered`);
     if (this.state !== Kernel.STATE.CREATED && this.state !== Kernel.STATE.BOOTING) throw new Error(`[Kernel] Cannot register service "${name}" after boot`);
     this._services.set(name, { factory, instance: null, options: { autoInit: true, singleton: true, dependsOn: [], ...options } });
-    this.log?.debug('KERNEL', `Service registered: ${name}`);
+    Log.debug('KERNEL', `Service registered: ${name}`);
     return this;
   }
 
@@ -141,14 +137,14 @@ export class Kernel extends Process{
   }
 
   async _runHooks(phase) {
-    for (const hook of this._hooks[phase] || []) { try { await hook(this); } catch (e) { this.log?.error('KERNEL', `Hook error in "${phase}"`, e); throw e; } }
+    for (const hook of this._hooks[phase] || []) { try { await hook(this); } catch (e) { Log.error('KERNEL', `Hook error in "${phase}"`, e); throw e; } }
   }
 
   getInfo() {
     return {
       state: this.state, origin: this.origin,
       services: { total: this._services.size, initialized: Array.from(this._services.values()).filter(e => e.instance !== null).length, names: this.getServiceNames(), bootOrder: [...this._bootOrder] },
-      subsystems: { hasIPC: this.ipc !== null, hasLog: this.log !== null, hasToolRegistry: this.toolRegistry !== null, hasCapabilities: this.capabilities !== null }
+      subsystems: { hasIPC: this.ipc !== null, hasLog: true, hasToolRegistry: this.toolRegistry !== null, hasCapabilities: this.capabilities !== null }
     };
   }
 

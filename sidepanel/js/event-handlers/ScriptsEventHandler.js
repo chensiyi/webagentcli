@@ -3,6 +3,7 @@
  * 负责注册脚本页面的事件监听器，连接 View 和 Controller
  */
 
+import { Log } from '../../../kernel/services/Log.js';
 import { Events } from '../events.js';
 import { Toast } from '../utils/toast.js';
 import { Pages } from '../utils/dom.js';
@@ -40,7 +41,7 @@ class ScriptsEventHandler {
    */
   _handleScriptsLoaded(data) {
     const { scripts } = data;
-    console.log('[ScriptsEventHandler] Scripts loaded:', scripts.length);
+    Log.info('ScriptsEventHandler', 'Scripts loaded:', scripts.length);
     
     // 通知页面更新
     if (Pages && Pages.scripts) {
@@ -53,7 +54,7 @@ class ScriptsEventHandler {
    */
   _handleScriptsError(data) {
     const { error } = data;
-    console.error('[ScriptsEventHandler] Error:', error);
+    Log.error('ScriptsEventHandler', 'Error:', error);
     Toast?.error(error);
   }
   
@@ -61,6 +62,7 @@ class ScriptsEventHandler {
    * 处理安装脚本（由页面调用）
    */
   async handleInstall(code) {
+    Log.info('ScriptsEventHandler', 'Installing script, codeLength:', code?.length || 0);
     if (!code.trim()) {
       Toast?.warning('请输入脚本代码');
       return;
@@ -73,6 +75,7 @@ class ScriptsEventHandler {
    * 处理切换脚本状态（由页面调用）
    */
   async handleToggle(id, enabled) {
+    Log.info('ScriptsEventHandler', 'Toggle script:', id, '→', enabled ? 'enabled' : 'disabled');
     try {
       await this.scriptsManager.toggle(id, enabled);
     } catch (error) {
@@ -84,6 +87,7 @@ class ScriptsEventHandler {
    * 处理删除脚本（由页面调用）
    */
   async handleDelete(id) {
+    Log.info('ScriptsEventHandler', 'Delete script:', id);
     const confirmed = await Toast?.confirm?.({
       title: '删除脚本',
       message: '确定删除此脚本？此操作不可恢复。'
@@ -99,6 +103,7 @@ class ScriptsEventHandler {
    * 处理编辑脚本（由页面调用）
    */
   async handleEdit(id, code) {
+    Log.info('ScriptsEventHandler', 'Edit script:', id, 'codeLength:', code?.length || 0);
     try {
       await this.scriptsManager.updateCode(id, code);
     } catch (error) {

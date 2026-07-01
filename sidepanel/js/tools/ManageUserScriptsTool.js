@@ -3,6 +3,7 @@
  * 允许 AI 查看、安装、编辑、启用、禁用和删除用户脚本
  * 通过 kernel 的 storageAdapter 访问 chrome.storage，不直接调用 chrome API
  */
+import { Log } from '../../../kernel/services/Log.js';
 import { IToolService } from '../../../kernel/services/IToolService.js';
 import { ToolDefinition } from '../../../kernel/models/ToolDefinition.js';
 
@@ -92,28 +93,34 @@ class ManageUserScriptsTool extends IToolService {
 
       switch (args.action) {
         case 'list':
+          Log.info('ManageUserScriptsTool', 'action=list');
           return await getAllScripts();
 
         case 'install':
+          Log.info('ManageUserScriptsTool', 'action=install, codeLength:', args.code?.length || 0);
           if (!args.code) throw new Error('code is required');
           return await installScript(args.code);
 
         case 'update':
+          Log.info('ManageUserScriptsTool', 'action=update, id:', args.id);
           if (!args.id) throw new Error('id is required');
           if (!args.code) throw new Error('code is required');
           return await updateScriptCode(args.id, args.code);
 
         case 'toggle':
+          Log.info('ManageUserScriptsTool', 'action=toggle, id:', args.id, '→', args.enabled);
           if (!args.id) throw new Error('id is required');
           if (args.enabled === undefined) throw new Error('enabled is required');
           return await toggleScript(args.id, args.enabled);
 
         case 'delete':
+          Log.info('ManageUserScriptsTool', 'action=delete, id:', args.id);
           if (!args.id) throw new Error('id is required');
           await removeScript(args.id);
           return { success: true, id: args.id };
 
         default:
+          Log.warn('ManageUserScriptsTool', 'Unknown action:', args.action);
           throw new Error(`Unknown action: ${args.action}`);
       }
     };

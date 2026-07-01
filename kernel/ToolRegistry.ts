@@ -13,6 +13,8 @@
  * - 零外部依赖
  */
 
+import { Log } from './services/Log.js';
+
 export class ToolRegistry {
   private _tools: Map<string, unknown>;
   private _invocationHistory: Record<string, unknown>[];
@@ -36,7 +38,7 @@ export class ToolRegistry {
     return this;
   }
 
-  registerAll(tools) { tools.forEach(t => { try { this.register(t); } catch (e) { console.warn(e.message); } }); return this; }
+  registerAll(tools) { tools.forEach(t => { try { this.register(t); } catch (e) { Log.warn('ToolRegistry', e.message); } }); return this; }
   unregister(name) { this._tools.delete(name); return this; }
   get(name) { return this._tools.get(name) || null; }
   getAll() { return Array.from(this._tools.values()); }
@@ -75,10 +77,10 @@ export class ToolRegistry {
   runBeforeInvoke(toolCall: unknown, context: Record<string, unknown> = {}): boolean {
     if (!this._beforeInvoke) return true;
     try { const r = this._beforeInvoke(toolCall, context); return r !== false; }
-    catch (e) { console.error('[ToolRegistry] beforeInvoke error:', e); return false; }
+    catch (e) { Log.error('ToolRegistry', 'beforeInvoke error:', e); return false; }
   }
   runAfterInvoke(result: unknown, context: Record<string, unknown> = {}): void {
-    if (this._afterInvoke) { try { this._afterInvoke(result, context); } catch (e) { console.error('[ToolRegistry] afterInvoke error:', e); } }
+    if (this._afterInvoke) { try { this._afterInvoke(result, context); } catch (e) { Log.error('ToolRegistry', 'afterInvoke error:', e); } }
   }
 
   getStats(): { totalTools: number; enabledTools: number; disabledTools: number; totalInvocations: number; completed: number; failed: number; successRate: string } {

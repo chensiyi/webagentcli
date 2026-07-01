@@ -1,6 +1,6 @@
 import { IPC } from '../IPC.js';
 
-export class ISettings {
+export class BaseSettings {
   ipc: IPC | null;
 
   constructor(obj = null) {

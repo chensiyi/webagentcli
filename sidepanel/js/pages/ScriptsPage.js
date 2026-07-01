@@ -2,6 +2,7 @@
  * Scripts Page UI - 用户脚本管理页面
  */
 
+import { Log } from '../../../kernel/services/Log.js';
 import { Pages, DOM } from '../utils/dom.js';
 import { UI } from '../components/UI.js';
 import { Toast } from '../utils/toast.js';
@@ -11,14 +12,14 @@ Pages.scripts = function(container, kernel) {
   const { create, clear } = DOM;
 
   if (!kernel) {
-    console.error('[ScriptsPage] Kernel not available');
+    Log.error('ScriptsPage', 'Kernel not available');
     return;
   }
   
   const eventHandler = appState.scriptsEventHandler;
   
   if (!eventHandler) {
-    console.error('[ScriptsPage] ScriptsEventHandler not available');
+    Log.error('ScriptsPage', 'ScriptsEventHandler not available');
     container.innerHTML = '<div class="empty-state">事件处理器未初始化，请刷新页面重试</div>';
     return;
   }

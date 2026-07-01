@@ -2,6 +2,7 @@
  * HistoryPage - 历史会话管理页面
  */
 
+import { Log } from '../../../kernel/services/Log.js';
 import { Pages, DOM } from '../utils/dom.js';
 import { UI } from '../components/UI.js';
 import { TimeUtils } from '../utils/time.js';
@@ -12,7 +13,7 @@ Pages.history = function(container, kernel) {
   const { create, clear } = DOM;
 
   if (!kernel) {
-    console.error('[HistoryPage] Kernel not available');
+    Log.error('HistoryPage', 'Kernel not available');
     container.innerHTML = '<div class="empty-state">服务未初始化，请刷新页面重试</div>';
     return;
   }
@@ -47,6 +48,7 @@ Pages.history = function(container, kernel) {
   }
 
   async function deleteConversation(id) {
+    Log.info('HistoryPage', 'Delete conversation requested:', id);
     const confirmed = await Toast.confirm({
       title: '删除对话',
       message: '确定删除此对话？此操作不可恢复。'
@@ -56,11 +58,13 @@ Pages.history = function(container, kernel) {
     
     // 历史页面删除会话时不自动切换，避免影响用户当前浏览的页面
     sessionManager.deleteSession(id, false);
+    Log.info('HistoryPage', 'Conversation deleted:', id);
     render();
     Toast.success('对话已删除');
   }
   
   async function loadConversation(id) {
+    Log.info('HistoryPage', 'Load conversation:', id);
     sessionManager.setCurrentSession(id);
     
     if (appState.App && appState.App.navigateTo) {

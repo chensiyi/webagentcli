@@ -1,4 +1,4 @@
-export class IScriptsManager {
+export class BaseScriptsManager {
   constructor() {}
   async load() {}
   getScripts() { return []; }

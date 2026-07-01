@@ -14,6 +14,8 @@
  * - 可在任何 JS 环境运行
  */
 
+import { Log } from './services/Log.js';
+
 /** IPC 消息结构统一定义 */
 export interface IPCMessage {
   event: string;
@@ -85,7 +87,7 @@ export class IPC {
       const callbacks = [...cbs];
       callbacks.forEach(callback => {
         try { callback(message.data, message); this.stats.totalDelivered++; statsEvent.delivered++; }
-        catch (error) { this.stats.totalErrors++; console.error(`[IPC] Error in listener for "${event}":`, error); }
+        catch (error) { this.stats.totalErrors++; Log.error('IPC', `Error in listener for "${event}":`, error); }
       });
     }
     return message;
@@ -136,7 +138,7 @@ export class IPC {
       if (index >= middlewares.length) return true;
       const mw = middlewares[index++];
       try { const r = mw(message, next); return r !== false; }
-      catch (error) { console.error('[IPC] Middleware error:', error); return true; }
+      catch (error) { Log.error('IPC', 'Middleware error:', error); return true; }
     };
     return next() !== false;
   }

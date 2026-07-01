@@ -1,5 +1,5 @@
-import { Process } from '../models/Process.js';
 import { KernelEvents } from '../Events.js';
+import { Log } from '../services/Log.js';
 import { MessagesRequest, ThinkingConfig, MessageStructure } from '../models/MessageContent.js';
 import { Message, Role } from '../models/Message.js';
 import { ToolResult } from '../models/ToolResult.js';
@@ -22,7 +22,8 @@ const STATE = Object.freeze({
   STOPPED: 'stopped',
 });
 
-export class ChatProgram extends Process {
+export class ChatProgram {
+  name: string;
   kernel: Kernel;
   ipc: IPC | null;
   chatChannel: IPC | null;
@@ -30,8 +31,8 @@ export class ChatProgram extends Process {
   _state: string;
   _currentRequest: Record<string, unknown> | null;
 
-  constructor(options: { kernel: Kernel; name?: string } = { kernel: null , name: 'ChatProgram' }) {
-    super({ name: options.name || 'ChatProgram' });
+  constructor(options: { kernel: Kernel; name?: string } = { kernel: null as unknown as Kernel, name: 'ChatProgram' }) {
+    this.name = options.name || 'ChatProgram';
     this.kernel = options.kernel;
     this.ipc = this.kernel.getIPC();
     this.chatChannel = this.ipc?.getOrCreateChannel('chat');
@@ -41,7 +42,8 @@ export class ChatProgram extends Process {
     this.chatChannel.on(CMD.SEND, (data: unknown) => this.sendMessage(data as Record<string, unknown>));
     this.chatChannel.on(CMD.STOP, () => this.cancel());
     this.chatChannel.on(CMD.DELETE_MESSAGE, (data: unknown) => this.deleteMessage((data as { messageId: string }).messageId));
-    this.chatChannel.on(KernelEvents.CHAT.CURRENT_SESSION_CHANGED, () => this._onSessionChangedHandler());
+    // 会话切换时重置状态（暂无额外处理逻辑）
+    this.chatChannel.on(KernelEvents.CHAT.CURRENT_SESSION_CHANGED, () => { this._assistantMsgId = null; this._currentRequest = null; });
   }
 
   async sendMessage({ content = '', sessionId = null, model = null, reasoningEffort = undefined, isToolContinuation = false } = {}) {
@@ -69,7 +71,7 @@ export class ChatProgram extends Process {
       session = sessionId ? sm.getSession(sessionId) : sm.getCurrentSession();
       if (!session) {
         if (isToolContinuation) throw new Error('Session required for tool continuation');
-        session = sm.createSession({ title: '新对话', reasoningEffort: reasoningEffort || defaultEffort });
+        session = await sm.createSession({ title: '新对话', reasoningEffort: reasoningEffort || defaultEffort });
         this._emit(KernelEvents.CHAT.CURRENT_SESSION_CHANGED, { sessionId: session.id });
       } else if (reasoningEffort && session.reasoningEffort !== reasoningEffort) {
         session.reasoningEffort = reasoningEffort;
@@ -101,9 +103,9 @@ export class ChatProgram extends Process {
       if (service && service.cacheOptions) {
         const cacheKey = `webagentcli:session:${session.id}`;
         service.cacheOptions.sessionCacheKey = cacheKey;
-        console.log(`[ChatProgram] Provider cache key injected: ${cacheKey} (provider=${service.name}, cacheEnabled=${service.cacheOptions.enabled})`);
+        Log.info('ChatProgram', `Provider cache key injected: ${cacheKey} (provider=${service.name}, cacheEnabled=${service.cacheOptions.enabled})`);
       } else {
-        console.warn('[ChatProgram] No service.cacheOptions available — provider caching disabled');
+        Log.warn('ChatProgram', 'No service.cacheOptions available — provider caching disabled');
       }
 
       const assistantMsg = new Message({ role: 'assistant', content: '' });
@@ -168,7 +170,7 @@ export class ChatProgram extends Process {
         if (!this._currentRequest && this._state !== STATE.IDLE) {
           this._setState(STATE.IDLE);
         }
-      }, 50);
+      }, 50); // 50ms 延迟确保 flushAllStreamWrites 完成后再重置状态
     }
   }
 
@@ -187,6 +189,7 @@ export class ChatProgram extends Process {
           toolResult = new ToolResult({ toolCallId: tc.id, status: 'failed', error: `Unknown tool: ${tc.toolName}` });
         } else {
           let tabId = null;
+          // FIXME: chrome.tabs 依赖 — 已知浏览器环境耦合（参见 MEMORY.md）
           try { const tabs = await chrome.tabs.query({ active: true, currentWindow: true }); tabId = tabs[0]?.id; } catch (e) { /* ignore */ }
           toolResult = await tool.invoke(tc, { sessionId, tabId, kernel: this.kernel });
         }
@@ -252,14 +255,10 @@ export class ChatProgram extends Process {
     this.chatChannel.emit(event, data);
   }
 
-  _onSessionChangedHandler() {
-    // 会话切换处理
-  }
-
   _providerHasCache(service, modelId) {
     if (!service || !service.cacheOptions || !service.cacheOptions.enabled) return false;
     switch (service.name) {
-      case 'openai': return /^(o\d|gpt-4\.1|gpt-4o)/i.test(modelId || '');
+      case 'openai': return /^(o\d|gpt-4\.1|gpt-4o)/i.test(modelId || ''); // 启发式匹配已知支持缓存 Prompt Caching 的模型
       case 'openrouter': return !modelId?.includes('free');
       case 'lm-studio': return true;
       default: return false;

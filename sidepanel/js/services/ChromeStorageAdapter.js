@@ -5,6 +5,7 @@
  * 同时实现底层存储操作和上层管理功能
  */
 
+import { Log } from '../../../kernel/services/Log.js';
 import { IStorageManager } from '../../../kernel/services/IStorageManager.js';
 import { Events } from '../events.js';
 
@@ -16,7 +17,7 @@ class ChromeStorageAdapter extends IStorageManager {
     super(kernel);
     this.storage = chrome.storage.local;
     const ipc = kernel?.getIPC();
-    console.log('[ChromeStorageAdapter] ipc type:', ipc?.constructor?.name, 'methods:', Object.keys(ipc || {}));
+    Log.info('ChromeStorageAdapter', 'ipc type:', ipc?.constructor?.name, 'methods:', Object.keys(ipc || {}));
     this.ipc = ipc;
     this.storageChannel = ipc?.getOrCreateChannel ? ipc.getOrCreateChannel('storage') : ipc;
   }

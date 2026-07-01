@@ -1,4 +1,27 @@
+/**
+ * Bootloader — 内核启动引导器
+ *
+ * 职责：
+ * - 按固定 8 阶段顺序启动内核
+ * - 每个阶段可注册钩子（hook），由 Shell 层注入具体逻辑
+ * - 阶段计时与结果追踪
+ *
+ * 启动阶段：
+ *   CORE_INIT → SERVICES_REGISTER → SERVICES_INIT → TOOLS_REGISTER
+ *   → HANDLERS_INIT → CONFIG_LOAD → UI_RENDER → READY
+ *
+ * 使用方式：
+ *   const bl = new Bootloader(kernel);
+ *   bl.on(Bootloader.PHASES.SERVICES_REGISTER, async (bl) => { ... });
+ *   await bl.boot();
+ *
+ * 设计原则：
+ * - Bootloader 只管理启动流程，不执行业务逻辑
+ * - 业务逻辑由 Shell 层通过 on() 注册的钩子注入
+ * - 零外部依赖（仅依赖 Kernel 实例通过 constructor 注入）
+ */
 import { Kernel } from './Kernel.js';
+import { Log } from './services/Log.js';
 
 export class Bootloader {
   static PHASES = Object.freeze({
@@ -33,27 +56,27 @@ export class Bootloader {
 
   async boot(): Promise<void> {
     const k = this.kernel;
-    k.log?.info('BOOT', 'Bootloader starting...');
+    Log.info('BOOT', 'Bootloader starting...');
     for (const phase of Bootloader.PHASE_ORDER) {
       this.currentPhase = phase;
       const start = Date.now();
-      k.log?.info('BOOT', `Phase: ${phase}`);
+      Log.info('BOOT', `Phase: ${phase}`);
       try {
         await this._runPhaseHooks(phase);
         const dur = Date.now() - start;
         this._phaseTimings.push({ phase, dur });
         this.phaseResults.set(phase, { status: 'completed', dur });
-        k.log?.info('BOOT', `Phase "${phase}" completed in ${dur}ms`);
+        Log.info('BOOT', `Phase "${phase}" completed in ${dur}ms`);
       } catch (err: unknown) {
         const dur = Date.now() - start;
         this._phaseTimings.push({ phase, dur });
         this.phaseResults.set(phase, { status: 'failed', dur, error: (err as Error)?.message ?? String(err) });
-        k.log?.error('BOOT', `Phase "${phase}" failed`, err);
+        Log.error('BOOT', `Phase "${phase}" failed`, err);
         throw err;
       }
     }
     this.currentPhase = Bootloader.PHASES.READY;
-    k.log?.info('BOOT', 'Bootloader complete');
+    Log.info('BOOT', 'Bootloader complete');
   }
 
   async _runPhaseHooks(phase: string): Promise<void> {

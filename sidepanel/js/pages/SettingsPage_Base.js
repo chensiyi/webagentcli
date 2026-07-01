@@ -4,6 +4,7 @@
  * 实现通用的 Provider 配置项渲染逻辑
  */
 
+import { Log } from '../../../kernel/services/Log.js';
 import { ISettings } from './ISettings.js';
 import { DOM } from '../utils/dom.js';
 import { UI } from '../components/UI.js';
@@ -55,12 +56,12 @@ class SettingsPage_Base extends ISettings {
    */
   validate(settings) {
     if (!settings.apiEndpoint) {
-      console.warn('[SettingsPage_Base] API Endpoint is required');
+      Log.warn('SettingsPage_Base', 'API Endpoint is required');
       return false;
     }
     
     if (this.requiresApiKey() && !settings.apiKey) {
-      console.warn('[SettingsPage_Base] API Key is required for this provider');
+      Log.warn('SettingsPage_Base', 'API Key is required for this provider');
       return false;
     }
     
