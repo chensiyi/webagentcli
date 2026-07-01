@@ -2,17 +2,21 @@
  * Bootloader — 内核启动引导器
  *
  * 职责：
- * - 按固定 8 阶段顺序启动内核
+ * - 按固定 4 阶段顺序启动内核
  * - 每个阶段可注册钩子（hook），由 Shell 层注入具体逻辑
  * - 阶段计时与结果追踪
  *
- * 启动阶段：
- *   CORE_INIT → SERVICES_REGISTER → SERVICES_INIT → TOOLS_REGISTER
- *   → HANDLERS_INIT → CONFIG_LOAD → UI_RENDER → READY
+ * 启动阶段（8→4 精简后）：
+ *   INIT → REGISTER → START → READY
+ *
+ * - INIT:      创建 IPC、Log、ToolRegistry、CapabilityManager（基础设施就绪）
+ * - REGISTER:  注册所有服务工厂到 Kernel
+ * - START:     初始化服务 + 加载配置 + 注册工具 + 创建 Programs
+ * - READY:     启动完成
  *
  * 使用方式：
  *   const bl = new Bootloader(kernel);
- *   bl.on(Bootloader.PHASES.SERVICES_REGISTER, async (bl) => { ... });
+ *   bl.on(Bootloader.PHASES.REGISTER, async (bl) => { ... });
  *   await bl.boot();
  *
  * 设计原则：
@@ -25,13 +29,16 @@ import { Log } from './services/Log.js';
 
 export class Bootloader {
   static PHASES = Object.freeze({
-    CORE_INIT: 'core_init', SERVICES_REGISTER: 'services_register', SERVICES_INIT: 'services_init',
-    TOOLS_REGISTER: 'tools_register', HANDLERS_INIT: 'handlers_init', CONFIG_LOAD: 'config_load', UI_RENDER: 'ui_render', READY: 'ready'
+    INIT: 'init',
+    REGISTER: 'register',
+    START: 'start',
+    READY: 'ready'
   });
   static PHASE_ORDER = [
-    Bootloader.PHASES.CORE_INIT, Bootloader.PHASES.SERVICES_REGISTER, Bootloader.PHASES.SERVICES_INIT,
-    Bootloader.PHASES.TOOLS_REGISTER, Bootloader.PHASES.HANDLERS_INIT, Bootloader.PHASES.CONFIG_LOAD,
-    Bootloader.PHASES.UI_RENDER, Bootloader.PHASES.READY
+    Bootloader.PHASES.INIT,
+    Bootloader.PHASES.REGISTER,
+    Bootloader.PHASES.START,
+    Bootloader.PHASES.READY
   ];
 
   kernel: Kernel;
@@ -55,7 +62,6 @@ export class Bootloader {
   }
 
   async boot(): Promise<void> {
-    const k = this.kernel;
     Log.info('BOOT', 'Bootloader starting...');
     for (const phase of Bootloader.PHASE_ORDER) {
       this.currentPhase = phase;

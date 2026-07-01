@@ -108,6 +108,8 @@ export const KernelEvents = {
     STARTED: 'task:started',
     COMPLETED: 'task:completed',
     CANCELLED: 'task:cancelled',
+    CANCEL_REQUEST: 'task:cancelRequest',
+    FORCE_KILLED: 'task:forceKilled',
     RETRIED: 'task:retried',
     DELETED: 'task:deleted',
     BATCH_UPDATE: 'task:batchUpdate',
@@ -117,7 +119,6 @@ export const KernelEvents = {
     CHANNEL_CREATED: 'ipc:channelCreated',
     MESSAGE_SENT: 'ipc:messageSent',
     MESSAGE_RECEIVED: 'ipc:messageReceived',
-    REQUEST_TIMEOUT: 'ipc:requestTimeout',
   },
   CAPABILITY: {
     CHECK: 'capability:check',

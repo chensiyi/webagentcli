@@ -72,13 +72,13 @@ async function bootWithKernel() {
   const app = {};
 
   app.log = new ConsoleLogger();
-  app.ipc = new IPC({ origin: 'sidepanel', maxHistory: 200 });
+  app.ipc = new IPC({ origin: 'sidepanel' });
 
   const toolRegistry = new ToolRegistry();
   const capabilities = new CapabilityManager();
 
   app.ipc.use((message, next) => {
-    app.log.debug('IPC', `Event: ${message.event} (priority: ${message.priorityName}, origin: ${message.origin})`);
+    app.log.debug('IPC', `Event: ${message.event} (origin: ${message.origin})`);
     return next();
   });
 
@@ -93,14 +93,14 @@ async function bootWithKernel() {
   bootloader = new Bootloader(kernel);
 
   bootloader.on(
-    Bootloader.PHASES.CORE_INIT,
+    Bootloader.PHASES.INIT,
     async (bl) => {
       app.log.info('BOOT', 'IPC ready');
     }
   );
 
   bootloader.on(
-    Bootloader.PHASES.SERVICES_REGISTER,
+    Bootloader.PHASES.REGISTER,
     async (bl) => {
       const chromeStorageAdapter = new ChromeStorageAdapter(kernel);
 
@@ -133,16 +133,13 @@ async function bootWithKernel() {
   );
 
   bootloader.on(
-    Bootloader.PHASES.SERVICES_INIT,
+    Bootloader.PHASES.START,
     async (bl) => {
+      // 1. 初始化所有服务（ProcessManager.init 在此自动调用，注册 IPC 监听）
       await kernel.boot();
       app.log.info('APP', 'Services initialized from Kernel');
-    }
-  );
 
-  bootloader.on(
-    Bootloader.PHASES.TOOLS_REGISTER,
-    async (bl) => {
+      // 2. 注册内置工具
       const builtInClasses = [RunUserScriptTool, ManageUserScriptsTool];
       builtInClasses.forEach(ToolClass => {
         if (typeof ToolClass !== 'function') return;
@@ -156,26 +153,18 @@ async function bootWithKernel() {
           app.log.warn('TOOL', 'Failed to register tool', e);
         }
       });
-    }
-  );
 
-  bootloader.on(
-    Bootloader.PHASES.HANDLERS_INIT,
-    async (bl) => {
+      // 3. 创建 ChatProgram 和 EventHandlers
       app.chatProgram = new ChatProgram({ kernel: kernel, name: 'main' });
-      kernel.chatProgram = app.chatProgram; // 使 ChatPage 等可通过 kernel 访问
+      kernel.chatProgram = app.chatProgram;
       app.log.info('APP', 'ChatProgram initialized');
 
       appState.chatEventHandler = new ChatEventHandler(kernel);
       appState.settingsEventHandler = new SettingsEventHandler(kernel);
       appState.storageEventHandler = new StorageEventHandler(kernel);
       appState.scriptsEventHandler = new ScriptsEventHandler(kernel);
-    }
-  );
 
-  bootloader.on(
-    Bootloader.PHASES.CONFIG_LOAD,
-    async (bl) => {
+      // 4. 加载配置
       const settingsManager = kernel.getSettingsManager();
       await settingsManager.loadSettings();
       app.providerFactory = kernel.getProviderFactory();

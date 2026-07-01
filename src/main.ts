@@ -29,13 +29,13 @@ async function bootKernel() {
   console.log('[SvelteApp] Booting Kernel...');
 
   const log = new ConsoleLogger();
-  const ipc = new IPC({ origin: 'svelte-app', maxHistory: 200 });
+  const ipc = new IPC({ origin: 'svelte-app' });
 
   const toolRegistry = new ToolRegistry();
   const capabilities = new CapabilityManager();
 
   ipc.use((message, next) => {
-    log.debug('IPC', `Event: ${message.event} (priority: ${message.priorityName}, origin: ${message.origin})`);
+    log.debug('IPC', `Event: ${message.event} (origin: ${message.origin})`);
     return next();
   });
 
@@ -49,13 +49,13 @@ async function bootKernel() {
 
   const bootloader = new Bootloader(kernel);
 
-  // ---- Phase 1: CORE_INIT ----
-  bootloader.on(Bootloader.PHASES.CORE_INIT, async () => {
+  // ---- Phase 1: INIT ----
+  bootloader.on(Bootloader.PHASES.INIT, async () => {
     log.info('BOOT', 'IPC ready');
   });
 
-  // ---- Phase 2: SERVICES_REGISTER ----
-  bootloader.on(Bootloader.PHASES.SERVICES_REGISTER, async () => {
+  // ---- Phase 2: REGISTER ----
+  bootloader.on(Bootloader.PHASES.REGISTER, async () => {
     const chromeStorageAdapter = new ChromeStorageAdapter(kernel);
 
     kernel.register('storageAdapter', async () => chromeStorageAdapter);
@@ -84,14 +84,13 @@ async function bootKernel() {
     }, { dependsOn: ['settingsManager'] });
   });
 
-  // ---- Phase 3: SERVICES_INIT ----
-  bootloader.on(Bootloader.PHASES.SERVICES_INIT, async () => {
+  // ---- Phase 3: START ----
+  bootloader.on(Bootloader.PHASES.START, async () => {
+    // 1. 初始化所有服务（ProcessManager.init 在此自动调用，注册 IPC 监听）
     await kernel.boot();
     log.info('APP', 'Services initialized from Kernel');
-  });
 
-  // ---- Phase 4: TOOLS_REGISTER ----
-  bootloader.on(Bootloader.PHASES.TOOLS_REGISTER, async () => {
+    // 2. 注册内置工具
     const builtInClasses = [RunUserScriptTool, ManageUserScriptsTool];
     builtInClasses.forEach((ToolClass) => {
       if (typeof ToolClass !== 'function') return;
@@ -105,17 +104,13 @@ async function bootKernel() {
         log.warn('TOOL', 'Failed to register tool', e);
       }
     });
-  });
 
-  // ---- Phase 5: HANDLERS_INIT ----
-  bootloader.on(Bootloader.PHASES.HANDLERS_INIT, async () => {
+    // 3. 创建 ChatProgram
     const chatProgram = new ChatProgram({ kernel, name: 'main' });
     (kernel as any).chatProgram = chatProgram;
     log.info('APP', 'ChatProgram initialized');
-  });
 
-  // ---- Phase 6: CONFIG_LOAD ----
-  bootloader.on(Bootloader.PHASES.CONFIG_LOAD, async () => {
+    // 4. 加载配置
     const settingsManager = kernel.getSettingsManager();
     await settingsManager.loadSettings();
     log.info('APP', 'ProviderFactory ready');

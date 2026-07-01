@@ -31,7 +31,7 @@ Chrome MV3 侧边栏扩展，为 AI Agent 提供浏览器内运行环境（多 P
 ### Kernel 层（TypeScript，Vite 打包）
 - 入口: `kernel/index.ts`（聚合导出 + `_sidepanelShim` 桥接）
 - `_sidepanelShim`：残留在 index.ts 末尾，将核心类挂到 window。Shell ES module 化后已无消费者（app.js 直接 import），保留为兼容，Shell 全量 TS 化后可移除
-- 核心: `Kernel.ts`(服务注册表+生命周期) / `Bootloader.ts`(8 阶段启动) / `IPC.ts`(通道+优先级+中间件) / `ToolRegistry.ts` / `CapabilityManager.ts` / `KernelLog.ts`
+- 核心: `Kernel.ts`(服务注册表+生命周期) / `Bootloader.ts`(4 阶段启动) / `IPC.ts`(通道+中间件，精简后) / `ToolRegistry.ts` / `CapabilityManager.ts`
 - models/: 纯数据原型（BaseModel, Message, Session, Settings, Model, ToolCall, ToolResult, ToolDefinition, MessageContent, Process, UserScript）—— 不含 infra 依赖和集合管理方法
 - services/: 管理接口(I*Manager) + 实现(SessionManager, SettingsManager, ScriptsManager, ProcessManager, ProviderFactory) + ProviderAPIServices/(OpenAI, OpenRouter, LMStudio)
 - programs/: ChatProgram（聊天+工具调用循环，可脱离 UI 运行）
@@ -55,8 +55,8 @@ Chrome MV3 侧边栏扩展，为 AI Agent 提供浏览器内运行环境（多 P
 1. **Kernel ↔ Shell 引用**：Shell 通过 ES import 直接引用 kernel 模块，不再靠 window 全局（`_sidepanelShim` 已无消费者）
 2. **Kernel ↔ Shell 运行时通信**：通过 IPC 事件总线
    - IPC 有 channel 机制（`getOrCreateChannel('chat')`，返回子 IPC 实例）
-   - 消息有优先级、来源追踪、中间件链
-   - 支持 request/response 模式
+   - 中间件链（use），来源追踪（origin）
+   - 已移除：优先级系统、request/response、统计、消息历史（2026-07-02 精简）
 
 ## 事件流向（聊天流程）
 
@@ -71,21 +71,21 @@ Chrome MV3 侧边栏扩展，为 AI Agent 提供浏览器内运行环境（多 P
 → 自动续发: ChatProgram.sendMessage({ isToolContinuation: true })
 ```
 
-## Bootloader 启动阶段（8 阶段）
+## Bootloader 启动阶段（4 阶段，2026-07-02 精简）
 
-在 `app.js` 中通过 Bootloader 注册钩子完成启动：
+在 `app.js` / `src/main.ts` 中通过 Bootloader 注册钩子完成启动：
 
 ```
-CORE_INIT → SERVICES_REGISTER → SERVICES_INIT → TOOLS_REGISTER → HANDLERS_INIT → CONFIG_LOAD → UI_RENDER → READY
+INIT → REGISTER → START → READY
 ```
 
-- CORE_INIT: IPC 和 Log 已创建（无需额外操作）
-- SERVICES_REGISTER: 注册 Kernel 的所有服务（SessionManager, SettingsManager, ScriptsManager, ProcessManager, ProviderFactory）
-- SERVICES_INIT: 初始化所有已注册服务（按依赖顺序）
-- TOOLS_REGISTER: 注册内置工具（RunUserScriptTool, ManageUserScriptsTool）
-- HANDLERS_INIT: 创建 ChatProgram 实例和各类 EventHandler
-- CONFIG_LOAD: 加载 Settings，创建 ProviderFactory
-- UI_RENDER: 渲染页面（实际在 app.js 的 Phase 2 单独完成）
+- INIT: IPC 和 Log 已创建（基础设施就绪）
+- REGISTER: 注册 Kernel 的所有服务（SessionManager, SettingsManager, ScriptsManager, ProcessManager, ProviderFactory）
+- START: 合并原 SERVICES_INIT + TOOLS_REGISTER + HANDLERS_INIT + CONFIG_LOAD
+  - 初始化所有服务（ProcessManager.init 自动调用，注册 IPC 监听）
+  - 注册内置工具（RunUserScriptTool, ManageUserScriptsTool）
+  - 创建 ChatProgram 实例和各类 EventHandler
+  - 加载 Settings，创建 ProviderFactory
 - READY: 启动完成
 
 ## 设计原则
@@ -122,7 +122,27 @@ CORE_INIT → SERVICES_REGISTER → SERVICES_INIT → TOOLS_REGISTER → HANDLER
   - `Log.setLevel('warn')` 级别过滤
   - 已移除旧 IPC LOG 事件转发系统（Events.ts LOG 常量 + Kernel.ts 中 ~15 行监听代码）
   - Kernel 服务层（SessionManager/SettingsManager）不再 DI 注入 log，改用 Log 单例
-  - 构建大小：59 模块，~130 kB
+  - 构建大小：206 模块，sidepanel.bundle.js ~71 kB，svelte-app.bundle.js ~104 kB
+
+## 2026-07-02 Kernel Phase 3 清理
+
+### IPC 精简
+- 移除：PRIORITY/PRIORITY_NAMES、emitHigh/emitLow、request/onRequest/respond/respondError、stats/getStats、messageHistory/getHistory/clearHistory/maxHistory
+- 保留：on/off/once/emit/use(中间件)/getOrCreateChannel + 基本查询
+- IPCMessage 简化：移除 priority/priorityName，保留 event/data/timestamp/id/origin
+
+### Bootloader 8→4 阶段
+- 旧：CORE_INIT → SERVICES_REGISTER → SERVICES_INIT → TOOLS_REGISTER → HANDLERS_INIT → CONFIG_LOAD → UI_RENDER → READY
+- 新：INIT → REGISTER → START → READY
+
+### ProcessManager 看门狗实现
+- Process 模型升级：完整生命周期状态机(created→running→paused→completed/failed/cancelling→cancelled/killed)
+- ProcessManager 实现：
+  - init(kernel) 由 Kernel.boot() 自动调用，注册 IPC task:cancelRequest 监听
+  - cancel(id) 看门狗：调用 terminateFn → setTimeout 倒计时 → 超时 forceKill
+  - shutdown() 由 Kernel.shutdown() 自动调用，并发 cancel 所有活跃进程
+  - 通过 task channel IPC 广播状态变更
+  - KernelRef 最小接口避免循环依赖
 
 ## 2026-07-01 代码质量审查修复
 - **命名规范**：`ISessionManager/ISettings/IProviderAPIService/IScriptsManager` 全部是 class 非 interface → 重命名为 `BaseSessionManager/BaseSettings/BaseProviderAPIService/BaseScriptsManager`（12 文件）
