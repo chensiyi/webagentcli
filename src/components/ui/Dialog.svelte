@@ -8,6 +8,7 @@
     cancelLabel?: string;
     showCancel?: boolean;
     danger?: boolean;
+    size?: 'sm' | 'md' | 'lg' | 'xl';
     children?: import('svelte').Snippet;
     onclose?: () => void;
     onconfirm?: () => void;
@@ -20,6 +21,7 @@
     cancelLabel = '取消',
     showCancel = true,
     danger = false,
+    size = 'sm',
     children,
     onclose,
     onconfirm,
@@ -56,7 +58,7 @@
     onkeydown={handleKeydown}
     tabindex="-1"
   >
-    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby={title ? 'dialog-title' : undefined}>
+    <div class="dialog dialog-{size}" role="dialog" aria-modal="true" aria-labelledby={title ? 'dialog-title' : undefined}>
       {#if title}
         <h3 id="dialog-title" class="dialog-title">{title}</h3>
       {/if}
@@ -98,6 +100,18 @@
     display: flex;
     flex-direction: column;
     animation: dialogEnter 200ms ease;
+  }
+
+  .dialog-md {
+    width: min(480px, calc(100% - var(--space-6)));
+  }
+
+  .dialog-lg {
+    width: min(640px, calc(100% - var(--space-6)));
+  }
+
+  .dialog-xl {
+    width: min(800px, calc(100% - var(--space-6)));
   }
 
   .dialog-title {

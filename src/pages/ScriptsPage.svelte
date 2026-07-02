@@ -1,6 +1,7 @@
 <script lang="ts">
   import Button from '../components/ui/Button.svelte';
   import Card from '../components/ui/Card.svelte';
+  import CodeEditor from '../components/ui/CodeEditor.svelte';
   import Badge from '../components/ui/Badge.svelte';
   import Dialog from '../components/ui/Dialog.svelte';
   import EmptyState from '../components/ui/EmptyState.svelte';
@@ -160,13 +161,7 @@
       <Card>
         <div class="install-form">
           <div class="install-hint">粘贴 Tampermonkey 用户脚本代码：</div>
-          <textarea
-            class="code-editor"
-            rows="12"
-            placeholder={scriptPlaceholder}
-            value={editCode}
-            oninput={(e) => editCode = (e.target as HTMLTextAreaElement).value}
-          ></textarea>
+          <CodeEditor bind:value={editCode} rows={12} placeholder={scriptPlaceholder} />
           <Button variant="primary" fullWidth onclick={handleInstall}>安装</Button>
         </div>
       </Card>
@@ -177,12 +172,7 @@
         <Card>
           <div class="edit-form">
             <div class="edit-header">编辑脚本: {script.name}</div>
-            <textarea
-              class="code-editor"
-              rows="12"
-              value={editCode}
-              oninput={(e) => editCode = (e.target as HTMLTextAreaElement).value}
-            ></textarea>
+            <CodeEditor bind:value={editCode} rows={12} />
             <div class="edit-actions">
               <Button variant="secondary" onclick={cancelEdit}>取消</Button>
               <Button variant="primary" onclick={saveEdit}>保存</Button>
@@ -362,27 +352,6 @@
     font-size: var(--text-md);
     font-weight: 600;
     color: var(--color-text);
-  }
-
-  .code-editor {
-    width: 100%;
-    min-height: 200px;
-    padding: var(--space-3);
-    font-family: var(--font-mono);
-    font-size: var(--text-sm);
-    color: var(--color-text);
-    background: var(--color-bg);
-    border: 1px solid var(--color-border-medium);
-    border-radius: var(--radius-md);
-    outline: none;
-    resize: vertical;
-    line-height: 1.5;
-    tab-size: 2;
-  }
-
-  .code-editor:focus {
-    border-color: var(--color-primary);
-    box-shadow: var(--shadow-focus);
   }
 
   .edit-actions {

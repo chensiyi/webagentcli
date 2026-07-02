@@ -6,6 +6,7 @@ preview/
 node_modules/
 .pnp/
 .pnp.js
+.npm-cache/
 
 # ==================== 环境配置 ====================
 .env

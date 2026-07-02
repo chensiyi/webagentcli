@@ -2,6 +2,7 @@
   import Button from '../components/ui/Button.svelte';
   import Input from '../components/ui/Input.svelte';
   import Card from '../components/ui/Card.svelte';
+  import CodeEditor from '../components/ui/CodeEditor.svelte';
   import Dialog from '../components/ui/Dialog.svelte';
   import EmptyState from '../components/ui/EmptyState.svelte';
   import { useKernel } from '../lib/kernel-context.js';
@@ -218,17 +219,13 @@
   open={!!editTarget}
   title="编辑存储项"
   confirmLabel="保存"
+  size="lg"
   showCancel
   onclose={cancelEdit}
   onconfirm={saveEdit}
 >
   <div class="edit-key">{editTarget}</div>
-  <textarea
-    class="edit-textarea"
-    rows="10"
-    value={editValue}
-    oninput={(e) => editValue = (e.target as HTMLTextAreaElement).value}
-  ></textarea>
+  <CodeEditor bind:value={editValue} rows={14} language="json" />
 </Dialog>
 
 <style>
@@ -358,23 +355,4 @@
     word-break: break-all;
   }
 
-  .edit-textarea {
-    width: 100%;
-    min-height: 180px;
-    padding: var(--space-3);
-    font-family: var(--font-mono);
-    font-size: var(--text-sm);
-    color: var(--color-text);
-    background: var(--color-bg);
-    border: 1px solid var(--color-border-medium);
-    border-radius: var(--radius-md);
-    outline: none;
-    resize: vertical;
-    line-height: 1.5;
-  }
-
-  .edit-textarea:focus {
-    border-color: var(--color-primary);
-    box-shadow: var(--shadow-focus);
-  }
 </style>

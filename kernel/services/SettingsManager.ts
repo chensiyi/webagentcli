@@ -52,5 +52,29 @@ export class SettingsManager extends BaseSettings {
   updateSettings(settings) {
     Object.assign(this._settings, settings);
   }
-  // stub 方法保留接口占位，实际逻辑由 Shell EventHandler 实现
+
+  async saveSettings(settings: Record<string, any>) {
+    this.updateSettings(settings);
+    if (this.storage) {
+      try {
+        await this.storage.set('app_settings', { ...this._settings });
+        Log.info('SETTINGS', `Saved settings: apiStandard=${settings.apiStandard || 'default'}`);
+      } catch (e) {
+        Log.warn('SETTINGS', `saveSettings error: ${(e as Error)?.message}`);
+      }
+    }
+    // 通过 IPC 通知 ProviderFactory 重新配置 Provider
+    try {
+      const channel = this.ipc?.getOrCreateChannel('settings');
+      channel?.emit(KernelEvents.SETTINGS.SAVED, { settings: this._settings });
+    } catch (e) {
+      Log.warn('SETTINGS', `emit SAVED error: ${(e as Error)?.message}`);
+    }
+    return this;
+  }
+
+  async clearModelCache() {
+    await this.saveSetting('models', null);
+    Log.info('SETTINGS', 'Model cache cleared');
+  }
 }

@@ -198,10 +198,7 @@
       const ipc = kernel?.getIPC?.();
       const channel = ipc?.getOrCreateChannel?.('settings') || ipc;
 
-      // Emit save event for ProviderFactory update
-      channel?.emit('settings:save', { settings: currentSettings });
-
-      // Direct save via SettingsManager
+      // Save via SettingsManager (persists to storage + emits settings:saved for ProviderFactory)
       if (sm?.saveSettings) {
         await sm.saveSettings(currentSettings);
       }

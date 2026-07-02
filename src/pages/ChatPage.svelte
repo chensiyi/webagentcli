@@ -304,12 +304,46 @@
       });
     }
 
+    // 键盘导航
+    document.addEventListener('keydown', handleKeydown);
+
     // 初始化
     refreshMessages();
     refreshTools();
   });
 
+  // ==================== 键盘导航：Ctrl+↑/↓ 在用户消息间跳转 ====================
+  function scrollToUserMessage(direction: -1 | 1) {
+    const list = document.getElementById('message-list');
+    if (!list) return;
+    const userMessages = Array.from(list.querySelectorAll('.message-bubble.message-user')) as HTMLElement[];
+    if (userMessages.length === 0) return;
+
+    const listRect = list.getBoundingClientRect();
+    const targetTop = listRect.top + 10;
+    let currentIndex = -1;
+    for (let i = 0; i < userMessages.length; i++) {
+      const rect = userMessages[i].getBoundingClientRect();
+      if (rect.top >= targetTop - 50) { currentIndex = i; break; }
+    }
+    let nextIndex: number;
+    if (direction === -1) {
+      nextIndex = currentIndex <= 0 ? 0 : currentIndex - 1;
+    } else {
+      nextIndex = currentIndex === -1 ? 0 : (currentIndex >= userMessages.length - 1 ? userMessages.length - 1 : currentIndex + 1);
+    }
+    userMessages[nextIndex]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function handleKeydown(e: KeyboardEvent) {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      e.preventDefault();
+      scrollToUserMessage(e.key === 'ArrowUp' ? -1 : 1);
+    }
+  }
+
   onDestroy(() => {
+    document.removeEventListener('keydown', handleKeydown);
     // IPC 监听器清理交由 kernel 管理（随页面卸载自然销毁）
   });
 
