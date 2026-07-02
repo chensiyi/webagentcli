@@ -8,6 +8,7 @@
   import Card from '../components/ui/Card.svelte';
   import { useKernel } from '../lib/kernel-context.js';
   import { useToast } from '../lib/stores/toast.svelte.js';
+  import { Log } from '../../kernel/services/Log.js';
 
   const kernel = useKernel<any>();
   const toast = useToast();
@@ -25,7 +26,6 @@
   // ---------- Computed ----------
   const apiStandard = $derived(currentSettings.apiStandard || 'openrouter');
   const requiresApiKey = $derived(apiStandard !== 'lm-studio');
-  const selectedModelName = $derived(getSelectedModelName());
 
   const apiStandardOptions = [
     { value: 'openrouter', label: 'OpenRouter' },
@@ -116,49 +116,77 @@
       return;
     }
 
+    if (!currentSettings.apiKey && currentSettings.apiStandard !== 'lm-studio') {
+      toast.error('请先填写 API Key');
+      return;
+    }
+
     isLoadingModels = true;
     try {
-      const ipc = kernel?.getIPC?.();
-      const channel = ipc?.getOrCreateChannel?.('settings') || ipc;
-      if (!channel) throw new Error('IPC not available');
+      // 直接调用 Provider API 获取模型列表
+      const apiStandard = currentSettings.apiStandard || 'openai';
+      const apiEndpoint = currentSettings.apiEndpoint || '';
+      const apiKey = currentSettings.apiKey || '';
 
-      channel.emit('settings:models:request', {
-        apiKey: currentSettings.apiKey,
-        apiEndpoint: currentSettings.apiEndpoint,
-        apiStandard: currentSettings.apiStandard,
+      let modelsEndpoint = '';
+      if (apiStandard === 'openrouter') {
+        modelsEndpoint = apiEndpoint.replace(/\/$/, '') + '/models';
+      } else if (apiStandard === 'openai') {
+        modelsEndpoint = apiEndpoint.replace(/\/$/, '') + '/models';
+      } else if (apiStandard === 'lm-studio') {
+        modelsEndpoint = apiEndpoint.replace(/\/$/, '') + '/v1/models';
+      } else {
+        modelsEndpoint = apiEndpoint.replace(/\/$/, '') + '/models';
+      }
+
+      const headers: Record<string, string> = {};
+      if (apiKey) {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+      }
+
+      Log.info('SettingsPage', `Fetching models from: ${modelsEndpoint}`);
+
+      const response = await fetch(modelsEndpoint, {
+        method: 'GET',
+        headers: headers,
       });
 
-      // Wait for response via listener
-      const handler = (data: any) => {
-        if (data?.models) {
-          cachedModels = Array.isArray(data.models) ? data.models : [];
-          currentSettings.models = cachedModels;
-          toast.success(`已加载 ${cachedModels.length} 个模型`);
-        }
-        isLoadingModels = false;
-        channel.off('settings:models:loaded', handler);
-      };
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText.substring(0, 200)}`);
+      }
 
-      const errorHandler = (data: any) => {
-        toast.error(data?.error || '加载模型失败');
-        isLoadingModels = false;
-        channel.off('settings:models:error', errorHandler);
-      };
+      const result = await response.json();
+      const models = (result.data || []).map((m: any) => ({
+        id: m.id,
+        name: m.name || m.id,
+        created: m.created,
+        owned_by: m.owned_by || m.owner || apiStandard,
+        context_length: m.context_length || null,
+        max_output_tokens: m.max_output_tokens || null,
+        modality: m.architecture?.modality || 'text->text',
+        modalities: m.architectures || [],
+        pricing: m.pricing || null,
+        supports_reasoning: (m.supported_parameters || []).includes('reasoning'),
+        supports_tools: (m.supported_parameters || []).includes('tools'),
+        description: m.description || null,
+        ...m
+      }));
 
-      channel.on('settings:models:loaded', handler);
-      channel.on('settings:models:error', errorHandler);
+      cachedModels = models;
+      currentSettings.models = models;
+      
+      // 保存到存储
+      const sm = kernel?.getSettingsManager?.();
+      if (sm?.saveSetting) {
+        await sm.saveSetting('models', models);
+      }
 
-      // Timeout fallback
-      setTimeout(() => {
-        if (isLoadingModels) {
-          isLoadingModels = false;
-          channel.off('settings:models:loaded', handler);
-          channel.off('settings:models:error', errorHandler);
-          toast.warning('模型加载超时，请检查 API 配置');
-        }
-      }, 30000);
+      toast.success(`已加载 ${models.length} 个模型`);
     } catch (e) {
-      toast.error('加载失败: ' + (e as Error).message);
+      toast.error('加载模型失败: ' + (e as Error).message);
+      Log.error('SettingsPage', 'Failed to load models:', e);
+    } finally {
       isLoadingModels = false;
     }
   }
@@ -200,11 +228,6 @@
     showModelDropdown = false;
   }
 
-  function getSelectedModelName(): string {
-    if (!currentSettings.model) return '';
-    const detail = getModelDetails(currentSettings.model);
-    return detail?.name || currentSettings.model;
-  }
 
   function getModelDetails(modelId: string): ModelInfo | null {
     const model = cachedModels.find((m: any) => {
@@ -229,15 +252,35 @@
     };
   }
 
+  function getExactMatchId(): string | null {
+    if (!modelSearchValue) return null;
+    const kw = modelSearchValue.toLowerCase();
+    // 同时匹配模型ID和名称
+    const model = cachedModels.find((m: any) => {
+      if (typeof m === 'string') return m.toLowerCase() === kw;
+      const id = (m.id || '').toLowerCase();
+      const name = (m.name || '').toLowerCase();
+      return id === kw || name === kw;
+    });
+    if (!model) return null;
+    return typeof model === 'object' ? model.id : model;
+  }
+
   function getFilteredModelIds(): string[] {
     const all = cachedModels.map((m: any) => (typeof m === 'object' ? m.id : m));
     if (!modelSearchValue) return all;
     const kw = modelSearchValue.toLowerCase();
-    // 优先精确匹配，然后前缀匹配，最后包含匹配
-    const exact = all.filter((id: string) => id.toLowerCase() === kw);
-    const prefix = all.filter((id: string) => id.toLowerCase().startsWith(kw) && !exact.includes(id));
-    const contains = all.filter((id: string) => id.toLowerCase().includes(kw) && !exact.includes(id) && !prefix.includes(id));
-    return [...exact, ...prefix, ...contains];
+    // 按匹配度排序：精准匹配 > 前缀匹配 > 包含匹配 > 其他
+    // 不筛选，全部展示，但匹配的项排前面
+    return all.sort((a: string, b: string) => {
+      const aId = a.toLowerCase();
+      const bId = b.toLowerCase();
+      const aExact = aId === kw ? 0 : aId.startsWith(kw) ? 1 : aId.includes(kw) ? 2 : 3;
+      const bExact = bId === kw ? 0 : bId.startsWith(kw) ? 1 : bId.includes(kw) ? 2 : 3;
+      if (aExact !== bExact) return aExact - bExact;
+      // 同等级按字母排序
+      return aId.localeCompare(bId);
+    });
   }
 
   function formatContextLength(len: number): string {
@@ -262,6 +305,10 @@
     const target = e.target as HTMLElement;
     const dropdown = document.getElementById('model-dropdown');
     const container = document.getElementById('model-search-container');
+    const tooltip = document.querySelector('.model-tooltip') as HTMLElement;
+    
+    // 如果点击的是浮窗或下拉列表内部，不关闭
+    if (tooltip && tooltip.contains(target)) return;
     if (dropdown && container && !container.contains(target)) {
       showModelDropdown = false;
     }
@@ -270,20 +317,131 @@
   // 模型详情浮窗
   let hoveredModel = $state<ModelInfo | null>(null);
   let tooltipPosition = $state<{ x: number; y: number } | null>(null);
+  let tooltipEl = $state<HTMLElement | null>(null);
+  let hideTimeout: ReturnType<typeof setTimeout> | null = null;
 
   function showModelTooltip(model: ModelInfo, e: MouseEvent) {
+    // 清除之前的隐藏计时器
+    if (hideTimeout) {
+      clearTimeout(hideTimeout);
+      hideTimeout = null;
+    }
+
     hoveredModel = model;
-    const rect = (e.target as HTMLElement).getBoundingClientRect();
-    tooltipPosition = {
-      x: rect.right + 8,
-      y: rect.top
-    };
+    
+    const dropdown = document.getElementById('model-dropdown');
+    const hoveredItem = e.target as HTMLElement;
+    const itemRect = hoveredItem.getBoundingClientRect();
+    const dropdownRect = dropdown ? dropdown.getBoundingClientRect() : itemRect;
+    
+    const viewportPadding = 8;
+    const gap = 8;
+    const tooltipWidth = 280;
+    const tooltipHeight = 250; // 估算高度
+    const isNarrowViewport = window.innerWidth < 500; // 侧边栏宽度较窄
+
+    // 定位策略：宽视口优先左右，窄视口（侧边栏）优先上下，避免与下拉列表重叠
+    let x: number;
+    let y: number;
+
+    if (!isNarrowViewport) {
+      // 1. 尝试显示在下拉列表右侧
+      const spaceRight = window.innerWidth - dropdownRect.right - viewportPadding;
+      if (spaceRight >= tooltipWidth + gap) {
+        x = dropdownRect.right + gap;
+        y = itemRect.top;
+      }
+      // 2. 尝试显示在下拉列表左侧
+      else if (dropdownRect.left >= tooltipWidth + gap + viewportPadding) {
+        x = dropdownRect.left - gap - tooltipWidth;
+        y = itemRect.top;
+      }
+      // 3. 空间不足，回退到上下定位
+      else if (window.innerHeight - dropdownRect.bottom >= tooltipHeight + gap + viewportPadding) {
+        x = dropdownRect.left + gap;
+        y = dropdownRect.bottom + gap;
+      } else {
+        x = dropdownRect.left + gap;
+        y = Math.max(viewportPadding, dropdownRect.top - gap - tooltipHeight);
+      }
+    } else {
+      // 窄视口：始终使用上下定位，避免覆盖下拉列表
+      if (window.innerHeight - dropdownRect.bottom >= tooltipHeight + gap + viewportPadding) {
+        // 显示在下拉列表下方
+        x = dropdownRect.left + gap;
+        y = dropdownRect.bottom + gap;
+      } else {
+        // 显示在下拉列表上方
+        x = dropdownRect.left + gap;
+        y = Math.max(viewportPadding, dropdownRect.top - gap - tooltipHeight);
+      }
+    }
+
+    // 确保不超出视口边界
+    x = Math.max(viewportPadding, Math.min(x, window.innerWidth - tooltipWidth - viewportPadding));
+    y = Math.max(viewportPadding, Math.min(y, window.innerHeight - tooltipHeight - viewportPadding));
+
+    tooltipPosition = { x, y };
   }
 
   function hideModelTooltip() {
-    hoveredModel = null;
-    tooltipPosition = null;
+    // 延迟隐藏，确保用户有足够时间移动到浮窗上
+    if (hideTimeout) {
+      clearTimeout(hideTimeout);
+    }
+    
+    hideTimeout = setTimeout(() => {
+      hoveredModel = null;
+      tooltipPosition = null;
+      hideTimeout = null;
+    }, 300); // 300ms 延迟
   }
+
+  function cancelHideTooltip() {
+    // 取消隐藏计时器（鼠标进入浮窗时调用）
+    if (hideTimeout) {
+      clearTimeout(hideTimeout);
+      hideTimeout = null;
+    }
+  }
+
+  // 浮窗渲染后，根据实际尺寸二次调整（防止溢出）
+  $effect(() => {
+    if (!hoveredModel || !tooltipPosition || !tooltipEl) return;
+
+    const rect = tooltipEl.getBoundingClientRect();
+    const viewportPadding = 8;
+    let { x, y } = tooltipPosition;
+    let adjusted = false;
+
+    // 右侧溢出检查
+    if (x + rect.width > window.innerWidth - viewportPadding) {
+      x = Math.max(viewportPadding, window.innerWidth - rect.width - viewportPadding);
+      adjusted = true;
+    }
+
+    // 左侧溢出检查
+    if (x < viewportPadding) {
+      x = viewportPadding;
+      adjusted = true;
+    }
+
+    // 底部溢出检查
+    if (y + rect.height > window.innerHeight - viewportPadding) {
+      y = Math.max(viewportPadding, window.innerHeight - rect.height - viewportPadding);
+      adjusted = true;
+    }
+
+    // 顶部溢出检查
+    if (y < viewportPadding) {
+      y = viewportPadding;
+      adjusted = true;
+    }
+
+    if (adjusted) {
+      tooltipPosition = { x, y };
+    }
+  });
 </script>
 
 <svelte:window onclick={handleWindowClick} />
@@ -392,8 +550,8 @@
             <div class="model-input-wrapper" role="button" tabindex="0" onclick={handleModelSearchClick} onkeydown={(e) => { if (e.key === 'Enter') handleModelSearchClick(); }}>
               <input
                 class="model-search-input"
-                placeholder={cachedModels.length === 0 ? '点击"加载模型"获取列表' : '搜索或选择模型…'}
-                value={modelSearchValue || selectedModelName}
+                placeholder={cachedModels.length === 0 ? '点击"加载模型"获取列表' : '搜索模型 ID 或名称…'}
+                value={modelSearchValue || currentSettings.model || ''}
                 oninput={(e) => {
                   modelSearchValue = (e.target as HTMLInputElement).value;
                   showModelDropdown = true;
@@ -420,13 +578,14 @@
           {#if showModelDropdown}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div id="model-dropdown" class="model-dropdown">
-              {#each getFilteredModelIds() as modelId}
+              {#each getFilteredModelIds() as modelId, index}
                 {@const details = getModelDetails(modelId)}
                 {#if details}
                   <!-- svelte-ignore a11y_no_static_element_interactions -->
                   <div
                     class="model-item"
                     class:selected={modelId === currentSettings.model}
+                    class:exact-match={index === 0 && getExactMatchId() === modelId}
                     onclick={() => selectModel(modelId)}
                     onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') selectModel(modelId); }}
                     onmouseenter={(e) => showModelTooltip(details, e)}
@@ -435,7 +594,9 @@
                     aria-selected={modelId === currentSettings.model}
                     tabindex="0"
                   >
-                    <div class="model-item-name">{details.name}</div>
+                    <div class="model-item-name">
+                      {index === 0 && getExactMatchId() === modelId ? '✅ ' : ''}{details.name}
+                    </div>
                     <div class="model-item-meta">
                       {#if details.context_length}
                         <Badge variant="info">📝 {formatContextLength(details.context_length)}</Badge>
@@ -470,16 +631,20 @@
 
             <!-- 模型详情浮窗 -->
             {#if hoveredModel && tooltipPosition}
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div
                 class="model-tooltip"
+                bind:this={tooltipEl}
                 style="left: {tooltipPosition.x}px; top: {tooltipPosition.y}px;"
+                onmouseenter={cancelHideTooltip}
+                onmouseleave={hideModelTooltip}
               >
                 <div class="tooltip-header">
                   <strong>{hoveredModel.name}</strong>
-                  {#if hoveredModel.id !== hoveredModel.name}
-                    <span class="tooltip-id">{hoveredModel.id}</span>
-                  {/if}
                 </div>
+                {#if hoveredModel.id !== hoveredModel.name}
+                  <div class="tooltip-id">{hoveredModel.id}</div>
+                {/if}
                 {#if hoveredModel.description}
                   <div class="tooltip-desc">{hoveredModel.description}</div>
                 {/if}
@@ -846,6 +1011,15 @@
     line-height: 1.4;
   }
 
+  .model-item.exact-match {
+    background: var(--color-primary-light);
+    border-left: 3px solid var(--color-primary);
+  }
+
+  .model-item.exact-match:hover:not(.selected) {
+    background: var(--color-surface-hover);
+  }
+
   .model-no-results {
     padding: var(--space-4);
     text-align: center;
@@ -952,40 +1126,44 @@
   .model-tooltip {
     position: fixed;
     z-index: 200;
-    max-width: 320px;
+    width: min(280px, calc(100vw - 16px));
+    max-height: calc(100vh - 16px);
     padding: var(--space-3);
     background: var(--color-surface);
     border: 1px solid var(--color-border-medium);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-lg);
     font-size: var(--text-xs);
-    pointer-events: none;
-    overflow: hidden;
+    pointer-events: auto;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
   }
 
   .tooltip-header {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    margin-bottom: var(--space-2);
-    padding-bottom: var(--space-2);
-    border-bottom: 1px solid var(--color-border-light);
+    margin-bottom: var(--space-1);
   }
 
   .tooltip-header strong {
     font-size: var(--text-sm);
     color: var(--color-text);
+    line-height: 1.4;
+    display: block;
   }
 
   .tooltip-id {
     font-size: 10px;
     color: var(--color-text-hint);
     font-family: monospace;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 180px;
-    display: inline-block;
+    background: var(--color-bg);
+    padding: 4px 6px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border-light);
+    word-break: break-all;
+    line-height: 1.4;
+    margin-bottom: var(--space-2);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--color-border-light);
   }
 
   .tooltip-desc {
