@@ -22,7 +22,7 @@ export class Session extends BaseModel {
     this.createdAt = (options.createdAt as number) || Date.now();
     this.updatedAt = (options.updatedAt as number) || this.createdAt;
     if (Array.isArray(options.messages)) {
-      options.messages.forEach(m => this.messages.push(m));
+      options.messages.filter(m => m != null).forEach(m => this.messages.push(m));
     }
   }
 

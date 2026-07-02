@@ -87,17 +87,18 @@
     try {
       const sm = kernel?.getStorageManager?.() || kernel?.get?.('storageManager');
       if (deleteTargetIsAll) {
-        await sm?.clearAll?.();
+        await sm?.clear?.();
         toast.success('已清空');
       } else if (deleteTarget) {
-        await sm?.delete?.({ key: deleteTarget });
+        await sm?.remove?.(deleteTarget);
         toast.success('已删除');
       }
       deleteTarget = null;
       deleteTargetIsAll = false;
       refreshList();
     } catch (e) {
-      toast.error('操作失败');
+      console.error('[StoragePage] delete failed:', e);
+      toast.error(`操作失败: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
@@ -121,13 +122,14 @@
     try {
       const parsed = JSON.parse(editValue);
       const sm = kernel?.getStorageManager?.() || kernel?.get?.('storageManager');
-      await sm?.updateItem?.(editTarget, parsed);
+      await sm?.set?.(editTarget, parsed);
       toast.success('已更新');
       editTarget = null;
       editValue = '';
       refreshList();
     } catch (e) {
-      toast.error('JSON 格式错误');
+      console.error('[StoragePage] edit failed:', e);
+      toast.error(e instanceof SyntaxError ? 'JSON 格式错误' : `操作失败: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 

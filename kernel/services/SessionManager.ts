@@ -103,7 +103,8 @@ export class SessionManager extends BaseSessionManager {
       const msg = s.messages[idx] as Record<string, unknown>;
       if (typeof updater === 'function') {
         const updated = updater(msg);
-        s.messages[idx] = updated;
+        // 防御：updater 未返回值时保留原消息，避免 undefined 写入数组
+        s.messages[idx] = updated ?? msg;
       } else {
         s.messages[idx] = { ...msg, ...updater };
       }
@@ -189,7 +190,4 @@ export class SessionManager extends BaseSessionManager {
     }
   }
 
-  getContextWindow(session: Session, opts?: unknown): unknown[] { return []; }
-  getMessagesByTokenBudget(session: Session, opts?: unknown): unknown[] { return []; }
-  async flushAllStreamWrites(): Promise<void> {}
 }

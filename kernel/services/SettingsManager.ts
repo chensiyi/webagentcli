@@ -52,5 +52,23 @@ export class SettingsManager extends BaseSettings {
   updateSettings(settings) {
     Object.assign(this._settings, settings);
   }
-  // stub 方法保留接口占位，实际逻辑由 Shell EventHandler 实现
+
+  /** 合并设置并持久化到存储，同时通过 IPC 通知 ProviderFactory 更新 */
+  async saveSettings(settings: Record<string, any>) {
+    Object.assign(this._settings, settings);
+    if (this.storage) {
+      try {
+        await this.storage.set('app_settings', { ...this._settings });
+      } catch (e) {
+        Log.warn('SETTINGS', `saveSettings error: ${e?.message}`);
+      }
+    }
+    try {
+      const channel = this.ipc?.getOrCreateChannel('settings');
+      channel?.emit(KernelEvents.SETTINGS.SAVED, { settings: { ...this._settings } });
+    } catch (e) {
+      Log.warn('SETTINGS', `emit SAVED error: ${e?.message}`);
+    }
+    Log.info('SETTINGS', 'Settings saved and SAVED event emitted');
+  }
 }

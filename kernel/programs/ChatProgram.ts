@@ -39,7 +39,15 @@ export class ChatProgram {
     this._state = 'idle';
     this._currentRequest = null;
 
-    this.chatChannel.on(CMD.SEND, (data: unknown) => this.sendMessage(data as Record<string, unknown>));
+    this.chatChannel.on(CMD.SEND, (data: unknown) => {
+      this.sendMessage(data as Record<string, unknown>).catch(err => {
+        Log.error(this.name, 'Unhandled error in sendMessage:', err);
+        this._setState(STATE.FAILED);
+        this._emit(KernelEvents.CHAT.STREAM_ERROR, { error: err, message: err.message || String(err) });
+        this._currentRequest = null;
+        this._assistantMsgId = null;
+      });
+    });
     this.chatChannel.on(CMD.STOP, () => this.cancel());
     this.chatChannel.on(CMD.DELETE_MESSAGE, (data: unknown) => this.deleteMessage((data as { messageId: string }).messageId));
     // 会话切换时重置状态（暂无额外处理逻辑）
@@ -60,12 +68,11 @@ export class ChatProgram {
     let assistantMsgId = null;
     let session = null;
 
-    if (!isToolContinuation) {
-      if (!content || !content.trim()) throw new Error('Message content is required');
-      if (this._assistantMsgId) throw new Error('A message is already being generated');
-    }
-
     try {
+      if (!isToolContinuation) {
+        if (!content || !content.trim()) throw new Error('Message content is required');
+        if (this._assistantMsgId) throw new Error('A message is already being generated');
+      }
       if (!isToolContinuation) this._setState(STATE.WAITING);
 
       session = sessionId ? sm.getSession(sessionId) : sm.getCurrentSession();
@@ -90,7 +97,7 @@ export class ChatProgram {
       const freshSession = sm.getSession(session.id);
       const tools = this.kernel.toolRegistry?.getDefinitionsForLLM();
 
-      const messagesForRequest = this._truncateMessagesForRequest(freshSession, settings, modelId);
+      const messagesForRequest = await this._buildContext(freshSession, settings, tools);
 
       const request = new MessagesRequest({
         model: modelId,
@@ -144,8 +151,9 @@ export class ChatProgram {
       }
 
       if (result.toolCalls && result.toolCalls.length > 0) {
-        sm.updateMessage(assistantMsgId, (msg) => {
+        await sm.updateMessage(assistantMsgId, (msg) => {
           result.toolCalls.forEach(tc => msg.addToolCall(tc));
+          return msg;
         }, session.id);
       }
 
@@ -159,18 +167,17 @@ export class ChatProgram {
     } catch (error) {
       this._setState(STATE.FAILED);
       if (assistantMsgId && session) {
-        sm.updateMessage(assistantMsgId, (msg) => { msg.content = `❌ 发送失败: ${error.message}`; }, session.id);
+        sm.updateMessage(assistantMsgId, (msg) => { msg.content = `❌ 发送失败: ${error.message}`; return msg; }, session.id);
       }
       this._emit(KernelEvents.CHAT.STREAM_ERROR, { error, message: error.message, sessionId: session?.id, messageId: assistantMsgId });
     } finally {
       this._currentRequest = null;
       this._assistantMsgId = null;
-      try { await sm.flushAllStreamWrites(); } catch (e) { /* ignore */ }
       setTimeout(() => {
         if (!this._currentRequest && this._state !== STATE.IDLE) {
           this._setState(STATE.IDLE);
         }
-      }, 50); // 50ms 延迟确保 flushAllStreamWrites 完成后再重置状态
+      }, 50);
     }
   }
 
@@ -222,14 +229,14 @@ export class ChatProgram {
     this._assistantMsgId = null;
     this._setState(STATE.STOPPED);
     this._emit(KernelEvents.CHAT.STREAM_STOP, { sessionId: stoppedRequest?.sessionId, messageId: stoppedRequest?.assistantMessageId });
-    try { this.kernel.getSessionManager().flushAllStreamWrites(); } catch (e) { /* ignore */ }
     setTimeout(() => this._setState(STATE.IDLE), 50);
   }
 
-  deleteMessage(messageId) {
+  async deleteMessage(messageId) {
     const sm = this.kernel.getSessionManager();
     const session = sm.getCurrentSession();
-    const result = session ? sm.deleteMessage(messageId, session.id) : false;
+    if (!session) return false;
+    const result = await sm.deleteMessage(messageId, session.id);
     if (result) {
       this._emit(KernelEvents.CHAT.MESSAGE_DELETED, { messageId, sessionId: session.id });
     }
@@ -255,30 +262,83 @@ export class ChatProgram {
     this.chatChannel.emit(event, data);
   }
 
-  _providerHasCache(service, modelId) {
-    if (!service || !service.cacheOptions || !service.cacheOptions.enabled) return false;
-    switch (service.name) {
-      case 'openai': return /^(o\d|gpt-4\.1|gpt-4o)/i.test(modelId || ''); // 启发式匹配已知支持缓存 Prompt Caching 的模型
-      case 'openrouter': return !modelId?.includes('free');
-      case 'lm-studio': return true;
-      default: return false;
+  /**
+   * _buildContext — 上下文管理标准过程
+   *
+   * 组装发给 LLM 的完整消息序列：
+   * 1. System prompt（身份 + 可用工具 + 当前页面环境）
+   * 2. 会话消息（按 contextWindowSize 截断，保护 tool_call/tool_result 配对）
+   * 3. 统一转 API 格式
+   */
+  async _buildContext(session, settings, tools) {
+    // --- 1. System prompt ---
+    const systemParts = [];
+
+    systemParts.push('你是一个运行在 Chrome 扩展 Side Panel 中的 Web Agent。你可以通过工具与浏览器页面交互，完成用户指定的任务。');
+
+    // 当前页面环境
+    let pageContext = '';
+    try {
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      const tab = tabs[0];
+      if (tab) {
+        pageContext = `当前页面: ${tab.title || '(无标题)'} — ${tab.url || '(无URL)'}`;
+      }
+    } catch (e) { /* 非浏览器环境，跳过 */ }
+    if (pageContext) systemParts.push(pageContext);
+
+    // 可用工具清单（简述，完整 schema 走 API tools 参数）
+    if (tools && tools.length > 0) {
+      const toolList = tools
+        .map(t => t?.function?.name ? `- ${t.function.name}: ${t.function.description || ''}` : '')
+        .filter(Boolean)
+        .join('\n');
+      if (toolList) {
+        systemParts.push(`可用工具:\n${toolList}\n\n工具的完整参数定义通过 API tools 参数传递，请按 schema 调用。`);
+      }
     }
-  }
 
-  _truncateMessagesForRequest(session, settings, modelId) {
-    const sm = this.kernel.getSessionManager();
-    const hasCache = this._providerHasCache(this.kernel.getProviderFactory()?.getCurrentProvider(), modelId);
+    systemParts.push('原则: 优先使用工具完成页面操作。如果工具调用失败，分析错误并重试或换方案。不需要用户确认就可以连续调用工具。');
 
-    const base = hasCache
-      ? sm.getContextWindow(session, {
-          autoContextTruncation: settings?.autoContextTruncation !== false,
-          contextWindowSize: settings?.contextWindowSize || 20,
-        })
-      : session.messages;
+    const systemMsg = { role: 'system', content: systemParts.join('\n\n') };
 
-    return (base || []).map(m => {
+    // --- 2. 截断会话消息 ---
+    let sessionMessages = (session.messages || []).filter(m => m != null);
+    const maxSize = settings?.contextWindowSize || 20;
+    if (settings?.autoContextTruncation !== false && sessionMessages.length > maxSize) {
+      sessionMessages = this._truncateMessages(sessionMessages, maxSize);
+    }
+
+    // --- 3. 组装 + 转 API 格式 ---
+    const allMessages = [systemMsg, ...sessionMessages];
+    return allMessages.map(m => {
       const src = (m && typeof m.toJSON === 'function') ? m.toJSON() : m;
       return MessageStructure.toAPIFormat(src);
     });
+  }
+
+  /**
+   * 截断消息列表，保护 tool_call / tool_result 配对完整性。
+   * 策略: 从末尾保留 maxSize 条，如果截断点恰好是 tool result 而没有对应的 tool call，
+   * 向前回退直到配对完整。
+   */
+  _truncateMessages(messages, maxSize) {
+    if (messages.length <= maxSize) return messages;
+
+    let cut = messages.length - maxSize;
+    // 如果截断点后方第一条是 tool 消息（tool result），向前多留直到找到对应的 assistant tool_call
+    while (cut < messages.length) {
+      const msg = messages[cut];
+      const role = msg?.role || (msg && typeof msg.toJSON === 'function' ? msg.toJSON().role : '');
+      if (role === 'tool') {
+        cut--; // 向前回退
+      } else if (role === 'assistant' && (msg?.toolCalls?.length || (msg && typeof msg.toJSON === 'function' && msg.toJSON().toolCalls?.length))) {
+        break; // 这条 assistant 带 tool_calls，从这开始保留
+      } else {
+        break; // 普通消息，截断点 OK
+      }
+    }
+    if (cut < 0) cut = 0;
+    return messages.slice(cut);
   }
 }

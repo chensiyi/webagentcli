@@ -20,7 +20,4 @@ export class BaseSessionManager {
   deleteMessage(messageId, sessionId) {}
   updateMessage(messageId, updater, sessionId) {}
   streamChunkMessage(messageId, chunk, sessionId) {}
-  getContextWindow(session, opts) { return []; }
-  getMessagesByTokenBudget(session, opts) { return []; }
-  async flushAllStreamWrites() {}
 }

@@ -57,7 +57,7 @@ Pages.history = function(container, kernel) {
     if (!confirmed) return;
     
     // 历史页面删除会话时不自动切换，避免影响用户当前浏览的页面
-    sessionManager.deleteSession(id, false);
+    await sessionManager.deleteSession(id);
     Log.info('HistoryPage', 'Conversation deleted:', id);
     render();
     Toast.success('对话已删除');

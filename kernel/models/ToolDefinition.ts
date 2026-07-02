@@ -11,7 +11,7 @@ export class ToolDefinition {
     this.name = (opts.name as string) || '';
     this.description = (opts.description as string) || '';
     this.capabilities = (opts.capabilities as string[]) || [];
-    this.inputSchema = opts.inputSchema || null;
+    this.inputSchema = opts.inputSchema || opts.parameters || null;
     this.outputSchema = opts.outputSchema || null;
     this.enabled = (opts.enabled as boolean) !== false;
     this.metadata = (opts.metadata as Record<string, unknown>) || {};

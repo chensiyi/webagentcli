@@ -30,8 +30,25 @@ export class MessageStructure {
       } else if (tc.input) {
         input = tc.input;
       }
-      return { id, name, input };
+      return { id, toolName: name, input };
     });
+  }
+
+  /**
+   * 将内部 toolCalls 格式转回 OpenAI 格式，供 API 请求使用。
+   * 内部格式: { id, toolName, input }
+   * OpenAI 格式: { id, type: 'function', function: { name, arguments } }
+   */
+  static toOpenAIToolCalls(toolCalls: any[]): any[] {
+    if (!toolCalls || !Array.isArray(toolCalls)) return [];
+    return toolCalls.map(tc => ({
+      id: tc.id,
+      type: 'function',
+      function: {
+        name: tc.toolName || tc.name || '',
+        arguments: typeof tc.input === 'string' ? tc.input : JSON.stringify(tc.input || {})
+      }
+    }));
   }
 
   /**
@@ -42,8 +59,14 @@ export class MessageStructure {
     if (!msg) return {};
     if (format === 'openai') {
       const result: Record<string, unknown> = { role: msg.role || 'user', content: msg.content || '' };
-      if (msg.tool_calls) result.tool_calls = msg.tool_calls;
-      if (msg.tool_call_id) result.tool_call_id = msg.tool_call_id;
+      // toolCalls (驼峰) 或 tool_calls (下划线) → OpenAI 格式
+      const rawToolCalls = msg.toolCalls || msg.tool_calls;
+      if (Array.isArray(rawToolCalls) && rawToolCalls.length > 0) {
+        result.tool_calls = MessageStructure.toOpenAIToolCalls(rawToolCalls);
+      }
+      // toolCallId (驼峰) 或 tool_call_id (下划线) → OpenAI 格式
+      const toolCallId = msg.toolCallId || msg.tool_call_id;
+      if (toolCallId) result.tool_call_id = toolCallId;
       if (msg.name) result.name = msg.name;
       if (msg.reasoning_content) result.reasoning_content = msg.reasoning_content;
       return result;

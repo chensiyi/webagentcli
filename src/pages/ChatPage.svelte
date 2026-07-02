@@ -58,6 +58,24 @@
     return String(content);
   }
 
+  /** 根据 toolCallId 查找对应的工具结果消息 */
+  function findToolResult(toolCallId: string): any {
+    if (!toolCallId) return null;
+    return messages.find((m: any) => m?.role === 'tool' && m?.toolCallId === toolCallId) || null;
+  }
+
+  /** 从 toolCallId 查找工具名（从 assistant 消息的 toolCalls 中） */
+  function findToolNameByCallId(toolCallId: string): string {
+    if (!toolCallId) return '';
+    for (const m of messages) {
+      if (m?.role === 'assistant' && Array.isArray(m.toolCalls)) {
+        const tc = m.toolCalls.find((t: any) => t?.id === toolCallId);
+        if (tc) return tc.toolName || tc.name || '';
+      }
+    }
+    return '';
+  }
+
   /** Markdown 渲染 */
   function renderMarkdown(md: string): string {
     if (!md) return '';
@@ -93,9 +111,11 @@
     const s = sessionManager?.getCurrentSession?.();
     session = s || null;
     const oldMessages = messages;
-    messages = s?.messages ? [...s.messages] : [];
+    messages = s?.messages ? [...s.messages].filter(m => m != null) : [];
     showThinkingControl = checkModelSupportsThinking();
-    reasoningEffort = s?.reasoningEffort || 'medium';
+    // 无会话时从设置读取默认思考强度，而非硬编码 'medium'
+    const settingsDefault = kernel?.getSettingsManager?.()?.getSettings?.()?.reasoningEffort || 'medium';
+    reasoningEffort = s?.reasoningEffort || settingsDefault;
 
     // 新消息的思考过程默认折叠
     if (messages.length > oldMessages.length) {
@@ -237,9 +257,9 @@
     chatChannel.on(KernelEvents.CHAT.STREAM_COMPLETE, (data: any) => {
       isStreaming = false;
       // 清除该消息的流式覆盖
-      if (data?.message?.id) {
+      if (data?.messageId) {
         const newMap = { ...streamingMap };
-        delete newMap[data.message.id];
+        delete newMap[data.messageId];
         streamingMap = newMap;
       }
       refreshMessages();
@@ -478,7 +498,8 @@
           {@const isJson = raw.startsWith('{') || raw.startsWith('[')}
           {@const mdSource = isJson ? '```json\n' + raw + '\n```' : raw}
           {@const rendered = renderMarkdown(mdSource)}
-          {@const toolCallLabel = msg.toolCallId ? '🔗 ' + msg.toolCallId : '🔧 Tool result'}
+          {@const toolName = findToolNameByCallId(msg.toolCallId || '')}
+          {@const toolCallLabel = toolName ? '🔧 ' + toolName + ' → 结果' : '🔧 工具结果'}
           <div
             class="message-tool-card"
             data-message-id={msg.id}
@@ -541,9 +562,12 @@
                 <div class="tool-calls-container">
                   {#each msg.toolCalls as tc (tc.id)}
                     {@const tcId = tc.id || ''}
-                    {@const tcName = tc.toolName || 'unknown'}
-                    {@const tcArgs = tc.arguments || {}}
+                    {@const tcName = tc.toolName || tc.name || 'unknown'}
+                    {@const tcArgs = tc.input || tc.arguments || {}}
                     {@const argsStr = JSON.stringify(tcArgs, null, 2)}
+                    {@const tcResult = findToolResult(tcId)}
+                    {@const tcResultText = tcResult ? extractText(tcResult.content) : ''}
+                    {@const tcStatus = tc.status || (tcResult ? 'completed' : 'pending')}
                     <div class="tool-call-card" data-tool-call-id={tcId}>
                       <!-- svelte-ignore a11y_click_events_have_key_events -->
                       <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -551,7 +575,7 @@
                         class="tool-call-header"
                         onclick={() => toggleToolCall(tcId)}
                       >
-                        <span class="tool-card-icon">🔧</span>
+                        <span class="tool-card-icon">{tcStatus === 'completed' ? '✅' : '🔧'}</span>
                         <span class="tool-card-name">{tcName}</span>
                         <span class="tool-card-args-summary"
                           >({argsStr.slice(0, 60)}{argsStr.length > 60 ? '...' : ''})</span
@@ -559,7 +583,16 @@
                       </div>
                       {#if !collapsedToolCalls[tcId]}
                         <div class="tool-call-body">
-                          <pre>{argsStr}</pre>
+                          <div class="tool-call-args-section">
+                            <span class="tool-call-section-label">参数</span>
+                            <pre>{argsStr}</pre>
+                          </div>
+                          {#if tcResultText}
+                            <div class="tool-call-result-section">
+                              <span class="tool-call-section-label">结果</span>
+                              <pre>{tcResultText.slice(0, 500)}{tcResultText.length > 500 ? '\n...' : ''}</pre>
+                            </div>
+                          {/if}
                         </div>
                       {/if}
                     </div>
@@ -842,6 +875,7 @@
   .message-bubble {
     position: relative;
     display: flex;
+    width: 100%;          /* 让 max-width 85% 在 flex column 父容器中真正生效 */
     max-width: 85%;
     animation: msgFadeIn 200ms ease;
   }
@@ -858,8 +892,10 @@
   .message-body {
     padding: 10px 14px;
     border-radius: var(--radius-lg, 12px);
-    min-width: 80px;
+    min-width: 0;
     width: 100%;
+    max-width: 100%;
+    overflow: hidden;
   }
 
   .message-user .message-body {
@@ -901,7 +937,8 @@
   }
 
   /* hover 时显示删除按钮 */
-  .message-bubble:hover .msg-delete-btn {
+  .message-bubble:hover .msg-delete-btn,
+  .message-tool-card:hover .msg-delete-btn {
     opacity: 1;
     background: rgba(0, 0, 0, 0.32);
     color: #fff;
@@ -1000,8 +1037,12 @@
   .message-content :global(table) {
     border-collapse: collapse;
     width: 100%;
+    max-width: 100%;
     margin: 6px 0;
     font-size: var(--text-xs, 12px);
+    table-layout: auto;
+    display: block;
+    overflow-x: auto;
   }
 
   .message-content :global(th),
@@ -1009,6 +1050,9 @@
     border: 1px solid var(--color-border-light, #e9ecef);
     padding: 4px 8px;
     text-align: left;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    max-width: 240px;
   }
 
   .message-content :global(th) {
@@ -1118,6 +1162,8 @@
   .tool-call-body {
     padding: 6px 8px;
     border-top: 1px solid var(--color-border-light, #e9ecef);
+    max-width: 100%;
+    overflow-x: auto;
   }
 
   .tool-call-body pre {
@@ -1133,11 +1179,37 @@
     word-break: break-word;
   }
 
+  .tool-call-args-section,
+  .tool-call-result-section {
+    margin-bottom: 4px;
+  }
+
+  .tool-call-result-section {
+    margin-top: 6px;
+  }
+
+  .tool-call-section-label {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--color-text-tertiary, #adb5bd);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+  }
+
+  .tool-call-result-section pre {
+    background: rgba(40, 167, 69, 0.06);
+    border-left: 2px solid #28a745;
+  }
+
   /* ==================== Tool 消息卡片 ==================== */
   .message-tool-card {
     position: relative;
     align-self: flex-start;
     max-width: 85%;
+    width: auto;
+    min-width: 0;
     border: 1px solid var(--color-border-light, #e9ecef);
     border-radius: var(--radius-lg, 12px);
     overflow: hidden;
@@ -1176,6 +1248,8 @@
   .tool-card-body {
     padding: 6px 10px 10px;
     border-top: 1px solid var(--color-border-light, #e9ecef);
+    overflow-x: auto;
+    max-width: 100%;
   }
 
   .tool-card-body .message-content :global(pre) {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount, onDestroy } from 'svelte';
   import Button from '../components/ui/Button.svelte';
   import Card from '../components/ui/Card.svelte';
   import Badge from '../components/ui/Badge.svelte';
@@ -6,9 +7,13 @@
   import EmptyState from '../components/ui/EmptyState.svelte';
   import { useKernel } from '../lib/kernel-context.js';
   import { useToast } from '../lib/stores/toast.svelte.js';
+  import { KernelEvents } from '../../kernel/Events.js';
 
   const kernel = useKernel<any>();
   const toast = useToast();
+
+  const ipc: any = kernel?.getIPC?.();
+  const scriptsChannel = ipc?.getOrCreateChannel?.('scripts') || ipc;
 
   // ---------- State ----------
   let scripts = $state<any[]>([]);
@@ -34,6 +39,30 @@
     if (isLoaded) return;
     isLoaded = true;
     refreshList();
+  });
+
+  // ---------- IPC 事件监听 ----------
+  onMount(() => {
+    if (!scriptsChannel) return;
+
+    // 脚本列表更新（来自 ScriptsManager 的 loadAll 事件，或 ManageUserScriptsTool 操作后）
+    scriptsChannel.on(KernelEvents.SCRIPTS.LOADED, (data: any) => {
+      const newScripts = data?.scripts;
+      if (Array.isArray(newScripts)) {
+        scripts = newScripts;
+        isLoading = false;
+      }
+    });
+
+    // 脚本错误
+    scriptsChannel.on(KernelEvents.SCRIPTS.ERROR, (data: any) => {
+      toast.error(data?.error || '脚本操作失败');
+      isLoading = false;
+    });
+  });
+
+  onDestroy(() => {
+    // IPC 监听器清理交由 kernel 管理（随页面卸载自然销毁）
   });
 
   async function refreshList() {
