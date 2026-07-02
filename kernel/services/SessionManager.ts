@@ -173,7 +173,8 @@ export class SessionManager extends BaseSessionManager {
   async _persistSessions(): Promise<void> {
     if (!this.storage) return;
     try {
-      await this.storage.set('sessions', this.sessions.map(s => s.toJSON()));
+      // 过滤掉 undefined 或 null 的会话，防止 toJSON 调用失败
+      await this.storage.set('sessions', this.sessions.filter(s => s && s.id).map(s => s.toJSON()));
     } catch (e) {
       Log.warn('SESSION', `persistSessions error: ${(e as Error)?.message}`);
     }

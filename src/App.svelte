@@ -72,12 +72,17 @@
     flex: 1;
     min-width: 0;
     min-height: 0;
-    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
     overflow-x: hidden;
     background: var(--color-bg);
   }
 
   .page-wrapper {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
     animation: pageEnter 180ms ease;
   }
 

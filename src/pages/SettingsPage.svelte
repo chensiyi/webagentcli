@@ -191,12 +191,12 @@
       toast.info('请先点击"加载模型"按钮获取模型列表');
       return;
     }
-    showModelDropdown = !showModelDropdown;
+    showModelDropdown = true;
   }
 
   function selectModel(modelId: string) {
     currentSettings.model = modelId;
-    modelSearchValue = modelId;
+    modelSearchValue = '';
     showModelDropdown = false;
   }
 
@@ -233,7 +233,11 @@
     const all = cachedModels.map((m: any) => (typeof m === 'object' ? m.id : m));
     if (!modelSearchValue) return all;
     const kw = modelSearchValue.toLowerCase();
-    return all.filter((id: string) => id.toLowerCase().includes(kw));
+    // 优先精确匹配，然后前缀匹配，最后包含匹配
+    const exact = all.filter((id: string) => id.toLowerCase() === kw);
+    const prefix = all.filter((id: string) => id.toLowerCase().startsWith(kw) && !exact.includes(id));
+    const contains = all.filter((id: string) => id.toLowerCase().includes(kw) && !exact.includes(id) && !prefix.includes(id));
+    return [...exact, ...prefix, ...contains];
   }
 
   function formatContextLength(len: number): string {
@@ -261,6 +265,24 @@
     if (dropdown && container && !container.contains(target)) {
       showModelDropdown = false;
     }
+  }
+
+  // 模型详情浮窗
+  let hoveredModel = $state<ModelInfo | null>(null);
+  let tooltipPosition = $state<{ x: number; y: number } | null>(null);
+
+  function showModelTooltip(model: ModelInfo, e: MouseEvent) {
+    hoveredModel = model;
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    tooltipPosition = {
+      x: rect.right + 8,
+      y: rect.top
+    };
+  }
+
+  function hideModelTooltip() {
+    hoveredModel = null;
+    tooltipPosition = null;
   }
 </script>
 
@@ -368,13 +390,15 @@
           <div id="model-search-container" class="model-search-row">
             <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
             <div class="model-input-wrapper" role="button" tabindex="0" onclick={handleModelSearchClick} onkeydown={(e) => { if (e.key === 'Enter') handleModelSearchClick(); }}>
-              <Input
+              <input
+                class="model-search-input"
                 placeholder={cachedModels.length === 0 ? '点击"加载模型"获取列表' : '搜索或选择模型…'}
                 value={modelSearchValue || selectedModelName}
                 oninput={(e) => {
                   modelSearchValue = (e.target as HTMLInputElement).value;
                   showModelDropdown = true;
                 }}
+                onfocus={handleModelSearchClick}
               />
             </div>
             <Button
@@ -397,13 +421,19 @@
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div id="model-dropdown" class="model-dropdown">
               {#each getFilteredModelIds() as modelId}
-                {#if getModelDetails(modelId) as details}
+                {@const details = getModelDetails(modelId)}
+                {#if details}
                   <!-- svelte-ignore a11y_no_static_element_interactions -->
                   <div
                     class="model-item"
                     class:selected={modelId === currentSettings.model}
                     onclick={() => selectModel(modelId)}
-                    onkeydown={(e) => { if (e.key === 'Enter') selectModel(modelId); }}
+                    onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') selectModel(modelId); }}
+                    onmouseenter={(e) => showModelTooltip(details, e)}
+                    onmouseleave={hideModelTooltip}
+                    role="option"
+                    aria-selected={modelId === currentSettings.model}
+                    tabindex="0"
                   >
                     <div class="model-item-name">{details.name}</div>
                     <div class="model-item-meta">
@@ -437,6 +467,53 @@
                 <div class="model-no-results">无匹配模型</div>
               {/if}
             </div>
+
+            <!-- 模型详情浮窗 -->
+            {#if hoveredModel && tooltipPosition}
+              <div
+                class="model-tooltip"
+                style="left: {tooltipPosition.x}px; top: {tooltipPosition.y}px;"
+              >
+                <div class="tooltip-header">
+                  <strong>{hoveredModel.name}</strong>
+                  {#if hoveredModel.id !== hoveredModel.name}
+                    <span class="tooltip-id">{hoveredModel.id}</span>
+                  {/if}
+                </div>
+                {#if hoveredModel.description}
+                  <div class="tooltip-desc">{hoveredModel.description}</div>
+                {/if}
+                {#if hoveredModel.context_length}
+                  <div class="tooltip-row">
+                    <span>上下文:</span>
+                    <span>{formatContextLength(hoveredModel.context_length)} tokens</span>
+                  </div>
+                {/if}
+                {#if hoveredModel.pricing}
+                  <div class="tooltip-row">
+                    <span>价格:</span>
+                    <span>{formatPricing(hoveredModel.pricing)}</span>
+                  </div>
+                {/if}
+                {#if hoveredModel.input_modalities && hoveredModel.input_modalities.length > 0}
+                  <div class="tooltip-row">
+                    <span>输入:</span>
+                    <span>{hoveredModel.input_modalities.join(', ')}</span>
+                  </div>
+                {/if}
+                <div class="tooltip-capabilities">
+                  {#if hoveredModel.supports_reasoning}
+                    <span class="tooltip-cap">🧠 推理</span>
+                  {/if}
+                  {#if hoveredModel.supports_tools}
+                    <span class="tooltip-cap">🔧 工具调用</span>
+                  {/if}
+                  {#if hoveredModel.supports_json_mode}
+                    <span class="tooltip-cap">📄 JSON 模式</span>
+                  {/if}
+                </div>
+              </div>
+            {/if}
           {/if}
         </div>
       </Card>
@@ -681,6 +758,34 @@
     cursor: pointer;
   }
 
+  .model-search-input {
+    width: 100%;
+    height: 34px;
+    padding: 0 var(--space-3);
+    font-family: var(--font-sans);
+    font-size: var(--text-md);
+    color: var(--color-text);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border-medium);
+    border-radius: var(--radius-md);
+    outline: none;
+    transition: all var(--transition-fast);
+    box-sizing: border-box;
+  }
+
+  .model-search-input::placeholder {
+    color: var(--color-text-hint);
+  }
+
+  .model-search-input:hover:not(:disabled) {
+    border-color: var(--color-border-strong);
+  }
+
+  .model-search-input:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px rgba(55, 138, 221, 0.15);
+  }
+
   .model-cache-hint {
     font-size: var(--text-xs);
     color: var(--color-text-hint);
@@ -841,6 +946,85 @@
     font-size: var(--text-sm);
     font-weight: 600;
     color: var(--color-text);
+  }
+
+  /* ---- Model Tooltip ---- */
+  .model-tooltip {
+    position: fixed;
+    z-index: 200;
+    max-width: 320px;
+    padding: var(--space-3);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border-medium);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    font-size: var(--text-xs);
+    pointer-events: none;
+    overflow: hidden;
+  }
+
+  .tooltip-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--color-border-light);
+  }
+
+  .tooltip-header strong {
+    font-size: var(--text-sm);
+    color: var(--color-text);
+  }
+
+  .tooltip-id {
+    font-size: 10px;
+    color: var(--color-text-hint);
+    font-family: monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 180px;
+    display: inline-block;
+  }
+
+  .tooltip-desc {
+    color: var(--color-text-secondary);
+    line-height: 1.5;
+    margin-bottom: var(--space-2);
+    max-height: 60px;
+    overflow-y: auto;
+  }
+
+  .tooltip-row {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: 2px 0;
+    color: var(--color-text-secondary);
+  }
+
+  .tooltip-row span:first-child {
+    font-weight: 600;
+    color: var(--color-text-hint);
+  }
+
+  .tooltip-capabilities {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--color-border-light);
+  }
+
+  .tooltip-cap {
+    font-size: 10px;
+    padding: 2px 6px;
+    background: var(--color-primary-light);
+    color: var(--color-primary);
+    border-radius: var(--radius-sm);
+    white-space: nowrap;
   }
 
   /* ---- Save Area ---- */

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { KernelEvents } from '../../kernel/Events.js';
+  import { CMD } from '../../kernel/programs/ChatProgram.js';
   import { useKernel, useNavigate } from '../lib/kernel-context.js';
   import { useToast } from '../lib/stores/toast.svelte.ts';
   import Button from '../components/ui/Button.svelte';
@@ -25,6 +26,8 @@
   let inputText = $state('');
   let toolPanelVisible = $state(false);
   let allTools = $state<any[]>([]);
+  // 工具启用状态用独立 map 追踪（tool 对象是内核普通对象，Svelte 无法深度追踪）
+  let toolEnabledMap = $state<Record<string, boolean>>({});
 
   // 流式内容累积 Map: messageId → { content, reasoning }
   let streamingMap = $state<Record<string, { content: string; reasoning: string }>>({});
@@ -89,7 +92,7 @@
   function refreshMessages() {
     const s = sessionManager?.getCurrentSession?.();
     session = s || null;
-const oldMessages = messages;
+    const oldMessages = messages;
     messages = s?.messages ? [...s.messages] : [];
     showThinkingControl = checkModelSupportsThinking();
     reasoningEffort = s?.reasoningEffort || 'medium';
@@ -110,14 +113,14 @@ const oldMessages = messages;
     if (!content) return;
 
     inputText = '';
-    chatChannel?.emit(KernelEvents.CHAT.USER_APPLY_SEND, {
+    chatChannel?.emit(CMD.SEND, {
       content,
       reasoningEffort: session?.reasoningEffort || reasoningEffort,
     });
   }
 
   function handleStop() {
-    chatChannel?.emit(KernelEvents.CHAT.USER_APPLY_STOP);
+    chatChannel?.emit(CMD.STOP);
   }
 
   function handleNewChat() {
@@ -130,13 +133,32 @@ const oldMessages = messages;
     deleteTargetId = id;
   }
 
-  function handleDeleteMessage() {
+  async function handleDeleteMessage() {
     if (!deleteTargetId) return;
-    chatChannel?.emit(KernelEvents.CHAT.USER_APPLY_DELETE_MESSAGE, {
-      messageId: deleteTargetId,
-    });
+    const id = deleteTargetId;
+    const sid = session?.id;
+    if (!sid) {
+      deleteTargetId = null;
+      toast.error('会话不存在');
+      return;
+    }
+    try {
+      const ok = await sessionManager?.deleteMessage?.(id, sid);
+      if (ok) {
+        toast.success('已删除');
+      } else {
+        toast.error('未找到该消息');
+        deleteTargetId = null;
+        return;
+      }
+    } catch (err) {
+      deleteTargetId = null;
+      toast.error('删除失败: ' + String(err));
+      return;
+    }
+    // 删除成功后再关闭弹窗并更新 UI
     deleteTargetId = null;
-    toast.success('已删除');
+    refreshMessages();
   }
 
   function handleReasoningEffortChange(val: string) {
@@ -152,12 +174,24 @@ const oldMessages = messages;
     } else {
       tool.enable?.();
     }
-    // 强制刷新工具列表以触发 UI 更新
+    // 更新响应式 map（tool 对象是内核普通对象，Svelte 无法深度追踪 tool.enabled）
+    const name = tool.definition?.name;
+    if (name) {
+      toolEnabledMap = { ...toolEnabledMap, [name]: tool.enabled };
+    }
+    // 同时刷新工具列表（保持 allTools 最新）
     refreshTools();
   }
 
   function refreshTools() {
-    allTools = toolRegistry?.getAll?.() || [];
+    const tools = toolRegistry?.getAll?.() || [];
+    allTools = [...tools];
+    // 同步更新 enabled map
+    const map: Record<string, boolean> = {};
+    for (const t of tools) {
+      if (t.definition?.name) map[t.definition.name] = t.enabled;
+    }
+    toolEnabledMap = map;
   }
 
   // ==================== 自动滚动 ====================
@@ -311,6 +345,23 @@ const oldMessages = messages;
 
   let effortDropdownOpen = $state(false);
 
+  // 思考强度滚轮切换
+  function handleEffortWheel(e: WheelEvent) {
+    e.preventDefault();
+    const currentIdx = reasoningEfforts.findIndex(r => r.value === reasoningEffort);
+    let newIdx: number;
+    if (e.deltaY < 0) {
+      // 向上滚动 → 强度增加
+      newIdx = Math.max(0, currentIdx - 1);
+    } else {
+      // 向下滚动 → 强度降低
+      newIdx = Math.min(reasoningEfforts.length - 1, currentIdx + 1);
+    }
+    if (newIdx !== currentIdx) {
+      handleReasoningEffortChange(reasoningEfforts[newIdx].value);
+    }
+  }
+
   // ==================== 折叠状态 ====================
   // 思考过程默认折叠
   let collapsedMessages = $state<Record<string, boolean>>({});
@@ -354,13 +405,16 @@ const oldMessages = messages;
     <div class="chat-header-actions">
       {#if showThinkingControl}
         <div class="effort-control">
-          <Button
-            variant={reasoningEffort !== 'off' ? 'primary' : 'secondary'}
-            size="sm"
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <button
+            class="effort-btn effort-btn--{reasoningEffort !== 'off' ? 'primary' : 'secondary'}"
             onclick={() => (effortDropdownOpen = !effortDropdownOpen)}
+            onwheel={handleEffortWheel}
+            title="滚轮切换思考强度"
+            type="button"
           >
             think{reasoningEffort !== 'off' ? reasoningEffort : 'off'}
-          </Button>
+          </button>
           {#if effortDropdownOpen}
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -432,7 +486,7 @@ const oldMessages = messages;
           >
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div class="tool-card-header" onclick={toggleMsg(msg.id)}>
+            <div class="tool-card-header" onclick={() => toggleMsg(msg.id)}>
               <span class="tool-result-label">{toolCallLabel}</span>
               <span
                 class="tool-result-toggle"
@@ -446,9 +500,10 @@ const oldMessages = messages;
             {/if}
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <button
+              type="button"
               class="msg-delete-btn"
               title="删除结果"
-              onclick={(e) => { e.stopPropagation(); confirmDelete(msg.id); }}
+              onclick={() => confirmDelete(msg.id)}
             >×</button>
           </div>
 
@@ -520,6 +575,8 @@ const oldMessages = messages;
                   <span>💭 思考完成</span>
                   <span style="margin-left: 8px; font-size: 11px; color: var(--color-text-hint);">展开上方查看思考过程</span>
                 </div>
+              {:else if isUser}
+                <div class="message-content empty-message-hint">空消息</div>
               {/if}
             </div>
 
@@ -528,7 +585,7 @@ const oldMessages = messages;
             <button
               class="msg-delete-btn"
               title="删除消息"
-              onclick={(e) => { e.stopPropagation(); confirmDelete(msg.id); }}
+              onclick={() => confirmDelete(msg.id)}
             >×</button>
           </div>
         {/if}
@@ -566,11 +623,11 @@ const oldMessages = messages;
                   <span class="tool-panel-desc">{def.description || ''}</span>
                 </div>
                 <Button
-                  variant={tool.enabled ? 'ghost' : 'secondary'}
+                  variant={toolEnabledMap[def.name] ? 'ghost' : 'secondary'}
                   size="sm"
                   onclick={() => toggleTool(tool)}
                 >
-                  {tool.enabled ? '已启用' : '已禁用'}
+                  {toolEnabledMap[def.name] ? '已启用' : '已禁用'}
                 </Button>
               </div>
             {/if}
@@ -623,16 +680,16 @@ const oldMessages = messages;
   </footer>
 
   <!-- ==================== 删除确认弹窗 ==================== -->
-  {#if deleteTargetId}
-    <Dialog
-      title="删除消息"
-      message="确定要删除这条消息吗？"
-      confirmText="删除"
-      type="danger"
-      onconfirm={handleDeleteMessage}
-      oncancel={() => (deleteTargetId = null)}
-    />
-  {/if}
+  <Dialog
+    open={deleteTargetId !== null}
+    title="删除消息"
+    confirmLabel="删除"
+    danger={true}
+    onconfirm={handleDeleteMessage}
+    onclose={() => (deleteTargetId = null)}
+  >
+    确定要删除这条消息吗？
+  </Dialog>
 </div>
 
 <style>
@@ -677,6 +734,51 @@ const oldMessages = messages;
   /* ==================== 思考强度控制 ==================== */
   .effort-control {
     position: relative;
+  }
+
+  .effort-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-1);
+    font-family: var(--font-sans);
+    font-weight: 600;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    user-select: none;
+    white-space: nowrap;
+    height: 28px;
+    padding: 0 10px;
+    font-size: var(--text-xs);
+  }
+
+  .effort-btn:focus-visible {
+    outline: none;
+    box-shadow: var(--shadow-focus);
+  }
+
+  .effort-btn--primary {
+    background: var(--color-primary);
+    color: var(--color-text-on-primary);
+    border-color: var(--color-primary);
+  }
+
+  .effort-btn--primary:hover {
+    background: var(--color-primary-dark);
+    border-color: var(--color-primary-dark);
+  }
+
+  .effort-btn--secondary {
+    background: var(--color-surface);
+    color: var(--color-text);
+    border-color: var(--color-border-medium);
+  }
+
+  .effort-btn--secondary:hover {
+    background: var(--color-surface-hover);
+    border-color: var(--color-border-strong);
   }
 
   .effort-dropdown {
@@ -775,37 +877,51 @@ const oldMessages = messages;
 
   .msg-delete-btn {
     position: absolute;
-    top: 4px;
-    right: -24px;
-    width: 20px;
-    height: 20px;
+    top: 6px;
+    right: 6px;
+    width: 22px;
+    height: 22px;
     border: none;
     background: transparent;
-    color: var(--color-text-tertiary, #adb5bd);
-    font-size: 14px;
+    color: transparent;
+    font-size: 15px;
+    font-weight: 700;
     cursor: pointer;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     opacity: 0;
-    transition: opacity 150ms, color 150ms;
+    transition: opacity 150ms, background 150ms, color 150ms;
     padding: 0;
     line-height: 1;
+    z-index: 10;
+    pointer-events: auto;
+    user-select: none;
   }
 
+  /* hover 时显示删除按钮 */
+  .message-bubble:hover .msg-delete-btn {
+    opacity: 1;
+    background: rgba(0, 0, 0, 0.32);
+    color: #fff;
+  }
+
+  /* 用户消息（蓝色气泡）的删除按钮 */
   .message-user .msg-delete-btn {
-    left: -24px;
+    left: 6px;
     right: auto;
   }
 
-  .message-bubble:hover .msg-delete-btn {
-    opacity: 1;
+  .message-user:hover .msg-delete-btn {
+    background: rgba(255, 255, 255, 0.3);
+    color: #fff;
   }
 
+  /* 删除按钮 hover 时变红 */
   .msg-delete-btn:hover {
-    color: var(--color-error, #e74c3c);
-    background: var(--color-surface-hover, #f0f0f0);
+    background: rgba(220, 53, 69, 0.88) !important;
+    color: #fff !important;
   }
 
   @keyframes msgFadeIn {
@@ -1107,6 +1223,8 @@ const oldMessages = messages;
 
   /* ==================== 输入区域 ==================== */
   .chat-input-area {
+    display: flex;
+    flex-direction: column;
     flex-shrink: 0;
     border-top: 1px solid var(--color-border-light, #e9ecef);
     background: var(--color-surface, #fff);

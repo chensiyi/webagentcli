@@ -30,7 +30,8 @@ export class Session extends BaseModel {
     return {
       ...(super.toJSON() as Record<string, unknown>),
       title: this.title,
-      messages: this.messages.map(m => (m as { toJSON: () => unknown }).toJSON?.() ?? m),
+      // 过滤掉 undefined 或 null 的消息，并安全调用 toJSON
+      messages: this.messages.filter(m => m != null).map(m => (m as { toJSON: () => unknown }).toJSON?.() ?? m),
       reasoningEffort: this.reasoningEffort,
       model: this.model,
       createdAt: this.createdAt,
