@@ -21,6 +21,10 @@
     onchange,
   }: Props = $props();
 
+  // 生成唯一 id 用于 label->input 关联（a11y）
+  // 始终生成 id（无 label 时 id 无用但不会有害）
+  let sliderId: string = $state('slider-' + crypto.randomUUID().slice(0, 8));
+
   const percentage = $derived(((value - min) / (max - min)) * 100);
 
   function handleInput(e: Event) {
@@ -33,7 +37,7 @@
 <div class="field">
   {#if label}
     <div class="field-header">
-      <label class="field-label">{label}</label>
+      <label class="field-label" for={sliderId}>{label}</label>
       <span class="field-value">{format(value)}</span>
     </div>
   {/if}
@@ -48,6 +52,7 @@
       value={value}
       oninput={handleInput}
       style="--value-percent: {percentage}%"
+      id={sliderId}
     />
   </div>
 </div>

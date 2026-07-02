@@ -29,6 +29,10 @@
   // 流式内容累积 Map: messageId → { content, reasoning }
   let streamingMap = $state<Record<string, { content: string; reasoning: string }>>({});
 
+  // 工具执行进度
+  let toolExecuting = $state(false);
+  let toolExecutingName = $state('');
+
   // 推理强度
   let reasoningEffort = $state('medium');
   let showThinkingControl = $state(false);
@@ -85,9 +89,18 @@
   function refreshMessages() {
     const s = sessionManager?.getCurrentSession?.();
     session = s || null;
+const oldMessages = messages;
     messages = s?.messages ? [...s.messages] : [];
     showThinkingControl = checkModelSupportsThinking();
     reasoningEffort = s?.reasoningEffort || 'medium';
+
+    // 新消息的思考过程默认折叠
+    if (messages.length > oldMessages.length) {
+      const newMsg = messages[messages.length - 1];
+      if (newMsg && newMsg.reasoning_content) {
+        expandedReasoning[newMsg.id] = false; // 默认折叠
+      }
+    }
   }
 
   // ==================== 业务逻辑 ====================
@@ -246,12 +259,14 @@
 
     // 工具事件
     if (toolChannel) {
-      toolChannel.on(KernelEvents.TOOL.EXECUTING, () => {
-        // UI 已通过 isStreaming 控制，但也可在此添加进度指示
+      toolChannel.on(KernelEvents.TOOL.EXECUTING, (data: any) => {
+        toolExecuting = true;
+        toolExecutingName = data?.toolName || '工具';
       });
 
-      toolChannel.on(KernelEvents.TOOL.COMPLETED, () => {
-        // 工具完成后消息会通过 MESSAGE_ADDED/MESSAGE_UPDATED 触发刷新
+      toolChannel.on(KernelEvents.TOOL.COMPLETED, (data: any) => {
+        toolExecuting = false;
+        toolExecutingName = '';
       });
     }
 
@@ -297,6 +312,7 @@
   let effortDropdownOpen = $state(false);
 
   // ==================== 折叠状态 ====================
+  // 思考过程默认折叠
   let collapsedMessages = $state<Record<string, boolean>>({});
   let collapsedToolCalls = $state<Record<string, boolean>>({});
   let expandedReasoning = $state<Record<string, boolean>>({});
@@ -501,7 +517,8 @@
                 <div class="message-content markdown-body">{@html renderMarkdown(displayContent)}</div>
               {:else if hasReasoning && isAssistant}
                 <div class="message-content reasoning-only-hint">
-                  仅有思考过程，请展开上方查看
+                  <span>💭 思考完成</span>
+                  <span style="margin-left: 8px; font-size: 11px; color: var(--color-text-hint);">展开上方查看思考过程</span>
                 </div>
               {/if}
             </div>
@@ -524,6 +541,9 @@
         <span class="streaming-dot"></span>
         <span class="streaming-dot"></span>
         <span class="streaming-dot"></span>
+        {#if toolExecuting}
+          <span class="tool-executing-hint">{toolExecutingName} 执行中...</span>
+        {/if}
       </div>
     {/if}
   </div>
@@ -811,6 +831,16 @@
     color: var(--color-text-tertiary, #adb5bd);
     font-style: italic;
     font-size: var(--text-xs, 12px);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .empty-message-hint {
+    color: var(--color-text-tertiary, #adb5bd);
+    font-style: italic;
+    font-size: var(--text-xs, 12px);
+    opacity: 0.6;
   }
 
   /* Markdown 内容样式 */
@@ -1051,6 +1081,13 @@
     border: 1px solid var(--color-border-light, #e9ecef);
   }
 
+  .tool-executing-hint {
+    font-size: 11px;
+    color: var(--color-text-secondary, #6b7280);
+    margin-left: 8px;
+    font-style: italic;
+  }
+
   .streaming-dot {
     width: 6px;
     height: 6px;
@@ -1086,14 +1123,14 @@
     flex: 1;
     border: 1px solid var(--color-border-medium, #dee2e6);
     border-radius: var(--radius-md, 6px);
-    padding: 8px 10px;
+    padding: 6px 10px;
     font-size: var(--text-sm, 13px);
     font-family: var(--font-sans, inherit);
     line-height: 1.5;
     resize: none;
     overflow-y: hidden;
     box-sizing: border-box;
-    min-height: 36px;
+    min-height: 34px;
     max-height: 150px;
     transition: border-color var(--transition-fast, 150ms);
     background: var(--color-surface, #fff);
