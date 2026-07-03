@@ -91,9 +91,27 @@
   }
 
   function handleApiStandardChange(value: string) {
+    const prevStandard = currentSettings.apiStandard;
+    if (prevStandard && prevStandard !== value) {
+      // 切换前保存当前 provider 的配置
+      currentSettings.providerConfigs = currentSettings.providerConfigs || {};
+      currentSettings.providerConfigs[prevStandard] = {
+        apiEndpoint: currentSettings.apiEndpoint,
+        model: currentSettings.model,
+        apiKey: currentSettings.apiKey,
+      };
+    }
+
     currentSettings.apiStandard = value;
+
+    // 恢复目标 provider 的已保存配置，没有则用默认值
+    const saved = currentSettings.providerConfigs?.[value];
     const defaults = providerDefaults[value];
-    if (defaults) {
+    if (saved) {
+      currentSettings.apiEndpoint = saved.apiEndpoint ?? defaults?.endpoint ?? '';
+      currentSettings.model = saved.model ?? defaults?.model ?? '';
+      currentSettings.apiKey = saved.apiKey ?? currentSettings.apiKey ?? '';
+    } else if (defaults) {
       currentSettings.apiEndpoint = defaults.endpoint;
       currentSettings.model = defaults.model;
     }
@@ -195,14 +213,14 @@
     isSaving = true;
     try {
       const sm = kernel?.getSettingsManager?.();
-      const ipc = kernel?.getIPC?.();
-      const channel = ipc?.getOrCreateChannel?.('settings') || ipc;
-
-      // Save via SettingsManager (persists to storage + emits settings:saved for ProviderFactory)
       if (sm?.saveSettings) {
         await sm.saveSettings(currentSettings);
+      } else {
+        // Fallback: 直接 emit SAVED 事件让 ProviderFactory 响应
+        const ipc = kernel?.getIPC?.();
+        const channel = ipc?.getOrCreateChannel?.('settings') || ipc;
+        channel?.emit('settings:saved', { settings: currentSettings });
       }
-
       toast.success('设置已保存');
     } catch (e) {
       toast.error('保存失败: ' + (e as Error).message);

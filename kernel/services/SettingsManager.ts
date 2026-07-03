@@ -49,32 +49,22 @@ export class SettingsManager extends BaseSettings {
   getSettings() { return { ...this._settings }; }
   resetSettings() { this._settings = {}; }
 
-  updateSettings(settings) {
-    Object.assign(this._settings, settings);
-  }
-
+  /** 合并设置并持久化到存储，同时通过 IPC 通知 ProviderFactory 更新 */
   async saveSettings(settings: Record<string, any>) {
-    this.updateSettings(settings);
+    Object.assign(this._settings, settings);
     if (this.storage) {
       try {
         await this.storage.set('app_settings', { ...this._settings });
-        Log.info('SETTINGS', `Saved settings: apiStandard=${settings.apiStandard || 'default'}`);
       } catch (e) {
-        Log.warn('SETTINGS', `saveSettings error: ${(e as Error)?.message}`);
+        Log.warn('SETTINGS', `saveSettings error: ${e?.message}`);
       }
     }
-    // 通过 IPC 通知 ProviderFactory 重新配置 Provider
     try {
       const channel = this.ipc?.getOrCreateChannel('settings');
-      channel?.emit(KernelEvents.SETTINGS.SAVED, { settings: this._settings });
+      channel?.emit(KernelEvents.SETTINGS.SAVED, { settings: { ...this._settings } });
     } catch (e) {
-      Log.warn('SETTINGS', `emit SAVED error: ${(e as Error)?.message}`);
+      Log.warn('SETTINGS', `emit SAVED error: ${e?.message}`);
     }
-    return this;
-  }
-
-  async clearModelCache() {
-    await this.saveSetting('models', null);
-    Log.info('SETTINGS', 'Model cache cleared');
+    Log.info('SETTINGS', 'Settings saved and SAVED event emitted');
   }
 }

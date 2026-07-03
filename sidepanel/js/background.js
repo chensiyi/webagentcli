@@ -51,4 +51,20 @@ chrome.action.onClicked.addListener(async (tab) => {
   }
 });
 
+// 启动时立即注入当前活跃标签页的脚本
+async function injectOnStartup() {
+  try {
+    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tabs.length > 0 && tabs[0].url) {
+      console.log('[Background] 启动注入:', tabs[0].url);
+      await injectScriptsForTab(tabs[0].id, tabs[0].url);
+    }
+  } catch (e) {
+    console.error('[Background] 启动注入失败:', e);
+  }
+}
+
+// 延迟执行启动注入，确保 service worker 完全就绪
+setTimeout(injectOnStartup, 500);
+
 console.log('[Background] Service worker loaded');

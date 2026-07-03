@@ -44,7 +44,7 @@
   // ---------- Helpers ----------
   function generateTitle(messages: any[]): string {
     if (!messages?.length) return '新对话';
-    const firstUser = messages.find((m: any) => m.role === 'user');
+    const firstUser = messages.find((m: any) => m?.role === 'user');
     if (!firstUser) return '新对话';
     let content = '';
     if (typeof firstUser.content === 'string') {
@@ -101,7 +101,7 @@
   }
 
   function getMessageCount(messages: any[]): number {
-    return messages?.filter((m: any) => m.role === 'user').length || 0;
+    return messages?.filter((m: any) => m?.role === 'user').length || 0;
   }
 
   function getProviderLabel(session: any): string {
@@ -130,10 +130,10 @@
     deleteTargetId = id;
   }
 
-  function executeDelete() {
+  async function executeDelete() {
     if (!deleteTargetId) return;
     const sm = kernel?.getSessionManager?.();
-    sm?.deleteSession?.(deleteTargetId, false);
+    await sm?.deleteSession?.(deleteTargetId);
     deleteTargetId = null;
     refreshList();
   }

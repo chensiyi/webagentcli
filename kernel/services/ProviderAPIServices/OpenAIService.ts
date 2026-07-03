@@ -59,6 +59,11 @@ export default class OpenAIService extends BaseProviderAPIService {
     const body = { ...this.buildRequestBody(request), stream: true };
     Log.info('OpenAIService', `Stream request: model=${body.model}, messages=${body.messages?.length}`);
 
+    const pendingToolCalls: Record<number, any> = {};
+    let pendingContent = '';
+    let pendingReasoning = '';
+    let pendingFinishReason: string | null = null;
+
     try {
       const res = await fetch(url, {
         method: 'POST', headers: { ...this.buildHeaders() }, body: JSON.stringify(body)
@@ -76,6 +81,7 @@ export default class OpenAIService extends BaseProviderAPIService {
       const decoder = new TextDecoder();
       this.abortController = new AbortController();
       let totalChunkCount = 0;
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -86,22 +92,49 @@ export default class OpenAIService extends BaseProviderAPIService {
           if (json === '[DONE]') continue;
           try {
             const parsed = JSON.parse(json);
-            const delta = parsed.choices && parsed.choices[0] && parsed.choices[0].delta;
-            if (!delta) continue;
+            const choice = parsed.choices && parsed.choices[0];
+            if (!choice) continue;
+            const delta = choice.delta || {};
+            if (choice.finish_reason) pendingFinishReason = choice.finish_reason;
+
+            // 累积 tool_calls（流式分片合并）
+            if (delta.tool_calls) {
+              for (const tc of delta.tool_calls) {
+                if (!pendingToolCalls[tc.index]) {
+                  pendingToolCalls[tc.index] = tc;
+                } else {
+                  const existing = pendingToolCalls[tc.index];
+                  if (tc.function) {
+                    existing.function = existing.function || { name: '', arguments: '' };
+                    existing.function.name = existing.function.name || tc.function.name || '';
+                    existing.function.arguments = (existing.function.arguments || '') + (tc.function.arguments || '');
+                  }
+                }
+              }
+            }
+
             totalChunkCount++;
-            const chunk = {
-              content: delta.content || '',
-              reasoning_content: null
-            };
-            if (delta.tool_calls && onChunk) onChunk({ ...chunk, tool_calls: delta.tool_calls });
-            else if (onChunk) onChunk(chunk);
+            const contentChunk = delta.content || '';
+            const reasoningChunk = delta.reasoning_content || delta.reasoning || '';
+            if (contentChunk) pendingContent += contentChunk;
+            if (reasoningChunk) pendingReasoning += reasoningChunk;
+            if (onChunk) onChunk({ content: contentChunk, reasoning_content: reasoningChunk });
           } catch (e) {
             Log.warn('OpenAIService', 'Failed to parse SSE chunk:', e);
           }
         }
       }
-      Log.info('OpenAIService', `Stream completed: ${totalChunkCount} chunks`);
-      return null;
+
+      const { MessageStructure } = await import('../../models/MessageContent.js');
+      Log.info('OpenAIService', `Stream completed: ${totalChunkCount} chunks, toolCalls=${Object.keys(pendingToolCalls).length}`);
+      return {
+        content: pendingContent,
+        reasoning_content: pendingReasoning,
+        toolCalls: MessageStructure.parseToolCallsFromOpenAI(Object.values(pendingToolCalls)),
+        finishReason: pendingFinishReason || 'stop',
+        usage: null,
+        model: null
+      };
     } catch (error) {
       if (error.name === 'AbortError') {
         Log.info('OpenAIService', 'Stream cancelled');

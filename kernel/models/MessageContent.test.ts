@@ -24,9 +24,10 @@ describe('P0-1: MessageStructure 缺方法', () => {
     expect(result).toBeDefined();
     expect(Array.isArray(result)).toBe(true);
     expect(result.length).toBe(2);
-    // 每个 ToolCall 应至少有 id, name, arguments
+    // 每个 ToolCall 应至少有 id, toolName, input
     expect(result[0].id).toBe('call_001');
-    expect(result[0].name).toBe('get_weather');
+    expect(result[0].toolName).toBe('get_weather');
+    expect(result[0].input).toEqual({ city: 'Beijing' });
   });
 
   it('MessageStructure.parseToolCallsFromOpenAI 处理空数组应返回空数组', () => {
