@@ -2,11 +2,6 @@
  * Kernel — ES Module 统一入口
  *
  * 所有内核模块通过 import/export 组织，可在任何 ES module 环境运行。
- * 通过 Vite 统包为 dist/sidepanel.bundle.js（ES module 格式），
- * 与 Shell 层合并为一个 bundle，由 sidepanel.html 以 type="module" 加载。
- *
- * 底部 _sidepanelShim 为历史遗留的 window 桥接，
- * Shell 已全量 ES import，无消费者——待 Shell TS 化后移除。
  */
 
 // ==================== 内核核心 ====================
@@ -67,34 +62,3 @@ declare const __VERSION__: string;
 export const VERSION = __VERSION__;
 export const CODENAME = 'Microkernel-Esm';
 
-// ==================== 运行时：Shell 壳层桥接（将核心接口挂到 window） ====================
-// 说明：此块是 Kernel 与 Shell(JS) 的边界桥接，仅在此入口处执行，不属于内核内部依赖。
-// Shell 壳层尚未迁移到 TS，需通过 window.X 访问 Kernel 类。Shell 迁移完成后可移除。
-const _sidepanelShim = [
-  ['IStorageManager', IStorageManager],
-  ['BaseSettings', BaseSettings],
-  ['BaseProviderAPIService', BaseProviderAPIService],
-  ['BaseScriptsManager', BaseScriptsManager],
-  ['BaseSessionManager', BaseSessionManager],
-  ['IToolService', IToolService],
-  ['OpenAIService', OpenAIService],
-  ['OpenRouterService', OpenRouterService],
-  ['LMStudioService', LMStudioService],
-  ['IPC', IPC],
-  ['ToolRegistry', ToolRegistry],
-  ['CapabilityManager', CapabilityManager],
-  ['Kernel', Kernel],
-  ['Bootloader', Bootloader],
-  ['ChatProgram', ChatProgram],
-  ['ProviderFactory', ProviderFactory],
-  ['SettingsManager', SettingsManager],
-  ['SessionManager', SessionManager],
-  ['ScriptsManager', ScriptsManager],
-  ['ProcessManager', ProcessManager],
-];
-for (const [name, value] of _sidepanelShim) {
-  if (typeof window !== 'undefined') {
-    const w = window as unknown as Record<string, unknown>;
-    if (w[name] === undefined) w[name] = value;
-  }
-}

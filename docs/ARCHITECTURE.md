@@ -31,7 +31,7 @@ webagentcli/
 │   ├── CapabilityManager.ts        # 权限门控
 │   ├── Bootloader.ts               # 启动序列（4 阶段）
 │   ├── Events.ts                   # 内核事件常量
-│   ├── index.ts                    # 统一导出 + Shell 桥接
+│   ├── index.ts                    # 统一导出
 │   │
 │   ├── models/                     # 数据模型（纯数据，无壳依赖）
 │   │   ├── BaseModel.ts
@@ -71,10 +71,12 @@ webagentcli/
 │   │       └── LMStudioService.ts
 │   │
 │   └── tools/                      # 工具定义（侧边栏实现 RunUserScriptTool）
-│       ├── RunUserScriptTool.js    # （旧 JS 架构，sidepanel/js/tools/）
+│       ├── RunUserScriptTool.js    # 已迁移至 sidepanel/tools/
 │       └── ManageUserScriptsTool.js
 │
-├── src/                            # Svelte 5 UI（新架构）
+├── index.html                      # 入口 HTML
+├── sidepanel/                      # Svelte 5 UI + Service Worker
+│   ├── background.js               # Service Worker（脚本自动注入）
 │   ├── main.ts                     # 入口：Kernel 自举 + 挂载 Svelte App
 │   ├── Sidepanel.svelte            # 根组件（Sidebar + 5 页路由）
 │   ├── components/                 # Svelte 组件
@@ -90,7 +92,13 @@ webagentcli/
 │   │   ├── SettingsPage.svelte     # 设置页面
 │   │   └── chat/
 │   │       ├── MessageBubble.svelte
-│   │       └── ChatEventHandler.js
+│   │       ├── ChatEventHandler.ts
+│   │       └── ...
+│   ├── services/                   # 壳层服务
+│   │   └── ChromeStorageAdapter.js
+│   ├── tools/                      # 内置工具实现
+│   │   ├── RunUserScriptTool.js
+│   │   └── ManageUserScriptsTool.js
 │   ├── styles/                     # 全局样式
 │   │   ├── tokens.css
 │   │   ├── utilities.css
@@ -101,28 +109,13 @@ webagentcli/
 │       ├── text.ts
 │       └── time.ts
 │
-├── sidepanel/                      # Shell A: Chrome 侧边栏（旧架构）
-│   ├── sidepanel.html              # 入口 HTML
-│   ├── svelte-app.html             # Svelte 5 入口 HTML
-│   ├── js/
-│   │   ├── app.js                  # 旧入口（Bootloader 调用方 + UI 渲染）
-│   │   ├── background.js           # Service Worker
-│   │   ├── event-handlers/         # 页面事件处理器
-│   │   ├── pages/                  # UI 页面
-│   │   ├── components/             # UI 组件
-│   │   ├── tools/                  # 内置工具实现
-│   │   └── services/               # Chrome 专用服务
-│   └── theme/                      # CSS 主题
-│
 ├── dist/                           # 构建产物
-│   ├── kernel.bundle.iife.js
-│   └── svelte-app.bundle.js
+│   ├── assets/svelte-app.css       # Svelte 5 样式
+│   └── svelte-app.bundle.js        # Svelte 5 打包
 │
 ├── docs/
 │   ├── ARCHITECTURE.md             # 本文件
-│   ├── CORE_MODELS.md              # 数据模型说明
-│   ├── kernel-design-review.md     # Kernel 设计审查与完善方案
-│   └── svelte-migration-plan.md    # Svelte 5 迁移方案
+│   └── CORE_MODELS.md              # 数据模型说明
 │
 ├── package.json
 ├── tsconfig.json
@@ -154,7 +147,21 @@ Kernel 只做 3 件事：
 - 中间件链：日志、权限、统计等横切关注点
 
 ### Shell 可替换原则
-`sidepanel/` 和 `src/` 都只是壳（Shell），依赖内核 `kernel/`。更换 Shell 时（如 CLI 版本），kernel 无需改动一行代码。
+`sidepanel/` 是壳（Shell），依赖内核 `kernel/`。更换 Shell 时（如 CLI 版本），kernel 无需改动一行代码。
+
+### 两进程架构
+
+```
+Service Worker (background.js)              Sidepanel (Svelte 5)
+    │                                              │
+    │  持续运行，不依赖 Kernel                     │  按需打开，Kernel 自举
+    │  监听 tabs.onActivated                      │  IPC EventBus
+    │  监听 storage.onChanged                     │  5 个 UI 页面
+    │  脚本自动注入                                │  ChatProgram
+    │                                              │
+    └────────────── chrome.storage ────────────────┘
+                  共享数据层
+```
 
 ### 三层事件体系
 应用层与内核层通过三层事件通信：
@@ -264,7 +271,7 @@ capabilities.onDeny(handler)                  // 拒绝回调
 | 3. START | 初始化服务 + 加载配置 + 注册工具 + 创建 Programs |
 | 4. READY | 就绪 |
 
-**使用方式**（`src/main.ts`）：
+**使用方式**（`sidepanel/main.ts`）：
 ```typescript
 const bootloader = new Bootloader(kernel);
 
@@ -321,13 +328,13 @@ kernel.ipc.emit('chat:messageDeleted', { messageId })
 
 ### 2. ChatEventHandler（聊天事件处理 — 应用层转译）
 
-**位置**：`src/pages/chat/ChatEventHandler.js`
+**位置**：`sidepanel/pages/chat/ChatEventHandler.ts`
 
 应用层的鉴权转译层，职责：
 1. 监听 UI 层的 `USER_APPLY_*` 事件
 2. 鉴权、参数校验
 3. 转译为 `ChatProgram.CMD.*` 指令转发
-4. 监听 ChatProgram 输出事件（`chat:streamChunkAppend` 等）做 DOM 更新
+4. 监听 ChatProgram 输出事件（`chat:streamChunkAppend` 等）更新 Svelte 状态
 
 ### 3. SessionManager（会话管理器）
 
@@ -397,6 +404,15 @@ builtInClasses.forEach((ToolClass) => {
 });
 ```
 
+### 7. ScriptInjector（脚本自动注入 — Service Worker 层）
+
+**位置**：`sidepanel/background.js`
+
+不依赖 Kernel，直接读取 `chrome.storage`，作为 Service Worker 持续运行：
+- 监听 `tabs.onActivated`/`tabs.onUpdated` — 标签页切换/加载时按 `@match` 规则注入脚本
+- 监听 `storage.onChanged` — 脚本数据变更时自动重新注入
+- 启动时延迟注入当前活跃标签页
+
 ## 事件系统参考
 
 ### 完整事件列表（`kernel/Events.ts`）
@@ -445,16 +461,7 @@ builtInClasses.forEach((ToolClass) => {
 
 ## 壳层（Shell）详解
 
-### 双入口策略
-
-项目当前维护两个 UI 入口，并行运行：
-
-| 入口 | 文件 | 技术栈 | 状态 |
-|------|------|--------|------|
-| **旧入口** | `sidepanel/sidepanel.html` → `sidepanel/js/app.js` | 原生 JS + DOM | 维护中 |
-| **新入口** | `sidepanel/svelte-app.html` → `src/main.ts` | Svelte 5 + TypeScript | 迁移中 |
-
-#### Svelte 5 入口启动流程（`src/main.ts`）
+### 入口启动流程（`sidepanel/main.ts`）
 
 ```
 1. 创建 ConsoleLogger → IPC → ToolRegistry → CapabilityManager
@@ -474,7 +481,7 @@ builtInClasses.forEach((ToolClass) => {
 
 Svelte 组件通过 Svelte Context API 访问 Kernel：
 ```typescript
-// src/Sidepanel.svelte
+// sidepanel/Sidepanel.svelte
 setContext('kernel', kernel);
 
 // 任何子组件
@@ -487,22 +494,22 @@ const sessionManager = kernel.getSessionManager();
 1. **IPC API** 不变：`emit` / `on` / `off` / `once` / `getHistory` 全部保留
 2. **Events 常量** 兼容：`KernelEvents.CHAT.*` 保留全部旧常量
 3. **服务访问** 统一通过 `kernel.get('serviceName')` 或 `kernel.getXxxManager()` 便捷方法
-4. **Shell 交换**：更换 Shell 时（如从旧 JS 切换到 Svelte 5），kernel 无需改动一行代码
+4. **Shell 交换**：更换 Shell 时，kernel 无需改动一行代码
 
 ## 开发指南
 
 ### 内核原则（修改 kernel/ 时）
 
 1. **不引用** `window`、`chrome.*`、`document`
-2. **不引用** `sidepanel/` 或 `src/` 中的任何代码
+2. **不引用** `sidepanel/` 中的任何代码
 3. **测试**可以在 Node.js 中直接运行（`vitest`）
 4. **新增功能**应先在 kernel 中注册服务，再在 shell 中消费
 
-### 壳层原则（修改 sidepanel/ 或 src/ 时）
+### 壳层原则（修改 sidepanel/ 时）
 
 1. **优先**通过 `kernel.get('serviceName')` 访问服务
 2. **Chrome API 调用**集中在壳层，不渗入 kernel
-3. 新 UI 开发优先在 `src/`（Svelte 5）中进行
+3. 所有 UI 开发在 `sidepanel/`（Svelte 5）中进行
 
 ### 添加新的内核程序
 
@@ -519,8 +526,8 @@ const sessionManager = kernel.getSessionManager();
 
 ### 添加新页面
 
-1. 在 `src/pages/` 创建 Svelte 组件
-2. 在 `src/Sidepanel.svelte` 的 `PAGES` 数组注册 `{ id, icon, label }`
+1. 在 `sidepanel/pages/` 创建 Svelte 组件
+2. 在 `sidepanel/Sidepanel.svelte` 的 `PAGES` 数组注册 `{ id, icon, label }`
 3. 在侧边栏模板中添加条件渲染
 
 ## 版本信息
@@ -536,18 +543,17 @@ const sessionManager = kernel.getSessionManager();
 - ✅ **三层事件体系**：USER_APPLY_* → ChatEventHandler → ChatProgram.CMD.*
 - ✅ **Bootloader 精简**：8 阶段 → 4 阶段（INIT/REGISTER/START/READY）
 - ✅ **ProviderFactory 独立**：Provider 不再耦合在 Kernel 上
-- ✅ **Svelte 5 UI 迁移启动**：新增 `src/` 目录，双入口并行
+- ✅ **Svelte 5 UI 统一**：移除旧 JS 架构，全部使用 Svelte 5 + TypeScript
 - ✅ **Process 模型**：新增进程生命周期管理
-- ✅ **Vite 构建**：替换手写 IIFE，双入口构建
+- ✅ **Vite 构建**：替换手写 IIFE，单入口构建
 - ✅ **消息序列化归一化**：MessageStructure.toAPIFormat 统一转换
 - ✅ **移除 ServiceCenter**：所有引用已迁移至 Kernel
 - ✅ **移除 ChatController**：聊天逻辑完全由 ChatProgram 处理
-- ✅ **`_sidepanelShim` 标记待移除**：Shell 已全量 ES import
+- ✅ **移除 `_sidepanelShim`**：Shell 已全量 ES import，window 桥接已删除
+- ✅ **双 Shell 归并**：`src/` → `sidepanel/`，旧 UI 文件全部清理
+- ✅ **Background 脚本注入**：独立 Service Worker，不依赖 Kernel
 
 ---
 
 **推荐阅读**：
 - [CORE_MODELS.md](CORE_MODELS.md) — 数据模型详解
-- [sidepanel/README.md](../sidepanel/README.md) — Side Panel 模块说明
-- [kernel-design-review.md](kernel-design-review.md) — Kernel 设计审查与完善方案
-- [svelte-migration-plan.md](svelte-migration-plan.md) — Svelte 5 迁移方案

@@ -11,10 +11,10 @@ Web Agent Client 是一个轻量级、可扩展的 Chrome 侧边栏扩展，为 
 - 💬 **多会话与持久化**：基于 `chrome.storage.local` 的会话/消息/工具调用全持久化
 - 🌊 **流式响应 + 思考模式**：原生支持 SSE 流式输出与 `reasoning_content`（OpenAI o-series、Claude thinking 等）
 - 🛠️ **Tool Calling 闭环**：内置 `run_user_script` 工具，使用 `chrome.scripting.executeScript` 在页面 MAIN 世界执行代码
-- 📜 **用户脚本管理**：支持 Tampermonkey 风格元数据解析与按 `match` 规则自动注入
+- 📜 **用户脚本管理**：支持 Tampermonkey 风格元数据解析与按 `@match` 规则自动注入（Background Service Worker 持续运行）
 - 🎨 **模块化主题**：CSS 按 UI 元素类型拆分（变量、布局、表单、卡片、聊天组件等），易于扩展深色/浅色模式
 - 🔍 **本地存储查看**：内置 Storage 页面，支持搜索、容量统计、缓存清理
-- 🦀 **TypeScript + Vite + Svelte 5**：内核层使用 TypeScript 编写，Vite 构建；UI 层逐步迁移至 Svelte 5（Runes）
+- 🦀 **TypeScript + Vite + Svelte 5**：内核层使用 TypeScript 编写，Vite 构建；UI 层使用 Svelte 5（Runes）
 
 ## 📂 项目结构
 
@@ -26,9 +26,9 @@ webagentcli/
 ├── assets/icons/              # 扩展图标
 ├── docs/                      # 设计文档
 │   ├── ARCHITECTURE.md        # 架构设计（Microkernel + IPC + Programs）
-│   ├── CORE_MODELS.md         # 数据模型详解
+│   └── CORE_MODELS.md         # 数据模型详解
 ├── kernel/                    # 核心内核（TypeScript · 零外部依赖）
-│   ├── index.ts               # ES Module 统一入口，Vite 打包入口
+│   ├── index.ts               # ES Module 统一入口
 │   ├── Kernel.ts              # 内核（服务注册/生命周期/状态机）
 │   ├── Bootloader.ts          # Bootloader（4 阶段标准化启动）
 │   ├── IPC.ts                 # 进程间事件总线（优先级/中间件/通道）
@@ -69,15 +69,16 @@ webagentcli/
 │           ├── OpenAIService.ts
 │           ├── OpenRouterService.ts
 │           └── LMStudioService.ts
-├── src/                       # ★ Svelte 5 UI（新架构）
-│   ├── main.ts                # 入口：Kernel 自举 + 挂载 Svelte App
+├── index.html                 # 入口 HTML
+├── sidepanel/                 # Svelte 5 UI + Service Worker
+│   ├── background.js          # Service Worker（脚本自动注入）
+│   ├── main.ts                # Kernel 自举 + 挂载 Svelte App
 │   ├── Sidepanel.svelte       # 根组件（Sidebar + 5 页路由）
-│   ├── vite-env.d.ts          # Vite 类型声明
 │   ├── components/            # Svelte 组件
 │   │   ├── atoms/             # 原子组件（Button/Input/Select 等）
-│   │   ├── forms/             # 表单组件
-│   │   ├── layout/            # 布局组件（Sidebar 等）
-│   │   └── overlays/          # 覆盖层组件（Toast/Dialog 等）
+│   │   ├── forms/             # 表单组件（CodeEditor 等）
+│   │   ├── layout/            # 布局组件（Sidebar/Card/EmptyState 等）
+│   │   └── overlays/          # 覆盖层组件（Toast/Dialog/Tooltip 等）
 │   ├── pages/                 # 页面组件
 │   │   ├── ChatPage.svelte    # 对话页面
 │   │   ├── HistoryPage.svelte # 历史页面
@@ -86,7 +87,13 @@ webagentcli/
 │   │   ├── SettingsPage.svelte# 设置页面
 │   │   └── chat/              # 聊天子组件
 │   │       ├── MessageBubble.svelte
-│   │       └── ChatEventHandler.js
+│   │       ├── ChatEventHandler.ts
+│   │       └── ...
+│   ├── services/              # 壳层服务
+│   │   └── ChromeStorageAdapter.js
+│   ├── tools/                 # 内置工具实现
+│   │   ├── RunUserScriptTool.js
+│   │   └── ManageUserScriptsTool.js
 │   ├── styles/                # 全局样式
 │   │   ├── tokens.css         # 设计令牌（CSS 变量）
 │   │   ├── components.css     # 组件样式
@@ -96,25 +103,12 @@ webagentcli/
 │       ├── dom.ts
 │       ├── text.ts
 │       └── time.ts
-├── sidepanel/                 # ★ Shell A: Chrome 侧边栏（旧架构，逐步迁移中）
-│   ├── sidepanel.html         # 入口 HTML
-│   ├── svelte-app.html        # Svelte 5 入口 HTML
-│   ├── README.md              # Side Panel 模块说明
-│   ├── js/                    # JavaScript UI 层
-│   │   ├── app.js             # 应用初始化（旧入口）
-│   │   ├── background.js      # Service Worker
-│   │   ├── event-handlers/    # 事件处理器
-│   │   ├── pages/             # 页面组件
-│   │   ├── components/        # 通用 UI 组件
-│   │   ├── tools/             # 内置工具实现
-│   │   └── services/          # Chrome 专用服务
-│   └── theme/                 # CSS 主题（variables.css 等）
 ├── dist/                      # 构建产物
-│   ├── kernel.bundle.iife.js  # Vite 打包 IIFE
+│   ├── assets/svelte-app.css  # Svelte 5 样式
 │   └── svelte-app.bundle.js   # Svelte 5 打包
 ├── package.json               # 依赖与构建脚本
 ├── tsconfig.json              # TypeScript 配置
-├── vite.config.ts             # Vite 构建配置（双入口）
+├── vite.config.ts             # Vite 构建配置
 ├── vitest.config.ts           # Vitest 测试配置
 └── svelte.config.mjs          # Svelte 配置
 ```
@@ -153,7 +147,7 @@ webagentcli/
 
 6. **配置 AI Provider**
    - 进入 **设置** 页面
-   - 选择 API 标准：`OpenAI` / `OpenRouter` / `LM Studio` / `Ollama` / `Anthropic`
+   - 选择 API 标准：`OpenAI` / `OpenRouter` / `LM Studio`
    - 填写 API Key、Endpoint，选择模型
    - 启用 **思考模式**（reasoning effort）可获得更好的复杂任务表现
 
@@ -167,9 +161,6 @@ webagentcli/
 |------|------|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 整体架构：Microkernel + IPC + Programs + Services |
 | [docs/CORE_MODELS.md](docs/CORE_MODELS.md) | 数据模型字段、方法、序列化规范 |
-| [sidepanel/README.md](sidepanel/README.md) | Side Panel 模块说明（旧 JS 架构） |
-| [docs/kernel-design-review.md](docs/kernel-design-review.md) | Kernel 设计审查与完善方案 |
-| [docs/svelte-migration-plan.md](docs/svelte-migration-plan.md) | Svelte 5 迁移方案 |
 
 ## 🧩 五大内置页面
 
@@ -185,9 +176,15 @@ webagentcli/
 
 ```
 ┌──────────────────────────────────────────────────┐
-│   Shell (View + EventHandlers)                   │
-│   ├── sidepanel/js/ · 旧 JS 架构                  │
-│   └── src/ · Svelte 5 新架构（迁移中）             │
+│   Service Worker (background.js)                  │
+│   用户脚本自动注入 · 持续运行 · 不依赖 Kernel      │
+└──────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────┐
+│   Sidepanel (Svelte 5)                            │
+│   ├── index.html → main.ts → Kernel 自举          │
+│   ├── 5 个页面（Chat/History/Storage/Scripts/Settings）│
+│   └── Svelte 组件系统                              │
 └──────────────┬───────────────────────────────────┘
                │ IPC EventBus
                ▼
@@ -211,9 +208,8 @@ webagentcli/
 
 - **Microkernel 模式**：内核（`kernel/Kernel.ts`）只做服务注册和生命周期，不执行业务
 - **Bootloader 4 阶段启动**：INIT → REGISTER → START → READY
+- **两进程架构**：Service Worker（`background.js`）持续运行脚本注入；Sidepanel 按需打开，Kernel 自举
 - **ProviderFactory 独立**：Provider 服务通过工厂创建，不再耦合在 Kernel 上
-- **Build 分离**：内核用 TypeScript + Vite 构建为 IIFE，侧边栏 UI 通过 `<script>` 加载
-- **双入口策略**：旧 JS 入口（`sidepanel/js/app.js`）与新 Svelte 5 入口（`src/main.ts`）并行运行
 - **`MessageStructure.toAPIFormat` 归一化**：所有消息在发送前统一转为 OpenAI API 格式
 
 详细分层与责任划分请阅读 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
@@ -231,7 +227,6 @@ webagentcli/
 - **架构版本**：Microkernel（Kernel + Bootloader + ProviderFactory 解耦）
 - **构建系统**：TypeScript 6 + Vite 8 + Vitest 4 + Svelte 5
 - **Manifest**：V3
-- **v0.6 里程碑**：内核层纯 TypeScript 化，Vite 替换手写 IIFE，ProviderFactory 独立，消息序列化归一化，Svelte 5 UI 迁移启动
 
 ## 📄 许可
 

@@ -2,7 +2,6 @@
  * Svelte 5 UI 入口
  * 
  * 独立启动入口——自行 Boot Kernel，然后挂载 Svelte App。
- * 与旧 UI (sidepanel/js/app.js) 并行运行，互不干扰。
  */
 
 import { mount } from 'svelte';
@@ -12,21 +11,21 @@ import './styles/utilities.css';
 import './styles/components.css';
 import './styles/pages.css';
 
-import { ConsoleLogger } from '../kernel/services/ConsoleLogger.js';
-import { IPC } from '../kernel/IPC.js';
-import { ToolRegistry } from '../kernel/ToolRegistry.js';
-import { CapabilityManager } from '../kernel/CapabilityManager.js';
-import { Kernel } from '../kernel/Kernel.js';
-import { Bootloader } from '../kernel/Bootloader.js';
-import { SessionManager } from '../kernel/services/SessionManager.js';
-import { SettingsManager } from '../kernel/services/SettingsManager.js';
-import { ScriptsManager } from '../kernel/services/ScriptsManager.js';
-import { ProcessManager } from '../kernel/services/ProcessManager.js';
-import { ProviderFactory } from '../kernel/services/ProviderFactory.js';
-import { ChatProgram } from '../kernel/programs/ChatProgram.js';
-import { ChromeStorageAdapter } from '../sidepanel/js/services/ChromeStorageAdapter.js';
-import { RunUserScriptTool } from '../sidepanel/js/tools/RunUserScriptTool.js';
-import { ManageUserScriptsTool } from '../sidepanel/js/tools/ManageUserScriptsTool.js';
+import { ConsoleLogger } from 'kernel/services/ConsoleLogger.js';
+import { IPC } from 'kernel/IPC.js';
+import { ToolRegistry } from 'kernel/ToolRegistry.js';
+import { CapabilityManager } from 'kernel/CapabilityManager.js';
+import { Kernel } from 'kernel/Kernel.js';
+import { Bootloader } from 'kernel/Bootloader.js';
+import { SessionManager } from 'kernel/services/SessionManager.js';
+import { SettingsManager } from 'kernel/services/SettingsManager.js';
+import { ScriptsManager } from 'kernel/services/ScriptsManager.js';
+import { ProcessManager } from 'kernel/services/ProcessManager.js';
+import { ProviderFactory } from 'kernel/services/ProviderFactory.js';
+import { ChatProgram } from 'kernel/programs/ChatProgram.js';
+import { ChromeStorageAdapter } from './services/ChromeStorageAdapter.js';
+import { RunUserScriptTool } from './tools/RunUserScriptTool.js';
+import { ManageUserScriptsTool } from './tools/ManageUserScriptsTool.js';
 import { ChatEventHandler } from './pages/chat/ChatEventHandler.js';
 
 async function bootKernel() {

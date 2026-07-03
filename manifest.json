@@ -13,7 +13,6 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "sidepanel/theme/*",
         "assets/*"
       ],
       "matches": [
@@ -25,11 +24,11 @@
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "sidepanel/js/background.js",
+    "service_worker": "sidepanel/background.js",
     "type": "module"
   },
   "side_panel": {
-    "default_path": "sidepanel/svelte-app.html"
+    "default_path": "index.html"
   },
   "action": {
     "default_title": "Open Web Agent",

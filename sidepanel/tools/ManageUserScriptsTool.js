@@ -2,10 +2,12 @@
  * ManageUserScriptsTool - 用户脚本管理工具
  * 允许 AI 查看、安装、编辑、启用、禁用和删除用户脚本
  * 通过 kernel 的 storageAdapter 访问 chrome.storage，不直接调用 chrome API
+ *
+ * 迁移自 sidepanel/js/tools/ManageUserScriptsTool.js
  */
-import { Log } from '../../../kernel/services/Log.js';
-import { IToolService } from '../../../kernel/services/IToolService.js';
-import { ToolDefinition } from '../../../kernel/models/ToolDefinition.js';
+import { Log } from 'kernel/services/Log.js';
+import { IToolService } from 'kernel/services/IToolService.js';
+import { ToolDefinition } from 'kernel/models/ToolDefinition.js';
 
 const STORAGE_KEY = 'user_scripts';
 

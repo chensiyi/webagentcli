@@ -21,10 +21,8 @@ export default defineConfig({
     emptyOutDir: false,
     rollupOptions: {
       input: {
-        // 旧 UI 入口——保持不变
-        sidepanel: resolve(__dirname, 'sidepanel/js/app.js'),
-        // 新 UI 入口——Svelte 5
-        'svelte-app': resolve(__dirname, 'src/main.ts'),
+        // 唯一 UI 入口——Svelte 5
+        'svelte-app': resolve(__dirname, 'sidepanel/main.ts'),
       },
       output: {
         entryFileNames: '[name].bundle.js',
