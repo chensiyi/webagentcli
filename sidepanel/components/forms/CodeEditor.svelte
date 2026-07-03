@@ -1,10 +1,5 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { EditorView, basicSetup } from 'codemirror';
-  import { EditorState } from '@codemirror/state';
-  import { javascript } from '@codemirror/lang-javascript';
-  import { json } from '@codemirror/lang-json';
-  import { Decoration, WidgetType } from '@codemirror/view';
 
   interface Props {
     value: string;
@@ -25,78 +20,95 @@
   }: Props = $props();
 
   let containerEl: HTMLDivElement;
-  let editorView: EditorView | null = null;
+  let editorView: any = null;
   let isInternalChange = false;
+  let isLoaded = $state(false);
+  let loadError = $state<string | null>(null);
 
-  // Line height ~20px per row + padding
   const editorHeight = $derived(`${rows * 20 + 12}px`);
+  const label = placeholder || 'code editor';
 
-  class PlaceholderWidget extends WidgetType {
-    text: string;
-    constructor(text: string) { super(); this.text = text; }
-    toDOM(): HTMLElement {
-      const span = document.createElement('span');
-      span.textContent = this.text;
-      span.className = 'cm-placeholder';
-      return span;
-    }
-    ignoreEvent(): boolean { return true; }
-  }
-
-  function getLanguageExtension() {
-    return language === 'json' ? json() : javascript();
-  }
-
-  function createState(doc: string): EditorState {
-    const extensions: any[] = [
-      basicSetup,
-      getLanguageExtension(),
-      EditorView.updateListener.of((update) => {
-        if (update.docChanged && !isInternalChange) {
-          value = update.state.doc.toString();
-          onchange?.(value);
-        }
-      }),
-      EditorState.tabSize.of(2),
-    ];
-    if (readonly) {
-      extensions.push(EditorView.editable.of(false));
-    }
-    if (placeholder) {
-      extensions.push(
-        EditorView.decorations.of((view) => {
-          if (view.state.doc.length > 0) return Decoration.none;
-          const w = Decoration.widget({
-            widget: new PlaceholderWidget(placeholder),
-            side: 1,
-          });
-          return Decoration.set([w.range(0)]);
-        })
-      );
-    }
-    return EditorState.create({ doc, extensions });
-  }
-
-  // 创建/重建编辑器 — 仅追踪 containerEl、language、readonly、placeholder
-  // 使用 untrack 读取 value，避免每次按键都销毁重建编辑器
+  // 动态加载 CodeMirror（懒加载，按需拆分 chunk）
   $effect(() => {
-    if (!containerEl) return;
-    if (editorView) {
-      editorView.destroy();
-      editorView = null;
-    }
-    const currentValue = untrack(() => value);
-    editorView = new EditorView({
-      state: createState(currentValue),
-      parent: containerEl,
-    });
+    if (!containerEl || isLoaded) return;
+    isLoaded = true;
+
+    (async () => {
+      try {
+        const [
+          { EditorView, basicSetup },
+          { EditorState },
+          { javascript },
+          { json },
+          { Decoration, WidgetType },
+        ] = await Promise.all([
+          import('codemirror'),
+          import('@codemirror/state'),
+          import('@codemirror/lang-javascript'),
+          import('@codemirror/lang-json'),
+          import('@codemirror/view'),
+        ]);
+
+        class PlaceholderWidget extends WidgetType {
+          text: string;
+          constructor(text: string) { super(); this.text = text; }
+          toDOM(): HTMLElement {
+            const span = document.createElement('span');
+            span.textContent = this.text;
+            span.className = 'cm-placeholder';
+            return span;
+          }
+          ignoreEvent(): boolean { return true; }
+        }
+
+        function getLangExt() {
+          return language === 'json' ? json() : javascript();
+        }
+
+        const exts: any[] = [
+          basicSetup,
+          getLangExt(),
+          EditorView.updateListener.of((update) => {
+            if (update.docChanged && !isInternalChange) {
+              value = update.state.doc.toString();
+              onchange?.(value);
+            }
+          }),
+          EditorState.tabSize.of(2),
+        ];
+        if (readonly) {
+          exts.push(EditorView.editable.of(false));
+        }
+        if (placeholder) {
+          exts.push(
+            EditorView.decorations.of((view) => {
+              if (view.state.doc.length > 0) return Decoration.none;
+              const w = Decoration.widget({
+                widget: new PlaceholderWidget(placeholder),
+                side: 1,
+              });
+              return Decoration.set([w.range(0)]);
+            })
+          );
+        }
+
+        const currentValue = untrack(() => value);
+        editorView = new EditorView({
+          state: EditorState.create({ doc: currentValue, extensions: exts }),
+          parent: containerEl,
+        });
+      } catch (e: any) {
+        loadError = e.message || 'Failed to load editor';
+      }
+    })();
+
     return () => {
       editorView?.destroy();
       editorView = null;
     };
   });
 
-  // 同步外部 value 变更 → 编辑器（仅追踪 value）
+  // 同步外部 value 变更 → 编辑器
   $effect(() => {
     if (!editorView) return;
     const currentDoc = editorView.state.doc.toString();
@@ -110,7 +122,11 @@
   });
 </script>
 
-<div class="cm-container" bind:this={containerEl} style="height: {editorHeight}"></div>
+{#if loadError}
+  <textarea class="textarea-fallback" bind:value placeholder={label} style="height: {editorHeight}"></textarea>
+{:else}
+  <div class="cm-container" bind:this={containerEl} style="height: {editorHeight}"></div>
+{/if}
 
 <style>
   /* Override CM6 defaults → our design system */
@@ -190,5 +206,17 @@
   .cm-container :global(.cm-foldGutter span) {
     color: var(--color-text-hint);
     font-size: 12px;
+  }
+
+  .textarea-fallback {
+    width: 100%;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    background: var(--color-bg);
+    color: var(--color-text);
+    border: 1px solid var(--color-border-medium);
+    border-radius: 4px;
+    padding: 4px 8px;
+    resize: vertical;
   }
 </style>
