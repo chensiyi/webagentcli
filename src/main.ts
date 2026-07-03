@@ -6,8 +6,11 @@
  */
 
 import { mount } from 'svelte';
-import App from './App.svelte';
-import './app.css';
+import Sidepanel from './Sidepanel.svelte';
+import './styles/tokens.css';
+import './styles/utilities.css';
+import './styles/components.css';
+import './styles/pages.css';
 
 import { ConsoleLogger } from '../kernel/services/ConsoleLogger.js';
 import { IPC } from '../kernel/IPC.js';
@@ -24,6 +27,7 @@ import { ChatProgram } from '../kernel/programs/ChatProgram.js';
 import { ChromeStorageAdapter } from '../sidepanel/js/services/ChromeStorageAdapter.js';
 import { RunUserScriptTool } from '../sidepanel/js/tools/RunUserScriptTool.js';
 import { ManageUserScriptsTool } from '../sidepanel/js/tools/ManageUserScriptsTool.js';
+import { ChatEventHandler } from './pages/chat/ChatEventHandler.js';
 
 async function bootKernel() {
   console.log('[SvelteApp] Booting Kernel...');
@@ -105,10 +109,15 @@ async function bootKernel() {
       }
     });
 
-    // 3. 创建 ChatProgram
+    // 3. 创建 ChatProgram + 事件转译层
     const chatProgram = new ChatProgram({ kernel, name: 'main' });
     (kernel as any).chatProgram = chatProgram;
     log.info('APP', 'ChatProgram initialized');
+
+    // ChatEventHandler：USER_APPLY_* → ChatProgram（鉴权/校验预留）
+    const chatEventHandler = new ChatEventHandler(kernel, chatProgram);
+    (kernel as any).chatEventHandler = chatEventHandler;
+    log.info('APP', 'ChatEventHandler initialized');
 
     // 4. 加载配置
     const settingsManager = kernel.getSettingsManager();
@@ -134,8 +143,8 @@ async function init() {
   try {
     const kernel = await bootKernel();
 
-    // 挂载 Svelte 5 App
-    mount(App, {
+    // 挂载侧边栏 Shell
+    mount(Sidepanel, {
       target: root,
       props: { kernel },
     });

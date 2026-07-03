@@ -1,6 +1,6 @@
 {
   "name": "webagentcli",
-  "version": "0.6.0",
+  "version": "0.6.5",
   "description": "> AI Agent Runtime Environment for Web · 基于 Chrome Manifest V3 的浏览器内 AI Agent 扩展",
   "main": "build.js",
   "directories": {

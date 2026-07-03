@@ -1,5 +1,6 @@
 import { BaseProviderAPIService } from '../IProviderAPIService.js';
 import { Log } from '../Log.js';
+import { MessageStructure } from '../../models/MessageContent.js';
 
 export default class OpenAIService extends BaseProviderAPIService {
   constructor() { super(); this.name = 'openai'; }
@@ -125,7 +126,6 @@ export default class OpenAIService extends BaseProviderAPIService {
         }
       }
 
-      const { MessageStructure } = await import('../../models/MessageContent.js');
       Log.info('OpenAIService', `Stream completed: ${totalChunkCount} chunks, toolCalls=${Object.keys(pendingToolCalls).length}`);
       return {
         content: pendingContent,

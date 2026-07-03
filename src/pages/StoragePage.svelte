@@ -1,14 +1,14 @@
 <script lang="ts">
-  import Button from '../components/ui/Button.svelte';
-  import Input from '../components/ui/Input.svelte';
-  import Card from '../components/ui/Card.svelte';
-  import CodeEditor from '../components/ui/CodeEditor.svelte';
-  import Dialog from '../components/ui/Dialog.svelte';
-  import EmptyState from '../components/ui/EmptyState.svelte';
-  import { useKernel } from '../lib/kernel-context.js';
-  import { useToast } from '../lib/stores/toast.svelte.js';
+  import { getContext } from 'svelte';
+  import Button from '../components/atoms/Button.svelte';
+  import Input from '../components/forms/Input.svelte';
+  import Card from '../components/layout/Card.svelte';
+  import CodeEditor from '../components/forms/CodeEditor.svelte';
+  import Dialog from '../components/overlays/Dialog.svelte';
+  import EmptyState from '../components/layout/EmptyState.svelte';
+  import { useToast } from '../components/overlays/toast-store.svelte';
 
-  const kernel = useKernel<any>();
+  const kernel = getContext<any>('kernel');
   const toast = useToast();
 
   // ---------- State ----------
@@ -141,26 +141,26 @@
   }
 </script>
 
-<div class="storage-page">
-  <div class="page-header-row">
-    <h2 class="page-title">存储管理</h2>
+<div class="list-page">
+  <div class="list-page-header-row">
+    <h2 class="list-page-title">存储管理</h2>
     <Button variant="secondary" size="sm" loading={isLoading} onclick={refreshList}>刷新</Button>
   </div>
 
-  <div class="search-area">
+  <div class="list-page-search-area">
     <Input placeholder="搜索存储项…" value={searchKeyword} oninput={handleSearch} />
   </div>
 
   <!-- Stats -->
   <Card>
-    <div class="stats-row">
-      <span class="stats-text">共 {filteredItems.length} 项 · 总计 {totalSizeKB} KB</span>
+    <div class="list-page-stats-row">
+      <span class="list-page-stats-text">共 {filteredItems.length} 项 · 总计 {totalSizeKB} KB</span>
       <Button variant="danger" size="sm" onclick={confirmClearAll}>清除所有</Button>
     </div>
   </Card>
 
   <!-- List -->
-  <div class="list-area">
+  <div class="list-page-content">
     {#if isLoading}
       <div class="loading-state">
         <div class="spinner-pulse"></div>
@@ -175,12 +175,12 @@
     {:else}
       {#each pageItems as [key, value]}
         <Card hover>
-          <div class="storage-row">
-            <div class="storage-info">
-              <div class="storage-key">{key}</div>
-              <div class="storage-meta">{getItemSize(value)}</div>
+          <div class="list-item">
+            <div class="list-item-info">
+              <div class="list-item-title list-item-title--key">{key}</div>
+              <div class="list-item-meta">{getItemSize(value)}</div>
             </div>
-            <div class="storage-actions">
+            <div class="list-item-actions">
               <Button variant="ghost" size="sm" onclick={() => openEdit(key, value)}>编辑</Button>
               <Button variant="ghost" size="sm" onclick={() => confirmDelete(key)}>删除</Button>
             </div>
@@ -230,131 +230,3 @@
   <CodeEditor bind:value={editValue} rows={14} language="json" />
 </Dialog>
 
-<style>
-  .storage-page {
-    padding: var(--space-4);
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-    height: 100%;
-    overflow: hidden;
-  }
-
-  .page-header-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  .page-title {
-    font-size: var(--text-lg);
-    font-weight: 700;
-    color: var(--color-text);
-    margin: 0;
-  }
-
-  .search-area {
-    margin: 0;
-  }
-
-  /* Stats */
-  .stats-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  .stats-text {
-    font-size: var(--text-sm);
-    color: var(--color-text-secondary);
-  }
-
-  /* List */
-  .list-area {
-    flex: 1;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .storage-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: var(--space-3);
-  }
-
-  .storage-info {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .storage-key {
-    font-size: var(--text-sm);
-    font-weight: 600;
-    color: var(--color-text);
-    font-family: var(--font-mono);
-    word-break: break-all;
-    margin-bottom: 2px;
-  }
-
-  .storage-meta {
-    font-size: var(--text-xs);
-    color: var(--color-text-hint);
-  }
-
-  .storage-actions {
-    display: flex;
-    gap: var(--space-1);
-    flex-shrink: 0;
-  }
-
-  /* Pagination */
-  .pagination {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: var(--space-3);
-    padding-top: var(--space-2);
-  }
-
-  .page-info {
-    font-size: var(--text-sm);
-    color: var(--color-text-hint);
-  }
-
-  /* Loading */
-  .loading-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-3);
-    padding: var(--space-16) var(--space-8);
-    color: var(--color-text-secondary);
-    font-size: var(--text-sm);
-  }
-
-  .spinner-pulse {
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    border: 3px solid var(--color-border);
-    border-top-color: var(--color-primary);
-    animation: spin 0.8s linear infinite;
-  }
-
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  /* Edit Dialog */
-  .edit-key {
-    font-size: var(--text-sm);
-    font-weight: 600;
-    color: var(--color-text);
-    font-family: var(--font-mono);
-    margin-bottom: var(--space-3);
-    word-break: break-all;
-  }
-
-</style>

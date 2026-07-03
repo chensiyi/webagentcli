@@ -1,13 +1,14 @@
 <script lang="ts">
-  import Button from '../components/ui/Button.svelte';
-  import Input from '../components/ui/Input.svelte';
-  import Badge from '../components/ui/Badge.svelte';
-  import Dialog from '../components/ui/Dialog.svelte';
-  import EmptyState from '../components/ui/EmptyState.svelte';
-  import { useKernel, useNavigate } from '../lib/kernel-context.js';
+  import { getContext } from 'svelte';
+  import Button from '../components/atoms/Button.svelte';
+  import Input from '../components/forms/Input.svelte';
+  import Badge from '../components/atoms/Badge.svelte';
+  import Dialog from '../components/overlays/Dialog.svelte';
+  import EmptyState from '../components/layout/EmptyState.svelte';
+  import { KernelEvents } from '../../kernel/Events.js';
 
-  const kernel = useKernel<any>();
-  const navigateTo = useNavigate();
+  const kernel = getContext<any>('kernel');
+  const navigateTo = getContext<any>('navigate');
 
   // ---------- Reactive State ----------
   let searchKeyword = $state('');
@@ -28,7 +29,8 @@
     // Listen for session changes
     const ipc = kernel?.getIPC?.();
     if (ipc) {
-      ipc.on('session:changed', refreshList);
+      const chatChannel = ipc.getOrCreateChannel?.('chat') || ipc;
+      chatChannel.on(KernelEvents.CHAT.SESSION_UPDATED, refreshList);
     }
   });
 
@@ -42,6 +44,7 @@
   }
 
   // ---------- Helpers ----------
+  /** 从首条用户消息生成标题（仅用于 session.title 为空的旧会话兜底） */
   function generateTitle(messages: any[]): string {
     if (!messages?.length) return '新对话';
     const firstUser = messages.find((m: any) => m?.role === 'user');
@@ -57,6 +60,11 @@
     }
     content = content.replace(/\n/g, ' ').trim();
     return content ? (content.length > 24 ? content.slice(0, 24) + '…' : content) : '新对话';
+  }
+
+  /** 优先用 session.title，旧会话无标题时兜底 */
+  function getSessionTitle(session: any): string {
+    return session?.title || generateTitle(session?.messages);
   }
 
   function formatTime(ts: number): string {
@@ -75,7 +83,7 @@
 
   function groupAndFilter(all: any[], keyword: string) {
     const filtered = keyword
-      ? all.filter((s: any) => generateTitle(s.messages).toLowerCase().includes(keyword.toLowerCase()))
+      ? all.filter((s: any) => getSessionTitle(s).toLowerCase().includes(keyword.toLowerCase()))
       : all;
 
     const today: any[] = [];
@@ -143,10 +151,10 @@
   }
 </script>
 
-<div class="history-page">
-  <h2 class="page-title">历史对话</h2>
+<div class="list-page">
+  <h2 class="list-page-title">历史对话</h2>
 
-  <div class="search-area">
+  <div class="list-page-search-area">
     <Input
       placeholder="搜索对话…"
       value={searchKeyword}
@@ -154,7 +162,7 @@
     />
   </div>
 
-  <div class="list-area">
+  <div class="list-page-content">
     {#if !isLoaded}
       <div class="loading-state">
         <div class="spinner-pulse"></div>
@@ -173,16 +181,16 @@
           {#each group.items as session (session.id)}
             <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
             <div
-              class="session-card"
+              class="list-item"
               onclick={() => loadConversation(session.id)}
               onkeydown={(e) => { if (e.key === 'Enter') loadConversation(session.id); }}
               role="button"
               tabindex="0"
             >
-              <div class="session-body">
-                <div class="session-title">{generateTitle(session.messages)}</div>
-                <div class="session-meta">
-                  <span class="session-time">{formatTime(session.updated_at || session.updatedAt || 0)}</span>
+              <div class="list-item-info">
+                <div class="list-item-title">{getSessionTitle(session)}</div>
+                <div class="list-item-meta">
+                  <span class="list-item-time">{formatTime(session.updated_at || session.updatedAt || 0)}</span>
                   <Badge>{getMessageCount(session.messages)} 消息</Badge>
                   {#if getProviderLabel(session)}
                     <Badge variant="primary">{getProviderLabel(session)}</Badge>
@@ -216,123 +224,3 @@
   确定删除此对话？此操作不可恢复。
 </Dialog>
 
-<style>
-  .history-page {
-    padding: var(--space-4);
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    overflow: hidden;
-  }
-
-  .page-title {
-    font-size: var(--text-lg);
-    font-weight: 700;
-    color: var(--color-text);
-    margin: 0 0 var(--space-3) 0;
-  }
-
-  .search-area {
-    margin-bottom: var(--space-3);
-  }
-
-  .list-area {
-    flex: 1;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-  }
-
-  /* ---- Loading ---- */
-  .loading-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-3);
-    padding: var(--space-16) var(--space-8);
-    color: var(--color-text-secondary);
-    font-size: var(--text-sm);
-  }
-
-  .spinner-pulse {
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    border: 3px solid var(--color-border);
-    border-top-color: var(--color-primary);
-    animation: spin 0.8s linear infinite;
-  }
-
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  /* ---- Time Groups ---- */
-  .time-group {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1);
-  }
-
-  .time-label {
-    font-size: var(--text-xs);
-    font-weight: 700;
-    color: var(--color-text-hint);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    padding: var(--space-2) 2px var(--space-1);
-  }
-
-  /* ---- Session Card ---- */
-  .session-card {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-3);
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    cursor: pointer;
-    transition: all var(--transition-fast);
-  }
-
-  .session-card:hover {
-    border-color: var(--color-border-medium);
-    box-shadow: var(--shadow-sm);
-  }
-
-  .session-card:focus-visible {
-    outline: none;
-    box-shadow: var(--shadow-focus);
-  }
-
-  .session-body {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .session-title {
-    font-size: var(--text-sm);
-    font-weight: 600;
-    color: var(--color-text);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .session-meta {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    flex-wrap: wrap;
-  }
-
-  .session-time {
-    font-size: var(--text-xs);
-    color: var(--color-text-hint);
-  }
-
-</style>

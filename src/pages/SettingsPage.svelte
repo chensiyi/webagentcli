@@ -1,16 +1,16 @@
 <script lang="ts">
-  import Button from '../components/ui/Button.svelte';
-  import Input from '../components/ui/Input.svelte';
-  import Select from '../components/ui/Select.svelte';
-  import Switch from '../components/ui/Switch.svelte';
-  import Slider from '../components/ui/Slider.svelte';
-  import Badge from '../components/ui/Badge.svelte';
-  import Card from '../components/ui/Card.svelte';
-  import { useKernel } from '../lib/kernel-context.js';
-  import { useToast } from '../lib/stores/toast.svelte.js';
+  import { getContext } from 'svelte';
+  import Button from '../components/atoms/Button.svelte';
+  import Input from '../components/forms/Input.svelte';
+  import Select from '../components/forms/Select.svelte';
+  import Switch from '../components/forms/Switch.svelte';
+  import Slider from '../components/forms/Slider.svelte';
+  import Badge from '../components/atoms/Badge.svelte';
+  import Card from '../components/layout/Card.svelte';
+  import { useToast } from '../components/overlays/toast-store.svelte';
   import { Log } from '../../kernel/services/Log.js';
 
-  const kernel = useKernel<any>();
+  const kernel = getContext<any>('kernel');
   const toast = useToast();
 
   // ---------- Reactive State ----------
@@ -320,7 +320,7 @@
     const target = e.target as HTMLElement;
     const dropdown = document.getElementById('model-dropdown');
     const container = document.getElementById('model-search-container');
-    const tooltip = document.querySelector('.model-tooltip') as HTMLElement;
+    const tooltip = document.querySelector('.search-tooltip') as HTMLElement;
     
     // 如果点击的是浮窗或下拉列表内部，不关闭
     if (tooltip && tooltip.contains(target)) return;
@@ -469,8 +469,8 @@
     </div>
   {:else}
     <!-- API 标准选择 -->
-    <div class="section">
-      <h3 class="section-title">API 标准</h3>
+    <div class="settings-section">
+      <h3 class="settings-section-title">API 标准</h3>
       <Card>
         <div class="provider-tabs">
           {#each apiStandardOptions as opt}
@@ -487,14 +487,14 @@
     </div>
 
     <!-- Provider 配置 -->
-    <div class="section">
-      <h3 class="section-title">
+    <div class="settings-section">
+      <h3 class="settings-section-title">
         {apiStandardOptions.find(o => o.value === apiStandard)?.label} 配置
       </h3>
       <Card>
-        <div class="form-grid">
+        <div class="settings-form-grid">
           {#if requiresApiKey}
-            <div class="form-row">
+            <div class="settings-form-row">
               <Input
                 label="API Key"
                 type={showApiKey ? 'text' : 'password'}
@@ -502,7 +502,7 @@
                 value={currentSettings.apiKey ?? ''}
                 oninput={(e) => currentSettings.apiKey = (e.target as HTMLInputElement).value}
               />
-              <button class="show-key-btn" onclick={handleApiKeyToggle} type="button">
+              <button class="settings-show-key-btn" onclick={handleApiKeyToggle} type="button">
                 {showApiKey ? '🙈' : '👁️'}
               </button>
             </div>
@@ -533,11 +533,11 @@
             oninput={(e) => currentSettings.maxTokens = parseInt((e.target as HTMLInputElement).value) || 4000}
           />
 
-          <div class="form-field">
-            <label class="form-label" for="settings-system-prompt">System Prompt</label>
+          <div class="settings-form-field">
+            <label class="settings-form-label" for="settings-system-prompt">System Prompt</label>
             <textarea
               id="settings-system-prompt"
-              class="textarea"
+              class="settings-textarea"
               placeholder="可选，设置 AI 的行为和角色"
               rows="3"
               value={currentSettings.systemPrompt ?? ''}
@@ -556,8 +556,8 @@
     </div>
 
     <!-- 模型选择 -->
-    <div class="section">
-      <h3 class="section-title">模型</h3>
+    <div class="settings-section">
+      <h3 class="settings-section-title">模型</h3>
       <Card>
         <div class="model-area">
           <div id="model-search-container" class="model-search-row">
@@ -592,13 +592,13 @@
 
           {#if showModelDropdown}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div id="model-dropdown" class="model-dropdown">
+            <div id="model-dropdown" class="search-dropdown">
               {#each getFilteredModelIds() as modelId, index}
                 {@const details = getModelDetails(modelId)}
                 {#if details}
                   <!-- svelte-ignore a11y_no_static_element_interactions -->
                   <div
-                    class="model-item"
+                    class="search-dropdown-item"
                     class:selected={modelId === currentSettings.model}
                     class:exact-match={index === 0 && getExactMatchId() === modelId}
                     onclick={() => selectModel(modelId)}
@@ -609,10 +609,10 @@
                     aria-selected={modelId === currentSettings.model}
                     tabindex="0"
                   >
-                    <div class="model-item-name">
+                    <div class="search-dropdown-item-name">
                       {index === 0 && getExactMatchId() === modelId ? '✅ ' : ''}{details.name}
                     </div>
-                    <div class="model-item-meta">
+                    <div class="search-dropdown-item-meta">
                       {#if details.context_length}
                         <Badge variant="info">📝 {formatContextLength(details.context_length)}</Badge>
                       {/if}
@@ -629,7 +629,7 @@
                       {/if}
                     </div>
                     {#if details.description}
-                      <div class="model-item-desc">
+                      <div class="search-dropdown-item-desc">
                         {details.description.length > 120
                           ? details.description.slice(0, 120) + '…'
                           : details.description}
@@ -640,7 +640,7 @@
               {/each}
 
               {#if getFilteredModelIds().length === 0}
-                <div class="model-no-results">无匹配模型</div>
+                <div class="search-no-results">无匹配模型</div>
               {/if}
             </div>
 
@@ -648,48 +648,48 @@
             {#if hoveredModel && tooltipPosition}
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div
-                class="model-tooltip"
+                class="search-tooltip"
                 bind:this={tooltipEl}
                 style="left: {tooltipPosition.x}px; top: {tooltipPosition.y}px;"
                 onmouseenter={cancelHideTooltip}
                 onmouseleave={hideModelTooltip}
               >
-                <div class="tooltip-header">
+                <div class="search-tooltip-header">
                   <strong>{hoveredModel.name}</strong>
                 </div>
                 {#if hoveredModel.id !== hoveredModel.name}
-                  <div class="tooltip-id">{hoveredModel.id}</div>
+                  <div class="search-tooltip-id">{hoveredModel.id}</div>
                 {/if}
                 {#if hoveredModel.description}
-                  <div class="tooltip-desc">{hoveredModel.description}</div>
+                  <div class="search-tooltip-desc">{hoveredModel.description}</div>
                 {/if}
                 {#if hoveredModel.context_length}
-                  <div class="tooltip-row">
+                  <div class="search-tooltip-row">
                     <span>上下文:</span>
                     <span>{formatContextLength(hoveredModel.context_length)} tokens</span>
                   </div>
                 {/if}
                 {#if hoveredModel.pricing}
-                  <div class="tooltip-row">
+                  <div class="search-tooltip-row">
                     <span>价格:</span>
                     <span>{formatPricing(hoveredModel.pricing)}</span>
                   </div>
                 {/if}
                 {#if hoveredModel.input_modalities && hoveredModel.input_modalities.length > 0}
-                  <div class="tooltip-row">
+                  <div class="search-tooltip-row">
                     <span>输入:</span>
                     <span>{hoveredModel.input_modalities.join(', ')}</span>
                   </div>
                 {/if}
-                <div class="tooltip-capabilities">
+                <div class="search-tooltip-capabilities">
                   {#if hoveredModel.supports_reasoning}
-                    <span class="tooltip-cap">🧠 推理</span>
+                    <span class="search-tooltip-cap">🧠 推理</span>
                   {/if}
                   {#if hoveredModel.supports_tools}
-                    <span class="tooltip-cap">🔧 工具调用</span>
+                    <span class="search-tooltip-cap">🔧 工具调用</span>
                   {/if}
                   {#if hoveredModel.supports_json_mode}
-                    <span class="tooltip-cap">📄 JSON 模式</span>
+                    <span class="search-tooltip-cap">📄 JSON 模式</span>
                   {/if}
                 </div>
               </div>
@@ -700,8 +700,8 @@
     </div>
 
     <!-- 上下文管理 -->
-    <div class="section">
-      <h3 class="section-title">上下文</h3>
+    <div class="settings-section">
+      <h3 class="settings-section-title">上下文</h3>
       <Card>
         <Switch
           label="自动调整上下文窗口（根据模型限制智能截断历史消息）"
@@ -712,8 +712,8 @@
     </div>
 
     <!-- 主题 -->
-    <div class="section">
-      <h3 class="section-title">主题</h3>
+    <div class="settings-section">
+      <h3 class="settings-section-title">主题</h3>
       <div class="theme-grid">
         <button
           class="theme-card"
@@ -768,461 +768,3 @@
   {/if}
 </div>
 
-<style>
-  .settings-page {
-    padding: var(--space-4);
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-    overflow-y: auto;
-  }
-
-  /* ---- Loading ---- */
-  .loading-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-4);
-    padding: var(--space-16) var(--space-8);
-    color: var(--color-text-secondary);
-    font-size: var(--text-sm);
-  }
-
-  .spinner-pulse {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    border: 3px solid var(--color-border);
-    border-top-color: var(--color-primary);
-    animation: spin 0.8s linear infinite;
-  }
-
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-
-  /* ---- Section ---- */
-  .section {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .section-title {
-    font-size: var(--text-xs);
-    font-weight: 700;
-    color: var(--color-text-hint);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin: 0;
-    padding-left: 2px;
-  }
-
-  /* ---- Provider Tabs ---- */
-  .provider-tabs {
-    display: flex;
-    gap: var(--space-1);
-    padding: var(--space-1);
-    background: var(--color-bg);
-    border-radius: var(--radius-lg);
-  }
-
-  .provider-tab {
-    flex: 1;
-    height: 32px;
-    border: none;
-    border-radius: var(--radius-md);
-    background: transparent;
-    color: var(--color-text-secondary);
-    font-family: var(--font-sans);
-    font-size: var(--text-sm);
-    font-weight: 500;
-    cursor: pointer;
-    transition: all var(--transition-fast);
-  }
-
-  .provider-tab:hover:not(.active) {
-    color: var(--color-text);
-    background: var(--color-surface-hover);
-  }
-
-  .provider-tab.active {
-    background: var(--color-surface);
-    color: var(--color-primary);
-    font-weight: 600;
-    box-shadow: var(--shadow-sm);
-  }
-
-  /* ---- Form Grid ---- */
-  .form-grid {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-  }
-
-  .form-field {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1);
-  }
-
-  .form-label {
-    font-size: var(--text-sm);
-    font-weight: 600;
-    color: var(--color-text);
-  }
-
-  .form-row {
-    position: relative;
-  }
-
-  .show-key-btn {
-    position: absolute;
-    right: 8px;
-    top: 28px;
-    width: 28px;
-    height: 24px;
-    border: none;
-    background: transparent;
-    cursor: pointer;
-    font-size: 14px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 2;
-  }
-
-  /* ---- Textarea ---- */
-  .textarea {
-    width: 100%;
-    min-height: 60px;
-    padding: var(--space-2) var(--space-3);
-    font-family: var(--font-sans);
-    font-size: var(--text-sm);
-    color: var(--color-text);
-    background: var(--color-surface);
-    border: 1px solid var(--color-border-medium);
-    border-radius: var(--radius-md);
-    outline: none;
-    resize: vertical;
-    transition: all var(--transition-fast);
-    line-height: 1.5;
-  }
-
-  .textarea::placeholder {
-    color: var(--color-text-hint);
-  }
-
-  .textarea:focus {
-    border-color: var(--color-primary);
-    box-shadow: var(--shadow-focus);
-  }
-
-  /* ---- Model Area ---- */
-  .model-area {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-    position: relative;
-  }
-
-  .model-search-row {
-    display: flex;
-    gap: var(--space-2);
-    align-items: flex-start;
-  }
-
-  .model-input-wrapper {
-    flex: 1;
-    cursor: pointer;
-  }
-
-  .model-search-input {
-    width: 100%;
-    height: 34px;
-    padding: 0 var(--space-3);
-    font-family: var(--font-sans);
-    font-size: var(--text-md);
-    color: var(--color-text);
-    background: var(--color-surface);
-    border: 1px solid var(--color-border-medium);
-    border-radius: var(--radius-md);
-    outline: none;
-    transition: all var(--transition-fast);
-    box-sizing: border-box;
-  }
-
-  .model-search-input::placeholder {
-    color: var(--color-text-hint);
-  }
-
-  .model-search-input:hover:not(:disabled) {
-    border-color: var(--color-border-strong);
-  }
-
-  .model-search-input:focus {
-    border-color: var(--color-primary);
-    box-shadow: 0 0 0 2px rgba(55, 138, 221, 0.15);
-  }
-
-  .model-cache-hint {
-    font-size: var(--text-xs);
-    color: var(--color-text-hint);
-    padding-left: 2px;
-  }
-
-  .model-dropdown {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    max-height: 220px;
-    overflow-y: auto;
-    margin-top: 4px;
-    background: var(--color-surface);
-    border: 1px solid var(--color-border-medium);
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-md);
-    z-index: 100;
-    padding: var(--space-1);
-  }
-
-  .model-item {
-    padding: var(--space-2) var(--space-3);
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    transition: background var(--transition-fast);
-    border: 1px solid transparent;
-  }
-
-  .model-item:hover {
-    background: var(--color-primary-light);
-  }
-
-  .model-item.selected {
-    background: var(--color-primary-light);
-    border-color: var(--color-primary);
-  }
-
-  .model-item-name {
-    font-size: var(--text-sm);
-    font-weight: 600;
-    color: var(--color-text);
-    margin-bottom: 4px;
-    word-break: break-all;
-  }
-
-  .model-item-meta {
-    display: flex;
-    gap: 4px;
-    flex-wrap: wrap;
-  }
-
-  .model-item-desc {
-    font-size: 11px;
-    color: var(--color-text-secondary);
-    margin-top: 4px;
-    line-height: 1.4;
-  }
-
-  .model-item.exact-match {
-    background: var(--color-primary-light);
-    border-left: 3px solid var(--color-primary);
-  }
-
-  .model-item.exact-match:hover:not(.selected) {
-    background: var(--color-surface-hover);
-  }
-
-  .model-no-results {
-    padding: var(--space-4);
-    text-align: center;
-    font-size: var(--text-sm);
-    color: var(--color-text-hint);
-  }
-
-  /* ---- Theme Grid ---- */
-  .theme-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--space-3);
-  }
-
-  .theme-card {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-3);
-    background: var(--color-surface);
-    border: 2px solid var(--color-border);
-    border-radius: var(--radius-lg);
-    cursor: pointer;
-    transition: all var(--transition-fast);
-  }
-
-  .theme-card:hover:not(.active) {
-    border-color: var(--color-border-medium);
-    box-shadow: var(--shadow-sm);
-  }
-
-  .theme-card.active {
-    border-color: var(--color-primary);
-    background: var(--color-primary-light);
-  }
-
-  .theme-preview {
-    width: 100%;
-    height: 60px;
-    border-radius: var(--radius-sm);
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .theme-preview-bar {
-    height: 8px;
-    background: var(--color-primary);
-  }
-
-  .theme-preview-body {
-    flex: 1;
-    display: flex;
-    padding: 4px;
-    gap: 4px;
-  }
-
-  .theme-preview-side {
-    width: 16px;
-    border-radius: 2px;
-    background: rgba(0,0,0,0.1);
-  }
-
-  .theme-preview-content {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    padding: 2px 0;
-  }
-
-  .theme-preview-line {
-    height: 4px;
-    border-radius: 2px;
-  }
-
-  .theme-preview-line--1 { width: 70%; }
-  .theme-preview-line--2 { width: 40%; }
-
-  .theme-preview--light {
-    background: #f5f7fa;
-  }
-
-  .theme-preview--light .theme-preview-line {
-    background: rgba(0,0,0,0.15);
-  }
-
-  .theme-preview--dark {
-    background: #1a1d21;
-  }
-
-  .theme-preview--dark .theme-preview-line {
-    background: rgba(255,255,255,0.15);
-  }
-
-  .theme-label {
-    font-size: var(--text-sm);
-    font-weight: 600;
-    color: var(--color-text);
-  }
-
-  /* ---- Model Tooltip ---- */
-  .model-tooltip {
-    position: fixed;
-    z-index: 200;
-    width: min(280px, calc(100vw - 16px));
-    max-height: calc(100vh - 16px);
-    padding: var(--space-3);
-    background: var(--color-surface);
-    border: 1px solid var(--color-border-medium);
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-lg);
-    font-size: var(--text-xs);
-    pointer-events: auto;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .tooltip-header {
-    margin-bottom: var(--space-1);
-  }
-
-  .tooltip-header strong {
-    font-size: var(--text-sm);
-    color: var(--color-text);
-    line-height: 1.4;
-    display: block;
-  }
-
-  .tooltip-id {
-    font-size: 10px;
-    color: var(--color-text-hint);
-    font-family: monospace;
-    background: var(--color-bg);
-    padding: 4px 6px;
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--color-border-light);
-    word-break: break-all;
-    line-height: 1.4;
-    margin-bottom: var(--space-2);
-    padding-bottom: var(--space-2);
-    border-bottom: 1px solid var(--color-border-light);
-  }
-
-  .tooltip-desc {
-    color: var(--color-text-secondary);
-    line-height: 1.5;
-    margin-bottom: var(--space-2);
-    max-height: 60px;
-    overflow-y: auto;
-  }
-
-  .tooltip-row {
-    display: flex;
-    justify-content: space-between;
-    gap: var(--space-3);
-    padding: 2px 0;
-    color: var(--color-text-secondary);
-  }
-
-  .tooltip-row span:first-child {
-    font-weight: 600;
-    color: var(--color-text-hint);
-  }
-
-  .tooltip-capabilities {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    margin-top: var(--space-2);
-    padding-top: var(--space-2);
-    border-top: 1px solid var(--color-border-light);
-  }
-
-  .tooltip-cap {
-    font-size: 10px;
-    padding: 2px 6px;
-    background: var(--color-primary-light);
-    color: var(--color-primary);
-    border-radius: var(--radius-sm);
-    white-space: nowrap;
-  }
-
-  /* ---- Save Area ---- */
-  .save-area {
-    padding-top: var(--space-2);
-    padding-bottom: var(--space-4);
-  }
-</style>

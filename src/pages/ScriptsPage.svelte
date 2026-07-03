@@ -1,16 +1,15 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import Button from '../components/ui/Button.svelte';
-  import Card from '../components/ui/Card.svelte';
-  import CodeEditor from '../components/ui/CodeEditor.svelte';
-  import Badge from '../components/ui/Badge.svelte';
-  import Dialog from '../components/ui/Dialog.svelte';
-  import EmptyState from '../components/ui/EmptyState.svelte';
-  import { useKernel } from '../lib/kernel-context.js';
-  import { useToast } from '../lib/stores/toast.svelte.js';
+  import { onMount, onDestroy, getContext } from 'svelte';
+  import Button from '../components/atoms/Button.svelte';
+  import Card from '../components/layout/Card.svelte';
+  import CodeEditor from '../components/forms/CodeEditor.svelte';
+  import Badge from '../components/atoms/Badge.svelte';
+  import Dialog from '../components/overlays/Dialog.svelte';
+  import EmptyState from '../components/layout/EmptyState.svelte';
+  import { useToast } from '../components/overlays/toast-store.svelte';
   import { KernelEvents } from '../../kernel/Events.js';
 
-  const kernel = useKernel<any>();
+  const kernel = getContext<any>('kernel');
   const toast = useToast();
 
   const ipc: any = kernel?.getIPC?.();
@@ -167,9 +166,9 @@
   }
 </script>
 
-<div class="scripts-page">
-  <div class="page-header-row">
-    <h2 class="page-title">用户脚本</h2>
+<div class="list-page">
+  <div class="list-page-header-row">
+    <h2 class="list-page-title">用户脚本</h2>
     <Button
       variant={showInstallForm ? 'secondary' : 'primary'}
       size="sm"
@@ -179,7 +178,7 @@
     </Button>
   </div>
 
-  <div class="scripts-body">
+  <div class="list-page-content">
     {#if isLoading}
       <div class="loading-state">
         <div class="spinner-pulse"></div>
@@ -220,13 +219,13 @@
       <div class="script-list">
         {#each scripts as script (script.id)}
           <Card hover>
-            <div class="script-card">
-              <div class="script-info">
-                <div class="script-name">{script.name}</div>
+            <div class="list-item list-item--top">
+              <div class="list-item-info">
+                <div class="list-item-title">{script.name}</div>
                 {#if script.description}
-                  <div class="script-desc">{script.description}</div>
+                  <div class="list-item-desc">{script.description}</div>
                 {/if}
-                <div class="script-meta">
+                <div class="list-item-meta">
                   {#if script.version}
                     <Badge>v{script.version}</Badge>
                   {/if}
@@ -238,7 +237,7 @@
                   {/if}
                 </div>
               </div>
-              <div class="script-actions">
+              <div class="list-item-actions">
                 <Button variant="ghost" size="sm" onclick={() => startEdit(script.id)}>编辑</Button>
                 <Button
                   variant="ghost"
@@ -269,123 +268,3 @@
   确定删除此脚本？此操作不可恢复。
 </Dialog>
 
-<style>
-  .scripts-page {
-    padding: var(--space-4);
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    overflow: hidden;
-  }
-
-  .page-header-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: var(--space-3);
-  }
-
-  .page-title {
-    font-size: var(--text-lg);
-    font-weight: 700;
-    color: var(--color-text);
-    margin: 0;
-  }
-
-  .scripts-body {
-    flex: 1;
-    overflow-y: auto;
-  }
-
-  /* Loading */
-  .loading-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-3);
-    padding: var(--space-16) var(--space-8);
-    color: var(--color-text-secondary);
-    font-size: var(--text-sm);
-  }
-
-  .spinner-pulse {
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    border: 3px solid var(--color-border);
-    border-top-color: var(--color-primary);
-    animation: spin 0.8s linear infinite;
-  }
-
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  /* Script Cards */
-  .script-list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .script-card {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: var(--space-3);
-  }
-
-  .script-info {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .script-name {
-    font-size: var(--text-sm);
-    font-weight: 600;
-    color: var(--color-text);
-    margin-bottom: 4px;
-  }
-
-  .script-desc {
-    font-size: var(--text-xs);
-    color: var(--color-text-hint);
-    margin-bottom: var(--space-2);
-    line-height: 1.4;
-  }
-
-  .script-meta {
-    display: flex;
-    gap: 4px;
-    flex-wrap: wrap;
-  }
-
-  .script-actions {
-    display: flex;
-    gap: var(--space-1);
-    flex-shrink: 0;
-  }
-
-  /* Forms */
-  .install-form, .edit-form {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-  }
-
-  .install-hint {
-    font-size: var(--text-sm);
-    color: var(--color-text-secondary);
-  }
-
-  .edit-header {
-    font-size: var(--text-md);
-    font-weight: 600;
-    color: var(--color-text);
-  }
-
-  .edit-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: var(--space-2);
-  }
-</style>

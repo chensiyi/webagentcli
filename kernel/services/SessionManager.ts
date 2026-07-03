@@ -1,6 +1,7 @@
 import { BaseSessionManager } from './ISessionManager.js';
 import { Session } from '../models/Session.js';
 import { Log } from './Log.js';
+import { KernelEvents } from '../Events.js';
 
 export class SessionManager extends BaseSessionManager {
   currentSessionId: string | null;
@@ -61,6 +62,8 @@ export class SessionManager extends BaseSessionManager {
       else Object.assign(s, updater);
       s.updatedAt = Date.now();
       await this._persistSessions();
+      // 广播会话更新事件，让 UI 刷新标题等
+      this.ipc?.getOrCreateChannel('chat')?.emit(KernelEvents.CHAT.SESSION_UPDATED, { sessionId: id });
     }
   }
 
@@ -68,6 +71,7 @@ export class SessionManager extends BaseSessionManager {
     const s = this.getSession(sessionId);
     if (s) {
       s.messages = [];
+      s.title = '新对话'; // 清空消息时同步重置标题
       s.updatedAt = Date.now();
       await this._persistSessions();
     }

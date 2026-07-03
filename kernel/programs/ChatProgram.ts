@@ -1,10 +1,25 @@
+/**
+ * ChatProgram — 聊天编排器（v0.7 模块化重构）
+ *
+ * 职责：命令路由 + 发送管线编排 + 取消/删除操作
+ *
+ * 模块拆分：
+ * - ChatStateManager  → 状态机（IDLE/WAITING/THINKING/GENERATING/终态）
+ * - ContextBuilder    → System Prompt 构建 + 消息截断 + API 格式转换
+ * - ToolExecutor      → 工具调用循环（执行/结果收集/消息写入/事件发射）
+ *
+ * 公共 API：sendMessage / cancel / deleteMessage / getQueueStatus
+ */
+
 import { KernelEvents } from '../Events.js';
 import { Log } from '../services/Log.js';
-import { MessagesRequest, ThinkingConfig, MessageStructure } from '../models/MessageContent.js';
-import { Message, Role } from '../models/Message.js';
-import { ToolResult } from '../models/ToolResult.js';
+import { MessagesRequest, ThinkingConfig } from '../models/MessageContent.js';
+import { Message } from '../models/Message.js';
 import { IPC } from '../IPC.js';
 import { Kernel } from '../Kernel.js';
+import { CHAT_STATE, ChatStateManager, ContextBuilder, ToolExecutor } from './chat/index.js';
+
+// ─── 命令常量（保持向后兼容，ChatPage.svelte 依赖此导出） ───
 
 export const CMD = Object.freeze({
   SEND: 'chat:cmd:send',
@@ -12,23 +27,23 @@ export const CMD = Object.freeze({
   DELETE_MESSAGE: 'chat:cmd:deleteMessage',
 });
 
-const STATE = Object.freeze({
-  IDLE: 'idle',
-  WAITING: 'waiting',
-  THINKING: 'thinking',
-  GENERATING: 'generating',
-  COMPLETED: 'completed',
-  FAILED: 'failed',
-  STOPPED: 'stopped',
-});
+// ─── ChatProgram ──────────────────────────────────────────────
 
 export class ChatProgram {
   name: string;
   kernel: Kernel;
+
+  // 通信
   ipc: IPC | null;
   chatChannel: IPC | null;
+
+  // 子模块
+  private _state: ChatStateManager;
+  private _context: ContextBuilder;
+  private _toolExecutor: ToolExecutor;
+
+  // 编排状态
   _assistantMsgId: string | null;
-  _state: string;
   _currentRequest: Record<string, unknown> | null;
 
   constructor(options: { kernel: Kernel; name?: string } = { kernel: null as unknown as Kernel, name: 'ChatProgram' }) {
@@ -36,113 +51,152 @@ export class ChatProgram {
     this.kernel = options.kernel;
     this.ipc = this.kernel.getIPC();
     this.chatChannel = this.ipc?.getOrCreateChannel('chat');
-    this._state = 'idle';
+
+    // 初始化子模块（state 变更自动 emit ACTIVITY_STATE_CHANGED 到 UI）
+    this._state = new ChatStateManager(CHAT_STATE.IDLE, () => {
+      this.chatChannel?.emit(KernelEvents.CHAT.ACTIVITY_STATE_CHANGED, this.getQueueStatus());
+    });
+    this._context = new ContextBuilder();
+    this._toolExecutor = new ToolExecutor(this.kernel, (event, data) => this._emit(event, data));
+
+    this._assistantMsgId = null;
     this._currentRequest = null;
 
-    this.chatChannel.on(CMD.SEND, (data: unknown) => {
+    // 注册命令处理器
+    this.chatChannel?.on(CMD.SEND, (data: unknown) => {
       this.sendMessage(data as Record<string, unknown>).catch(err => {
         Log.error(this.name, 'Unhandled error in sendMessage:', err);
-        this._setState(STATE.FAILED);
+        this._state.transition(CHAT_STATE.FAILED);
         this._emit(KernelEvents.CHAT.STREAM_ERROR, { error: err, message: err.message || String(err) });
         this._currentRequest = null;
         this._assistantMsgId = null;
       });
     });
-    this.chatChannel.on(CMD.STOP, () => this.cancel());
-    this.chatChannel.on(CMD.DELETE_MESSAGE, (data: unknown) => this.deleteMessage((data as { messageId: string }).messageId));
-    // 会话切换时重置状态（暂无额外处理逻辑）
-    this.chatChannel.on(KernelEvents.CHAT.CURRENT_SESSION_CHANGED, () => { this._assistantMsgId = null; this._currentRequest = null; });
+    this.chatChannel?.on(CMD.STOP, () => this.cancel());
+    this.chatChannel?.on(CMD.DELETE_MESSAGE, (data: unknown) =>
+      this.deleteMessage((data as { messageId: string }).messageId)
+    );
+    this.chatChannel?.on(KernelEvents.CHAT.CURRENT_SESSION_CHANGED, () => {
+      this._assistantMsgId = null;
+      this._currentRequest = null;
+    });
   }
 
-  async sendMessage({ content = '', sessionId = null, model = null, reasoningEffort = undefined, isToolContinuation = false } = {}) {
-    if (!isToolContinuation && !content?.trim()) return;
+  // ─── 主发送管线 ─────────────────────────────────────────────
+
+  async sendMessage({
+    content = '',
+    sessionId = null,
+    model = null,
+    reasoningEffort = undefined,
+    isToolContinuation = false,
+  }: Record<string, unknown> = {}): Promise<void> {
+    if (!isToolContinuation && !(content as string)?.trim()) return;
+
     const service = this.kernel.getProviderFactory()?.getCurrentProvider();
     if (!service) {
       const err = new Error('Provider service not initialized yet. Please wait for settings to load or configure a provider in Settings.');
       this._emit(KernelEvents.CHAT.STREAM_ERROR, { error: err, message: err.message });
       return;
     }
+
     const sm = this.kernel.getSessionManager();
     const settings = this.kernel.getSettingsManager().getSettings();
     const defaultEffort = settings?.reasoningEffort || 'medium';
-    let assistantMsgId = null;
-    let session = null;
+
+    let assistantMsgId: string | null = null;
+    let session: Record<string, unknown> | null = null;
 
     try {
+      // ── 前置校验 ──
       if (!isToolContinuation) {
-        if (!content || !content.trim()) throw new Error('Message content is required');
+        if (!content || !(content as string).trim()) throw new Error('Message content is required');
         if (this._assistantMsgId) throw new Error('A message is already being generated');
+        this._state.transition(CHAT_STATE.WAITING);
       }
-      if (!isToolContinuation) this._setState(STATE.WAITING);
 
-      session = sessionId ? sm.getSession(sessionId) : sm.getCurrentSession();
+      // ── 会话管理 ──
+      session = sessionId ? sm.getSession(sessionId as string) : sm.getCurrentSession();
       if (!session) {
         if (isToolContinuation) throw new Error('Session required for tool continuation');
-        session = await sm.createSession({ title: '新对话', reasoningEffort: reasoningEffort || defaultEffort });
-        this._emit(KernelEvents.CHAT.CURRENT_SESSION_CHANGED, { sessionId: session.id });
-      } else if (reasoningEffort && session.reasoningEffort !== reasoningEffort) {
-        session.reasoningEffort = reasoningEffort;
+        session = await sm.createSession({
+          title: '新对话',
+          reasoningEffort: reasoningEffort || defaultEffort,
+        });
+        this._emit(KernelEvents.CHAT.CURRENT_SESSION_CHANGED, { sessionId: (session as any).id });
+      } else if (reasoningEffort && (session as any).reasoningEffort !== reasoningEffort) {
+        (session as any).reasoningEffort = reasoningEffort;
       }
 
-      const modelId = model ? model.id : (settings?.model || '');
-      const thinkingEffort = session.reasoningEffort || 'off';
-      // MessagesRequest imported from kernel.models
+      const sid = (session as any).id;
+      const modelId = model ? (model as any).id : (settings?.model || '');
+      const thinkingEffort = (session as any).reasoningEffort || 'off';
 
+      // ── 用户消息 ──
       if (!isToolContinuation) {
-        const userMsg = new Message({ role: 'user', content: content.trim() });
-        await sm.addMessage(userMsg, session.id);
-        this._emit(KernelEvents.CHAT.MESSAGE_ADDED, { messageId: userMsg.id, sessionId: session.id });
+        const userMsg = new Message({ role: 'user', content: (content as string).trim() });
+        await sm.addMessage(userMsg, sid);
+        this._emit(KernelEvents.CHAT.MESSAGE_ADDED, { messageId: userMsg.id, sessionId: sid });
+
+        // 会话中仅此一条消息 → 首次发送，自动生成标题
+        if ((session as any).messages.length === 1) {
+          const titleText = (content as string).trim().replace(/\n/g, ' ');
+          const autoTitle = titleText.length > 24 ? titleText.slice(0, 24) + '…' : titleText;
+          await sm.updateSession(sid, { title: autoTitle });
+        }
       }
 
-      const freshSession = sm.getSession(session.id);
+      // ── 上下文构建（委托 ContextBuilder） ──
+      const freshSession = sm.getSession(sid);
       const tools = this.kernel.toolRegistry?.getDefinitionsForLLM();
+      const messagesForRequest = await this._context.buildMessages(freshSession, settings, tools);
 
-      const messagesForRequest = await this._buildContext(freshSession, settings, tools);
-
+      // ── API 请求 ──
       const request = new MessagesRequest({
         model: modelId,
         messages: messagesForRequest,
         stream: true,
         thinking: new ThinkingConfig(thinkingEffort),
-        tools: tools.length > 0 ? tools : null
+        tools: Array.isArray(tools) && tools.length > 0 ? tools : null,
       });
 
-      if (service && service.cacheOptions) {
-        const cacheKey = `webagentcli:session:${session.id}`;
+      // Provider 缓存注入
+      if (service.cacheOptions) {
+        const cacheKey = `webagentcli:session:${sid}`;
         service.cacheOptions.sessionCacheKey = cacheKey;
-        Log.info('ChatProgram', `Provider cache key injected: ${cacheKey} (provider=${service.name}, cacheEnabled=${service.cacheOptions.enabled})`);
-      } else {
-        Log.warn('ChatProgram', 'No service.cacheOptions available — provider caching disabled');
+        Log.info(this.name, `Provider cache key injected: ${cacheKey} (provider=${service.name}, cacheEnabled=${service.cacheOptions.enabled})`);
       }
 
+      // ── Assistant 消息占位 ──
       const assistantMsg = new Message({ role: 'assistant', content: '' });
-      await sm.addMessage(assistantMsg, session.id);
+      await sm.addMessage(assistantMsg, sid);
       assistantMsgId = assistantMsg.id;
       this._assistantMsgId = assistantMsgId;
-      this._emit(KernelEvents.CHAT.MESSAGE_ADDED, { messageId: assistantMsgId, sessionId: session.id });
+      this._emit(KernelEvents.CHAT.MESSAGE_ADDED, { messageId: assistantMsgId, sessionId: sid });
 
       this._currentRequest = {
-        sessionId: session.id,
+        sessionId: sid,
         assistantMessageId: assistantMsgId,
         startedAt: Date.now(),
-        lastActiveAt: Date.now()
+        lastActiveAt: Date.now(),
       };
 
-      this._emit(KernelEvents.CHAT.STREAM_START, { sessionId: session.id, messageId: assistantMsgId });
+      this._emit(KernelEvents.CHAT.STREAM_START, { sessionId: sid, messageId: assistantMsgId });
 
-      const result = await service.chatStream(request, (chunk) => {
-        if (this._currentRequest) this._currentRequest.lastActiveAt = Date.now();
-        const content = chunk.content || '';
-        const reasoning = chunk.reasoning_content || '';
+      // ── 流式响应 ──
+      const result = await service.chatStream(request, (chunk: Record<string, unknown>) => {
+        if (this._currentRequest) (this._currentRequest as any).lastActiveAt = Date.now();
 
-        if (reasoning && this._state !== STATE.THINKING) {
-          this._setState(STATE.THINKING);
-        } else if (content && this._state !== STATE.GENERATING) {
-          this._setState(STATE.GENERATING);
-        }
+        const c = chunk.content as string || '';
+        const r = chunk.reasoning_content as string || '';
 
-        sm.streamChunkMessage(assistantMsgId, { content, reasoning_content: reasoning }, session.id);
-        this._emit(KernelEvents.CHAT.STREAM_CHUNK_APPEND, { sessionId: session.id, messageId: assistantMsgId, content, reasoning_content: reasoning });
+        if (r) this._state.transition(CHAT_STATE.THINKING);
+        else if (c) this._state.transition(CHAT_STATE.GENERATING);
+
+        sm.streamChunkMessage(assistantMsgId, { content: c, reasoning_content: r }, sid);
+        this._emit(KernelEvents.CHAT.STREAM_CHUNK_APPEND, {
+          sessionId: sid, messageId: assistantMsgId, content: c, reasoning_content: r,
+        });
       });
 
       if (!result) {
@@ -150,195 +204,88 @@ export class ChatProgram {
         return;
       }
 
-      if (result.toolCalls && result.toolCalls.length > 0) {
-        await sm.updateMessage(assistantMsgId, (msg) => {
-          result.toolCalls.forEach(tc => msg.addToolCall(tc));
+      // ── 工具调用（委托 ToolExecutor 做执行循环） ──
+      if ((result as any).toolCalls && (result as any).toolCalls.length > 0) {
+        await sm.updateMessage(assistantMsgId, (msg: any) => {
+          (result as any).toolCalls.forEach((tc: unknown) => msg.addToolCall(tc));
           return msg;
-        }, session.id);
+        }, sid);
+
+        this._state.transition(CHAT_STATE.COMPLETED);
+        const duration = Date.now() - ((this._currentRequest as any).startedAt as number);
+        this._emit(KernelEvents.CHAT.STREAM_COMPLETE, { sessionId: sid, messageId: assistantMsgId, duration });
+
+        await this._toolExecutor.execute((result as any).toolCalls, sid);
+        // 工具执行完成后，继续下一轮（ReAct 循环）
+        await this.sendMessage({ sessionId: sid, isToolContinuation: true });
+        return;
       }
 
-      this._setState(STATE.COMPLETED);
-      const duration = Date.now() - this._currentRequest.startedAt;
-      this._emit(KernelEvents.CHAT.STREAM_COMPLETE, { sessionId: session.id, messageId: assistantMsgId, duration });
-
-      if (result.toolCalls && result.toolCalls.length > 0) {
-        await this._executeToolCalls(result.toolCalls, session.id);
-      }
-    } catch (error) {
-      this._setState(STATE.FAILED);
+      this._state.transition(CHAT_STATE.COMPLETED);
+      const duration = Date.now() - ((this._currentRequest as any).startedAt as number);
+      this._emit(KernelEvents.CHAT.STREAM_COMPLETE, { sessionId: sid, messageId: assistantMsgId, duration });
+    } catch (error: any) {
+      this._state.transition(CHAT_STATE.FAILED);
       if (assistantMsgId && session) {
-        sm.updateMessage(assistantMsgId, (msg) => { msg.content = `❌ 发送失败: ${error.message}`; return msg; }, session.id);
+        sm.updateMessage(assistantMsgId, (msg: any) => {
+          msg.content = `❌ 发送失败: ${error.message}`;
+          return msg;
+        }, (session as any).id);
       }
-      this._emit(KernelEvents.CHAT.STREAM_ERROR, { error, message: error.message, sessionId: session?.id, messageId: assistantMsgId });
+      this._emit(KernelEvents.CHAT.STREAM_ERROR, {
+        error, message: error.message,
+        sessionId: (session as any)?.id, messageId: assistantMsgId,
+      });
     } finally {
       this._currentRequest = null;
       this._assistantMsgId = null;
       setTimeout(() => {
-        if (!this._currentRequest && this._state !== STATE.IDLE) {
-          this._setState(STATE.IDLE);
+        if (!this._currentRequest && this._state.isActive) {
+          this._state.reset();
         }
       }, 50);
     }
   }
 
-  async _executeToolCalls(toolCalls, sessionId) {
-    const sm = this.kernel.getSessionManager();
-    const toolResults = [];
+  // ─── 取消 ──────────────────────────────────────────────────
 
-    for (const tc of toolCalls) {
-      const tool = this.kernel.toolRegistry?.getAll().find(t => t.definition && t.definition.name === tc.toolName);
-
-      this._emit(KernelEvents.TOOL.EXECUTING, { toolName: tc.toolName, toolCallId: tc.id, sessionId });
-
-      let toolResult;
-      try {
-        if (!tool) {
-          toolResult = new ToolResult({ toolCallId: tc.id, status: 'failed', error: `Unknown tool: ${tc.toolName}` });
-        } else {
-          let tabId = null;
-          // FIXME: chrome.tabs 依赖 — 已知浏览器环境耦合（参见 MEMORY.md）
-          try { const tabs = await chrome.tabs.query({ active: true, currentWindow: true }); tabId = tabs[0]?.id; } catch (e) { /* ignore */ }
-          toolResult = await tool.invoke(tc, { sessionId, tabId, kernel: this.kernel });
-        }
-      } catch (invokeError) {
-        toolResult = new ToolResult({ toolCallId: tc.id, status: 'failed', error: invokeError.message || String(invokeError) });
-      }
-
-      toolResults.push(toolResult);
-      this._emit(KernelEvents.TOOL.COMPLETED, { toolName: tc.toolName, toolCallId: tc.id, status: toolResult.status, duration: toolResult.duration, sessionId });
-
-      const toolMsg = new Message({
-        role: Role.TOOL,
-        toolCallId: tc.id,
-        content: toolResult.isSuccess()
-          ? (typeof toolResult.output === 'string' ? toolResult.output : JSON.stringify(toolResult.output, null, 2))
-          : `⚠️ 执行失败: ${toolResult.error}`
-      });
-      await sm.addMessage(toolMsg, sessionId);
-      this._emit(KernelEvents.CHAT.MESSAGE_ADDED, { messageId: toolMsg.id, sessionId });
-    }
-
-    this._emit(KernelEvents.TOOL.ALL_COMPLETED, { toolResults, sessionId });
-    await this.sendMessage({ sessionId, isToolContinuation: true });
-  }
-
-  cancel() {
+  cancel(): void {
     this.kernel.getProviderFactory()?.getCurrentProvider()?.cancel?.();
     const stoppedRequest = this._currentRequest;
     this._currentRequest = null;
     this._assistantMsgId = null;
-    this._setState(STATE.STOPPED);
-    this._emit(KernelEvents.CHAT.STREAM_STOP, { sessionId: stoppedRequest?.sessionId, messageId: stoppedRequest?.assistantMessageId });
-    setTimeout(() => this._setState(STATE.IDLE), 50);
+    this._state.transition(CHAT_STATE.STOPPED);
+    this._emit(KernelEvents.CHAT.STREAM_STOP, {
+      sessionId: (stoppedRequest as any)?.sessionId,
+      messageId: (stoppedRequest as any)?.assistantMessageId,
+    });
+    setTimeout(() => this._state.reset(), 50);
   }
 
-  async deleteMessage(messageId) {
+  // ─── 删除消息 ──────────────────────────────────────────────
+
+  async deleteMessage(messageId: string): Promise<boolean> {
     const sm = this.kernel.getSessionManager();
     const session = sm.getCurrentSession();
     if (!session) return false;
-    const result = await sm.deleteMessage(messageId, session.id);
+    const result = await sm.deleteMessage(messageId, (session as any).id);
     if (result) {
-      this._emit(KernelEvents.CHAT.MESSAGE_DELETED, { messageId, sessionId: session.id });
+      this._emit(KernelEvents.CHAT.MESSAGE_DELETED, { messageId, sessionId: (session as any).id });
     }
     return result;
   }
 
-  _setState(newState) {
-    if (this._state === newState) return;
-    this._state = newState;
-    this._notifyActivityState();
+  // ─── 状态查询 ──────────────────────────────────────────────
+
+  getQueueStatus(): Record<string, unknown> {
+    return this._state.getQueueStatus(
+      (this._currentRequest as any)?.sessionId || null
+    );
   }
 
-  _notifyActivityState() {
-    this._emit(KernelEvents.CHAT.ACTIVITY_STATE_CHANGED, this.getQueueStatus());
-  }
+  // ─── 内部 ──────────────────────────────────────────────────
 
-  getQueueStatus() {
-    return { state: this._state, sessionId: this._currentRequest?.sessionId || null, hasActive: this._state !== STATE.IDLE };
-  }
-
-  _emit(event, data) {
-    if (!this.chatChannel) return;
-    this.chatChannel.emit(event, data);
-  }
-
-  /**
-   * _buildContext — 上下文管理标准过程
-   *
-   * 组装发给 LLM 的完整消息序列：
-   * 1. System prompt（身份 + 可用工具 + 当前页面环境）
-   * 2. 会话消息（按 contextWindowSize 截断，保护 tool_call/tool_result 配对）
-   * 3. 统一转 API 格式
-   */
-  async _buildContext(session, settings, tools) {
-    // --- 1. System prompt ---
-    const systemParts = [];
-
-    systemParts.push('你是一个运行在 Chrome 扩展 Side Panel 中的 Web Agent。你可以通过工具与浏览器页面交互，完成用户指定的任务。');
-
-    // 当前页面环境
-    let pageContext = '';
-    try {
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      const tab = tabs[0];
-      if (tab) {
-        pageContext = `当前页面: ${tab.title || '(无标题)'} — ${tab.url || '(无URL)'}`;
-      }
-    } catch (e) { /* 非浏览器环境，跳过 */ }
-    if (pageContext) systemParts.push(pageContext);
-
-    // 可用工具清单（简述，完整 schema 走 API tools 参数）
-    if (tools && tools.length > 0) {
-      const toolList = tools
-        .map(t => t?.function?.name ? `- ${t.function.name}: ${t.function.description || ''}` : '')
-        .filter(Boolean)
-        .join('\n');
-      if (toolList) {
-        systemParts.push(`可用工具:\n${toolList}\n\n工具的完整参数定义通过 API tools 参数传递，请按 schema 调用。`);
-      }
-    }
-
-    systemParts.push('原则: 优先使用工具完成页面操作。如果工具调用失败，分析错误并重试或换方案。不需要用户确认就可以连续调用工具。');
-
-    const systemMsg = { role: 'system', content: systemParts.join('\n\n') };
-
-    // --- 2. 截断会话消息 ---
-    let sessionMessages = (session.messages || []).filter(m => m != null);
-    const maxSize = settings?.contextWindowSize || 20;
-    if (settings?.autoContextTruncation !== false && sessionMessages.length > maxSize) {
-      sessionMessages = this._truncateMessages(sessionMessages, maxSize);
-    }
-
-    // --- 3. 组装 + 转 API 格式 ---
-    const allMessages = [systemMsg, ...sessionMessages];
-    return allMessages.map(m => {
-      const src = (m && typeof m.toJSON === 'function') ? m.toJSON() : m;
-      return MessageStructure.toAPIFormat(src);
-    });
-  }
-
-  /**
-   * 截断消息列表，保护 tool_call / tool_result 配对完整性。
-   * 策略: 从末尾保留 maxSize 条，如果截断点恰好是 tool result 而没有对应的 tool call，
-   * 向前回退直到配对完整。
-   */
-  _truncateMessages(messages, maxSize) {
-    if (messages.length <= maxSize) return messages;
-
-    let cut = messages.length - maxSize;
-    // 如果截断点后方第一条是 tool 消息（tool result），向前多留直到找到对应的 assistant tool_call
-    while (cut < messages.length) {
-      const msg = messages[cut];
-      const role = msg?.role || (msg && typeof msg.toJSON === 'function' ? msg.toJSON().role : '');
-      if (role === 'tool') {
-        cut--; // 向前回退
-      } else if (role === 'assistant' && (msg?.toolCalls?.length || (msg && typeof msg.toJSON === 'function' && msg.toJSON().toolCalls?.length))) {
-        break; // 这条 assistant 带 tool_calls，从这开始保留
-      } else {
-        break; // 普通消息，截断点 OK
-      }
-    }
-    if (cut < 0) cut = 0;
-    return messages.slice(cut);
+  private _emit(event: string, data: unknown): void {
+    this.chatChannel?.emit(event, data);
   }
 }
