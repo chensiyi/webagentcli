@@ -238,89 +238,105 @@
     }
   });
 
+  // ==================== 事件监听器引用（用于 onDestroy 清理） ====================
+  // 存储 unsubscribe 函数引用，避免重复注册
+  let cleanups: (() => void)[] = [];
+
   // ==================== IPC 事件监听 ====================
   onMount(() => {
     if (!chatChannel) return;
 
-    // 流式生命周期
-    chatChannel.on(KernelEvents.CHAT.STREAM_START, () => {
-      isStreaming = true;
-    });
+    // 页面切换后重建：查询 ChatProgram 当前是否正在流式处理中
+    const chatProgram = (kernel as any)?.chatProgram;
+    if (chatProgram && typeof chatProgram.getQueueStatus === 'function') {
+      const status = chatProgram.getQueueStatus();
+      isStreaming = status.hasActive === true;
+      // 如果流式处理中，工具执行状态可能持续，但 UI 无法精确恢复，先重置
+      toolExecuting = false;
+      toolExecutingName = '';
+    }
 
-    chatChannel.on(KernelEvents.CHAT.STREAM_COMPLETE, (data: any) => {
-      isStreaming = false;
-      // 清除该消息的流式覆盖
-      if (data?.messageId) {
-        const newMap = { ...streamingMap };
-        delete newMap[data.messageId];
-        streamingMap = newMap;
-      }
-      refreshMessages();
-      if (messagesContainer) autoScrollToBottom(messagesContainer, true);
-    });
+    if (chatChannel) {
+      cleanups.push(
+        // 流式生命周期
+        chatChannel.on(KernelEvents.CHAT.STREAM_START, () => {
+          isStreaming = true;
+        }),
 
-    chatChannel.on(KernelEvents.CHAT.STREAM_STOP, () => {
-      isStreaming = false;
-      refreshMessages();
-    });
+        chatChannel.on(KernelEvents.CHAT.STREAM_COMPLETE, (data: any) => {
+          isStreaming = false;
+          // 清除该消息的流式覆盖
+          if (data?.messageId) {
+            const newMap = { ...streamingMap };
+            delete newMap[data.messageId];
+            streamingMap = newMap;
+          }
+          refreshMessages();
+          if (messagesContainer) autoScrollToBottom(messagesContainer, true);
+        }),
 
-    chatChannel.on(KernelEvents.CHAT.STREAM_ERROR, (data: any) => {
-      isStreaming = false;
-      toast.error(data?.message || '发送失败');
-      refreshMessages();
-    });
+        chatChannel.on(KernelEvents.CHAT.STREAM_STOP, () => {
+          isStreaming = false;
+          refreshMessages();
+        }),
 
-    // 消息变更 → 全量刷新
-    chatChannel.on(KernelEvents.CHAT.MESSAGE_ADDED, () => {
-      refreshMessages();
-    });
+        chatChannel.on(KernelEvents.CHAT.STREAM_ERROR, (data: any) => {
+          isStreaming = false;
+          toast.error(data?.message || '发送失败');
+          refreshMessages();
+        }),
 
-    chatChannel.on(KernelEvents.CHAT.MESSAGE_DELETED, () => {
-      refreshMessages();
-    });
+        // 消息变更 → 全量刷新
+        chatChannel.on(KernelEvents.CHAT.MESSAGE_ADDED, () => {
+          refreshMessages();
+        }),
 
-    chatChannel.on(KernelEvents.CHAT.CURRENT_SESSION_CHANGED, () => {
-      streamingMap = {};
-      isEditingTitle = false;
-      refreshMessages();
-    });
+        chatChannel.on(KernelEvents.CHAT.MESSAGE_DELETED, () => {
+          refreshMessages();
+        }),
 
-    // 会话更新（标题等）
-    chatChannel.on(KernelEvents.CHAT.SESSION_UPDATED, () => {
-      refreshMessages();
-    });
+        chatChannel.on(KernelEvents.CHAT.CURRENT_SESSION_CHANGED, () => {
+          streamingMap = {};
+          isEditingTitle = false;
+          refreshMessages();
+        }),
 
-    // 流式分片追加
-    chatChannel.on(KernelEvents.CHAT.STREAM_CHUNK_APPEND, (data: any) => {
-      const { messageId, content, reasoning_content } = data;
-      if (!messageId) return;
+        // 会话更新（标题等）
+        chatChannel.on(KernelEvents.CHAT.SESSION_UPDATED, () => {
+          refreshMessages();
+        }),
 
-      const entry = streamingMap[messageId] || { content: '', reasoning: '' };
-      if (content) entry.content += content;
-      if (reasoning_content) entry.reasoning += reasoning_content;
-      streamingMap = { ...streamingMap, [messageId]: entry };
-    });
+        // 流式分片追加
+        chatChannel.on(KernelEvents.CHAT.STREAM_CHUNK_APPEND, (data: any) => {
+          const { messageId, content, reasoning_content } = data;
+          if (!messageId) return;
 
-    // 消息更新（全文替换）
-    chatChannel.on(KernelEvents.CHAT.MESSAGE_UPDATED, (data: any) => {
-      if (!data?.message) return;
-      const idx = messages.findIndex((m) => m.id === data.message.id);
-      if (idx >= 0) {
-        messages = [...messages.slice(0, idx), data.message, ...messages.slice(idx + 1)];
-      }
-    });
+          const entry = streamingMap[messageId] || { content: '', reasoning: '' };
+          if (content) entry.content += content;
+          if (reasoning_content) entry.reasoning += reasoning_content;
+          streamingMap = { ...streamingMap, [messageId]: entry };
+        }),
 
-    // 工具事件
-    if (toolChannel) {
-      toolChannel.on(KernelEvents.TOOL.EXECUTING, (data: any) => {
-        toolExecuting = true;
-        toolExecutingName = data?.toolName || '工具';
-      });
+        // 消息更新（全文替换）
+        chatChannel.on(KernelEvents.CHAT.MESSAGE_UPDATED, (data: any) => {
+          if (!data?.message) return;
+          const idx = messages.findIndex((m) => m.id === data.message.id);
+          if (idx >= 0) {
+            messages = [...messages.slice(0, idx), data.message, ...messages.slice(idx + 1)];
+          }
+        }),
 
-      toolChannel.on(KernelEvents.TOOL.COMPLETED, (data: any) => {
-        toolExecuting = false;
-        toolExecutingName = '';
-      });
+        // 工具事件（ToolExecutor 通过 chatChannel 发出 TOOL.* 事件，因此也在此频道监听）
+        chatChannel.on(KernelEvents.TOOL.EXECUTING, (data: any) => {
+          toolExecuting = true;
+          toolExecutingName = data?.toolName || '工具';
+        }),
+
+        chatChannel.on(KernelEvents.TOOL.COMPLETED, (data: any) => {
+          toolExecuting = false;
+          toolExecutingName = '';
+        }),
+      );
     }
 
     // 键盘导航

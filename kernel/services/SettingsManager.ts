@@ -37,9 +37,11 @@ export class SettingsManager extends BaseSettings {
     return this._settings;
   }
   async saveSetting(key, value) {
-    this._settings[key] = value;
+    // 防御：剥离 Svelte $state Proxy
+    const plainValue = JSON.parse(JSON.stringify(value));
+    this._settings[key] = plainValue;
     if (this.storage) {
-      try { await this.storage.set('app_settings', { ...this._settings }); } catch (e) {
+      try { await this.storage.set('app_settings', JSON.parse(JSON.stringify(this._settings))); } catch (e) {
         Log.warn('SETTINGS', `saveSetting error: ${e?.message}`);
       }
     }
@@ -51,10 +53,14 @@ export class SettingsManager extends BaseSettings {
 
   /** 合并设置并持久化到存储，同时通过 IPC 通知 ProviderFactory 更新 */
   async saveSettings(settings: Record<string, any>) {
-    Object.assign(this._settings, settings);
+    // 防御：剥离 Svelte $state Proxy（JSON round-trip 确保纯 JS 对象）
+    // 原因：前端传入的 settings 可能是 Svelte $state 代理对象，
+    // Object.assign 会将代理内部属性（$$ 等）注入 _settings，导致 Chrome Storage 序列化异常
+    const plainSettings: Record<string, any> = JSON.parse(JSON.stringify(settings));
+    Object.assign(this._settings, plainSettings);
     if (this.storage) {
       try {
-        await this.storage.set('app_settings', { ...this._settings });
+        await this.storage.set('app_settings', JSON.parse(JSON.stringify(this._settings)));
       } catch (e) {
         Log.warn('SETTINGS', `saveSettings error: ${e?.message}`);
       }

@@ -20,6 +20,23 @@
     findToolNameByCallId,
     messages
   } = $props();
+
+  // 计算每个 toolCall 的派生状态（用 $derived 确保随 messages 变化而更新）
+  let toolCallData = $derived.by(() => {
+    if (!hasToolCalls || !msg.toolCalls) return [];
+    return msg.toolCalls.map((tc: any) => {
+      const tcId = tc.id || '';
+      const tcResult = findToolResult(tcId);
+      return {
+        id: tcId,
+        name: tc.toolName || tc.name || 'unknown',
+        args: tc.input || tc.arguments || {},
+        result: tcResult,
+        resultText: tcResult ? extractText(tcResult.content) : '',
+        status: tcResult ? 'completed' : (tc.status || 'pending'),
+      };
+    });
+  });
 </script>
 
 <div
@@ -50,21 +67,15 @@
     <!-- 工具调用卡片（Assistant 专属） -->
     {#if hasToolCalls}
       <div class="tool-calls-container">
-        {#each msg.toolCalls as tc (tc.id)}
-          {@const tcId = tc.id || ''}
-          {@const tcName = tc.toolName || tc.name || 'unknown'}
-          {@const tcArgs = tc.input || tc.arguments || {}}
-          {@const tcResult = findToolResult(tcId)}
-          {@const tcResultText = tcResult ? extractText(tcResult.content) : ''}
-          {@const tcStatus = tc.status || (tcResult ? 'completed' : 'pending')}
+        {#each toolCallData as tcd (tcd.id)}
           <ToolCallCard
-            {tcId}
-            {tcName}
-            {tcArgs}
-            {tcResult}
-            {tcResultText}
-            {tcStatus}
-            collapsed={collapsedToolCalls[tcId] || false}
+            tcId={tcd.id}
+            tcName={tcd.name}
+            tcArgs={tcd.args}
+            tcResult={tcd.result}
+            tcResultText={tcd.resultText}
+            tcStatus={tcd.status}
+            collapsed={collapsedToolCalls[tcd.id] || false}
             {toggleToolCall}
           />
         {/each}

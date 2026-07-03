@@ -15,7 +15,6 @@
 
   // ---------- Reactive State ----------
   let currentSettings = $state<Record<string, any>>({});
-  let cachedModels = $state<ModelInfo[]>([]);
   let isLoadingModels = $state(false);
   let modelSearchValue = $state('');
   let showModelDropdown = $state(false);
@@ -26,6 +25,9 @@
   // ---------- Computed ----------
   const apiStandard = $derived(currentSettings.apiStandard || 'openrouter');
   const requiresApiKey = $derived(apiStandard !== 'lm-studio');
+  // 模型列表：统一从 currentSettings.models 派生，存进去就一直有效，不需要单独缓存
+  const modelsList = $derived((Array.isArray(currentSettings.models) ? currentSettings.models : []) as ModelInfo[]);
+  const hasModels = $derived(modelsList.length > 0);
 
   const apiStandardOptions = [
     { value: 'openrouter', label: 'OpenRouter' },
@@ -66,19 +68,20 @@
   }
 
   // ---------- Init: Load Settings ----------
+  // 关键：直接从 SettingsManager 读取已加载的设置（boot 时已从 Chrome Storage 反序列化）
+  // 注意：不能在这里调用 loadSettings()（$effect 不支持 async），boot 阶段已 await 完成
   $effect(() => {
     const sm = kernel?.getSettingsManager?.();
     if (!sm || isLoaded) return;
 
-    const raw = sm.getSettings?.();
-    currentSettings = raw?.toJSON ? raw.toJSON() : (typeof raw === 'object' ? { ...raw } : {});
+    const raw = sm.getSettings?.() || {};
+    // raw 来自 Chrome Storage 反序列化，始终是纯 JS 对象，直接解构即可
+    currentSettings = { ...raw };
     isLoaded = true;
 
-    applyTheme(currentSettings.theme);
+    Log.info('SettingsPage', `Loaded settings, models count: ${Array.isArray(currentSettings.models) ? currentSettings.models.length : 'N/A'}`);
 
-    if (Array.isArray(currentSettings.models)) {
-      cachedModels = currentSettings.models;
-    }
+    applyTheme(currentSettings.theme);
   });
 
   // ---------- Handlers ----------
@@ -191,7 +194,6 @@
         ...m
       }));
 
-      cachedModels = models;
       currentSettings.models = models;
       
       // 保存到存储
@@ -213,24 +215,29 @@
     isSaving = true;
     try {
       const sm = kernel?.getSettingsManager?.();
+      // 关键：currentSettings 是 Svelte $state Proxy，必须剥离为纯 JS 对象再传给 SettingsManager
+      // 否则 Object.assign 会将 Svelte 内部属性（$$ 等）注入 _settings，导致 Chrome Storage 序列化异常
+      const plainSettings = JSON.parse(JSON.stringify(currentSettings));
       if (sm?.saveSettings) {
-        await sm.saveSettings(currentSettings);
+        await sm.saveSettings(plainSettings);
       } else {
         // Fallback: 直接 emit SAVED 事件让 ProviderFactory 响应
         const ipc = kernel?.getIPC?.();
         const channel = ipc?.getOrCreateChannel?.('settings') || ipc;
-        channel?.emit('settings:saved', { settings: currentSettings });
+        channel?.emit('settings:saved', { settings: plainSettings });
       }
+      Log.info('SettingsPage', `Saved settings, models count: ${Array.isArray(plainSettings.models) ? plainSettings.models.length : 'N/A'}`);
       toast.success('设置已保存');
     } catch (e) {
       toast.error('保存失败: ' + (e as Error).message);
+      Log.error('SettingsPage', 'Failed to save settings:', e);
     } finally {
       isSaving = false;
     }
   }
 
   function handleModelSearchClick() {
-    if (cachedModels.length === 0) {
+    if (!hasModels) {
       toast.info('请先点击"加载模型"按钮获取模型列表');
       return;
     }
@@ -245,7 +252,7 @@
 
 
   function getModelDetails(modelId: string): ModelInfo | null {
-    const model = cachedModels.find((m: any) => {
+    const model = modelsList.find((m: any) => {
       if (typeof m === 'string') return m === modelId;
       return m.id === modelId || m.name === modelId;
     });
@@ -271,7 +278,7 @@
     if (!modelSearchValue) return null;
     const kw = modelSearchValue.toLowerCase();
     // 同时匹配模型ID和名称
-    const model = cachedModels.find((m: any) => {
+    const model = modelsList.find((m: any) => {
       if (typeof m === 'string') return m.toLowerCase() === kw;
       const id = (m.id || '').toLowerCase();
       const name = (m.name || '').toLowerCase();
@@ -282,7 +289,7 @@
   }
 
   function getFilteredModelIds(): string[] {
-    const all = cachedModels.map((m: any) => (typeof m === 'object' ? m.id : m));
+    const all = modelsList.map((m: any) => (typeof m === 'object' ? m.id : m));
     if (!modelSearchValue) return all;
     const kw = modelSearchValue.toLowerCase();
     // 按匹配度排序：精准匹配 > 前缀匹配 > 包含匹配 > 其他
@@ -565,7 +572,7 @@
             <div class="model-input-wrapper" role="button" tabindex="0" onclick={handleModelSearchClick} onkeydown={(e) => { if (e.key === 'Enter') handleModelSearchClick(); }}>
               <input
                 class="model-search-input"
-                placeholder={cachedModels.length === 0 ? '点击"加载模型"获取列表' : '搜索模型 ID 或名称…'}
+                placeholder={hasModels ? '搜索模型 ID 或名称…' : '点击"加载模型"获取列表'}
                 value={modelSearchValue || currentSettings.model || ''}
                 oninput={(e) => {
                   modelSearchValue = (e.target as HTMLInputElement).value;
@@ -584,9 +591,9 @@
             </Button>
           </div>
 
-          {#if cachedModels.length > 0}
+          {#if hasModels}
             <div class="model-cache-hint">
-              已缓存 {cachedModels.length} 个模型
+              已缓存 {modelsList.length} 个模型
             </div>
           {/if}
 

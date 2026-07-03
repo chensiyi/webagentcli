@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { EditorView, basicSetup } from 'codemirror';
   import { EditorState } from '@codemirror/state';
   import { javascript } from '@codemirror/lang-javascript';
@@ -56,7 +57,7 @@
           onchange?.(value);
         }
       }),
-      EditorState.tabSize(2),
+      EditorState.tabSize.of(2),
     ];
     if (readonly) {
       extensions.push(EditorView.editable.of(false));
@@ -76,15 +77,17 @@
     return EditorState.create({ doc, extensions });
   }
 
-  // Init editor on mount
+  // 创建/重建编辑器 — 仅追踪 containerEl、language、readonly、placeholder
+  // 使用 untrack 读取 value，避免每次按键都销毁重建编辑器
   $effect(() => {
     if (!containerEl) return;
     if (editorView) {
       editorView.destroy();
       editorView = null;
     }
+    const currentValue = untrack(() => value);
     editorView = new EditorView({
-      state: createState(value),
+      state: createState(currentValue),
       parent: containerEl,
     });
     return () => {
@@ -93,7 +96,7 @@
     };
   });
 
-  // Sync external value changes → editor
+  // 同步外部 value 变更 → 编辑器（仅追踪 value）
   $effect(() => {
     if (!editorView) return;
     const currentDoc = editorView.state.doc.toString();
@@ -104,15 +107,6 @@
       });
       isInternalChange = false;
     }
-  });
-
-  // Re-create state when language mode changes
-  $effect(() => {
-    if (!editorView) return;
-    isInternalChange = true;
-    const newState = createState(editorView.state.doc.toString());
-    editorView.setState(newState);
-    isInternalChange = false;
   });
 </script>
 
