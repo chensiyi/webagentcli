@@ -1,6 +1,6 @@
 # Web Agent Client 架构文档
 
-> 架构版本：Microkernel v0.5.0 · 与当前代码库保持同步
+> 架构版本：Microkernel v0.6.5 · 与当前代码库保持同步
 
 ## 核心理念
 
@@ -8,93 +8,127 @@
 
 | OS 概念 | 本软件对应 | 实现 |
 |---|---|---|
-| **Kernel** | `Kernel.js` | 服务注册、生命周期、启动序列 |
-| **IPC/消息队列** | `IPC.js` | 优先级消息、来源追踪、中间件链 |
-| **系统调用** | `ToolRegistry.js` + `IToolService` | 工具注册表、调用审计 |
-| **权限门控** | `CapabilityManager.js` | 声明式权限、动态授权 |
-| **进程管理** | `SessionManager` | 会话 CRUD、状态机 |
+| **Kernel** | `Kernel.ts` | 服务注册、生命周期、启动序列 |
+| **IPC/消息队列** | `IPC.ts` | 优先级消息、来源追踪、中间件链 |
+| **系统调用** | `ToolRegistry.ts` + `IToolService` | 工具注册表、调用审计 |
+| **权限门控** | `CapabilityManager.ts` | 声明式权限、动态授权 |
+| **进程管理** | `ProcessManager` + `Process` | 进程 CRUD、生命周期、状态机 |
 | **用户程序** | `ChatProgram` | 聊天指令（内核级程序） |
 | **设备驱动** | `IProviderAPIService` | AI Provider 热插拔 |
-| **文件系统** | `StorageManager` | chrome.storage 封装 |
-| **内核日志** | `ConsoleLogger.js` | 控制台日志输出 |
-| **Bootloader** | `Bootloader.js` | 8 阶段标准化启动序列 |
+| **文件系统** | `IStorageManager` | chrome.storage 封装 |
+| **内核日志** | `Log.ts` / `ConsoleLogger.ts` | 控制台日志输出 |
+| **Bootloader** | `Bootloader.ts` | 4 阶段标准化启动序列 |
 
 ## 目录结构
 
 ```
 webagentcli/
 │
-├── kernel/                          # ★ 独立内核（零外部依赖）
-│   ├── Kernel.js                   # 核心内核：服务注册、生命周期、状态机
-│   ├── IPC.js                      # 消息总线（优先级、来源追踪、中间件）
-│   ├── ToolRegistry.js             # 系统调用注册表
-│   ├── CapabilityManager.js        # 权限门控
-│   ├── Bootloader.js               # 启动序列（8 阶段）
-│   ├── Events.js                   # 内核事件常量
-│   ├── index.js                    # 统一导出
+├── kernel/                          # 核心内核（TypeScript · 零外部依赖）
+│   ├── Kernel.ts                   # 核心内核：服务注册、生命周期、状态机
+│   ├── IPC.ts                      # 消息总线（优先级、来源追踪、中间件）
+│   ├── ToolRegistry.ts             # 系统调用注册表
+│   ├── CapabilityManager.ts        # 权限门控
+│   ├── Bootloader.ts               # 启动序列（4 阶段）
+│   ├── Events.ts                   # 内核事件常量
+│   ├── index.ts                    # 统一导出 + Shell 桥接
 │   │
 │   ├── models/                     # 数据模型（纯数据，无壳依赖）
-│   │   ├── BaseModel.js
-│   │   ├── Message.js
-│   │   ├── MessageContent.js
-│   │   ├── Session.js
-│   │   ├── Settings.js
-│   │   ├── Model.js
-│   │   ├── ToolCall.js
-│   │   ├── ToolResult.js
-│   │   ├── ToolDefinition.js
-│   │   └── Scripts.js
+│   │   ├── BaseModel.ts
+│   │   ├── Message.ts
+│   │   ├── MessageContent.ts
+│   │   ├── Session.ts
+│   │   ├── Settings.ts
+│   │   ├── Model.ts
+│   │   ├── ToolCall.ts
+│   │   ├── ToolResult.ts
+│   │   ├── ToolDefinition.ts
+│   │   ├── Process.ts
+│   │   └── Scripts.ts
 │   │
 │   ├── programs/                   # 内核程序（事件驱动的业务编排）
-│   │   └── ChatProgram.js          # 聊天程序（发送/流式/工具循环/会话切换）
+│   │   ├── ChatProgram.ts          # 聊天程序（发送/流式/工具循环/会话切换）
+│   │   └── chat/                   # 聊天子模块
 │   │
 │   ├── services/                   # 核心服务实现
-│   │   ├── SessionManager.js       # 会话/消息持久化
-│   │   ├── StorageManager.js       # 存储封装
-│   │   ├── SettingsManager.js      # 设置管理
-│   │   ├── ScriptsManager.js       # 脚本管理
-│   │   ├── ProcessManager.js       # 进程管理
-│   │   ├── ILogger.js              # 日志接口
-│   │   ├── ConsoleLogger.js        # 控制台日志实现
-│   │   ├── I*Manager.js            # 接口定义
+│   │   ├── SessionManager.ts       # 会话/消息持久化
+│   │   ├── SettingsManager.ts      # 设置管理
+│   │   ├── ScriptsManager.ts       # 脚本管理
+│   │   ├── ProcessManager.ts       # 进程管理
+│   │   ├── ProviderFactory.ts      # Provider 工厂
+│   │   ├── ConsoleLogger.ts        # 控制台日志实现
+│   │   ├── Log.ts                  # 日志工具类
+│   │   ├── ILogger.ts              # 日志接口
+│   │   ├── IStorageManager.ts      # 存储接口
+│   │   ├── ISettings.ts            # 设置接口
+│   │   ├── IScriptsManager.ts      # 脚本接口
+│   │   ├── ISessionManager.ts      # 会话接口
+│   │   ├── IToolService.ts         # 工具服务接口
+│   │   ├── IProviderAPIService.ts  # Provider API 接口
 │   │   └── ProviderAPIServices/    # AI Provider 实现
-│   │       ├── IProviderAPIService.js
-│   │       ├── OpenAIService.js
-│   │       ├── OpenRouterService.js
-│   │       └── LMStudioService.js
+│   │       ├── OpenAIService.ts
+│   │       ├── OpenRouterService.ts
+│   │       └── LMStudioService.ts
 │   │
-│   └── tools/                      # 内置工具（系统调用实现）
-│       ├── RunUserScriptTool.js
+│   └── tools/                      # 工具定义（侧边栏实现 RunUserScriptTool）
+│       ├── RunUserScriptTool.js    # （旧 JS 架构，sidepanel/js/tools/）
 │       └── ManageUserScriptsTool.js
 │
-├── sidepanel/                      # ★ Shell A: Chrome 侧边栏
-│   ├── sidepanel.html              # 入口（加载顺序见下文）
+├── src/                            # Svelte 5 UI（新架构）
+│   ├── main.ts                     # 入口：Kernel 自举 + 挂载 Svelte App
+│   ├── Sidepanel.svelte            # 根组件（Sidebar + 5 页路由）
+│   ├── components/                 # Svelte 组件
+│   │   ├── atoms/                  # 原子组件
+│   │   ├── forms/                  # 表单组件
+│   │   ├── layout/                 # 布局组件（Sidebar 等）
+│   │   └── overlays/               # 覆盖层组件（Toast/Dialog 等）
+│   ├── pages/                      # 页面组件
+│   │   ├── ChatPage.svelte         # 对话页面
+│   │   ├── HistoryPage.svelte      # 历史页面
+│   │   ├── StoragePage.svelte      # 存储页面
+│   │   ├── ScriptsPage.svelte      # 脚本页面
+│   │   ├── SettingsPage.svelte     # 设置页面
+│   │   └── chat/
+│   │       ├── MessageBubble.svelte
+│   │       └── ChatEventHandler.js
+│   ├── styles/                     # 全局样式
+│   │   ├── tokens.css
+│   │   ├── utilities.css
+│   │   ├── components.css
+│   │   └── pages.css
+│   └── utils/                      # 工具函数
+│       ├── dom.ts
+│       ├── text.ts
+│       └── time.ts
+│
+├── sidepanel/                      # Shell A: Chrome 侧边栏（旧架构）
+│   ├── sidepanel.html              # 入口 HTML
+│   ├── svelte-app.html             # Svelte 5 入口 HTML
 │   ├── js/
-│   │   ├── app.js                  # Bootloader 调用方 + UI 渲染
-│   │   ├── events.js               # 应用层事件常量（USER_APPLY_* 等）
-│   │   ├── event-handlers/         # 页面事件处理器（鉴权 + 转译）
-│   │   │   ├── ChatEventHandler.js # 转译层：USER_APPLY_* → ChatProgram.CMD.*
-│   │   │   ├── SettingsEventHandler.js
-│   │   │   ├── StorageEventHandler.js
-│   │   │   └── ScriptsEventHandler.js
+│   │   ├── app.js                  # 旧入口（Bootloader 调用方 + UI 渲染）
+│   │   ├── background.js           # Service Worker
+│   │   ├── event-handlers/         # 页面事件处理器
 │   │   ├── pages/                  # UI 页面
-│   │   │   ├── ChatPage.js
-│   │   │   ├── HistoryPage.js
-│   │   │   ├── SettingsPage.js
-│   │   │   ├── StoragePage.js
-│   │   │   └── ScriptsPage.js
 │   │   ├── components/             # UI 组件
-│   │   └── utils/                  # 工具函数
-│   │   └── services/
-│   │       └── ChromeStorageAdapter.js
+│   │   ├── tools/                  # 内置工具实现
+│   │   └── services/               # Chrome 专用服务
 │   └── theme/                      # CSS 主题
 │
-├── popup/                          # ★ Shell B: (未来) 弹出窗口
-├── cli/                            # ★ Shell C: (未来) 命令行版本
+├── dist/                           # 构建产物
+│   ├── kernel.bundle.iife.js
+│   └── svelte-app.bundle.js
 │
-└── docs/
-    ├── ARCHITECTURE.md             # 本文件
-    └── CORE_MODELS.md              # 数据模型说明
+├── docs/
+│   ├── ARCHITECTURE.md             # 本文件
+│   ├── CORE_MODELS.md              # 数据模型说明
+│   ├── kernel-design-review.md     # Kernel 设计审查与完善方案
+│   └── svelte-migration-plan.md    # Svelte 5 迁移方案
+│
+├── package.json
+├── tsconfig.json
+├── vite.config.ts
+├── vitest.config.ts
+└── svelte.config.mjs
 ```
 
 ## 设计原则
@@ -120,7 +154,7 @@ Kernel 只做 3 件事：
 - 中间件链：日志、权限、统计等横切关注点
 
 ### Shell 可替换原则
-`sidepanel/` 只是一个壳（Shell），消费 `kernel/`。更换 Shell 时（如 CLI 版本），kernel 无需改动一行代码。
+`sidepanel/` 和 `src/` 都只是壳（Shell），依赖内核 `kernel/`。更换 Shell 时（如 CLI 版本），kernel 无需改动一行代码。
 
 ### 三层事件体系
 应用层与内核层通过三层事件通信：
@@ -148,7 +182,7 @@ UI 层 (ChatPage)           应用层 (ChatEventHandler)           内核层 (Ch
 
 ## Kernel 子系统详解
 
-### 1. Kernel.js（核心内核）
+### 1. Kernel.ts（核心内核）
 
 **状态机**：
 ```
@@ -162,7 +196,29 @@ CREATED ──(boot())──► BOOTING ──► RUNNING
 任意状态 ──(错误)──► FAILED
 ```
 
-### 2. IPC.js（消息总线）
+**核心方法**：
+
+| 方法 | 说明 |
+|------|------|
+| `register(name, factory, options)` | 注册服务工厂（支持 `dependsOn` / `autoInit` / `singleton`） |
+| `get(name)` | 获取已初始化的服务实例 |
+| `boot()` | 按依赖顺序初始化所有服务 |
+| `shutdown()` | 反向顺序关闭所有服务 |
+| `on(phase, hook)` | 注册生命周期钩子 |
+| `getInfo()` | 返回当前状态、服务列表、子系统信息 |
+
+**便捷方法**：
+```typescript
+kernel.getSessionManager()      // → SessionManager
+kernel.getSettingsManager()     // → SettingsManager
+kernel.getStorageManager()      // → IStorageManager
+kernel.getScriptsManager()      // → ScriptsManager
+kernel.getProcessManager()      // → ProcessManager
+kernel.getProviderFactory()     // → ProviderFactory
+kernel.getIPC()                 // → IPC
+```
+
+### 2. IPC.ts（消息总线）
 
 | 能力 | 说明 |
 |---|---|
@@ -171,195 +227,327 @@ CREATED ──(boot())──► BOOTING ──► RUNNING
 | `createChannel(namespace)` | 命名空间通道 |
 | `getStats()` | 消息吞吐量统计 |
 
-### 3. ToolRegistry.js（系统调用注册表）
+**事件优先级**：
+- `LOW`（0）— 后台/非关键
+- `NORMAL`（1）— 默认
+- `HIGH`（2）— 用户交互
+- `CRITICAL`（3）— 系统级
 
-```javascript
-toolRegistry.register(tool)
-toolRegistry.get(name)
-toolRegistry.getEnabled()
-toolRegistry.getDefinitionsForLLM()
+### 3. ToolRegistry.ts（系统调用注册表）
+
+```typescript
+toolRegistry.register(tool)               // 注册工具
+toolRegistry.get(name)                     // 按名称查找
+toolRegistry.getEnabled()                  // 获取所有已启用工具
+toolRegistry.getDefinitionsForLLM()        // 获取 LLM 可用的工具定义
+toolRegistry.unregister(name)              // 注销
 ```
 
-### 4. Bootloader.js（启动序列）
+### 4. CapabilityManager.ts（权限门控）
 
-8 阶段标准化启动：
+```typescript
+capabilities.declare(toolName, capabilities)  // 声明工具所需权限
+capabilities.grant(sessionId, capability)     // 授予权限
+capabilities.check(toolName, capability)      // 检查权限
+capabilities.require(toolName, capability)    // 要求权限（deny by default）
+capabilities.onDeny(handler)                  // 拒绝回调
+```
+
+### 5. Bootloader.ts（启动序列）
+
+4 阶段标准化启动（8→4 精简后）：
 
 | 阶段 | 职责 |
 |---|---|
-| 1. CORE_INIT | 初始化 IPC、ILogger/ConsoleLogger、CapabilityManager、ToolRegistry |
-| 2. SERVICES_REGISTER | 注册所有 Service 工厂到 Kernel |
-| 3. SERVICES_INIT | 按依赖关系初始化 Service |
-| 4. TOOLS_REGISTER | 注册内置工具 |
-| 5. HANDLERS_INIT | 创建 EventHandler + ChatProgram（内核级程序） |
-| 6. CONFIG_LOAD | 加载设置/配置 |
-| 7. UI_RENDER | 渲染 UI |
-| 8. READY | 就绪 |
+| 1. INIT | 初始化 IPC、Log、ToolRegistry、CapabilityManager |
+| 2. REGISTER | 注册所有 Service 工厂到 Kernel |
+| 3. START | 初始化服务 + 加载配置 + 注册工具 + 创建 Programs |
+| 4. READY | 就绪 |
+
+**使用方式**（`src/main.ts`）：
+```typescript
+const bootloader = new Bootloader(kernel);
+
+bootloader.on(Bootloader.PHASES.INIT, async () => {
+  // 基础设施就绪
+});
+
+bootloader.on(Bootloader.PHASES.REGISTER, async () => {
+  kernel.register('sessionManager', async () => {
+    return new SessionManager({ ipc, storage, log });
+  });
+});
+
+bootloader.on(Bootloader.PHASES.START, async () => {
+  await kernel.boot();  // 初始化所有服务
+  // 注册工具、创建 Programs
+});
+
+await bootloader.boot();
+```
 
 ## 核心模块详解
 
 ### 1. ChatProgram（聊天程序 — 内核级）
 
-**位置**：`kernel/programs/ChatProgram.js`
+**位置**：`kernel/programs/ChatProgram.ts`
 
-ChatProgram 是内核级的聊天编排程序，由 `app.js` 在 `HANDLERS_INIT` 阶段初始化一次，挂在 `window.chatProgram`，永久复用。
+ChatProgram 是内核级的聊天编排程序，由 Shell 层在 START 阶段初始化一次，永久复用。
 
 **指令接口**（ChatEventHandler 鉴权后转发）：
-```javascript
+```typescript
 ChatProgram.CMD.SEND            // 发送消息 { content, sessionId?, model?, reasoningEffort? }
 ChatProgram.CMD.STOP            // 停止生成
 ChatProgram.CMD.DELETE_MESSAGE  // 删除消息 { messageId }
 ```
 
-**输出事件**：
-```javascript
-STREAM_START          // 流式开始（UI 应显示停止按钮）
-STREAM_CHUNK_APPEND   // 流式分片（content/reasoning_content）
-STREAM_COMPLETE       // 流式结束（UI 应隐藏停止按钮）
-STREAM_STOP           // 用户停止
-STREAM_ERROR          // 流式错误
-TOOL.EXECUTING        // 工具开始执行
-TOOL.COMPLETED        // 工具执行完成
-TOOL.ALL_COMPLETED    // 本轮所有工具执行完毕
-MESSAGE_DELETED       // 消息已删除
+**输出事件**（通过 IPC emit）：
+```typescript
+kernel.ipc.emit('chat:streamStart', { sessionId })
+kernel.ipc.emit('chat:streamChunkAppend', { content, reasoningContent })
+kernel.ipc.emit('chat:streamComplete', { sessionId, messageId })
+kernel.ipc.emit('chat:streamError', { sessionId, error })
+kernel.ipc.emit('chat:streamStop', { sessionId })
+kernel.ipc.emit('chat:tool:executing', { toolCallId, toolName })
+kernel.ipc.emit('chat:tool:completed', { toolCallId, result })
+kernel.ipc.emit('chat:tool:allCompleted', { sessionId })
+kernel.ipc.emit('chat:messageDeleted', { messageId })
 ```
 
 **生命周期**：
-- 由 `app.js` 在 `HANDLERS_INIT` 阶段创建
+- 由 Shell 层在 START 阶段创建
 - 会话切换时：如果正在交互（`_active`），自动取消当前流式请求
 - 可通过 `destroy()` 方法销毁（移除所有事件监听）
 
 ### 2. ChatEventHandler（聊天事件处理 — 应用层转译）
 
-**位置**：`sidepanel/js/event-handlers/ChatEventHandler.js`
+**位置**：`src/pages/chat/ChatEventHandler.js`
 
 应用层的鉴权转译层，职责：
 1. 监听 UI 层的 `USER_APPLY_*` 事件
 2. 鉴权、参数校验
 3. 转译为 `ChatProgram.CMD.*` 指令转发
-4. 监听 ChatProgram 输出事件（`STREAM_CHUNK_APPEND` 等）做 DOM 更新
+4. 监听 ChatProgram 输出事件（`chat:streamChunkAppend` 等）做 DOM 更新
 
 ### 3. SessionManager（会话管理器）
 
-**位置**：`kernel/services/SessionManager.js`
+**位置**：`kernel/services/SessionManager.ts`
 
 会话/消息的"唯一真相源"，负责持久化。
 
-### 4. Provider API Service（AI 服务抽象）
+| 方法 | 说明 |
+|------|------|
+| `createSession(title?)` | 创建新会话 |
+| `getSession(id)` | 按 ID 获取会话 |
+| `getAllSessions()` | 获取所有会话（按 updatedAt 降序） |
+| `getCurrentSession()` | 获取当前会话 |
+| `switchSession(sessionId)` | 切换当前会话 |
+| `deleteSession(sessionId)` | 删除会话及所有消息 |
+| `addMessageToSession(sessionId, message)` | 添加消息 |
+| `removeMessageFromSession(sessionId, messageId)` | 删除消息 |
+| `updateMessageInSession(sessionId, messageId, updater)` | 更新消息 |
 
-**位置**：`kernel/services/IProviderAPIService.js`
+### 4. ProcessManager（进程管理器）
+
+**位置**：`kernel/services/ProcessManager.ts`
+
+管理子任务的生命周期和状态机。
+
+**Process 状态机**：
+```
+CREATED → RUNNING → COMPLETED
+                 → FAILED
+                 → CANCELLED
+```
+
+| 方法 | 说明 |
+|------|------|
+| `create(goal, parentProcessId?)` | 创建子任务 |
+| `start(id)` | 启动任务 |
+| `cancel(id)` | 取消任务 |
+| `fail(id, error)` | 标记任务失败 |
+| `complete(id, output)` | 标记任务完成 |
+| `get(id)` | 获取任务 |
+| `list(includeCompleted?)` | 列出所有任务 |
+| `getBySession(sessionId)` | 按会话获取任务 |
+
+### 5. Provider API Service（AI 服务抽象）
+
+**位置**：`kernel/services/ProviderAPIServices/`
 
 所有 AI Provider 实现统一接口，实现热插拔：
-- OpenAI、OpenRouter、LM Studio
+- `OpenAIService.ts` — OpenAI 官方 API
+- `OpenRouterService.ts` — OpenRouter（兼容 OpenAI 协议）
+- `LMStudioService.ts` — LM Studio 本地服务
 
-### 5. Tool System（工具系统）
+Provider 通过 `ProviderFactory` 按 `settings.apiStandard` 创建，Shell 层无需关心具体实现。
+
+### 6. Tool System（工具系统）
 
 **内置工具**：
-- `RunUserScriptTool` — 在当前活动 tab 执行用户 JS
+- `RunUserScriptTool` — 在当前活动 tab 执行用户 JS（Turing-complete 万能工具）
 - `ManageUserScriptsTool` — 用户脚本 CRUD
+
+工具注册在 START 阶段完成：
+```typescript
+const builtInClasses = [RunUserScriptTool, ManageUserScriptsTool];
+builtInClasses.forEach((ToolClass) => {
+  const tool = new ToolClass();
+  toolRegistry.register(tool);
+});
+```
+
+## 事件系统参考
+
+### 完整事件列表（`kernel/Events.ts`）
+
+| 命名空间 | 事件 | 说明 |
+|---------|------|------|
+| **KERNEL** | `kernel:bootStart` | 内核启动开始 |
+| | `kernel:bootPhase` | 启动阶段变更 |
+| | `kernel:bootComplete` | 内核启动完成 |
+| | `kernel:bootError` | 内核启动失败 |
+| | `kernel:shutdown` | 内核关闭 |
+| | `kernel:stateChanged` | 内核状态变更 |
+| | `kernel:serviceRegistered` | 服务注册 |
+| | `kernel:serviceInitialized` | 服务初始化 |
+| | `kernel:serviceStateChanged` | 服务状态变更 |
+| | `kernel:serviceError` | 服务错误 |
+| **CHAT** | `chat:messageAdded` | 消息已添加 |
+| | `chat:streamStart` | 流式开始 |
+| | `chat:streamChunkAppend` | 流式分片追加 |
+| | `chat:streamComplete` | 流式完成 |
+| | `chat:streamError` | 流式错误 |
+| | `chat:streamStop` | 流式停止（用户主动） |
+| | `chat:sessionCreated` | 会话已创建 |
+| | `chat:sessionSwitched` | 会话已切换 |
+| | `chat:sessionDeleted` | 会话已删除 |
+| | `chat:sessionLoaded` | 会话已加载 |
+| | `chat:sessionUpdated` | 会话已更新 |
+| | `chat:userApplySend` | 用户发送操作（Shell→Handler） |
+| | `chat:userApplyStop` | 用户停止操作（Shell→Handler） |
+| | `chat:userApplyDeleteMessage` | 用户删除消息操作（Shell→Handler） |
+| **SETTINGS** | `settings:loaded` | 设置已加载 |
+| | `settings:updated` | 设置已更新 |
+| | `settings:saved` | 设置已保存 |
+| | `settings:modelChanged` | 模型已切换 |
+| | `settings:apiStandardChanged` | API 标准已切换 |
+| | `settings:modelsLoaded` | 模型列表已加载 |
+| **TOOL** | `tool:executing` | 工具开始执行 |
+| | `tool:completed` | 工具执行完成 |
+| | `tool:allCompleted` | 本轮所有工具执行完毕 |
+| | `tool:error` | 工具执行错误 |
+| **TASK** | `task:created` | 任务已创建 |
+| | `task:statusChanged` | 任务状态变更 |
+| | `task:completed` | 任务已完成 |
+| | `task:failed` | 任务失败 |
+| | `task:cancelled` | 任务已取消 |
 
 ## 壳层（Shell）详解
 
-### sidepanel.html 加载顺序
+### 双入口策略
 
-1. Utils（error-handler / toast / confirm / dom / time）
-2. UI Components（UI.js / Chat.js）
-3. CodeMirror + Marked（第三方）
-4. Events（应用层事件常量）
-5. **★ Kernel 模块**（`../kernel/*.js` — 内核核心）
-6. Core Models（BaseModel / Message / Session / ...）
-7. Kernel Events（`../kernel/Events.js`）
-8. 服务接口（`I*Manager.js`）
-9. Provider 实现（OpenAI / OpenRouter / LM Studio）
-10. 服务实现（SessionManager / SettingsManager / ...）
-11. ChromeStorageAdapter（存储适配器）
-12. Settings 页面实现
-13. **★ Kernel Programs**（`../kernel/programs/ChatProgram.js`）
-14. EventHandlers（ChatEventHandler 等）
-15. Pages（ChatPage 等）
-16. **app.js**（启动入口）
+项目当前维护两个 UI 入口，并行运行：
 
-### app.js 启动流程
+| 入口 | 文件 | 技术栈 | 状态 |
+|------|------|--------|------|
+| **旧入口** | `sidepanel/sidepanel.html` → `sidepanel/js/app.js` | 原生 JS + DOM | 维护中 |
+| **新入口** | `sidepanel/svelte-app.html` → `src/main.ts` | Svelte 5 + TypeScript | 迁移中 |
 
-```javascript
-// 1. 创建 IPC / ILogger / ConsoleLogger / ToolRegistry / CapabilityManager
-// 2. 创建 Kernel 实例，注入子系统
-// 3. 创建 Bootloader，注册启动钩子
-// 4. SERVICES_REGISTER → 注册服务工厂
-// 5. SERVICES_INIT → 初始化服务
-// 6. TOOLS_REGISTER → 注册工具
-// 7. HANDLERS_INIT → 创建 EventHandler + ChatProgram
-// 8. CONFIG_LOAD → 加载设置
-// 9. 执行 bootloader.boot()
-// 10. 渲染 UI
+#### Svelte 5 入口启动流程（`src/main.ts`）
+
+```
+1. 创建 ConsoleLogger → IPC → ToolRegistry → CapabilityManager
+2. 创建 Kernel 实例，注入子系统
+3. 创建 Bootloader，注册启动钩子
+4. INIT 阶段  → IPC ready（基础设施就绪）
+5. REGISTER 阶段 → 注册所有 Service 工厂
+6. START 阶段 → kernel.boot() 初始化服务
+             → 注册内置工具
+             → 创建 ChatProgram + ChatEventHandler
+             → settingsManager.loadSettings()
+7. bootloader.boot() 完成
+8. mount(Sidepanel, target) 挂载 Svelte 根组件
+```
+
+#### Kernel Context 注入
+
+Svelte 组件通过 Svelte Context API 访问 Kernel：
+```typescript
+// src/Sidepanel.svelte
+setContext('kernel', kernel);
+
+// 任何子组件
+const kernel = getContext('kernel');
+const sessionManager = kernel.getSessionManager();
 ```
 
 ## 向后兼容保证
 
-1. **EventBus API** 不变：`on / off / emit / once / getHistory` 全部保留
-2. **Events 常量** 兼容：`Events.CHAT.*` 保留旧常量，新增 `USER_APPLY_*`
-3. **所有 Page** 无需改动
-4. **服务访问** 统一通过 `kernel.get('serviceName')` 或 `kernel.getXxxManager()` 便捷方法
+1. **IPC API** 不变：`emit` / `on` / `off` / `once` / `getHistory` 全部保留
+2. **Events 常量** 兼容：`KernelEvents.CHAT.*` 保留全部旧常量
+3. **服务访问** 统一通过 `kernel.get('serviceName')` 或 `kernel.getXxxManager()` 便捷方法
+4. **Shell 交换**：更换 Shell 时（如从旧 JS 切换到 Svelte 5），kernel 无需改动一行代码
 
 ## 开发指南
 
 ### 内核原则（修改 kernel/ 时）
 
 1. **不引用** `window`、`chrome.*`、`document`
-2. **不引用** `sidepanel/` 中的任何代码
-3. **测试**可以在 Node.js 中直接运行
+2. **不引用** `sidepanel/` 或 `src/` 中的任何代码
+3. **测试**可以在 Node.js 中直接运行（`vitest`）
+4. **新增功能**应先在 kernel 中注册服务，再在 shell 中消费
 
-### 壳层原则（修改 sidepanel/ 时）
+### 壳层原则（修改 sidepanel/ 或 src/ 时）
 
 1. **优先**通过 `kernel.get('serviceName')` 访问服务
-2. **新增功能**应先在 kernel 中注册服务，再在 shell 中消费
-3. **Chrome API 调用**集中在壳层，不渗入 kernel
+2. **Chrome API 调用**集中在壳层，不渗入 kernel
+3. 新 UI 开发优先在 `src/`（Svelte 5）中进行
 
 ### 添加新的内核程序
 
-1. 在 `kernel/programs/` 创建 `XxxProgram.js`
+1. 在 `kernel/programs/` 创建 `XxxProgram.ts`
 2. 声明 `static CMD = Object.freeze({...})` 指令接口
 3. 构造器中订阅自己的 `CMD.*` 指令
-4. 在 `app.js` 的 `HANDLERS_INIT` 阶段创建实例
-5. 在 `sidepanel.html` 中引入
-
-### 添加新的 EventHandler
-
-1. 在 `sidepanel/js/event-handlers/` 创建页面 EventHandler
-2. 监听 `USER_APPLY_*` 事件，鉴权后转译为内核指令
-3. 在 `app.js` 的 `HANDLERS_INIT` 阶段创建实例
+4. 在 Shell 层的 START 阶段创建实例
 
 ### 添加新的事件
 
-1. UI 请求事件：在 `sidepanel/js/events.js` 添加 `USER_APPLY_*`
-2. 内核指令：在对应 Program 的 `static CMD` 中声明
-3. 内核输出事件：在 `kernel/Events.js` 或 `sidepanel/js/events.js` 添加常量
+1. 在 `kernel/Events.ts` 中对应的命名空间下添加常量
+2. 事件名格式：`{domain}:{action}`（小写 + 冒号）
+3. 示例：`chat:streamStart`, `settings:loaded`
 
 ### 添加新页面
 
-1. 在 `sidepanel/js/pages/` 创建页面
-2. 在 `sidepanel/js/event-handlers/` 创建对应的 EventHandler
-3. 在 `sidepanel.html` 中按依赖顺序引入
-4. 在 `app.js` 的 `pages` 数组中注册 `{ id, icon, label }`
+1. 在 `src/pages/` 创建 Svelte 组件
+2. 在 `src/Sidepanel.svelte` 的 `PAGES` 数组注册 `{ id, icon, label }`
+3. 在侧边栏模板中添加条件渲染
 
 ## 版本信息
 
-- **内核版本**：0.5.2 (Microkernel + Programs)
+- **扩展版本**：0.6.5（见 `manifest.json` / `package.json`）
+- **架构版本**：Microkernel v0.6.5
 - **Manifest 版本**：3
-- **架构版本**：Microkernel v0.5.2
 
-### 主要变更（v0.4.0 → v0.5.2）
+### 主要变更（v0.4.0 → v0.6.5）
 
-- ✅ **ChatProgram**：引入内核级聊天程序，替代 ChatController
-- ✅ **三层事件体系**：USER_APPLY_* → ChatEventHandler → ChatProgram.CMD.* 
-- ✅ **ChatEventHandler**：应用层鉴权转译层，分离 UI 意图与内核指令
+- ✅ **Kernel TypeScript 化**：所有 `kernel/*.js` 迁移到 `.ts`
+- ✅ **ChatProgram**：引入内核级聊天程序，移除 ChatController
+- ✅ **三层事件体系**：USER_APPLY_* → ChatEventHandler → ChatProgram.CMD.*
+- ✅ **Bootloader 精简**：8 阶段 → 4 阶段（INIT/REGISTER/START/READY）
+- ✅ **ProviderFactory 独立**：Provider 不再耦合在 Kernel 上
+- ✅ **Svelte 5 UI 迁移启动**：新增 `src/` 目录，双入口并行
+- ✅ **Process 模型**：新增进程生命周期管理
+- ✅ **Vite 构建**：替换手写 IIFE，双入口构建
+- ✅ **消息序列化归一化**：MessageStructure.toAPIFormat 统一转换
+- ✅ **移除 ServiceCenter**：所有引用已迁移至 Kernel
 - ✅ **移除 ChatController**：聊天逻辑完全由 ChatProgram 处理
-- ✅ **移除状态机**：STREAM_START/COMPLETE 等真实事件驱动 UI，不再使用抽象状态机
-- ✅ **ChatProgram 生命周期**：由 app.js 统一初始化，会话切换时自动取消进行中的交互
-- ✅ **移除 ServiceCenter**：所有引用已迁移至 Kernel，直接通过 `kernel.get('serviceName')` 访问服务
+- ✅ **`_sidepanelShim` 标记待移除**：Shell 已全量 ES import
 
 ---
 
 **推荐阅读**：
 - [CORE_MODELS.md](CORE_MODELS.md) — 数据模型详解
 - [sidepanel/README.md](../sidepanel/README.md) — Side Panel 模块说明
-- [README.md](../README.md) — 项目入口
+- [kernel-design-review.md](kernel-design-review.md) — Kernel 设计审查与完善方案
+- [svelte-migration-plan.md](svelte-migration-plan.md) — Svelte 5 迁移方案

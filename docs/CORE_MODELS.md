@@ -1,14 +1,14 @@
 # 数据模型文档
 
-> 与当前代码库（v0.3.3）保持同步
+> 与当前代码库（v0.6.5）保持同步
 
 ## 概述
 
-本文档描述 Web Agent Client 的核心数据模型，位于 `sidepanel/js/core/models/` 目录。
+本文档描述 Web Agent Client 的核心数据模型，位于 `kernel/models/` 目录（TypeScript）。
 
 **约定**：
 
-- 所有模型类都导出到全局 `window` 对象（如 `window.Message` / `window.Session`）
+- 所有模型类通过 `kernel/index.ts` 统一导出，可在任何 ES module 环境使用
 - 业务层 **不使用** 任何特定 AI 协议的字段（如 OpenAI 的 `tool_calls` 数组）—— 协议转换在 `MessageContent.MessageStructure` 中隔离
 - 持久化字段通过 `toJSON()` 输出，不可变值类型（`ToolCall` / `ToolResult` / `ToolDefinition`）使用 `Object.freeze`
 - 运行时状态（如 `Session.isStreaming`、`Session.port`）**不** 序列化
@@ -17,7 +17,7 @@
 
 ## BaseModel（基类）
 
-**文件**：`sidepanel/js/core/models/BaseModel.js`
+**文件**：`kernel/models/BaseModel.ts`
 
 所有持久化模型的抽象基类，**不可直接实例化**（`new.target === BaseModel` 时抛错）。
 
@@ -42,14 +42,12 @@
 
 ## Message（消息）
 
-**文件**：`sidepanel/js/core/models/Message.js`
+**文件**：`kernel/models/Message.ts`
 
 ### 角色枚举
 
-`window.Role` 暴露：
-
-```javascript
-const Role = {
+```typescript
+export const Role = {
   USER: 'user',
   ASSISTANT: 'assistant',
   SYSTEM: 'system',
@@ -90,7 +88,6 @@ const Role = {
 ### 消息示例
 
 **用户消息**：
-
 ```json
 {
   "id": "message_1713369600000_abc123",
@@ -105,7 +102,6 @@ const Role = {
 ```
 
 **助手消息（含工具调用）**：
-
 ```json
 {
   "id": "message_1713369601000_def456",
@@ -125,7 +121,6 @@ const Role = {
 ```
 
 **工具结果消息**：
-
 ```json
 {
   "id": "message_1713369602000_ghi789",
@@ -141,7 +136,7 @@ const Role = {
 
 ## Session（会话）
 
-**文件**：`sidepanel/js/core/models/Session.js`
+**文件**：`kernel/models/Session.ts`
 
 ### 字段
 
@@ -181,7 +176,7 @@ const Role = {
 
 ### 序列化
 
-```javascript
+```typescript
 toJSON() {
   return {
     ...super.toJSON(),
@@ -196,7 +191,7 @@ toJSON() {
 
 ## Settings（设置）
 
-**文件**：`sidepanel/js/core/models/Settings.js`
+**文件**：`kernel/models/Settings.ts`
 
 设置是单例（`id` 固定为 `'global_settings'`），由 `SettingsManager` 加载/保存。
 
@@ -238,7 +233,7 @@ toJSON() {
 
 ## Model（AI 模型）
 
-**文件**：`sidepanel/js/core/models/Model.js`
+**文件**：`kernel/models/Model.ts`
 
 **协议无关** 的 AI 模型元数据，参考 LM Studio `/api/v1/models` 响应格式设计。
 
@@ -306,7 +301,7 @@ toJSON() {
 
 ## ToolCall（工具调用意图）
 
-**文件**：`sidepanel/js/core/models/ToolCall.js`
+**文件**：`kernel/models/ToolCall.ts`
 
 **不可变**（`Object.freeze`）。表示"AI 在某轮希望执行什么工具"，是 `Message.toolCalls` 的子对象。
 
@@ -331,7 +326,7 @@ toJSON() {
 
 ## ToolResult（工具执行结果）
 
-**文件**：`sidepanel/js/core/models/ToolResult.js`
+**文件**：`kernel/models/ToolResult.ts`
 
 **不可变**。表示"工具执行得到什么结果"。由 `IToolService.invoke()` 统一构造。
 
@@ -362,7 +357,7 @@ toJSON() {
 
 ## ToolDefinition（工具契约）
 
-**文件**：`sidepanel/js/core/models/ToolDefinition.js`
+**文件**：`kernel/models/ToolDefinition.ts`
 
 **不可变**。声明工具的能力描述，供 LLM 识别。
 
@@ -386,11 +381,66 @@ toJSON() {
 
 ---
 
+## Process（进程）
+
+**文件**：`kernel/models/Process.ts`
+
+表示一个可管理的子任务/进程，具有完整的生命周期状态机。
+
+### 状态枚举
+
+```typescript
+export const ProcessState = {
+  CREATED: 'created',
+  RUNNING: 'running',
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+  CANCELLED: 'cancelled'
+};
+```
+
+### 字段
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `id` | string | 自动生成 | 继承自 BaseModel |
+| `goal` | string | **必填** | 任务目标描述 |
+| `state` | string | `'created'` | 当前状态 |
+| `parentProcessId` | string \| null | `null` | 父进程 ID（支持子任务层级） |
+| `sessionId` | string \| null | `null` | 关联的会话 ID |
+| `output` | any | `null` | 任务输出 |
+| `error` | string \| null | `null` | 错误信息 |
+| `startedAt` | number \| null | `null` | 开始时间戳 |
+| `completedAt` | number \| null | `null` | 完成时间戳 |
+
+### 状态机
+
+```
+CREATED → RUNNING → COMPLETED
+                 → FAILED
+                 → CANCELLED
+```
+
+### 方法
+
+| 方法 | 说明 |
+|------|------|
+| `start()` | 启动（CREATED → RUNNING，记录 startedAt） |
+| `complete(output?)` | 完成（RUNNING → COMPLETED，记录 output + completedAt） |
+| `fail(error)` | 失败（RUNNING → FAILED，记录 error） |
+| `cancel()` | 取消（任意状态 → CANCELLED） |
+| `isActive()` | `state === 'created' \|\| state === 'running'` |
+| `isTerminal()` | `state === 'completed' \|\| state === 'failed' \|\| state === 'cancelled'` |
+| `toJSON()` | 序列化 |
+| `static fromJSON(data)` | 反序列化 |
+
+---
+
 ## MessageContent（消息内容与请求）
 
-**文件**：`sidepanel/js/core/models/MessageContent.js`
+**文件**：`kernel/models/MessageContent.ts`
 
-**所有内容导出到 `window.MessageContent`**。
+**所有内容导出到 `MessageContent` 命名空间**。
 
 ### 内容块（Block）
 
@@ -404,7 +454,7 @@ toJSON() {
 
 ### `ThinkingConfig`（思考模式配置）
 
-```javascript
+```typescript
 new ThinkingConfig('medium') // 'off' | 'low' | 'medium' | 'high'
 // .effort = 'medium'
 // .enabled = true (when effort !== 'off')
@@ -413,7 +463,7 @@ new ThinkingConfig('medium') // 'off' | 'low' | 'medium' | 'high'
 
 ### `MessagesRequest`（统一请求对象）
 
-```javascript
+```typescript
 new MessagesRequest({
   model: 'gpt-4o',
   messages: [Message, Message, ...],   // Message[] 内部对象
@@ -438,7 +488,7 @@ new MessagesRequest({
 | `toOpenAIToolCall(toolCall)` | `ToolCall` | `{ id, type, function: { name, arguments } }` | 单个转换 |
 | `parseToolCallsFromOpenAI(openAIToolCalls)` | OpenAI `tool_calls` | `ToolCall[]` | 反向解析 |
 
-```javascript
+```typescript
 // 示例：组装 API 请求
 const apiMessages = session.messages.map(m => MessageStructure.toAPIFormat(m, 'openai'));
 const apiRequest = { model, messages: apiMessages, stream: true, tools: [...] };
@@ -446,7 +496,7 @@ const apiRequest = { model, messages: apiMessages, stream: true, tools: [...] };
 
 ### `MediaContent`（多媒体内容模型）
 
-```javascript
+```typescript
 MediaContent.createText('hello')
 MediaContent.createImage('data:image/png;base64,...')
 MediaContent.createImage('https://example.com/a.png') // 自动识别 data URL
@@ -456,58 +506,36 @@ new MediaContent({ type, text, dataUrl, url, filename, mimeType, size, metadata 
 
 ---
 
-## Storage / Scripts（实用模型）
+## Scripts（用户脚本）
 
-### Storage
+**文件**：`kernel/models/Scripts.ts`
 
-**文件**：`sidepanel/js/core/models/Storage.js`
+用户脚本模型，支持 Tampermonkey 风格的元数据解析。
 
-直接导出**单例** `window.StorageModel`，封装 `chrome.storage.local` 并提供内存缓存。
+### 字段
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `id` | string | 自动生成 | 唯一标识符 |
+| `name` | string | `''` | 脚本名称 |
+| `namespace` | string | `'user'` | 命名空间 |
+| `version` | string | `'1.0.0'` | 版本号 |
+| `description` | string | `''` | 描述 |
+| `author` | string | `''` | 作者 |
+| `match` | string[] | `[]` | 匹配 URL 规则 |
+| `grant` | string[] | `[]` | 授权 API |
+| `enabled` | boolean | `true` | 是否启用 |
+| `code` | string | `''` | 脚本代码 |
+| `createdAt` | number | `Date.now()` | 创建时间 |
+| `updatedAt` | number | `this.createdAt` | 更新时间 |
+
+### 方法
 
 | 方法 | 说明 |
 |------|------|
-| `get(key)` / `getAll()` / `set(key, value)` / `remove(key)` / `clear()` | 基础 KV |
-| `search(keyword)` | 按关键词（key 或 value 序列化文本）模糊搜索 |
-| `getStats()` | `{ totalItems, totalSize, totalSizeKB, largestItem }` |
-| `setCache(key, value, ttl=30天)` | 带过期时间的缓存（key 前缀 `cache:`） |
-| `getCache(key)` / `getCacheSync(key)` / `removeCache(key)` / `clearAllCache()` | 缓存 CRUD（含同步读取的懒加载回填） |
-| `hasValidCache(key)` | 缓存是否存在且有效 |
-
-### Scripts
-
-**文件**：`sidepanel/js/core/models/Scripts.js`
-
-直接导出**单例** `window.ScriptsModel`，管理 Tampermonkey 风格的 `user_scripts`。
-
-| 方法 | 说明 |
-|------|------|
-| `parseMetadata(code)` | 解析 `==UserScript==` 块，提取 `name / namespace / version / description / author / match[] / grant[]` |
-| `getAll()` / `getById(id)` / `save(scripts)` | 列表 CRUD |
-| `install(code)` | 解析元数据 + 生成 id + 追加到列表 |
-| `updateCode(id, code)` | 更新代码（重新解析元数据） |
-| `toggle(id, enabled)` | 启用/禁用 |
-| `remove(id)` | 删除 |
-
-脚本数据结构（持久化形态）：
-
-```json
-{
-  "id": "script_1713369600_xyz",
-  "name": "示例脚本",
-  "namespace": "user",
-  "version": "1.0.0",
-  "description": "...",
-  "author": "...",
-  "match": ["https://example.com/*"],
-  "grant": ["GM_setValue"],
-  "enabled": true,
-  "code": "...",
-  "createdAt": 1713369600000,
-  "updatedAt": 1713369700000
-}
-```
-
-存储键：`user_scripts`（数组）。
+| `static parseMetadata(code)` | 解析 `==UserScript==` 块，提取元数据 |
+| `toJSON()` | 序列化 |
+| `static fromJSON(data)` | 反序列化 |
 
 ---
 
@@ -531,13 +559,13 @@ new MediaContent({ type, text, dataUrl, url, filename, mimeType, size, metadata 
                        │ 0..1
                        ▼
                     ToolResult (toolCallId, status, output, error, duration)
-                    ⚠️ 不直接挂在 Session 上，由 ChatController 按"消息流"
+                    ⚠️ 不直接挂在 Session 上，由 ChatProgram 按"消息流"
                        写一条 role=tool 的 Message 来表达结果
 
 独立单例：
   Settings   ──── 全局一份（id='global_settings'）
   Model      ──── 来自 Provider /api/v1/models
-  StorageModel / ScriptsModel  ──── chrome.storage.local 单例
+  Process    ──── 由 ProcessManager 管理生命周期
 ```
 
 ---
@@ -567,9 +595,9 @@ Model 实例
 
 ### 注意事项
 
-1. **Message**、**Session**、**Settings**、**Model** 全部支持双向序列化
+1. **Message**、**Session**、**Settings**、**Model**、**Process** 全部支持双向序列化
 2. **运行时字段**（`Session.isStreaming` / `Session.port`）和 **未设置的 null 字段**（如空字符串的 `reasoning_content`）**不会** 出现在 `toJSON()` 中
 3. **不可变对象**（`ToolCall` / `ToolResult` / `ToolDefinition`）依赖构造函数参数 `fromJSON` 重建，不依赖原型方法修改
-4. **Settings** 在 `app.js` 初始化时通过 `SettingsManager.loadSettings()` 加载
+4. **Settings** 在 Shell 层初始化时通过 `SettingsManager.loadSettings()` 加载
 5. **Session** 在 `SessionManager` 中管理持久化
-6. **缓存**统一以 `cache:` 为前缀存储，便于 `StoragePage` 清理
+6. **Process** 在 `ProcessManager` 中管理生命周期
