@@ -82,14 +82,14 @@ async function injectScriptsForTab(tabId, url) {
 // ==================== 事件监听 ====================
 
 // 标签页激活 → 注入匹配脚本
-chrome.tabs.onActivated.addListener(async (activeInfo) => {
-  try {
-    const tab = await chrome.tabs.get(activeInfo.tabId);
-    await injectScriptsForTab(tab.id, tab.url);
-  } catch (e) {
-    console.warn('[Background] onActivated:', e);
-  }
-});
+// chrome.tabs.onActivated.addListener(async (activeInfo) => {
+//   try {
+//     const tab = await chrome.tabs.get(activeInfo.tabId);
+//     await injectScriptsForTab(tab.id, tab.url);
+//   } catch (e) {
+//     console.warn('[Background] onActivated:', e);
+//   }
+// });
 
 // 标签页加载完成 → 注入
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
