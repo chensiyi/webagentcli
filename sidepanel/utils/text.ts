@@ -1,3 +1,5 @@
+import { marked } from 'marked';
+
 /**
  * 文本处理工具函数
  * 提取自 ChatPage.svelte，供多个页面共享使用
@@ -25,11 +27,11 @@ export function escapeHtml(str: string): string {
     .replace(/"/g, '&quot;');
 }
 
-/** Markdown 渲染（依赖全局 marked 库） */
+/** Markdown 渲染 */
 export function renderMarkdown(md: string): string {
   if (!md) return '';
   try {
-    return (window as any).marked?.parse(md) ?? md;
+    return marked.parse(md, { async: false }) as string;
   } catch {
     return md;
   }

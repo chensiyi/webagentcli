@@ -36,6 +36,7 @@
   "dependencies": {
     "@codemirror/lang-javascript": "^6.2.5",
     "@codemirror/lang-json": "^6.0.2",
-    "codemirror": "^6.0.2"
+    "codemirror": "^6.0.2",
+    "marked": "^18.0.5"
   }
 }
