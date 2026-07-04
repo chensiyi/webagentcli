@@ -17,17 +17,17 @@ class RunUserScriptTool extends Tool {
         properties: {
           code: {
             type: 'string',
-            description: '要在当前页面执行的 JavaScript 代码。建议使用 IIFE (() => { ... })() 包裹代码，return 的值会被作为工具结果返回。'
+            description: '要在当前页面执行的 JavaScript 代码。return 的值会被作为工具结果返回。'
           },
           world: {
             type: 'string',
-            description: '执行环境：MAIN（注入到页面 JS 环境，可访问页面变量/函数，无 CSP 限制）或 ISOLATED（扩展隔离环境，受 CSP 限制，不能使用 new Function/eval）。默认 MAIN。',
+            description: '(optional)<"MAIN"|"ISOLATED">,default:"MAIN"。MAIN 表示在当前标签页面主世界执行，ISOLATED 表示在扩展隔离环境中执行。',
             enum: ['MAIN', 'ISOLATED'],
             default: 'MAIN'
           },
           timeout: {
             type: 'number',
-            description: '执行超时时间（毫秒）。默认 300000（5分钟），超过时间未返回结果则强制终止。',
+            description: '(optional)<number>,default:300000。执行超时时间（毫秒）,超过时间未返回结果则强制终止。',
             default: 300000
           }
         },
