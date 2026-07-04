@@ -37,7 +37,7 @@
   position: relative;
   display: flex;
   width: 100%;
-  max-width: 85%;
+  max-width: 92%;
   animation: msgFadeIn 200ms ease;
 }
 
@@ -51,8 +51,8 @@
 }
 
 .message-body {
-  padding: 10px 14px;
-  border-radius: var(--radius-lg);
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
   min-width: 0;
   width: 100%;
   max-width: 100%;

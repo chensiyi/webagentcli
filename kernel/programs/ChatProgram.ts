@@ -77,6 +77,10 @@ export class ChatProgram {
       this.deleteMessage((data as { messageId: string }).messageId)
     );
     this.chatChannel?.on(KernelEvents.CHAT.CURRENT_SESSION_CHANGED, () => {
+      if (this._currentRequest) {
+        Log.info(this.name, 'Session switched while active, auto-cancelling');
+        this.cancel();
+      }
       this._assistantMsgId = null;
       this._currentRequest = null;
     });
