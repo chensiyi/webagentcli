@@ -3,6 +3,7 @@
  *
  * 职责：
  * - 遍历 LLM 返回的 tool_calls，逐一调用 ToolsManager 中注册的工具
+ * - 失败时自动重试（最多 3 次，间隔递增）
  * - 收集 ToolResult，格式化为 tool role 消息写入 Session
  * - 通过 emit 回调发出 TOOL.EXECUTING / TOOL.COMPLETED / TOOL.ALL_COMPLETED 事件
  *
@@ -15,8 +16,14 @@ import { ToolResult } from '../../models/Tool.js';
 import { Message, Role } from '../../models/Message.js';
 import { Kernel } from '../../Kernel.js';
 import { KernelEvents } from '../../Events.js';
+import { Log } from '../../services/Log.js';
 
 type EmitFn = (event: string, data: unknown) => void;
+
+/** 重试间隔（毫秒） */
+const RETRY_DELAY = 2000;
+/** 最大重试次数 */
+const MAX_RETRIES = 3;
 
 export class ToolExecutor {
   private kernel: Kernel;
@@ -32,11 +39,77 @@ export class ToolExecutor {
   }
 
   /**
+   * 判断错误是否值得重试
+   * 重试条件：超时错误、网络错误、临时性错误
+   */
+  private _isRetryableError(error: unknown): boolean {
+    const msg = (error as Error)?.message || String(error);
+    const retryable = [
+      '超时', 'timeout', 'TIMEOUT',
+      '网络', 'network', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT',
+      '500', '502', '503', '504', '429',
+      'quota', 'rate_limit', 'rate limit',
+    ];
+    return retryable.some(k => msg.toLowerCase().includes(k.toLowerCase()));
+  }
+
+  /**
+   * 带重试的执行单个工具
+   */
+  private async _invokeWithRetry(
+    tc: { id: string; toolName: string; input?: unknown },
+    context: Record<string, unknown>,
+    retries: number = MAX_RETRIES
+  ): Promise<ToolResult> {
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        let tabId: number | null = null;
+        try {
+          const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+          tabId = tabs[0]?.id || null;
+        } catch (_e) { /* 非浏览器环境 */ }
+
+        const result = await this.kernel.toolsManager!.invoke(tc, { ...context, tabId });
+
+        // 失败且可重试
+        if (!result.isSuccess() && attempt < retries && this._isRetryableError(result.error)) {
+          lastError = result.error;
+          Log.warn('ToolExecutor', `重试 ${tc.toolName} (${attempt}/${retries - 1})，${RETRY_DELAY}ms 后重试...`);
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+          continue;
+        }
+
+        return result;
+      } catch (invokeError: any) {
+        if (attempt < retries && this._isRetryableError(invokeError)) {
+          lastError = invokeError;
+          Log.warn('ToolExecutor', `重试 ${tc.toolName} (${attempt}/${retries - 1})，${RETRY_DELAY}ms 后重试...`);
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+          continue;
+        }
+        return new ToolResult({
+          toolCallId: tc.id,
+          status: 'failed',
+          error: invokeError.message || String(invokeError),
+        });
+      }
+    }
+
+    return new ToolResult({
+      toolCallId: tc.id,
+      status: 'failed',
+      error: (lastError as Error)?.message || String(lastError),
+    });
+  }
+
+  /**
    * 执行一批工具调用
    *
    * @param toolCalls  LLM 返回的 tool call 数组 { id, toolName, input }
    * @param sessionId  当前会话 ID
-   * @returns 执行结果数组，如果全部成功则返回结果
+   * @returns 执行结果数组
    */
   async execute(toolCalls: Array<{ id: string; toolName: string; input?: unknown }>, sessionId: string): Promise<ToolResult[]> {
     const sm = this.kernel.getSessionManager();
@@ -45,22 +118,7 @@ export class ToolExecutor {
     for (const tc of toolCalls) {
       this.emit(KernelEvents.TOOL.EXECUTING, { toolName: tc.toolName, toolCallId: tc.id, sessionId });
 
-      let toolResult: ToolResult;
-      try {
-        let tabId: number | null = null;
-        try {
-          const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-          tabId = tabs[0]?.id || null;
-        } catch (_e) { /* 非浏览器环境 */ }
-
-        toolResult = await this.kernel.toolsManager!.invoke(tc, { sessionId, tabId, kernel: this.kernel });
-      } catch (invokeError: any) {
-        toolResult = new ToolResult({
-          toolCallId: tc.id,
-          status: 'failed',
-          error: invokeError.message || String(invokeError),
-        });
-      }
+      const toolResult = await this._invokeWithRetry(tc, { sessionId, kernel: this.kernel });
 
       toolResults.push(toolResult);
       this.emit(KernelEvents.TOOL.COMPLETED, {
@@ -79,7 +137,7 @@ export class ToolExecutor {
           ? (typeof toolResult.output === 'string' ? toolResult.output : JSON.stringify(toolResult.output, null, 2))
           : `⚠️ 执行失败: ${toolResult.error}`,
       });
-      await sm.addMessage(toolMsg, sessionId);
+      await sm.addMessage(toolMsg.toJSON(), sessionId);
       this.emit(KernelEvents.CHAT.MESSAGE_ADDED, { messageId: toolMsg.id, sessionId });
     }
 

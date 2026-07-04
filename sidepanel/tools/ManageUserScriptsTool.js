@@ -14,7 +14,7 @@ class ManageUserScriptsTool extends Tool {
   constructor() {
     super({
       name: 'manage_user_scripts',
-      description: '查看、安装、编辑、启用、禁用和删除用户脚本',
+      description: '管理存储在当前浏览器中的用户脚本（UserScript）。\n可用操作：\n- list: 列出所有已安装的脚本（不含代码内容）\n- get: 获取单个脚本的完整信息（含代码）\n- install: 安装新脚本（需要包含代码，会自动解析 @name/@match 等元数据）\n- update: 更新已有脚本的代码\n- toggle: 启用/禁用脚本\n- delete: 删除脚本\n注意：\n- 脚本存储在 chrome.storage 中，卸载扩展后数据会丢失\n- 脚本会在匹配 @match 规则的页面自动注入执行',
       inputSchema: {
         type: 'object',
         properties: {

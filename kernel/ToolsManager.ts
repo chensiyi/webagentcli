@@ -129,7 +129,15 @@ export class ToolsManager {
       return result;
     }
 
-    // 2. 前置钩子
+    // 2. 参数类型校验（根据 inputSchema 校验参数类型）
+    const validationError = this._validateArgs(tc.input, tool.inputSchema as any);
+    if (validationError) {
+      const result = new ToolResult({ toolCallId, status: 'failed', error: `参数校验失败：${validationError}` });
+      this._recordInvocation(result);
+      return result;
+    }
+
+    // 3. 前置钩子
     if (this._beforeInvoke) {
       let proceed = true;
       try {
@@ -175,6 +183,73 @@ export class ToolsManager {
     // 5. 记录历史
     this._recordInvocation(result);
     return result;
+  }
+
+  // ─── 参数校验 ──────────────────────────────────────
+
+  /**
+   * 根据 inputSchema 校验参数类型。
+   * 校验规则：
+   * - 检查 required 字段是否存在
+   * - 检查每个字段的类型是否匹配（number / string / boolean / array / object）
+   * - 如果是 enum 类型，检查值是否在枚举中
+   * @returns 错误信息字符串，无错误返回 null
+   */
+  private _validateArgs(args: unknown, schema: any): string | null {
+    if (!schema || !schema.properties) return null;
+    const input = (args || {}) as Record<string, unknown>;
+    const props = schema.properties as Record<string, any>;
+
+    // 检查 required 字段
+    if (Array.isArray(schema.required)) {
+      for (const req of schema.required) {
+        if (input[req] === undefined || input[req] === null) {
+          return `缺少必填参数 "${req}"`;
+        }
+      }
+    }
+
+    // 检查每个传入参数的类型
+    for (const [key, value] of Object.entries(input)) {
+      const def = props[key];
+      if (!def) continue; // 未定义的参数，跳过（由 handler 自行处理）
+
+      const expectedType = def.type as string;
+      if (!expectedType) continue;
+
+      if (value === null || value === undefined) continue;
+
+      let actualType: string;
+      if (Array.isArray(value)) actualType = 'array';
+      else if (typeof value === 'number' && Number.isInteger(value) && expectedType === 'integer') actualType = 'integer';
+      else actualType = typeof value;
+
+      // 检查类型
+      if (expectedType === 'integer') {
+        if (actualType !== 'number' && actualType !== 'integer') {
+          return `参数 "${key}" 类型错误：期望 ${expectedType}，实际 ${actualType}`;
+        }
+      } else if (expectedType === 'array') {
+        if (!Array.isArray(value)) {
+          return `参数 "${key}" 类型错误：期望 array，实际 ${typeof value}`;
+        }
+      } else if (expectedType === 'object') {
+        if (actualType !== 'object' || Array.isArray(value)) {
+          return `参数 "${key}" 类型错误：期望 object，实际 ${actualType}`;
+        }
+      } else if (expectedType !== actualType) {
+        return `参数 "${key}" 类型错误：期望 ${expectedType}，实际 ${actualType}`;
+      }
+
+      // 检查 enum
+      if (Array.isArray(def.enum) && def.enum.length > 0) {
+        if (!def.enum.includes(value)) {
+          return `参数 "${key}" 值无效：期望 ${def.enum.join(' | ')}，实际 ${value}`;
+        }
+      }
+    }
+
+    return null;
   }
 
   // ─── 钩子 ──────────────────────────────────────────

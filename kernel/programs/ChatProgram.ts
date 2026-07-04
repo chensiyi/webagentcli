@@ -80,6 +80,15 @@ export class ChatProgram {
       this._assistantMsgId = null;
       this._currentRequest = null;
     });
+
+    // 如果删除的会话是当前进行中的，自动取消
+    this.chatChannel?.on(KernelEvents.CHAT.SESSION_DELETED, (data: unknown) => {
+      const { sessionId } = (data || {}) as Record<string, unknown>;
+      if (sessionId && (this._currentRequest as any)?.sessionId === sessionId) {
+        Log.info(this.name, `Session ${sessionId} deleted while active, auto-cancelling`);
+        this.cancel();
+      }
+    });
   }
 
   // ─── 主发送管线 ─────────────────────────────────────────────

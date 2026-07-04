@@ -91,7 +91,10 @@
     const s = sessionManager?.getCurrentSession?.();
     session = s || null;
     const oldMessages = messages;
-    messages = s?.messages ? [...s.messages].filter(m => m != null) : [];
+    // 浅拷贝消息对象，确保 Svelte 5 响应式系统能检测到属性变化
+    // （session 中的消息对象引用不变，仅展开数组 Svelte 不重新计算 {@const} 派生值，
+    //  导致流式结束后新增的 toolCalls 不被渲染——只显示空气泡）
+    messages = s?.messages ? s.messages.filter(m => m != null).map(m => ({ ...m })) : [];
     showThinkingControl = checkModelSupportsThinking();
     // 无会话时从设置读取默认思考强度，而非硬编码 'medium'
     const settingsDefault = kernel?.getSettingsManager?.()?.getSettings?.()?.reasoningEffort || 'medium';
@@ -317,12 +320,12 @@
           streamingMap = { ...streamingMap, [messageId]: entry };
         }),
 
-        // 消息更新（全文替换）
+        // 消息更新（全文替换）— 创建新对象确保 Svelte 5 响应式追踪
         chatChannel.on(KernelEvents.CHAT.MESSAGE_UPDATED, (data: any) => {
           if (!data?.message) return;
           const idx = messages.findIndex((m) => m.id === data.message.id);
           if (idx >= 0) {
-            messages = [...messages.slice(0, idx), data.message, ...messages.slice(idx + 1)];
+            messages = [...messages.slice(0, idx), { ...data.message }, ...messages.slice(idx + 1)];
           }
         }),
 

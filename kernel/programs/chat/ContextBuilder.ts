@@ -40,7 +40,7 @@ export class ContextBuilder {
 
   constructor(options: ContextBuilderOptions = {}) {
     this.systemRole = options.systemRole || '你是一个运行在 Chrome 扩展 Side Panel 中的 Web Agent。你可以通过工具与浏览器页面交互，完成用户指定的任务。';
-    this.systemPrinciples = options.systemPrinciples || '原则: 优先使用工具完成页面操作。如果工具调用失败，分析错误并重试或换方案。不需要用户确认就可以连续调用工具。';
+    this.systemPrinciples = options.systemPrinciples || '原则：\n1. 优先使用工具完成页面操作\n2. 工具调用失败时，分析错误信息，修正参数或换方案重试\n3. 暂时不需要的工具不要调用，等用户新消息到了再执行下一步\n4. 重要操作前建议先获取页面内容了解状态';
   }
 
   /**
@@ -77,17 +77,13 @@ export class ContextBuilder {
     const pageCtx = await this._getPageContext();
     if (pageCtx) parts.push(pageCtx);
 
-    // 可用工具清单
+    // 可用工具清单（仅名称，完整定义通过 API tools 参数传递）
     if (tools && tools.length > 0) {
-      const toolList = tools
-        .map(t => {
-          const fn = (t as any)?.function;
-          return fn?.name ? `- ${fn.name}: ${fn.description || ''}` : '';
-        })
-        .filter(Boolean)
-        .join('\n');
-      if (toolList) {
-        parts.push(`可用工具:\n${toolList}\n\n工具的完整参数定义通过 API tools 参数传递，请按 schema 调用。`);
+      const names = tools
+        .map(t => (t as any)?.function?.name)
+        .filter(Boolean);
+      if (names.length > 0) {
+        parts.push(`可用工具：${names.join('、')}。\n工具的完整定义和参数 schema 已通过 API 的 tools 参数传递，请按定义调用。`);
       }
     }
 

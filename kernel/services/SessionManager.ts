@@ -52,6 +52,8 @@ export class SessionManager extends BaseSessionManager {
       if (this.currentSessionId === id) this.currentSessionId = null;
       await this._persistSessions();
       await this._persistCurrentSessionId();
+      // 广播会话删除事件，让 shell 层（ChatEventHandler）决定是否取消进行中的请求
+      this.ipc?.getOrCreateChannel('chat')?.emit(KernelEvents.CHAT.SESSION_DELETED, { sessionId: id });
     }
   }
 
