@@ -22,11 +22,11 @@ class ManageUserScriptsTool extends IToolService {
         properties: {
           action: {
             type: 'string',
-            description: '操作类型：list, install, update, toggle, delete',
-            enum: ['list', 'install', 'update', 'toggle', 'delete']
+            description: '操作类型：list, get, install, update, toggle, delete',
+            enum: ['list', 'get', 'install', 'update', 'toggle', 'delete']
           },
           code: { type: 'string', description: '脚本代码（install/update 时需要）' },
-          id: { type: 'string', description: '脚本 ID（update/toggle/delete 时需要）' },
+          id: { type: 'string', description: '脚本 ID（get/update/toggle/delete 时需要）' },
           enabled: { type: 'boolean', description: '启用/禁用（toggle 时需要）' }
         },
         required: ['action']
@@ -40,6 +40,13 @@ class ManageUserScriptsTool extends IToolService {
 
       const getAllScripts = () => storage.get(STORAGE_KEY).then(v => v || []);
       const saveScripts = (scripts) => storage.set(STORAGE_KEY, scripts);
+
+      const getScriptById = async (id) => {
+        const scripts = await getAllScripts();
+        const script = scripts.find(s => s.id === id);
+        if (!script) throw new Error('脚本不存在');
+        return script;
+      };
 
       const parseMetadata = (code) => {
         const metadata = { name: '', namespace: '', version: '', description: '', author: '', match: [], grant: [] };
@@ -96,7 +103,13 @@ class ManageUserScriptsTool extends IToolService {
       switch (args.action) {
         case 'list':
           Log.info('ManageUserScriptsTool', 'action=list');
-          return await getAllScripts();
+          const allScripts = await getAllScripts();
+          return allScripts.map(({ code, ...rest }) => rest);
+
+        case 'get':
+          Log.info('ManageUserScriptsTool', 'action=get, id:', args.id);
+          if (!args.id) throw new Error('id is required');
+          return await getScriptById(args.id);
 
         case 'install':
           Log.info('ManageUserScriptsTool', 'action=install, codeLength:', args.code?.length || 0);
