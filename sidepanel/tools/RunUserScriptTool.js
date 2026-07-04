@@ -21,13 +21,13 @@ class RunUserScriptTool extends Tool {
           },
           world: {
             type: 'string',
-            description: '(optional)<"MAIN"|"ISOLATED">,default:"MAIN"。MAIN 表示在当前标签页面主世界执行，ISOLATED 表示在扩展隔离环境中执行。',
+            description: 'MAIN 表示在当前标签页面主世界执行，ISOLATED 表示在扩展隔离环境中执行。',
             enum: ['MAIN', 'ISOLATED'],
             default: 'MAIN'
           },
           timeout: {
             type: 'number',
-            description: '(optional)<number>,default:300000。执行超时时间（毫秒）,超过时间未返回结果则强制终止。',
+            description: '执行超时时间（毫秒）,超过时间未返回结果则强制终止。',
             default: 300000
           }
         },
