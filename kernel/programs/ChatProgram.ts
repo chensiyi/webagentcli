@@ -148,7 +148,7 @@ export class ChatProgram {
 
       // ── 上下文构建（委托 ContextBuilder） ──
       const freshSession = sm.getSession(sid);
-      const tools = this.kernel.toolRegistry?.getDefinitionsForLLM();
+      const tools = this.kernel.toolsManager?.getDefinitionsForLLM();
       const messagesForRequest = await this._context.buildMessages(freshSession, settings, tools);
 
       // ── API 请求 ──

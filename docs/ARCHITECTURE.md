@@ -1,6 +1,6 @@
 # Web Agent Client 架构文档
 
-> 架构版本：Microkernel v0.6.5 · 与当前代码库保持同步
+> 架构版本：Microkernel v0.6.6 · 与当前代码库保持同步
 
 ## 核心理念
 
@@ -10,7 +10,7 @@
 |---|---|---|
 | **Kernel** | `Kernel.ts` | 服务注册、生命周期、启动序列 |
 | **IPC/消息队列** | `IPC.ts` | 优先级消息、来源追踪、中间件链 |
-| **系统调用** | `ToolRegistry.ts` + `IToolService` | 工具注册表、调用审计 |
+| **系统调用** | `ToolsManager.ts` | 工具注册表、调用审计 |
 | **权限门控** | `CapabilityManager.ts` | 声明式权限、动态授权 |
 | **进程管理** | `ProcessManager` + `Process` | 进程 CRUD、生命周期、状态机 |
 | **用户程序** | `ChatProgram` | 聊天指令（内核级程序） |
@@ -27,7 +27,7 @@ webagentcli/
 ├── kernel/                          # 核心内核（TypeScript · 零外部依赖）
 │   ├── Kernel.ts                   # 核心内核：服务注册、生命周期、状态机
 │   ├── IPC.ts                      # 消息总线（优先级、来源追踪、中间件）
-│   ├── ToolRegistry.ts             # 系统调用注册表
+│   ├── ToolsManager.ts             # 工具管理器（替代 ToolRegistry + IToolService）
 │   ├── CapabilityManager.ts        # 权限门控
 │   ├── Bootloader.ts               # 启动序列（4 阶段）
 │   ├── Events.ts                   # 内核事件常量
@@ -40,9 +40,7 @@ webagentcli/
 │   │   ├── Session.ts
 │   │   ├── Settings.ts
 │   │   ├── Model.ts
-│   │   ├── ToolCall.ts
-│   │   ├── ToolResult.ts
-│   │   ├── ToolDefinition.ts
+│   │   ├── Tool.ts                 # 统一工具模型（Tool + ToolCall + ToolResult）
 │   │   ├── Process.ts
 │   │   └── Scripts.ts
 │   │
@@ -63,16 +61,13 @@ webagentcli/
 │   │   ├── ISettings.ts            # 设置接口
 │   │   ├── IScriptsManager.ts      # 脚本接口
 │   │   ├── ISessionManager.ts      # 会话接口
-│   │   ├── IToolService.ts         # 工具服务接口
 │   │   ├── IProviderAPIService.ts  # Provider API 接口
 │   │   └── ProviderAPIServices/    # AI Provider 实现
 │   │       ├── OpenAIService.ts
 │   │       ├── OpenRouterService.ts
 │   │       └── LMStudioService.ts
 │   │
-│   └── tools/                      # 工具定义（侧边栏实现 RunUserScriptTool）
-│       ├── RunUserScriptTool.js    # 已迁移至 sidepanel/tools/
-│       └── ManageUserScriptsTool.js
+│   └── tools/                      # 工具定义（已迁移至 sidepanel/tools/）
 │
 ├── index.html                      # 入口 HTML
 ├── sidepanel/                      # Svelte 5 UI + Service Worker
@@ -240,15 +235,18 @@ kernel.getIPC()                 // → IPC
 - `HIGH`（2）— 用户交互
 - `CRITICAL`（3）— 系统级
 
-### 3. ToolRegistry.ts（系统调用注册表）
+### 3. ToolsManager.ts（工具管理器）
 
 ```typescript
-toolRegistry.register(tool)               // 注册工具
-toolRegistry.get(name)                     // 按名称查找
-toolRegistry.getEnabled()                  // 获取所有已启用工具
-toolRegistry.getDefinitionsForLLM()        // 获取 LLM 可用的工具定义
-toolRegistry.unregister(name)              // 注销
+toolsManager.register(tool)               // 注册工具
+toolsManager.get(name)                     // 按名称查找
+toolsManager.getEnabled()                  // 获取所有已启用工具
+toolsManager.getDefinitionsForLLM()        // 获取 LLM 可用的工具定义
+toolsManager.invoke(toolCall, context)     // 统一执行入口（封装 handler 调用、计时、结果包装）
+toolsManager.unregister(name)              // 注销
 ```
+
+`ToolsManager` 替代了之前的 `ToolRegistry` + `IToolService`，统一管理注册、查询、执行。
 
 ### 4. CapabilityManager.ts（权限门控）
 
@@ -266,7 +264,7 @@ capabilities.onDeny(handler)                  // 拒绝回调
 
 | 阶段 | 职责 |
 |---|---|
-| 1. INIT | 初始化 IPC、Log、ToolRegistry、CapabilityManager |
+| 1. INIT | 初始化 IPC、Log、ToolsManager、CapabilityManager |
 | 2. REGISTER | 注册所有 Service 工厂到 Kernel |
 | 3. START | 初始化服务 + 加载配置 + 注册工具 + 创建 Programs |
 | 4. READY | 就绪 |
@@ -391,17 +389,67 @@ Provider 通过 `ProviderFactory` 按 `settings.apiStandard` 创建，Shell 层�
 
 ### 6. Tool System（工具系统）
 
-**内置工具**：
+**工具模型**：`kernel/models/Tool.ts`
+
+统一工具模型，一个 `Tool` 对象同时包含定义（供 LLM 识别）和执行能力：
+
+```typescript
+class Tool {
+  name: string;           // 工具名
+  description: string;    // 描述（LLM 可见）
+  inputSchema: object;    // JSON Schema 参数定义
+  handler: Function;      // 执行函数
+  enabled: boolean;       // 开关
+  capabilities: string[]; // 能力标签
+  toOpenAIFunction()      // → OpenAI function calling 格式
+}
+```
+
+同文件中还包含 `ToolCall`（调用记录）和 `ToolResult`（执行结果）。
+
+**工具管理器**：`kernel/ToolsManager.ts`
+
+```typescript
+class ToolsManager {
+  register(tool)                     // 注册 Tool 实例
+  get(name)                          // 按名称查找
+  getEnabled()                       // 获取所有已启用工具
+  getDefinitionsForLLM()             // 获取 LLM 可用工具定义
+  invoke(toolCall, context)          // 统一执行入口
+  getInvocationHistory(filters)      // 调用历史
+  getStats()                         // 统计信息
+}
+```
+
+**内置工具**（`sidepanel/tools/`）：
 - `RunUserScriptTool` — 在当前活动 tab 执行用户 JS（Turing-complete 万能工具）
-- `ManageUserScriptsTool` — 用户脚本 CRUD
+- `ManageUserScriptsTool` — 用户脚本 CRUD（list / get / install / update / toggle / delete）
 
 工具注册在 START 阶段完成：
 ```typescript
 const builtInClasses = [RunUserScriptTool, ManageUserScriptsTool];
 builtInClasses.forEach((ToolClass) => {
   const tool = new ToolClass();
-  toolRegistry.register(tool);
+  toolsManager.register(tool);
 });
+```
+
+**工具调用流程**：
+```
+LLM 返回 tool_calls
+    ↓
+ToolExecutor 遍历每个 tool_call
+    ↓
+ToolsManager.invoke(toolCall, context)
+    ├── 查找 Tool 实例
+    ├── beforeInvoke 钩子检查
+    ├── 执行 tool.handler(args, context)
+    ├── afterInvoke 钩子
+    └── 返回 ToolResult（含状态、输出、耗时）
+    ↓
+ToolResult 以 tool role 消息写入 Session
+    ↓
+LLM 收到结果后继续（ReAct 循环）
 ```
 
 ### 7. ScriptInjector（脚本自动注入 — Service Worker 层）
@@ -464,7 +512,7 @@ builtInClasses.forEach((ToolClass) => {
 ### 入口启动流程（`sidepanel/main.ts`）
 
 ```
-1. 创建 ConsoleLogger → IPC → ToolRegistry → CapabilityManager
+1. 创建 ConsoleLogger → IPC → ToolsManager → CapabilityManager
 2. 创建 Kernel 实例，注入子系统
 3. 创建 Bootloader，注册启动钩子
 4. INIT 阶段  → IPC ready（基础设施就绪）
@@ -511,6 +559,25 @@ const sessionManager = kernel.getSessionManager();
 2. **Chrome API 调用**集中在壳层，不渗入 kernel
 3. 所有 UI 开发在 `sidepanel/`（Svelte 5）中进行
 
+### 添加新的内置工具
+
+1. 在 `sidepanel/tools/` 创建 `XxxTool.js`
+2. 继承 `Tool` 类，在 `super()` 中传入定义和 handler
+3. 在 `sidepanel/main.ts` 的 START 阶段加入 `builtInClasses` 数组
+
+```typescript
+class MyNewTool extends Tool {
+  constructor() {
+    super({
+      name: 'my_new_tool',
+      description: '...',
+      inputSchema: { ... },
+      handler: async (args, context) => { ... }
+    });
+  }
+}
+```
+
 ### 添加新的内核程序
 
 1. 在 `kernel/programs/` 创建 `XxxProgram.ts`
@@ -532,9 +599,17 @@ const sessionManager = kernel.getSessionManager();
 
 ## 版本信息
 
-- **扩展版本**：0.6.5（见 `manifest.json` / `package.json`）
-- **架构版本**：Microkernel v0.6.5
+- **扩展版本**：0.6.6（见 `manifest.json` / `package.json`）
+- **架构版本**：Microkernel v0.6.6
 - **Manifest 版本**：3
+
+### 主要变更（v0.6.5 → v0.6.6）
+
+- ✅ **工具模型统一**：`ToolDefinition` + `IToolService` → 统一的 `Tool` 类（含定义 + handler）
+- ✅ **ToolCall / ToolResult 合并**：从独立文件合并到 `Tool.ts`
+- ✅ **ToolsManager**：替代 `ToolRegistry` + `IToolService`，统一管理注册和执行
+- ✅ **废弃文件清理**：删除 `ToolDefinition.ts`、`IToolService.ts`、`ToolRegistry.ts` 等 9 个废弃文件
+- ✅ **RunUserScriptTool 修复**：正确继承 `Tool`，handler 正常注册
 
 ### 主要变更（v0.4.0 → v0.6.5）
 

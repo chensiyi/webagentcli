@@ -1,6 +1,6 @@
 # 数据模型文档
 
-> 与当前代码库（v0.6.5）保持同步
+> 与当前代码库（v0.6.6）保持同步
 
 ## 概述
 
@@ -10,7 +10,7 @@
 
 - 所有模型类通过 `kernel/index.ts` 统一导出，可在任何 ES module 环境使用
 - 业务层 **不使用** 任何特定 AI 协议的字段（如 OpenAI 的 `tool_calls` 数组）—— 协议转换在 `MessageContent.MessageStructure` 中隔离
-- 持久化字段通过 `toJSON()` 输出，不可变值类型（`ToolCall` / `ToolResult` / `ToolDefinition`）使用 `Object.freeze`
+- 持久化字段通过 `toJSON()` 输出
 - 运行时状态（如 `Session.isStreaming`、`Session.port`）**不** 序列化
 
 ---
@@ -299,85 +299,111 @@ toJSON() {
 
 ---
 
-## ToolCall（工具调用意图）
+## Tool（统一工具模型）
 
-**文件**：`kernel/models/ToolCall.ts`
+**文件**：`kernel/models/Tool.ts`
 
-**不可变**（`Object.freeze`）。表示"AI 在某轮希望执行什么工具"，是 `Message.toolCalls` 的子对象。
+替代了原来的 `ToolDefinition.ts`、`ToolCall.ts`、`ToolResult.ts` 三个独立文件，整合为同一文件中的三个类。
 
-### 字段
+### ToolCall（工具调用意图）
+
+表示"AI 在某轮希望执行什么工具"，是 `Message.toolCalls` 的子对象。
+
+#### 字段
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `id` | string | 唯一标识（`call_abc123`） |
-| `toolName` | string | 工具名（对应 `ToolDefinition.name`） |
-| `arguments` | object | 工具参数（**对象形式**，非 JSON 字符串） |
+| `toolName` | string | 工具名（对应 `Tool.name`） |
+| `input` | object | 工具参数 |
+| `status` | string | `'pending' \| 'running' \| 'completed' \| 'failed'` |
+| `result` | any | 执行结果 |
+| `error` | any | 错误信息 |
+| `startedAt` | number \| null | 开始时间 |
+| `completedAt` | number \| null | 完成时间 |
 
-> ⚠️ `arguments` 也会被冻结，构造时即不可变。
-
-### 方法
+#### 方法
 
 | 方法 | 说明 |
 |------|------|
-| `toJSON()` | 输出 `{ id, toolName, arguments }` |
-| `static fromJSON(obj)` | 反序列化为 `ToolCall`（`null` 输入返回 `null`） |
+| `markStarted()` | 标记为运行中 |
+| `markCompleted(result)` | 标记为已完成 |
+| `markFailed(error)` | 标记为失败 |
+| `toJSON()` | 序列化 |
+| `static fromJSON(obj)` | 反序列化 |
 
----
+### ToolResult（工具执行结果）
 
-## ToolResult（工具执行结果）
+表示"工具执行得到什么结果"。由 `ToolsManager.invoke()` 统一构造。
 
-**文件**：`kernel/models/ToolResult.ts`
-
-**不可变**。表示"工具执行得到什么结果"。由 `IToolService.invoke()` 统一构造。
-
-### 字段
+#### 字段
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `toolCallId` | string | 关联的 `ToolCall.id` |
-| `status` | string | `'success' \| 'failed' \| 'cancelled'` |
-| `output` | any | 执行输出（任意可序列化值，默认 `null`） |
-| `error` | string \| null | 错误消息（status='failed' 时） |
+| `status` | string | `'success' \| 'failed' \| 'pending'` |
+| `output` | any | 执行输出（任意可序列化值） |
+| `error` | string \| null | 错误消息 |
 | `duration` | number | 执行耗时（毫秒） |
+| `metadata` | object | 附加元数据 |
 
-### 校验
-
-- `status === 'success'` 时 **不能** 同时有 `error`
-- `duration` 必须是非负数
-
-### 方法
+#### 方法
 
 | 方法 | 说明 |
 |------|------|
-| `isSuccess()` / `isFailed()` / `isCancelled()` | 状态判断 |
-| `toJSON()` | 序列化（`null` 输出字段不输出） |
+| `isSuccess()` / `isFailed()` / `isPending()` | 状态判断 |
+| `toJSON()` | 序列化 |
 | `static fromJSON(obj)` | 反序列化 |
+| `static success(toolCallId, output, duration)` | 工厂方法：创建成功结果 |
+| `static failed(toolCallId, error, duration)` | 工厂方法：创建失败结果 |
 
----
+### Tool（工具定义 + 执行器）
 
-## ToolDefinition（工具契约）
+**核心工具类**。一个 `Tool` 对象即包含工具定义（供 LLM 识别），也包含执行能力（handler）。替代了原来的 `ToolDefinition` + `IToolService` 组合。
 
-**文件**：`kernel/models/ToolDefinition.ts`
+#### 字段
 
-**不可变**。声明工具的能力描述，供 LLM 识别。
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `name` | string | `''` | 工具唯一名 |
+| `description` | string | `''` | 工具描述（LLM 可见） |
+| `capabilities` | string[] | `[]` | 能力标签 |
+| `inputSchema` | object | `null` | JSON Schema（OpenAI function calling 格式） |
+| `outputSchema` | object | `null` | 输出 schema |
+| `enabled` | boolean | `true` | 是否启用 |
+| `handler` | function | `null` | 工具执行函数 `(args, context) => Promise<output>` |
+| `metadata` | object | `{}` | 附加元数据 |
 
-### 字段
+#### 方法
 
-| 字段 | 类型 | 说明 |
+| 方法 | 返回 | 说明 |
 |------|------|------|
-| `name` | string | 工具唯一名 |
-| `description` | string | 工具描述（LLM 可见） |
-| `parameters` | object | JSON Schema（OpenAI function calling 格式） |
-| `requiresApproval` | boolean | 是否需用户确认（默认 `false`） |
-| `metadata` | object | 附加元数据（分类、图标等） |
+| `toOpenAIFunction()` | object | 序列化为 OpenAI 协议格式 `{ type: 'function', function: { name, description, parameters } }` |
 
-### 方法
+#### 工具实现示例
 
-| 方法 | 说明 |
-|------|------|
-| `toOpenAIFunction()` | 序列化为 OpenAI 协议格式 `{ type: 'function', function: { name, description, parameters } }` |
-| `toJSON()` | 普通对象 |
-| `static fromJSON(obj)` | 反序列化 |
+```typescript
+class MyTool extends Tool {
+  constructor() {
+    super({
+      name: 'my_tool',
+      description: '我的工具',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          param1: { type: 'string', description: '参数1' }
+        },
+        required: ['param1']
+      },
+      handler: async (args, context) => {
+        // args = 从 LLM 传入的参数
+        // context = { sessionId, tabId, kernel }
+        return `处理结果: ${args.param1}`;
+      }
+    });
+  }
+}
+```
 
 ---
 
@@ -552,7 +578,7 @@ new MediaContent({ type, text, dataUrl, url, filename, mimeType, size, metadata 
                        │
                        │ 0..N (子对象)
                        ▼
-                    ToolCall[] (id, toolName, arguments)
+                    ToolCall[] (id, toolName, input, status, ...)
                        │
                        │ 1
                        │
@@ -578,7 +604,7 @@ new MediaContent({ type, text, dataUrl, url, filename, mimeType, size, metadata 
 Model 实例
    │  toJSON()
    ▼
-纯 JSON 对象（去除运行时字段、冻结对象正确序列化）
+纯 JSON 对象（去除运行时字段）
    │
    ▼
 chrome.storage.local.set({ key: json })
@@ -595,9 +621,9 @@ Model 实例
 
 ### 注意事项
 
-1. **Message**、**Session**、**Settings**、**Model**、**Process** 全部支持双向序列化
+1. **Message**、**Session**、**Settings**、**Model**、**Process**、**Tool**、**ToolCall**、**ToolResult** 全部支持双向序列化
 2. **运行时字段**（`Session.isStreaming` / `Session.port`）和 **未设置的 null 字段**（如空字符串的 `reasoning_content`）**不会** 出现在 `toJSON()` 中
-3. **不可变对象**（`ToolCall` / `ToolResult` / `ToolDefinition`）依赖构造函数参数 `fromJSON` 重建，不依赖原型方法修改
-4. **Settings** 在 Shell 层初始化时通过 `SettingsManager.loadSettings()` 加载
-5. **Session** 在 `SessionManager` 中管理持久化
-6. **Process** 在 `ProcessManager` 中管理生命周期
+3. **Settings** 在 Shell 层初始化时通过 `SettingsManager.loadSettings()` 加载
+4. **Session** 在 `SessionManager` 中管理持久化
+5. **Process** 在 `ProcessManager` 中管理生命周期
+6. **Tool** 由 `ToolsManager` 管理注册和调用

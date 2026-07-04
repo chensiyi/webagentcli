@@ -15,7 +15,7 @@
 import { IStorageManager } from './services/IStorageManager.js';
 import { IPC } from './IPC.js';
 import { Log } from './services/Log.js';
-import { ToolRegistry } from './ToolRegistry.js';
+import { ToolsManager } from './ToolsManager.js';
 import { CapabilityManager } from './CapabilityManager.js';
 import { ProviderFactory } from './services/ProviderFactory.js';
 import { ProcessManager } from './services/ProcessManager.js';
@@ -31,19 +31,19 @@ export class Kernel {
   origin: string;
   ipc: IPC | null;
   storage: IStorageManager | null;
-  toolRegistry: ToolRegistry | null;
+  toolsManager: ToolsManager | null;
   capabilities: CapabilityManager | null;
   private _services: Map<string, { factory: unknown; instance: unknown; options: Record<string, unknown> }>;
   private _hooks: { beforeBoot: unknown[]; afterBoot: unknown[]; beforeShutdown: unknown[]; afterShutdown: unknown[] };
   private _bootOrder: string[];
 
-  constructor(options: { name?: string; origin?: string; ipc?: IPC | null; storage?: IStorageManager | null; toolRegistry?: ToolRegistry | null; capabilities?: CapabilityManager | null } = {}) {
+  constructor(options: { name?: string; origin?: string; ipc?: IPC | null; storage?: IStorageManager | null; toolsManager?: ToolsManager | null; capabilities?: CapabilityManager | null } = {}) {
     this.name = options.name || 'kernel';
     this.state = Kernel.STATE.CREATED;
     this.origin = options.origin || 'kernel';
     this.ipc = options.ipc || null;
     this.storage = options.storage || null;
-    this.toolRegistry = options.toolRegistry || null;
+    this.toolsManager = options.toolsManager || null;
     this.capabilities = options.capabilities || null;
     this._services = new Map();
     this._hooks = { beforeBoot: [], afterBoot: [], beforeShutdown: [], afterShutdown: [] };
@@ -88,7 +88,7 @@ export class Kernel {
         entry.instance = null;
       }
       await this._runHooks('afterShutdown');
-      this.toolRegistry?.destroy(); this.capabilities?.destroy(); this.ipc?.destroy(); Log.getLogger()?.destroy();
+      this.toolsManager?.destroy(); this.capabilities?.destroy(); this.ipc?.destroy(); Log.getLogger()?.destroy();
       this.state = Kernel.STATE.SHUTDOWN;
       Log.info('KERNEL', 'Kernel shutdown complete');
     } catch (error) {
@@ -144,7 +144,7 @@ export class Kernel {
     return {
       state: this.state, origin: this.origin,
       services: { total: this._services.size, initialized: Array.from(this._services.values()).filter(e => e.instance !== null).length, names: this.getServiceNames(), bootOrder: [...this._bootOrder] },
-      subsystems: { hasIPC: this.ipc !== null, hasLog: true, hasToolRegistry: this.toolRegistry !== null, hasCapabilities: this.capabilities !== null }
+      subsystems: { hasIPC: this.ipc !== null, hasLog: true, hasToolsManager: this.toolsManager !== null, hasCapabilities: this.capabilities !== null }
     };
   }
 

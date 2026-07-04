@@ -7,17 +7,15 @@
 // ==================== 内核核心 ====================
 import { IPC } from './IPC.js';
 import { KernelEvents } from './Events.js';
-import { ToolRegistry } from './ToolRegistry.js';
+import { ToolsManager } from './ToolsManager.js';
 import { CapabilityManager, CapabilityError } from './CapabilityManager.js';
 import { Kernel } from './Kernel.js';
 import { Bootloader } from './Bootloader.js';
-export { IPC, KernelEvents, ToolRegistry, CapabilityManager, CapabilityError, Kernel, Bootloader };
+export { IPC, KernelEvents, ToolsManager, CapabilityManager, CapabilityError, Kernel, Bootloader };
 
 // ==================== 数据模型 ====================
 import { BaseModel } from './models/BaseModel.js';
-import { ToolDefinition } from './models/ToolDefinition.js';
-import { ToolCall } from './models/ToolCall.js';
-import { ToolResult } from './models/ToolResult.js';
+import { Tool, ToolCall, ToolResult } from './models/Tool.js';
 import { TextBlock, ImageBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock, ThinkingConfig, MediaContent, MessageStructure, MessagesRequest } from './models/MessageContent.js';
 import { Message, Role } from './models/Message.js';
 import { Session } from './models/Session.js';
@@ -25,7 +23,7 @@ import { Settings } from './models/Settings.js';
 import { Model } from './models/Model.js';
 import { UserScript } from './models/Scripts.js';
 import { Process } from './models/Process.js';
-export { BaseModel, ToolDefinition, ToolCall, ToolResult, TextBlock, ImageBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock, ThinkingConfig, MediaContent, MessageStructure, MessagesRequest, Message, Role, Session, Settings, Model, UserScript, Process };
+export { BaseModel, Tool, ToolCall, ToolResult, TextBlock, ImageBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock, ThinkingConfig, MediaContent, MessageStructure, MessagesRequest, Message, Role, Session, Settings, Model, UserScript, Process };
 
 // ==================== 服务接口 ====================
 import { IStorageManager } from './services/IStorageManager.js';
@@ -33,8 +31,7 @@ import { BaseSettings } from './services/ISettings.js';
 import { BaseProviderAPIService } from './services/IProviderAPIService.js';
 import { BaseScriptsManager } from './services/IScriptsManager.js';
 import { BaseSessionManager } from './services/ISessionManager.js';
-import { IToolService } from './services/IToolService.js';
-export { IStorageManager, BaseSettings, BaseProviderAPIService, BaseScriptsManager, BaseSessionManager, IToolService };
+export { IStorageManager, BaseSettings, BaseProviderAPIService, BaseScriptsManager, BaseSessionManager };
 
 // ==================== Provider 实现 ====================
 import OpenAIService from './services/ProviderAPIServices/OpenAIService.js';

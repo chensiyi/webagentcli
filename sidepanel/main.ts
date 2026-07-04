@@ -13,7 +13,7 @@ import './styles/pages.css';
 
 import { ConsoleLogger } from 'kernel/services/ConsoleLogger.js';
 import { IPC } from 'kernel/IPC.js';
-import { ToolRegistry } from 'kernel/ToolRegistry.js';
+import { ToolsManager } from 'kernel/ToolsManager.js';
 import { CapabilityManager } from 'kernel/CapabilityManager.js';
 import { Kernel } from 'kernel/Kernel.js';
 import { Bootloader } from 'kernel/Bootloader.js';
@@ -34,7 +34,7 @@ async function bootKernel() {
   const log = new ConsoleLogger();
   const ipc = new IPC({ origin: 'svelte-app' });
 
-  const toolRegistry = new ToolRegistry();
+  const toolsManager = new ToolsManager();
   const capabilities = new CapabilityManager();
 
   ipc.use((message, next) => {
@@ -42,13 +42,12 @@ async function bootKernel() {
     return next();
   });
 
-  const kernel = new Kernel({
-    ipc,
-    log,
-    origin: 'webagentcli-svelte',
-    toolRegistry,
-    capabilities,
-  });
+    const kernel = new Kernel({
+      ipc,
+      origin: 'webagentcli-svelte',
+      toolsManager,
+      capabilities,
+    });
 
   const bootloader = new Bootloader(kernel);
 
@@ -99,9 +98,9 @@ async function bootKernel() {
       if (typeof ToolClass !== 'function') return;
       try {
         const tool = new (ToolClass as any)();
-        if (tool.definition?.name) {
-          toolRegistry.register(tool);
-          log.info('TOOL', `Registered: ${tool.definition.name}`);
+        if (tool.name) {
+          toolsManager.register(tool);
+          log.info('TOOL', `Registered: ${tool.name}`);
         }
       } catch (e) {
         log.warn('TOOL', 'Failed to register tool', e);

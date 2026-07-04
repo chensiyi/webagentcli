@@ -2,16 +2,16 @@
  * ToolExecutor — 工具调用执行器
  *
  * 职责：
- * - 遍历 LLM 返回的 tool_calls，逐一调用 ToolRegistry 中注册的工具
+ * - 遍历 LLM 返回的 tool_calls，逐一调用 ToolsManager 中注册的工具
  * - 收集 ToolResult，格式化为 tool role 消息写入 Session
  * - 通过 emit 回调发出 TOOL.EXECUTING / TOOL.COMPLETED / TOOL.ALL_COMPLETED 事件
  *
  * 设计原则：
- * - 依赖注入：ToolRegistry 和 SessionManager 通过 Kernel 获取，emit 通过回调注入
+ * - 依赖注入：ToolsManager 和 SessionManager 通过 Kernel 获取，emit 通过回调注入
  * - 不持有 IPC 引用，不管理状态，纯执行
  */
 
-import { ToolResult } from '../../models/ToolResult.js';
+import { ToolResult } from '../../models/Tool.js';
 import { Message, Role } from '../../models/Message.js';
 import { Kernel } from '../../Kernel.js';
 import { KernelEvents } from '../../Events.js';
@@ -23,7 +23,7 @@ export class ToolExecutor {
   private emit: EmitFn;
 
   /**
-   * @param kernel  内核实例（用于获取 toolRegistry、sessionManager）
+   * @param kernel  内核实例（用于获取 toolsManager、sessionManager）
    * @param emit    事件发射回调（ChatProgram 注入其 IPC emit 函数）
    */
   constructor(kernel: Kernel, emit: EmitFn) {
@@ -43,25 +43,17 @@ export class ToolExecutor {
     const toolResults: ToolResult[] = [];
 
     for (const tc of toolCalls) {
-      const tool = this.kernel.toolRegistry?.getAll().find(
-        t => (t as any).definition && (t as any).definition.name === tc.toolName
-      );
-
       this.emit(KernelEvents.TOOL.EXECUTING, { toolName: tc.toolName, toolCallId: tc.id, sessionId });
 
       let toolResult: ToolResult;
       try {
-        if (!tool) {
-          toolResult = new ToolResult({ toolCallId: tc.id, status: 'failed', error: `Unknown tool: ${tc.toolName}` });
-        } else {
-          let tabId: number | null = null;
-          try {
-            const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-            tabId = tabs[0]?.id || null;
-          } catch (_e) { /* 非浏览器环境 */ }
+        let tabId: number | null = null;
+        try {
+          const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+          tabId = tabs[0]?.id || null;
+        } catch (_e) { /* 非浏览器环境 */ }
 
-          toolResult = await (tool as any).invoke(tc, { sessionId, tabId, kernel: this.kernel });
-        }
+        toolResult = await this.kernel.toolsManager!.invoke(tc, { sessionId, tabId, kernel: this.kernel });
       } catch (invokeError: any) {
         toolResult = new ToolResult({
           toolCallId: tc.id,

@@ -30,9 +30,9 @@ class LogService implements ILogger {
   private _backend: ILogger;
   private _minLevel: LogLevel;
 
-  constructor() {
-    this._backend = new ConsoleLogger();
-    this._minLevel = 'debug';
+  constructor(logger: ILogger | null = null, minLevel: LogLevel = 'debug') {
+    this._backend = logger || new ConsoleLogger();
+    this._minLevel = minLevel;
   }
 
   /** 替换日志后端（Kernel boot 时调用） */

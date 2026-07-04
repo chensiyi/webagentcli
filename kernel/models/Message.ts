@@ -12,7 +12,7 @@
  */
 
 import { BaseModel } from './BaseModel.js';
-import { ToolCall } from './ToolCall.js';
+import { ToolCall } from './Tool.js';
 
 // =============================================================================
 // 角色枚举（as const 类型化，值有精确类型约束）
