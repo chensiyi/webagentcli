@@ -169,13 +169,20 @@
 <div class="list-page">
   <div class="list-page-header-row">
     <h2 class="list-page-title">用户脚本</h2>
-    <Button
-      variant={showInstallForm ? 'secondary' : 'primary'}
-      size="sm"
-      onclick={toggleInstallForm}
-    >
-      {showInstallForm ? '取消' : '安装脚本'}
-    </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        onclick={() => window.open('https://www.tampermonkey.net/scripts.php', '_blank')}
+      >
+        🐵 脚本库
+      </Button>
+      <Button
+        variant={showInstallForm ? 'secondary' : 'primary'}
+        size="sm"
+        onclick={toggleInstallForm}
+      >
+        {showInstallForm ? '取消' : '安装脚本'}
+      </Button>
   </div>
 
   <div class="list-page-content">
