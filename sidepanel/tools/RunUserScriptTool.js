@@ -2,7 +2,8 @@
  * 用户脚本运行工具
  * 在用户当前活动标签页中执行 JS 脚本（Turing-complete）
  *
- * 迁移自 sidepanel/js/tools/RunUserScriptTool.js
+ * 优先使用 chrome.userScripts.execute()（Chrome 135+，不受 Trusted Types 限制）
+ * 降级为 chrome.scripting.executeScript({ func }) + new Function
  */
 
 import { Tool } from 'kernel/models/Tool.js';
@@ -40,21 +41,68 @@ class RunUserScriptTool extends Tool {
         }
 
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (!tab || !tab.id || world === 'MAIN' && !tab.url?.startsWith('http')) {
-          throw new Error('无法找到当前活动标签页或当前标签页不支持 MAIN world 执行（仅支持 http/https 页面）');
+        if (!tab || !tab.id) {
+          throw new Error('无法找到当前活动标签页');
+        }
+        if (world === 'MAIN' && !tab.url?.startsWith('http')) {
+          throw new Error('当前标签页不支持 MAIN world 执行（仅支持 http/https 页面）');
         }
 
-        // 超时控制
         const effectiveTimeout = (typeof timeout === 'number' && timeout > 0) ? timeout : 300000;
         let timeoutId;
 
+        // 格式化输出（与原有行为一致）
+        const formatOutput = (data) => {
+          if (data === undefined) return 'undefined';
+          if (typeof data === 'object') return JSON.stringify(data, null, 2);
+          return String(data);
+        };
+
+        // ─── 优先：chrome.userScripts.execute()（Chrome 135+）───
+        // Chrome 内部 V8 API 编译注入，不走 new Function/eval/script.textContent，不触发 Trusted Types
+        if (typeof chrome.userScripts?.execute === 'function') {
+          try {
+            const wrappedCode = `(function() { ${code} })()`;
+            const executePromise = chrome.userScripts.execute({
+              target: { tabId: tab.id },
+              js: [{ code: wrappedCode }],
+              world: world === 'ISOLATED' ? 'USER_SCRIPT' : 'MAIN',
+              injectImmediately: true
+            });
+
+            const results = await Promise.race([
+              executePromise,
+              new Promise((_, reject) => {
+                timeoutId = setTimeout(() => {
+                  timeoutId = undefined;
+                  reject(new Error(`脚本执行超时（${effectiveTimeout}ms）`));
+                }, effectiveTimeout);
+              })
+            ]);
+
+            if (timeoutId) clearTimeout(timeoutId);
+
+            const result = results?.[0];
+            if (result?.error) {
+              throw new Error(`脚本执行错误：${result.error}`);
+            }
+            return formatOutput(result?.result);
+          } catch (e) {
+            // userScripts.execute 失败（API 不可用/权限不足等），降级到 scripting.executeScript
+            console.warn('[RunUserScript] userScripts.execute failed, falling back:', e.message);
+            if (timeoutId) clearTimeout(timeoutId);
+          }
+        }
+
+        // ─── 降级：chrome.scripting.executeScript({ func }) ───
+        // func 内部用 new Function 解析用户代码
+        // ISOLATED 世界不受 Trusted Types 限制；MAIN 世界在严格站点（如 YouTube）可能被拦截
         const executePromise = chrome.scripting.executeScript({
           target: { tabId: tab.id },
           world: world,
           func: (execCode) => {
             try {
               // 先尝试作为表达式执行（用 return 捕获 IIFE 等的返回值）
-              // 去除末尾分号和空白，避免 return (code;) 语法错误
               const trimmed = execCode.replace(/[;\s]+$/, '');
               const result = new Function(`return ${trimmed}`)();
               return { success: true, data: result };
@@ -81,7 +129,6 @@ class RunUserScriptTool extends Tool {
           })
         ]);
 
-        // 清除超时计时器（如果脚本正常返回）
         if (timeoutId) clearTimeout(timeoutId);
 
         const result = results?.[0]?.result;
@@ -92,14 +139,7 @@ class RunUserScriptTool extends Tool {
           throw new Error(`脚本执行错误：${result.error}`);
         }
 
-        // 格式化为字符串
-        const output = result.data !== undefined
-          ? typeof result.data === 'object'
-            ? JSON.stringify(result.data, null, 2)
-            : String(result.data)
-          : 'undefined';
-
-        return output;
+        return formatOutput(result.data);
       }
     });
   }
