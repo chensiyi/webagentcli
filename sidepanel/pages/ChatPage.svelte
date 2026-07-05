@@ -24,7 +24,7 @@
   const chatChannel = ipc?.getOrCreateChannel?.('chat') || ipc;
   const toolChannel = ipc?.getOrCreateChannel?.('tool') || ipc;
   const sessionManager: any = kernel?.getSessionManager?.();
-  const toolRegistry: any = kernel?.toolRegistry;
+  const toolsManager: any = kernel?.toolsManager;
 
   // ==================== 响应式状态 ====================
   let messages = $state<any[]>([]);
@@ -213,7 +213,7 @@
   }
 
   function refreshTools() {
-    const tools = toolRegistry?.getAll?.() || [];
+    const tools = toolsManager?.getAll?.() || [];
     allTools = [...tools];
     // 同步更新 enabled map
     const map: Record<string, boolean> = {};
