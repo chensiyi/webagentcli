@@ -198,16 +198,15 @@
   }
 
   function toggleTool(tool: any) {
+    const name = tool.name;
+    if (!name) return;
     if (tool.enabled) {
-      tool.disable?.();
+      toolsManager?.disable?.(name);
     } else {
-      tool.enable?.();
+      toolsManager?.enable?.(name);
     }
     // 更新响应式 map（tool 对象是内核普通对象，Svelte 无法深度追踪 tool.enabled）
-    const name = tool.definition?.name;
-    if (name) {
-      toolEnabledMap = { ...toolEnabledMap, [name]: tool.enabled };
-    }
+    toolEnabledMap = { ...toolEnabledMap, [name]: !tool.enabled };
     // 同时刷新工具列表（保持 allTools 最新）
     refreshTools();
   }
@@ -218,7 +217,7 @@
     // 同步更新 enabled map
     const map: Record<string, boolean> = {};
     for (const t of tools) {
-      if (t.definition?.name) map[t.definition.name] = t.enabled;
+      if (t.name) map[t.name] = t.enabled;
     }
     toolEnabledMap = map;
   }
