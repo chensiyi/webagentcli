@@ -69,8 +69,8 @@ webagentcli/
 │           ├── OpenAIService.ts
 │           ├── OpenRouterService.ts
 │           └── LMStudioService.ts
-├── index.html                 # 入口 HTML
-├── sidepanel/                 # Svelte 5 UI + Service Worker
+├── sidepanel/                 # ★ 壳层：入口 + Service Worker + Svelte 5 UI
+│   ├── index.html             # 入口 HTML
 │   ├── background.js          # Service Worker（脚本自动注入）
 │   ├── main.ts                # Kernel 自举 + 挂载 Svelte App
 │   ├── Sidepanel.svelte       # 根组件（Sidebar + 5 页路由）
@@ -223,7 +223,7 @@ webagentcli/
 
 ## 📦 版本
 
-- **扩展版本**：`0.6.5`（见 `manifest.json` / `package.json`）
+- **扩展版本**：`0.6.7`（见 `manifest.json` / `package.json`）
 - **架构版本**：Microkernel（Kernel + Bootloader + ProviderFactory 解耦）
 - **构建系统**：TypeScript 6 + Vite 8 + Vitest 4 + Svelte 5
 - **Manifest**：V3

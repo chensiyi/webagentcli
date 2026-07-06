@@ -24,11 +24,11 @@
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "background.js",
+    "service_worker": "sidepanel/background.js",
     "type": "module"
   },
   "side_panel": {
-    "default_path": "index.html"
+    "default_path": "sidepanel/index.html"
   },
   "action": {
     "default_title": "Open Web Agent",

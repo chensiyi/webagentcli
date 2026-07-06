@@ -5,13 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Web Agent Client — Svelte 5</title>
 
-  <!-- Svelte 5 设计系统样式（Vite 构建产物，固定文件名；包含完整 CSS tokens） -->
-  <link rel="stylesheet" href="dist/assets/svelte-app.css">
+  <!-- 路径相对于 sidepanel/ → dist/ 在上一层 -->
+  <link rel="stylesheet" href="/dist/assets/svelte-app.css">
 </head>
 <body>
   <div id="root"></div>
 
   <!-- ============ Svelte 5 应用（Vite 打包的 ES module） ============ -->
-  <script type="module" src="dist/svelte-app.bundle.js"></script>
+  <script type="module" src="/dist/svelte-app.bundle.js"></script>
 </body>
 </html>
