@@ -21,8 +21,10 @@ export default defineConfig({
     emptyOutDir: false,
     rollupOptions: {
       input: {
-        // 唯一 UI 入口——Svelte 5
+        // UI 入口——Svelte 5
         'svelte-app': resolve(__dirname, 'sidepanel/main.ts'),
+        // Service Worker 入口——纯 RPC 执行器
+        'background': resolve(__dirname, 'sidepanel/background.ts'),
       },
       output: {
         entryFileNames: '[name].bundle.js',
