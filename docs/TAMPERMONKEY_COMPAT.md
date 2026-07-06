@@ -5,750 +5,299 @@
 
 ---
 
-## 一、Tampermonkey 架构研究
+## 一、研究摘要
 
-### 1.1 整体架构
+### 1.1 Tampermonkey 核心模式
 
-Tampermonkey 采用**三进程架构**：
+| 模式 | 说明 |
+|------|------|
+| Registry | 服务定位器：`Registry.register()` / `Registry.get()` |
+| ctxRegistry | 按 tabId 追踪注入状态，避免重复注入 |
+| 注入防重复 | ctxRegistry + webRequest 预计算 + tabs.onUpdated(complete) + tabs.onRemoved |
+| GM_* API | 注入时包裹在脚本代码前，运行在 MAIN world，通过 `chrome.runtime.sendMessage` 与 background 通信 |
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Background Script (background.js)                          │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │  Registry (模块注册表)                                 │   │
-│  │  - parser.js (脚本解析)                                │   │
-│  │  - convert.js (编解码)                                 │   │
-│  │  - helper.js (工具函数)                                │   │
-│  │  - compat.js (兼容性)                                  │   │
-│  │  - xmlhttprequest.js (网络请求)                        │   │
-│  │  - syncinfo.js (同步)                                  │   │
-│  │  - i18n.js (国际化)                                    │   │
-│  ├──────────────────────────────────────────────────────┤   │
-│  │  ctxRegistry (上下文注册表)                             │   │
-│  │  - 按 tabId 追踪每个标签页的状态                        │   │
-│  │  - 缓存 Tab.prepare() 的预计算结果                      │   │
-│  │  - 追踪每个 tab 的 URL 访问记录                         │   │
-│  ├──────────────────────────────────────────────────────┤   │
-│  │  TM_tabs (标签页存储)                                  │   │
-│  │  - 每个 tab 独立的 storage 空间                        │   │
-│  ├──────────────────────────────────────────────────────┤   │
-│  │  TM_storage (持久化存储层)                             │   │
-│  │  - 封装 chrome.storage.local                          │   │
-│  │  - 脚本数据、配置、缓存统一管理                         │   │
-│  ├──────────────────────────────────────────────────────┤   │
-│  │  TM_storageListener (存储监听器)                       │   │
-│  │  - 页面上下文通过 sendMessage 注册监听                  │   │
-│  │  - 数据变更时通知对应 tab                              │   │
-│  └──────────────────────────────────────────────────────┘   │
-│                                                             │
-│  监听器:                                                    │
-│  - chrome.tabs.onUpdated → loadListener                     │
-│  - chrome.tabs.onRemoved → removeListener                   │
-│  - chrome.webNavigation.onCommitted → onCommitedListener    │
-│  - chrome.extension.onMessage → requestHandling.handler     │
-└─────────────────────────────────────────────────────────────┘
-         │
-         │ chrome.tabs.sendMessage({ method: "executeScript", ... })
-         ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Content Script (content.js)                                │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │  _handler (消息处理器)                                │   │
-│  │  - sendMessage(): 将代码注入到页面上下文               │   │
-│  │  - 使用 eval() 或 script 标签注入                     │   │
-│  │  - 维护 responseId 回调映射                           │   │
-│  ├──────────────────────────────────────────────────────┤   │
-│  │  tmCE (Chrome 模拟层)                                 │   │
-│  │  - 桥接 background 和 page 上下文                     │   │
-│  │  - xmlHttpRequest / sendExtensionMessage 等           │   │
-│  ├──────────────────────────────────────────────────────┤   │
-│  │  Eventing (事件系统)                                  │   │
-│  │  - 跨上下文事件传递                                   │   │
-│  └──────────────────────────────────────────────────────┘   │
-│                                                             │
-│  注入方式:                                                  │
-│  - 安全模式: window.eval()                                  │
-│  - 非安全模式: <script> 标签注入                            │
-└─────────────────────────────────────────────────────────────┘
-         │
-         │ eval() / <script> 注入
-         ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Page Context (页面上下文)                                   │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │  environment.js (执行环境)                            │   │
-│  │  - TM_mEval(): 核心执行函数                           │   │
-│  │  - 创建 mask 对象作为脚本的沙箱上下文                  │   │
-│  │  - 注入 GM_* API 到 mask                             │   │
-│  │  - 使用 new Function() + apply(mask) 执行脚本         │   │
-│  ├──────────────────────────────────────────────────────┤   │
-│  │  unsafeWindow (不安全窗口)                            │   │
-│  │  - 通过 DOM 技巧获取 (div.onclick)                    │   │
-│  │  - 脚本可通过 unsafeWindow 访问真实 window             │   │
-│  └──────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 1.2 核心设计模式
-
-#### Registry 模块注册表
-
-Tampermonkey 使用一个简单的**服务定位器**模式：
-
-```javascript
-Registry.register('parser', scriptParser);
-Registry.require('convert');
-var Converter = Registry.get('convert');
-```
-
-#### ctxRegistry 上下文注册表
-
-按 tabId 追踪每个标签页的状态——避免重复注入、缓存预计算结果。
-
-```javascript
-var ctxRegistry = {
-    n: {},
-    init: function(tabId) { /* 按 tabId 初始化状态 */ },
-    remove: function(tabId) { delete this.n[tabId]; },
-    setCache: function(tabId, frameId, url, runInfo) { /* 缓存预计算结果 */ }
-};
-```
-
-#### 注入防重复机制
-
-1. ctxRegistry 状态追踪
-2. webRequest 预计算（请求阶段确定注入列表）
-3. tabs.onUpdated 只处理 status='complete'
-4. tabs.onRemoved 自动清理
-5. content script 自身去重（initstate 状态机）
-
----
-
-## 二、当前项目状态
-
-### 已实现的能力
+### 1.2 当前项目状态
 
 | 功能 | 状态 | 位置 |
 |------|------|------|
 | 元数据块解析 | ✅ | `ManageUserScriptsTool.js` + `ScriptsManager.ts` |
-| @match 解析 | ✅ | 同上 |
-| @grant 解析 | ✅ | 同上 |
+| @match / @grant 解析 | ✅ | 同上 |
 | 脚本 CRUD | ✅ | `ManageUserScriptsTool.js` + `ScriptsPage.svelte` |
-| 脚本启用/禁用 | ✅ | 同上 |
 | 自动注入（@match） | ✅ | `background.js` — `chrome.userScripts.register()` |
 | 按需执行脚本 | ✅ | `RunUserScriptTool.js` — `chrome.userScripts.execute()` |
 | CSP/Trusted Types 兼容 | ✅ | `userScripts` API 绕过限制 |
 
-### 已知问题
+### 1.3 已知问题
 
-| 问题 | 严重性 | 说明 |
+| 问题 | 优先级 | 说明 |
 |------|--------|------|
-| @grant 权限仅解析未使用 | 🟡 中 | grant 字段已存储但未被使用 |
-| 无 GM_* API 沙箱 | 🟡 中 | 脚本无法调用 GM_setValue 等 API |
-| 无 @require / @resource | 🟢 低 | 未解析 |
-| 无 @run-at 时机控制 | 🟢 低 | 始终 document-idle |
-| 无 GM_toolscript | 🟡 中 | 脚本不能注册为 AI 工具 |
-| background 逻辑耦合 | 🟡 中 | `background.js` 直接管理 `userScripts.register()` |
+| @grant 权限仅解析未使用 | P0 | grant 字段已存储但未被使用 |
+| 无 GM_* API 沙箱 | P0 | 脚本无法调用 GM_setValue 等 API |
+| 无 GM_toolscript | P1 | 脚本不能注册为 AI 工具 |
+| background 逻辑耦合 | P1 | `background.js` 直接管理 `userScripts.register()`，未通过 RPC |
+| 无 @require / @resource | P2 | 未解析 |
+| 无 @run-at 时机控制 | P2 | 始终 document-idle |
+| 无权限面板 | P2 | 没有 GM_* 权限开关 UI |
 
 ---
 
-## 三、RPC 框架设计
+## 二、现有资产分析
 
-### 3.1 核心思路
+### 2.1 已有组件（不需要开发）
 
-**background.js 不需要关心业务逻辑，它只需要知道两件事：**
-1. **RPC 调用协议** — 如何发送 `{ rpc, params }` 并接收响应
-2. **Tool 定义** — 工具的名称和 inputSchema，以便构造正确的参数
+| 组件 | 来源 | 用途 |
+|------|------|------|
+| `IPC` + `getOrCreateChannel()` | `kernel/IPC.ts` | 内核事件总线，命名空间通道 |
+| `ToolsManager.invoke()` | `kernel/ToolsManager.ts` | 工具执行入口 |
+| `Tool` / `ToolCall` / `ToolResult` | `kernel/models/Tool.ts` | 工具模型定义 |
+| `chrome.userScripts` | Chrome 内置 API | 脚本注入（已在用） |
+| `chrome.runtime.sendMessage` / `onMessage` | Chrome 内置 API | 跨上下文通信（已在用） |
 
-RPC 框架的核心是**将 `ToolsManager.invoke()` 暴露为远程可调用的方法**。任何远程调用者（如 background.js）只需发送 `{ toolName, input }`，RPC 框架就会路由到 `ToolsManager.invoke()` 执行并返回结果。
+### 2.2 npm 选型：json-rpc-2.0
 
-### 3.2 架构总览
+| 包名 | 版本 | 协议 | 依赖 | 说明 |
+|------|------|------|------|------|
+| **json-rpc-2.0** | 1.7.1 | MIT | **零依赖** | JSON-RPC 2.0 客户端/服务端实现，纯协议层 |
+| @metamask/json-rpc-engine | - | - | 有依赖 | MetaMask 的 JSON-RPC 引擎，Ethereum 相关 |
+| rpc | - | - | 有依赖 | 通用 RPC 库，功能过重 |
+
+**推荐 `json-rpc-2.0`**：
+- 零依赖，适合 Chrome 扩展场景
+- 纯协议层：只有 `JSONRPCRequest` / `JSONRPCResponse` 类型 + `JSONRPCClient` / `JSONRPCServer`
+- 只需要包装 `chrome.runtime.sendMessage` 作为传输层
+
+---
+
+## 三、架构设计
+
+### 3.1 通信协议
 
 ```
-┌─ Kernel 服务层 ────────────────────────────────────────┐
-│                                                          │
-│  RPCService (kernel/services/RPCService.ts)               │
-│  ┌──────────────────────────────────────────────────┐    │
-│  │  基于 IPC 的通用 RPC 框架                          │    │
-│  │                                                    │    │
-│  │  IPC 通道:                                          │    │
-│  │  - rpc:request:{target}  →  { method, params, id } │    │
-│  │  - rpc:response:{target} →  { method, result, id } │    │
-│  │                                                    │    │
-│  │  API:                                               │    │
-│  │  - registerServer(target, handlers)                 │    │
-│  │  - call(target, method, params) → Promise           │    │
-│  └──────────────────────────────────────────────────┘    │
-│                                                          │
-│  ToolsManager (kernel/ToolsManager.ts)                    │
-│  ┌──────────────────────────────────────────────────┐    │
-│  │  invoke(toolCall, context) → ToolResult            │    │
-│  │                                                    │    │
-│  │  通过 RPCService.registerServer('tools', {          │    │
-│  │    invoke: (params) => this.invoke(params)          │    │
-│  │  }) 暴露为远程可调用                                  │    │
-│  └──────────────────────────────────────────────────┘    │
-│                                                          │
-└──────────────────────┬───────────────────────────────────┘
-                       │ IPC 事件
-                       ▼
-┌─ Transport 层 ─────────────────────────────────────────┐
-│                                                          │
-│  BackgroundBridge (sidepanel/services/BackgroundBridge.ts)│
-│  ┌──────────────────────────────────────────────────┐    │
-│  │  纯传输层：IPC ↔ chrome.runtime.sendMessage       │    │
-│  │                                                    │    │
-│  │  职责：                                             │    │
-│  │  1. 监听 rpc:request:* → sendMessage               │    │
-│  │  2. 收到响应 → emit rpc:response:*                 │    │
-│  │  3. 转发 GM_toolscript 主动推送 → IPC 事件          │    │
-│  └──────────────────────────────────────────────────┘    │
-│                                                          │
-└──────────────────────┬───────────────────────────────────┘
-                       │ chrome.runtime.sendMessage
-                       ▼
-┌─ 远程调用者 ──────────────────────────────────────────┐
-│                                                          │
-│  background.js / 其他扩展 / 未来远程客户端                 │
-│  ┌──────────────────────────────────────────────────┐    │
-│  │  只需要知道：                                       │    │
-│  │  1. RPC 协议: { rpc, params } → 响应               │    │
-│  │  2. Tool 定义: 工具名称 + inputSchema               │    │
-│  │                                                    │    │
-│  │  调用示例:                                          │    │
-│  │  sendMessage({                                      │    │
-│  │    rpc: 'tools.invoke',                            │    │
-│  │    params: { toolName: 'xxx', input: {...} }       │    │
-│  │  })                                                │    │
-│  └──────────────────────────────────────────────────┘    │
-│                                                          │
-└──────────────────────────────────────────────────────────┘
-```
+JSON-RPC 2.0 over chrome.runtime.sendMessage
 
-### 3.3 RPCService — 内核级 RPC 框架
+请求：
+{
+    "jsonrpc": "2.0",
+    "method": "syncUserScripts",
+    "params": {},
+    "id": "req_123"
+}
 
-```typescript
-// kernel/services/RPCService.ts
-// 基于 IPC 的通用 RPC 框架
-//
-// 设计原则：
-// - 利用 kernel IPC 通道实现请求/响应模式
-// - 服务端通过 registerServer() 注册方法
-// - 客户端通过 call() 调用远程方法
-// - 支持超时、错误处理
+响应：
+{
+    "jsonrpc": "2.0",
+    "result": { "success": true },
+    "id": "req_123"
+}
 
-import { IPC } from '../IPC.js';
-import { Log } from './Log.js';
-
-type RPCHandler = (params: any) => Promise<any> | any;
-
-type PendingCall = {
-    resolve: (value: any) => void;
-    reject: (reason: any) => void;
-    timeout: ReturnType<typeof setTimeout>;
-};
-
-export class RPCService {
-    private ipc: IPC;
-    private _pending: Map<string, PendingCall> = new Map();
-    private _servers: Map<string, Map<string, RPCHandler>> = new Map();
-    private _initialized = false;
-    
-    constructor(ipc: IPC) {
-        this.ipc = ipc;
-    }
-    
-    init(): void {
-        if (this._initialized) return;
-        this._initialized = true;
-        
-        // ─── 服务端：监听 rpc:request:{target} ───
-        this.ipc.on('rpc:request', (data: any, message) => {
-            const eventParts = message.event.split(':');
-            const target = eventParts[2];
-            if (!target) return;
-            
-            const server = this._servers.get(target);
-            if (!server) {
-                Log.warn('RPCService', `No server registered for target: ${target}`);
-                return;
-            }
-            
-            const { method, params, requestId } = data as any;
-            const handler = server.get(method);
-            if (!handler) {
-                Log.warn('RPCService', `No handler for ${target}.${method}`);
-                this.ipc.emit(`rpc:response:${target}`, {
-                    method, requestId, error: `Unknown method: ${method}`
-                });
-                return;
-            }
-            
-            Promise.resolve()
-                .then(() => handler(params))
-                .then(result => {
-                    this.ipc.emit(`rpc:response:${target}`, {
-                        method, requestId, result
-                    });
-                })
-                .catch(error => {
-                    this.ipc.emit(`rpc:response:${target}`, {
-                        method, requestId, error: error.message
-                    });
-                });
-        });
-        
-        // ─── 客户端：监听 rpc:response:{target} ───
-        this.ipc.on('rpc:response', (data: any, message) => {
-            const eventParts = message.event.split(':');
-            const target = eventParts[2];
-            if (!target) return;
-            
-            const { requestId, result, error } = data as any;
-            const pending = this._pending.get(requestId);
-            if (!pending) return;
-            
-            clearTimeout(pending.timeout);
-            this._pending.delete(requestId);
-            
-            if (error) {
-                pending.reject(new Error(error));
-            } else {
-                pending.resolve(result);
-            }
-        });
-        
-        Log.info('RPCService', 'RPC framework initialized');
-    }
-    
-    registerServer(target: string, handlers: Record<string, RPCHandler>): void {
-        if (this._servers.has(target)) {
-            Log.warn('RPCService', `Server "${target}" already registered, overwriting`);
-        }
-        this._servers.set(target, new Map(Object.entries(handlers)));
-        Log.info('RPCService', `Server "${target}" registered with ${Object.keys(handlers).length} methods`);
-    }
-    
-    call(target: string, method: string, params: any = {}, timeout = 30000): Promise<any> {
-        return new Promise((resolve, reject) => {
-            const requestId = `rpc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-            
-            const timer = setTimeout(() => {
-                this._pending.delete(requestId);
-                reject(new Error(`RPC call "${target}.${method}" timed out after ${timeout}ms`));
-            }, timeout);
-            
-            this._pending.set(requestId, { resolve, reject, timeout: timer });
-            this.ipc.emit(`rpc:request:${target}`, { method, params, requestId });
-        });
-    }
-    
-    destroy(): void {
-        this._pending.forEach((p) => clearTimeout(p.timeout));
-        this._pending.clear();
-        this._servers.clear();
-        this._initialized = false;
-    }
+错误响应：
+{
+    "jsonrpc": "2.0",
+    "error": { "code": -32601, "message": "Method not found" },
+    "id": "req_123"
 }
 ```
 
-### 3.4 ToolsManager 注册为 RPC 服务端
+### 3.2 三层架构
 
-ToolsManager 的 `invoke()` 方法通过 RPCService 暴露为远程可调用：
-
-```typescript
-// 在 main.ts START 阶段注册
-const rpcService = new RPCService(ipc);
-rpcService.init();
-
-// 将 ToolsManager.invoke 暴露为远程 RPC 方法
-// 远程调用者只需发送 { toolName, input } 即可执行任意工具
-rpcService.registerServer('tools', {
-    invoke: async (params) => {
-        const { toolName, input, context } = params;
-        const toolCall = new ToolCall(null, toolName, input);
-        const result = await toolsManager.invoke(toolCall, context || {});
-        return result.toJSON();
-    },
-    getDefinitions: async () => {
-        // 返回工具定义列表，供远程调用者了解可用工具
-        return toolsManager.getDefinitionsForLLM('openai');
-    }
-});
-
-// 将 background 相关操作也注册为 RPC 服务端
-rpcService.registerServer('background', {
-    initAutoInject: async (params) => {
-        // 通过 RPC 调用 background.js 的 initAutoInject
-        return await rpcService.call('background', 'initAutoInject', params);
-    },
-    syncUserScripts: async (params) => {
-        return await rpcService.call('background', 'syncUserScripts', params);
-    }
-});
+```
+┌─ Kernel / Sidepanel ─────────────────────────────┐
+│                                                    │
+│  JSONRPCClient (json-rpc-2.0)                     │
+│    │                                               │
+│    │  client.request('syncUserScripts', {})        │
+│    │                                               │
+│    │  传输适配器: chrome.runtime.sendMessage()      │
+│    │                                               │
+└──────────────────┬────────────────────────────────┘
+                   │ chrome.runtime.sendMessage
+┌─ Service Worker ──────────────────────────────────┐
+│                                                    │
+│  传输适配器: chrome.runtime.onMessage              │
+│    │                                               │
+│  JSONRPCServer (json-rpc-2.0)                     │
+│    │                                               │
+│    │  server.addMethod('syncUserScripts', handler) │
+│    │                                               │
+└────────────────────────────────────────────────────┘
 ```
 
-### 3.5 BackgroundBridge — 纯传输层
+### 3.3 json-rpc-2.0 使用示例
 
 ```typescript
-// sidepanel/services/BackgroundBridge.ts
-// 纯传输层：IPC ↔ chrome.runtime.sendMessage 的双向桥接
-//
-// 职责：
-// 1. 监听 rpc:request:background → 转发到 background Service Worker
-// 2. 收到 background 响应 → 转发回 rpc:response:background
-// 3. 转发 GM_toolscript 主动推送 → IPC 事件
+// sidepanel 端（客户端）
+import { JSONRPCClient } from 'json-rpc-2.0';
 
-import { IPC } from 'kernel/IPC.js';
-import { Log } from 'kernel/services/Log.js';
+const client = new JSONRPCClient((request) => {
+    chrome.runtime.sendMessage(request, (response) => {
+        client.receive(response);
+    });
+});
 
-export class BackgroundBridge {
-    private ipc: IPC;
-    private _initialized = false;
-    
-    constructor(ipc: IPC) {
-        this.ipc = ipc;
-    }
-    
-    init(): void {
-        if (this._initialized) return;
-        this._initialized = true;
-        
-        // ─── 转发 RPC 请求到 background ───
-        this.ipc.on('rpc:request:background', (data: any) => {
-            const { method, params, requestId } = data;
-            
-            chrome.runtime.sendMessage({ rpc: method, requestId, params }, (response) => {
-                if (chrome.runtime.lastError) {
-                    this.ipc.emit('rpc:response:background', {
-                        method, requestId, error: chrome.runtime.lastError.message
-                    });
-                } else {
-                    this.ipc.emit('rpc:response:background', {
-                        method, requestId, ...response
-                    });
-                }
-            });
-        });
-        
-        // ─── 转发 GM_toolscript 主动推送 → IPC 事件 ───
-        chrome.runtime.onMessage.addListener((message) => {
-            switch (message.method) {
-                case 'GM_toolscript_return':
-                    this.ipc.emit('background:toolScriptReturn', {
-                        scriptId: message.scriptId, result: message.result
-                    });
-                    break;
-                case 'GM_toolscript_error':
-                    this.ipc.emit('background:toolScriptError', {
-                        scriptId: message.scriptId, error: message.message
-                    });
-                    break;
-                case 'GM_toolscript_progress':
-                    this.ipc.emit('background:toolScriptProgress', {
-                        scriptId: message.scriptId, message: message.message, percentage: message.percentage
-                    });
-                    break;
-            }
-        });
-        
-        Log.info('BackgroundBridge', 'Transport bridge initialized');
-    }
-    
-    destroy(): void {
-        this._initialized = false;
-    }
-}
+// 调用 remote 方法
+const result = await client.request('syncUserScripts', {});
 ```
-
-### 3.6 background.js — 纯 RPC 服务端
-
-background.js 只注册 RPC 方法，不关心谁调用。它通过 `chrome.runtime.sendMessage` 接收 RPC 请求，执行后返回结果。
 
 ```javascript
-// background.js — RPC 服务端
-//
-// 职责：
-// 1. 注册 RPC 方法（通过 registerRPC）
-// 2. 接收 chrome.runtime.onMessage 路由到对应 handler
-// 3. 不包含业务逻辑，只做执行
+// background.js 端（服务端）
+import { JSONRPCServer } from 'json-rpc-2.0';
 
-// ─── RPC 处理器注册表 ───
-const rpcHandlers = {};
+const server = new JSONRPCServer();
 
-function registerRPC(method, handler) {
-    rpcHandlers[method] = handler;
-}
-
-// ─── 消息入口 ───
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (!message.rpc) return; // 非 RPC 消息（GM_toolscript 回传等）
-    
-    const handler = rpcHandlers[message.rpc];
-    if (!handler) {
-        sendResponse({ error: `Unknown RPC method: ${message.rpc}` });
-        return;
-    }
-    
-    Promise.resolve()
-        .then(() => handler(message.params, sender))
-        .then(result => sendResponse({ result }))
-        .catch(error => sendResponse({ error: error.message }));
-    
-    return true; // 异步响应
-});
-
-// ─── 注册 RPC 方法 ───
-
-registerRPC('initAutoInject', async (params) => {
-    if (_autoInjectInitialized) return { success: true };
-    _autoInjectInitialized = true;
-    
-    chrome.storage.onChanged.addListener((changes, areaName) => {
-        if (areaName === 'local' && changes.user_scripts) {
-            syncRegisteredScripts();
-        }
-    });
-    
-    await syncRegisteredScripts();
-    return { success: true };
-});
-
-registerRPC('syncUserScripts', async (params) => {
+server.addMethod('syncUserScripts', async (params) => {
     const success = await syncRegisteredScripts();
     return { success };
 });
 
-registerRPC('GM_xmlhttpRequest', async (params) => {
-    const response = await fetch(params.details.url, {
-        method: params.details.method || 'GET',
-        headers: params.details.headers,
-        body: params.details.data
-    });
-    const text = await response.text();
-    return { responseText: text, status: response.status };
-});
-
-registerRPC('GM_notification', async (params) => {
-    chrome.notifications.create({
-        type: 'basic',
-        iconUrl: 'assets/icons/icon128.png',
-        title: params.details?.title || 'Script Notification',
-        message: params.details?.text || ''
-    });
+server.addMethod('initAutoInject', async (params) => {
+    // 注册 storage 监听 + 首次同步
     return { success: true };
 });
 
-// ─── 内部实现 ───
-let _autoInjectInitialized = false;
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    server.receive(request).then((response) => {
+        sendResponse(response);
+    });
+    return true;
+});
+```
 
-async function syncRegisteredScripts() {
-    let scripts = [];
-    try {
-        const result = await chrome.storage.local.get(['user_scripts']);
-        scripts = result.user_scripts || [];
-    } catch (e) {
-        console.error('[Background] Read scripts failed:', e);
-        return false;
-    }
-    const enabled = scripts.filter(s => s.enabled && s.match && s.match.length > 0);
-    try { await chrome.userScripts.unregister(); } catch {}
-    if (enabled.length === 0) return true;
-    const registrations = enabled.map(s => ({
-        id: s.id,
-        matches: s.match,
-        js: [{ code: wrapWithGM(s.code, s) }],
-        world: 'MAIN',
-        runAt: RUN_AT_MAP[s.runAt || 'document-idle']
-    }));
-    try {
-        await chrome.userScripts.register(registrations);
-        console.log(`[Background] Registered ${registrations.length} user scripts`);
+### 3.4 ToolsManager 注册为 Remote 方法
+
+```typescript
+// main.ts START 阶段
+import { JSONRPCClient } from 'json-rpc-2.0';
+import { JSONRPCServer } from 'json-rpc-2.0';
+
+// ─── sidepanel 端：JSON-RPC 客户端 ───
+const rpcClient = new JSONRPCClient((request) => {
+    chrome.runtime.sendMessage(request, (response) => {
+        rpcClient.receive(response);
+    });
+});
+
+// ─── sidepanel 端：本地 JSON-RPC 服务端（接收 background 请求） ───
+const rpcServer = new JSONRPCServer();
+
+// 将 ToolsManager.invoke 暴露为远程 RPC 方法
+rpcServer.addMethod('tools.invoke', async (params) => {
+    const { toolName, input, context } = params;
+    const toolCall = new ToolCall(null, toolName, input);
+    const result = await toolsManager.invoke(toolCall, context || {});
+    return result.toJSON();
+});
+
+rpcServer.addMethod('tools.getDefinitions', async () => {
+    return toolsManager.getDefinitionsForLLM('openai');
+});
+
+// 接收 background 发来的请求（如 GM_toolscript 结果回传）
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.method?.startsWith('tools.')) {
+        rpcServer.receive(request).then(sendResponse);
         return true;
-    } catch (e) {
-        console.error('[Background] Register failed:', e);
-        return false;
     }
-}
-```
+});
 
-### 3.7 工具代码调用方式
-
-工具代码通过 `RPCService.call()` 调用远程方法：
-
-```javascript
-// ManageUserScriptsTool.js
-class ManageUserScriptsTool extends Tool {
-    constructor() {
-        super({
-            name: 'manage_user_scripts',
-            handler: async (args, context) => {
-                const kernel = context?.kernel;
-                const rpc = kernel?.getRPCService?.();
-                const storage = kernel?.getStorageManager?.();
-                if (!storage) throw new Error('Storage manager not available');
-                
-                // ... CRUD 操作 ...
-                
-                switch (args.action) {
-                    case 'install':
-                    case 'update':
-                    case 'toggle':
-                    case 'delete':
-                        const script = await /* 执行 CRUD */;
-                        // 通过 RPC 框架通知 background 重新注册
-                        if (rpc) await rpc.call('background', 'syncUserScripts', {});
-                        return script;
-                }
-            }
-        });
-    }
-}
-```
-
-```javascript
-// RunUserScriptTool.js
-class RunUserScriptTool extends Tool {
-    constructor() {
-        super({
-            name: 'run_user_script',
-            handler: async (args, context) => {
-                const kernel = context?.kernel;
-                const ipc = kernel?.getIPC?.();
-                
-                const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-                if (!tab?.id) throw new Error('无法找到当前活动标签页');
-                
-                // 通过 IPC 监听 GM_toolscript 回传
-                const waitForResult = new Promise((resolve, reject) => {
-                    if (!ipc) return;
-                    const unsubReturn = ipc.on('background:toolScriptReturn', (data) => {
-                        unsubReturn(); unsubError();
-                        resolve(data.result);
-                    });
-                    const unsubError = ipc.on('background:toolScriptError', (data) => {
-                        unsubReturn(); unsubError();
-                        reject(new Error(data.error));
-                    });
-                });
-                
-                await chrome.userScripts.execute({
-                    target: { tabId: tab.id },
-                    js: [{ code: args.code }],
-                    world: 'MAIN',
-                    injectImmediately: true
-                });
-                
-                const effectiveTimeout = (typeof args.timeout === 'number' && args.timeout > 0) ? args.timeout : 300000;
-                return await Promise.race([
-                    waitForResult,
-                    new Promise((_, reject) => 
-                        setTimeout(() => reject(new Error('脚本执行超时')), effectiveTimeout)
-                    )
-                ]);
-            }
-        });
-    }
-}
-```
-
-### 3.8 初始化流程
-
-```
-1. Service Worker 启动 (background.js)
-   │  chrome.runtime.onMessage 监听器就绪
-   │  RPC 方法已注册（initAutoInject, syncUserScripts, ...）
-   │  等待 sidepanel 连接
-   │
-2. 用户打开 sidepanel
-   │  Kernel 启动 → Bootloader.START 阶段
-   │
-3. main.ts START 阶段
-   │  ├── 创建 RPCService(ipc).init()
-   │  ├── 注册 ToolsManager 为 RPC 服务端:
-   │  │    rpcService.registerServer('tools', {
-   │  │        invoke: (params) => toolsManager.invoke(...),
-   │  │        getDefinitions: () => toolsManager.getDefinitionsForLLM()
-   │  │    })
-   │  ├── 创建 BackgroundBridge(ipc).init()
-   │  ├── 注册所有工具到 ToolsManager
-   │  └── 创建 ChatProgram / ChatEventHandler
-   │
-4. 初始化自动注入
-   │  rpcService.call('background', 'initAutoInject', {})
-   │       → IPC emit('rpc:request:background')
-   │       → BackgroundBridge → sendMessage({ rpc: 'initAutoInject' })
-   │       → background → 注册 storage.onChanged + syncRegisteredScripts()
-   │       → 响应原路返回
-   │
-5. ManageUserScriptsTool CRUD 操作
-   │  rpcService.call('background', 'syncUserScripts', {})
-   │       → IPC → BackgroundBridge → background → 重新 register()
-   │
-6. 远程调用者（如 background.js 或其他扩展）调用工具
-   │  sendMessage({ rpc: 'tools.invoke', params: { toolName, input } })
-   │       → BackgroundBridge → IPC emit('rpc:request:tools')
-   │       → RPCService 路由到 tools.invoke handler
-   │       → ToolsManager.invoke(toolCall) 执行
-   │       → 结果原路返回
-   │
-7. AI 调用脚本工具
-   │  RunUserScriptTool → chrome.userScripts.execute()
-   │  页面内脚本调用 GM_toolscript.return(result)
-   │       → chrome.runtime.sendMessage({ method: 'GM_toolscript_return' })
-   │       → BackgroundBridge onMessage 收到
-   │       → ipc.emit('background:toolScriptReturn')
-   │       → RunUserScriptTool 的 IPC 监听器 → Promise resolve
+// ─── 后台自动注册 ───
+rpcClient.request('initAutoInject', {}).catch(() => {});
 ```
 
 ---
 
-## 四、升级路线（4 阶段）
+## 四、实施步骤
 
-### 第一阶段：基础兼容（P0）
+### Step 1: 安装依赖
 
-| 文件 | 改动 |
-|------|------|
-| `kernel/services/RPCService.ts` | **新文件**：基于 IPC 的通用 RPC 框架（registerServer / call） |
-| `kernel/Events.ts` | 新增 `BACKGROUND` 命名空间事件常量 |
-| `sidepanel/services/BackgroundBridge.ts` | **新文件**：纯传输层（IPC ↔ chrome.runtime.sendMessage） |
-| `sidepanel/main.ts` | START 阶段创建 RPCService + 注册 tools/background 服务端 + BackgroundBridge |
-| `background.js` | 重构为 RPC 服务端（registerRPC + 消息路由） |
-| `shared/gm-api.js` | **新文件**：GM_* API 包裹 + wrapWithGM + RUN_AT_MAP |
-| `sidepanel/tools/ManageUserScriptsTool.js` | CRUD 后 `rpc.call('background', 'syncUserScripts', {})` |
-| `kernel/services/ScriptsManager.ts` | @grant → capability 映射 |
-| `kernel/models/Scripts.ts` | UserScript 增加 `permissions` 字段 |
+```bash
+npm install json-rpc-2.0
+```
 
-### 第二阶段：GM_toolscript（P0）
+零依赖，TypeScript 类型内置。
 
-| 文件 | 改动 |
-|------|------|
-| `kernel/models/Scripts.ts` | UserScript 增加 `inputSchema?: object` |
-| `kernel/services/ScriptsManager.ts` | `registerScriptTool()` 脚本→Tool 注册 |
-| `kernel/ToolsManager.ts` | 脚本安装/启用时自动注册，卸载/禁用时注销 |
-| `RunUserScriptTool.js` | 通过 IPC 监听 `toolScriptReturn` 等待结果 |
-| `BackgroundBridge.ts` | 转发 `GM_toolscript_return` 为 IPC 事件 |
-| `shared/gm-api.js` | 新增 `buildGMToolscriptAPI()` |
+### Step 2: 重构 background.js
 
-### 第三阶段：权限面板（P1）
+**文件**：`background.js`（修改）
 
-| 文件 | 改动 |
-|------|------|
-| `ToolPanel.svelte` | 工具项增加权限按钮 |
-| `ScriptPermissionDialog.svelte` | 新组件 |
-| `ScriptsManager.ts` | 权限状态持久化 |
+用 JSON-RPC 2.0 替代直接 switch-case：
 
-### 第四阶段：高级功能（P2）
+```javascript
+import { JSONRPCServer } from 'json-rpc-2.0';
 
-| 文件 | 改动 |
-|------|------|
-| `shared/gm-api.js` | @require 预加载 |
-| `background.js` | @run-at 映射 |
-| `ScriptsPage.svelte` | GM_registerMenuCommand 菜单展示 |
+const server = new JSONRPCServer();
+
+server.addMethod('initAutoInject', async () => {
+    // 注册 storage 监听 + 首次同步
+});
+
+server.addMethod('syncUserScripts', async () => {
+    return { success: await syncRegisteredScripts() };
+});
+
+server.addMethod('GM_xmlhttpRequest', async (params) => {
+    const resp = await fetch(params.details.url, { /* ... */ });
+    return { responseText: await resp.text(), status: resp.status };
+});
+
+server.addMethod('GM_notification', async (params) => {
+    chrome.notifications.create({ /* ... */ });
+    return { success: true };
+});
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    server.receive(request).then(sendResponse);
+    return true; // 异步响应
+});
+```
+
+### Step 3: 修改 main.ts
+
+**文件**：`sidepanel/main.ts`（修改）
+
+START 阶段创建 JSON-RPC 客户端 + 服务端。
+
+### Step 4: 创建 GM API 包裹
+
+**文件**：`shared/gm-api.js`（新建，~150 行）
+
+GM_* API 实现，直接在 MAIN world 操作 `chrome.storage.local` 或通过 `chrome.runtime.sendMessage` 转发。
+
+### Step 5: 更新 ManageUserScriptsTool
+
+**文件**：`sidepanel/tools/ManageUserScriptsTool.js`（修改）
+
+CRUD 后调用 `rpcClient.request('syncUserScripts', {})`。
+
+### Step 6: GM_toolscript（脚本即工具）
+
+- `ScriptsManager.registerScriptTool()` — 检测 `@grant GM_toolscript`，自动注册为 Tool
+- `RunUserScriptTool` — 通过 `chrome.runtime.onMessage` 监听 `GM_toolscript_return`
+- `rpcServer.addMethod('tools.invoke')` — 供 background 或其他扩展远程调用
+
+### Step 7: 权限面板 UI
+
+- `ToolPanel.svelte` — 权限按钮
+- `ScriptPermissionDialog.svelte` — 权限开关对话框
 
 ---
 
-## 五、UI 设计示意
+## 五、改动清单
+
+| # | 文件 | 操作 | 行数 |
+|---|------|------|------|
+| — | `package.json` | 新增依赖 `json-rpc-2.0` | 1 行 |
+| 1 | `background.js` | **重构**：JSON-RPC 服务端模式 | ~50 行改动 |
+| 2 | `sidepanel/main.ts` | **修改**：创建 rpcClient + rpcServer | ~30 行 |
+| 3 | `shared/gm-api.js` | **新建**：GM_* API 包裹 | ~150 行 |
+| 4 | `sidepanel/tools/ManageUserScriptsTool.js` | **修改**：CRUD + RPC 通知 | ~10 行 |
+| 5 | `kernel/Events.ts` | **修改**：新增事件常量 | ~10 行 |
+| 6 | `kernel/services/ScriptsManager.ts` | **修改**：GM_toolscript 注册 | — |
+| 7 | `sidepanel/pages/chat/ToolPanel.svelte` | **修改**：权限按钮 | — |
+| 8 | `sidepanel/components/dialogs/ScriptPermissionDialog.svelte` | **新建** | — |
+
+---
+
+## 六、UI 示意
 
 ```
 ┌─────────────────────────────────────┐
@@ -761,23 +310,19 @@ class RunUserScriptTool extends Tool {
 │  ─── 用户脚本工具 ───               │
 │  ☑ 页面数据提取         [已启用] [🔑] │
 │     ↳ 匹配: *://*.example.com/*      │
-│  ☐ 自动登录助手         [已禁用] [🔑] │
-│     ↳ 匹配: *://*.login.com/*        │
 └─────────────────────────────────────┘
 ```
 
 ---
 
-## 六、注意事项
+## 七、注意事项
 
-1. **userScripts API 是唯一执行路径**：YouTube 等站点通过 Trusted Types 策略拦截 `new Function()`、`eval()`、`<script>`。`chrome.userScripts` 使用 Chrome 内部 V8 API 编译注入，不受限制。
+1. **userScripts API 是唯一执行路径**：YouTube 等站点通过 Trusted Types 拦截 `new Function()`、`eval()`。`chrome.userScripts` 使用 Chrome 内部 V8 API 编译注入，不受限制。
 
-2. **RPCService 在内核 service 层**：基于 kernel IPC 通道实现，`registerServer()` 注册服务端，`call()` 发起远程调用。任何服务（ToolsManager、background 等）都可以注册为 RPC 服务端。
+2. **json-rpc-2.0 零依赖**：纯协议层，只有类型定义 + 客户端/服务端实现。正好满足 sidepanel ↔ background 的通信需求。
 
-3. **ToolsManager.invoke() 是核心 RPC 方法**：通过 `rpcService.registerServer('tools', { invoke })` 暴露。远程调用者只需知道工具名称和 inputSchema，就可以通过 `{ rpc: 'tools.invoke', params: { toolName, input } }` 执行任意工具。
+3. **JSON-RPC 2.0 是标准协议**：如果未来有其他扩展或外部客户端需要调用工具，可以直接用标准 JSON-RPC 协议通信，不需要额外适配。
 
-4. **BackgroundBridge 是纯传输层**：不包含业务逻辑，只做 IPC ↔ chrome.runtime.sendMessage 的翻译。`rpc:request:*` → sendMessage，sendMessage 响应 → `rpc:response:*`。
+4. **ToolsManager.invoke 通过 rpcServer.addMethod('tools.invoke') 暴露**：远程调用者只需知道工具名称和 inputSchema。
 
-5. **background.js 是纯 RPC 服务端**：通过 `registerRPC()` 注册方法，`chrome.runtime.onMessage` 统一路由。不关心谁调用、不关心业务上下文。
-
-6. **回传通道**：`userScripts.execute()` 注入的代码运行在 MAIN world，可以直接调 `chrome.runtime.sendMessage`。background 收到后通过 chrome.onMessage 传给 BackgroundBridge，后者发射 IPC 事件给等待的 Tool。
+5. **background.js 只注册 RPC 方法**：不关心谁调用、不关心业务上下文。
