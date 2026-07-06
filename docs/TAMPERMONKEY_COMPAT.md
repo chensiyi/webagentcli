@@ -154,9 +154,15 @@ var ctxRegistry = {
 
 ## 三、RPC 框架设计
 
-### 3.1 架构总览
+### 3.1 核心思路
 
-RPC 框架分为三层：
+**background.js 不需要关心业务逻辑，它只需要知道两件事：**
+1. **RPC 调用协议** — 如何发送 `{ rpc, params }` 并接收响应
+2. **Tool 定义** — 工具的名称和 inputSchema，以便构造正确的参数
+
+RPC 框架的核心是**将 `ToolsManager.invoke()` 暴露为远程可调用的方法**。任何远程调用者（如 background.js）只需发送 `{ toolName, input }`，RPC 框架就会路由到 `ToolsManager.invoke()` 执行并返回结果。
+
+### 3.2 架构总览
 
 ```
 ┌─ Kernel 服务层 ────────────────────────────────────────┐
@@ -174,7 +180,14 @@ RPC 框架分为三层：
 │  │  - call(target, method, params) → Promise           │    │
 │  └──────────────────────────────────────────────────┘    │
 │                                                          │
-│  Tools 通过 RPCService.call() 调用远程方法                │
+│  ToolsManager (kernel/ToolsManager.ts)                    │
+│  ┌──────────────────────────────────────────────────┐    │
+│  │  invoke(toolCall, context) → ToolResult            │    │
+│  │                                                    │    │
+│  │  通过 RPCService.registerServer('tools', {          │    │
+│  │    invoke: (params) => this.invoke(params)          │    │
+│  │  }) 暴露为远程可调用                                  │    │
+│  └──────────────────────────────────────────────────┘    │
 │                                                          │
 └──────────────────────┬───────────────────────────────────┘
                        │ IPC 事件
@@ -186,30 +199,33 @@ RPC 框架分为三层：
 │  │  纯传输层：IPC ↔ chrome.runtime.sendMessage       │    │
 │  │                                                    │    │
 │  │  职责：                                             │    │
-│  │  1. 监听 rpc:request:background → sendMessage      │    │
-│  │  2. 收到 background 响应 → emit rpc:response       │    │
+│  │  1. 监听 rpc:request:* → sendMessage               │    │
+│  │  2. 收到响应 → emit rpc:response:*                 │    │
 │  │  3. 转发 GM_toolscript 主动推送 → IPC 事件          │    │
 │  └──────────────────────────────────────────────────┘    │
 │                                                          │
 └──────────────────────┬───────────────────────────────────┘
                        │ chrome.runtime.sendMessage
                        ▼
-┌─ Server 层 ────────────────────────────────────────────┐
+┌─ 远程调用者 ──────────────────────────────────────────┐
 │                                                          │
-│  background.js                                           │
+│  background.js / 其他扩展 / 未来远程客户端                 │
 │  ┌──────────────────────────────────────────────────┐    │
-│  │  纯 RPC 服务端，不关心业务逻辑                      │    │
+│  │  只需要知道：                                       │    │
+│  │  1. RPC 协议: { rpc, params } → 响应               │    │
+│  │  2. Tool 定义: 工具名称 + inputSchema               │    │
 │  │                                                    │    │
-│  │  chrome.runtime.onMessage → { rpc, params }        │    │
-│  │  → 路由到 handler → 返回结果                        │    │
-│  │                                                    │    │
-│  │  registerRPC(method, handler) 注册方法              │    │
+│  │  调用示例:                                          │    │
+│  │  sendMessage({                                      │    │
+│  │    rpc: 'tools.invoke',                            │    │
+│  │    params: { toolName: 'xxx', input: {...} }       │    │
+│  │  })                                                │    │
 │  └──────────────────────────────────────────────────┘    │
 │                                                          │
 └──────────────────────────────────────────────────────────┘
 ```
 
-### 3.2 RPCService — 内核级 RPC 框架
+### 3.3 RPCService — 内核级 RPC 框架
 
 ```typescript
 // kernel/services/RPCService.ts
@@ -242,22 +258,14 @@ export class RPCService {
         this.ipc = ipc;
     }
     
-    /**
-     * 初始化 RPC 框架
-     * - 监听 rpc:request:* 事件（服务端接收请求）
-     * - 监听 rpc:response:* 事件（客户端接收响应）
-     */
     init(): void {
         if (this._initialized) return;
         this._initialized = true;
         
         // ─── 服务端：监听 rpc:request:{target} ───
-        // 使用 IPC 的 on 监听，事件名格式: rpc:request:{target}
-        // 例如: rpc:request:background
         this.ipc.on('rpc:request', (data: any, message) => {
-            // 从事件名提取 target: rpc:request:background → background
             const eventParts = message.event.split(':');
-            const target = eventParts[2]; // ['rpc', 'request', 'background']
+            const target = eventParts[2];
             if (!target) return;
             
             const server = this._servers.get(target);
@@ -276,7 +284,6 @@ export class RPCService {
                 return;
             }
             
-            // 执行 handler 并返回结果
             Promise.resolve()
                 .then(() => handler(params))
                 .then(result => {
@@ -314,11 +321,6 @@ export class RPCService {
         Log.info('RPCService', 'RPC framework initialized');
     }
     
-    /**
-     * 注册一个 RPC 服务端
-     * @param target 服务端名称（如 'background'）
-     * @param handlers 方法名 → 处理函数 的映射
-     */
     registerServer(target: string, handlers: Record<string, RPCHandler>): void {
         if (this._servers.has(target)) {
             Log.warn('RPCService', `Server "${target}" already registered, overwriting`);
@@ -327,13 +329,6 @@ export class RPCService {
         Log.info('RPCService', `Server "${target}" registered with ${Object.keys(handlers).length} methods`);
     }
     
-    /**
-     * 调用远程 RPC 方法
-     * @param target 服务端名称
-     * @param method 方法名
-     * @param params 参数
-     * @param timeout 超时时间（毫秒）
-     */
     call(target: string, method: string, params: any = {}, timeout = 30000): Promise<any> {
         return new Promise((resolve, reject) => {
             const requestId = `rpc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -344,8 +339,6 @@ export class RPCService {
             }, timeout);
             
             this._pending.set(requestId, { resolve, reject, timeout: timer });
-            
-            // 发射 rpc:request:{target} 事件
             this.ipc.emit(`rpc:request:${target}`, { method, params, requestId });
         });
     }
@@ -359,9 +352,43 @@ export class RPCService {
 }
 ```
 
-### 3.3 BackgroundBridge — 纯传输层
+### 3.4 ToolsManager 注册为 RPC 服务端
 
-BackgroundBridge 不再包含业务逻辑，只做 IPC ↔ chrome.runtime.sendMessage 的翻译：
+ToolsManager 的 `invoke()` 方法通过 RPCService 暴露为远程可调用：
+
+```typescript
+// 在 main.ts START 阶段注册
+const rpcService = new RPCService(ipc);
+rpcService.init();
+
+// 将 ToolsManager.invoke 暴露为远程 RPC 方法
+// 远程调用者只需发送 { toolName, input } 即可执行任意工具
+rpcService.registerServer('tools', {
+    invoke: async (params) => {
+        const { toolName, input, context } = params;
+        const toolCall = new ToolCall(null, toolName, input);
+        const result = await toolsManager.invoke(toolCall, context || {});
+        return result.toJSON();
+    },
+    getDefinitions: async () => {
+        // 返回工具定义列表，供远程调用者了解可用工具
+        return toolsManager.getDefinitionsForLLM('openai');
+    }
+});
+
+// 将 background 相关操作也注册为 RPC 服务端
+rpcService.registerServer('background', {
+    initAutoInject: async (params) => {
+        // 通过 RPC 调用 background.js 的 initAutoInject
+        return await rpcService.call('background', 'initAutoInject', params);
+    },
+    syncUserScripts: async (params) => {
+        return await rpcService.call('background', 'syncUserScripts', params);
+    }
+});
+```
+
+### 3.5 BackgroundBridge — 纯传输层
 
 ```typescript
 // sidepanel/services/BackgroundBridge.ts
@@ -375,15 +402,8 @@ BackgroundBridge 不再包含业务逻辑，只做 IPC ↔ chrome.runtime.sendMe
 import { IPC } from 'kernel/IPC.js';
 import { Log } from 'kernel/services/Log.js';
 
-type PendingRequest = {
-    resolve: (value: any) => void;
-    reject: (reason: any) => void;
-    timeout: ReturnType<typeof setTimeout>;
-};
-
 export class BackgroundBridge {
     private ipc: IPC;
-    private _pending: Map<string, PendingRequest> = new Map();
     private _initialized = false;
     
     constructor(ipc: IPC) {
@@ -436,15 +456,14 @@ export class BackgroundBridge {
     }
     
     destroy(): void {
-        this._pending.clear();
         this._initialized = false;
     }
 }
 ```
 
-### 3.4 background.js — 纯 RPC 服务端
+### 3.6 background.js — 纯 RPC 服务端
 
-background.js 只注册 RPC 方法，不关心谁调用：
+background.js 只注册 RPC 方法，不关心谁调用。它通过 `chrome.runtime.sendMessage` 接收 RPC 请求，执行后返回结果。
 
 ```javascript
 // background.js — RPC 服务端
@@ -553,9 +572,9 @@ async function syncRegisteredScripts() {
 }
 ```
 
-### 3.5 工具代码调用方式
+### 3.7 工具代码调用方式
 
-工具代码通过 `RPCService.call()` 调用 background 方法：
+工具代码通过 `RPCService.call()` 调用远程方法：
 
 ```javascript
 // ManageUserScriptsTool.js
@@ -633,7 +652,7 @@ class RunUserScriptTool extends Tool {
 }
 ```
 
-### 3.6 初始化流程
+### 3.8 初始化流程
 
 ```
 1. Service Worker 启动 (background.js)
@@ -645,23 +664,35 @@ class RunUserScriptTool extends Tool {
    │  Kernel 启动 → Bootloader.START 阶段
    │
 3. main.ts START 阶段
-   │  ├── 创建 RPCService(ipc).init()      ← 内核级 RPC 框架
-   │  ├── 创建 BackgroundBridge(ipc).init() ← 传输层桥接
+   │  ├── 创建 RPCService(ipc).init()
+   │  ├── 注册 ToolsManager 为 RPC 服务端:
+   │  │    rpcService.registerServer('tools', {
+   │  │        invoke: (params) => toolsManager.invoke(...),
+   │  │        getDefinitions: () => toolsManager.getDefinitionsForLLM()
+   │  │    })
+   │  ├── 创建 BackgroundBridge(ipc).init()
    │  ├── 注册所有工具到 ToolsManager
    │  └── 创建 ChatProgram / ChatEventHandler
    │
 4. 初始化自动注入
-   │  rpc.call('background', 'initAutoInject', {})
-   │       → IPC emit('rpc:request:background', { method: 'initAutoInject' })
+   │  rpcService.call('background', 'initAutoInject', {})
+   │       → IPC emit('rpc:request:background')
    │       → BackgroundBridge → sendMessage({ rpc: 'initAutoInject' })
    │       → background → 注册 storage.onChanged + syncRegisteredScripts()
    │       → 响应原路返回
    │
 5. ManageUserScriptsTool CRUD 操作
-   │  rpc.call('background', 'syncUserScripts', {})
+   │  rpcService.call('background', 'syncUserScripts', {})
    │       → IPC → BackgroundBridge → background → 重新 register()
    │
-6. AI 调用脚本工具
+6. 远程调用者（如 background.js 或其他扩展）调用工具
+   │  sendMessage({ rpc: 'tools.invoke', params: { toolName, input } })
+   │       → BackgroundBridge → IPC emit('rpc:request:tools')
+   │       → RPCService 路由到 tools.invoke handler
+   │       → ToolsManager.invoke(toolCall) 执行
+   │       → 结果原路返回
+   │
+7. AI 调用脚本工具
    │  RunUserScriptTool → chrome.userScripts.execute()
    │  页面内脚本调用 GM_toolscript.return(result)
    │       → chrome.runtime.sendMessage({ method: 'GM_toolscript_return' })
@@ -681,7 +712,7 @@ class RunUserScriptTool extends Tool {
 | `kernel/services/RPCService.ts` | **新文件**：基于 IPC 的通用 RPC 框架（registerServer / call） |
 | `kernel/Events.ts` | 新增 `BACKGROUND` 命名空间事件常量 |
 | `sidepanel/services/BackgroundBridge.ts` | **新文件**：纯传输层（IPC ↔ chrome.runtime.sendMessage） |
-| `sidepanel/main.ts` | START 阶段创建 RPCService.init() + BackgroundBridge.init() |
+| `sidepanel/main.ts` | START 阶段创建 RPCService + 注册 tools/background 服务端 + BackgroundBridge |
 | `background.js` | 重构为 RPC 服务端（registerRPC + 消息路由） |
 | `shared/gm-api.js` | **新文件**：GM_* API 包裹 + wrapWithGM + RUN_AT_MAP |
 | `sidepanel/tools/ManageUserScriptsTool.js` | CRUD 后 `rpc.call('background', 'syncUserScripts', {})` |
@@ -741,10 +772,12 @@ class RunUserScriptTool extends Tool {
 
 1. **userScripts API 是唯一执行路径**：YouTube 等站点通过 Trusted Types 策略拦截 `new Function()`、`eval()`、`<script>`。`chrome.userScripts` 使用 Chrome 内部 V8 API 编译注入，不受限制。
 
-2. **RPCService 在内核 service 层**：基于 kernel IPC 通道实现，`registerServer()` 注册服务端，`call()` 发起远程调用。新增 background 功能只需在 `background.js` 中 `registerRPC(method, handler)`。
+2. **RPCService 在内核 service 层**：基于 kernel IPC 通道实现，`registerServer()` 注册服务端，`call()` 发起远程调用。任何服务（ToolsManager、background 等）都可以注册为 RPC 服务端。
 
-3. **BackgroundBridge 是纯传输层**：不包含业务逻辑，只做 IPC ↔ chrome.runtime.sendMessage 的翻译。`rpc:request:background` → sendMessage，sendMessage 响应 → `rpc:response:background`。
+3. **ToolsManager.invoke() 是核心 RPC 方法**：通过 `rpcService.registerServer('tools', { invoke })` 暴露。远程调用者只需知道工具名称和 inputSchema，就可以通过 `{ rpc: 'tools.invoke', params: { toolName, input } }` 执行任意工具。
 
-4. **background.js 是纯 RPC 服务端**：通过 `registerRPC()` 注册方法，`chrome.runtime.onMessage` 统一路由。不关心谁调用、不关心业务上下文。
+4. **BackgroundBridge 是纯传输层**：不包含业务逻辑，只做 IPC ↔ chrome.runtime.sendMessage 的翻译。`rpc:request:*` → sendMessage，sendMessage 响应 → `rpc:response:*`。
 
-5. **回传通道**：`userScripts.execute()` 注入的代码运行在 MAIN world，可以直接调 `chrome.runtime.sendMessage`。background 收到后通过 chrome.onMessage 传给 BackgroundBridge，后者发射 IPC 事件给等待的 Tool。
+5. **background.js 是纯 RPC 服务端**：通过 `registerRPC()` 注册方法，`chrome.runtime.onMessage` 统一路由。不关心谁调用、不关心业务上下文。
+
+6. **回传通道**：`userScripts.execute()` 注入的代码运行在 MAIN world，可以直接调 `chrome.runtime.sendMessage`。background 收到后通过 chrome.onMessage 传给 BackgroundBridge，后者发射 IPC 事件给等待的 Tool。
