@@ -152,114 +152,227 @@ var ctxRegistry = {
 
 ---
 
-## 三、背景通信架构：BackgroundBridge
+## 三、RPC 框架设计
 
-### 3.1 多上下文问题
+### 3.1 架构总览
 
-项目横跨两个 JS 执行上下文：
+RPC 框架分为三层：
 
 ```
-┌─ Sidepanel (Svelte App) ─────────────────────────────┐
-│                                                        │
-│  Kernel (IPC 事件总线)                                  │
-│    │                                                    │
-│    │  ToolsManager  /  ScriptsManager  /  ChatProgram   │
-│    │                                                    │
-│    │  工具 handler 中不能直接调 chrome.userScripts       │
-│    │  （userScripts API 只能在 Service Worker 调用）     │
-│    │                                                    │
-│    └──→ 需要桥接到 background Service Worker             │
-│                                                        │
-└──────────────────────┬─────────────────────────────────┘
+┌─ Kernel 服务层 ────────────────────────────────────────┐
+│                                                          │
+│  RPCService (kernel/services/RPCService.ts)               │
+│  ┌──────────────────────────────────────────────────┐    │
+│  │  基于 IPC 的通用 RPC 框架                          │    │
+│  │                                                    │    │
+│  │  IPC 通道:                                          │    │
+│  │  - rpc:request:{target}  →  { method, params, id } │    │
+│  │  - rpc:response:{target} →  { method, result, id } │    │
+│  │                                                    │    │
+│  │  API:                                               │    │
+│  │  - registerServer(target, handlers)                 │    │
+│  │  - call(target, method, params) → Promise           │    │
+│  └──────────────────────────────────────────────────┘    │
+│                                                          │
+│  Tools 通过 RPCService.call() 调用远程方法                │
+│                                                          │
+└──────────────────────┬───────────────────────────────────┘
+                       │ IPC 事件
+                       ▼
+┌─ Transport 层 ─────────────────────────────────────────┐
+│                                                          │
+│  BackgroundBridge (sidepanel/services/BackgroundBridge.ts)│
+│  ┌──────────────────────────────────────────────────┐    │
+│  │  纯传输层：IPC ↔ chrome.runtime.sendMessage       │    │
+│  │                                                    │    │
+│  │  职责：                                             │    │
+│  │  1. 监听 rpc:request:background → sendMessage      │    │
+│  │  2. 收到 background 响应 → emit rpc:response       │    │
+│  │  3. 转发 GM_toolscript 主动推送 → IPC 事件          │    │
+│  └──────────────────────────────────────────────────┘    │
+│                                                          │
+└──────────────────────┬───────────────────────────────────┘
                        │ chrome.runtime.sendMessage
                        ▼
-┌─ Service Worker (background.js) ──────────────────────┐
-│                                                        │
-│  chrome.userScripts.register() / .execute()             │
-│  chrome.storage.local (直接访问)                       │
-│  chrome.tabs / chrome.notifications                    │
-│                                                        │
-│  只能通过 chrome.runtime.onMessage 接收指令              │
-│                                                        │
-└────────────────────────────────────────────────────────┘
+┌─ Server 层 ────────────────────────────────────────────┐
+│                                                          │
+│  background.js                                           │
+│  ┌──────────────────────────────────────────────────┐    │
+│  │  纯 RPC 服务端，不关心业务逻辑                      │    │
+│  │                                                    │    │
+│  │  chrome.runtime.onMessage → { rpc, params }        │    │
+│  │  → 路由到 handler → 返回结果                        │    │
+│  │                                                    │    │
+│  │  registerRPC(method, handler) 注册方法              │    │
+│  └──────────────────────────────────────────────────┘    │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
 ```
 
-### 3.2 BackgroundBridge 设计
-
-为 background 操作定义一个**标准 IPC 通道**，让工具代码通过 kernel IPC 发送`background:*`事件，由 `BackgroundBridge` 统一翻译为 `chrome.runtime.sendMessage`：
-
-```
-工具/服务 代码
-    │
-    │  kernel.ipc.emit('background:syncUserScripts', { scripts })
-    │
-    ▼
-BackgroundBridge (sidepanel/services/BackgroundBridge.ts)
-    │
-    │  监听 background:* 事件
-    │  翻译为 chrome.runtime.sendMessage({ method: 'syncUserScripts', ... })
-    │  等待 background 响应
-    │  通过 IPC 回传结果
-    │
-    ▼
-background.js
-    │
-    │  chrome.runtime.onMessage 处理
-    │  chrome.userScripts.register()
-    │  chrome.storage.local
-    │  返回结果
-    │
-    ▼
-BackgroundBridge 收到响应 → IPC emit('background:syncUserScripts:result')
-    │
-    ▼
-原始工具代码通过 Promise 拿到结果
-```
-
-### 3.3 事件定义
-
-在 `kernel/Events.ts` 中新增 `BACKGROUND` 命名空间：
+### 3.2 RPCService — 内核级 RPC 框架
 
 ```typescript
-// kernel/Events.ts 新增
-export const KernelEvents = {
-  // ... 现有事件 ...
-  
-  BACKGROUND: {
-    // ─── 初始化 ───
-    INIT_AUTO_INJECT:        'background:initAutoInject',        // 初始化自动注入
-    INIT_AUTO_INJECT_RESULT: 'background:initAutoInject:result', // 初始化结果
-    
-    // ─── 脚本同步 ───
-    SYNC_USER_SCRIPTS:        'background:syncUserScripts',        // 同步注册所有脚本
-    SYNC_USER_SCRIPTS_RESULT: 'background:syncUserScripts:result', // 同步结果
-    
-    // ─── GM_toolscript 回传 ───
-    TOOL_SCRIPT_RETURN:  'background:toolScriptReturn',   // 脚本工具结果回传
-    TOOL_SCRIPT_ERROR:   'background:toolScriptError',    // 脚本工具错误回传
-    TOOL_SCRIPT_PROGRESS:'background:toolScriptProgress', // 脚本工具进度
-    
-    // ─── GM_* API 代理 ───
-    GM_XMLHTTP_REQUEST:        'background:gmXmlhttpRequest',        // GM_xmlhttpRequest
-    GM_XMLHTTP_REQUEST_RESULT: 'background:gmXmlhttpRequest:result', // 请求结果
-    GM_NOTIFICATION:           'background:gmNotification',           // GM_notification
-  },
+// kernel/services/RPCService.ts
+// 基于 IPC 的通用 RPC 框架
+//
+// 设计原则：
+// - 利用 kernel IPC 通道实现请求/响应模式
+// - 服务端通过 registerServer() 注册方法
+// - 客户端通过 call() 调用远程方法
+// - 支持超时、错误处理
+
+import { IPC } from '../IPC.js';
+import { Log } from './Log.js';
+
+type RPCHandler = (params: any) => Promise<any> | any;
+
+type PendingCall = {
+    resolve: (value: any) => void;
+    reject: (reason: any) => void;
+    timeout: ReturnType<typeof setTimeout>;
 };
+
+export class RPCService {
+    private ipc: IPC;
+    private _pending: Map<string, PendingCall> = new Map();
+    private _servers: Map<string, Map<string, RPCHandler>> = new Map();
+    private _initialized = false;
+    
+    constructor(ipc: IPC) {
+        this.ipc = ipc;
+    }
+    
+    /**
+     * 初始化 RPC 框架
+     * - 监听 rpc:request:* 事件（服务端接收请求）
+     * - 监听 rpc:response:* 事件（客户端接收响应）
+     */
+    init(): void {
+        if (this._initialized) return;
+        this._initialized = true;
+        
+        // ─── 服务端：监听 rpc:request:{target} ───
+        // 使用 IPC 的 on 监听，事件名格式: rpc:request:{target}
+        // 例如: rpc:request:background
+        this.ipc.on('rpc:request', (data: any, message) => {
+            // 从事件名提取 target: rpc:request:background → background
+            const eventParts = message.event.split(':');
+            const target = eventParts[2]; // ['rpc', 'request', 'background']
+            if (!target) return;
+            
+            const server = this._servers.get(target);
+            if (!server) {
+                Log.warn('RPCService', `No server registered for target: ${target}`);
+                return;
+            }
+            
+            const { method, params, requestId } = data as any;
+            const handler = server.get(method);
+            if (!handler) {
+                Log.warn('RPCService', `No handler for ${target}.${method}`);
+                this.ipc.emit(`rpc:response:${target}`, {
+                    method, requestId, error: `Unknown method: ${method}`
+                });
+                return;
+            }
+            
+            // 执行 handler 并返回结果
+            Promise.resolve()
+                .then(() => handler(params))
+                .then(result => {
+                    this.ipc.emit(`rpc:response:${target}`, {
+                        method, requestId, result
+                    });
+                })
+                .catch(error => {
+                    this.ipc.emit(`rpc:response:${target}`, {
+                        method, requestId, error: error.message
+                    });
+                });
+        });
+        
+        // ─── 客户端：监听 rpc:response:{target} ───
+        this.ipc.on('rpc:response', (data: any, message) => {
+            const eventParts = message.event.split(':');
+            const target = eventParts[2];
+            if (!target) return;
+            
+            const { requestId, result, error } = data as any;
+            const pending = this._pending.get(requestId);
+            if (!pending) return;
+            
+            clearTimeout(pending.timeout);
+            this._pending.delete(requestId);
+            
+            if (error) {
+                pending.reject(new Error(error));
+            } else {
+                pending.resolve(result);
+            }
+        });
+        
+        Log.info('RPCService', 'RPC framework initialized');
+    }
+    
+    /**
+     * 注册一个 RPC 服务端
+     * @param target 服务端名称（如 'background'）
+     * @param handlers 方法名 → 处理函数 的映射
+     */
+    registerServer(target: string, handlers: Record<string, RPCHandler>): void {
+        if (this._servers.has(target)) {
+            Log.warn('RPCService', `Server "${target}" already registered, overwriting`);
+        }
+        this._servers.set(target, new Map(Object.entries(handlers)));
+        Log.info('RPCService', `Server "${target}" registered with ${Object.keys(handlers).length} methods`);
+    }
+    
+    /**
+     * 调用远程 RPC 方法
+     * @param target 服务端名称
+     * @param method 方法名
+     * @param params 参数
+     * @param timeout 超时时间（毫秒）
+     */
+    call(target: string, method: string, params: any = {}, timeout = 30000): Promise<any> {
+        return new Promise((resolve, reject) => {
+            const requestId = `rpc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            
+            const timer = setTimeout(() => {
+                this._pending.delete(requestId);
+                reject(new Error(`RPC call "${target}.${method}" timed out after ${timeout}ms`));
+            }, timeout);
+            
+            this._pending.set(requestId, { resolve, reject, timeout: timer });
+            
+            // 发射 rpc:request:{target} 事件
+            this.ipc.emit(`rpc:request:${target}`, { method, params, requestId });
+        });
+    }
+    
+    destroy(): void {
+        this._pending.forEach((p) => clearTimeout(p.timeout));
+        this._pending.clear();
+        this._servers.clear();
+        this._initialized = false;
+    }
+}
 ```
 
-### 3.4 BackgroundBridge 实现
+### 3.3 BackgroundBridge — 纯传输层
+
+BackgroundBridge 不再包含业务逻辑，只做 IPC ↔ chrome.runtime.sendMessage 的翻译：
 
 ```typescript
 // sidepanel/services/BackgroundBridge.ts
-// 职责：IPC 事件 ↔ chrome.runtime.sendMessage 的双向桥接
+// 纯传输层：IPC ↔ chrome.runtime.sendMessage 的双向桥接
 //
-// 设计原则：
-// - 只做事件翻译，不包含业务逻辑
-// - 所有 background:* 事件统一处理
-// - 支持请求-响应模式（带 Promise 等待）
+// 职责：
+// 1. 监听 rpc:request:background → 转发到 background Service Worker
+// 2. 收到 background 响应 → 转发回 rpc:response:background
+// 3. 转发 GM_toolscript 主动推送 → IPC 事件
 
 import { IPC } from 'kernel/IPC.js';
-import { KernelEvents } from 'kernel/Events.js';
 import { Log } from 'kernel/services/Log.js';
 
 type PendingRequest = {
@@ -270,163 +383,106 @@ type PendingRequest = {
 
 export class BackgroundBridge {
     private ipc: IPC;
-    private _pendingRequests: Map<string, PendingRequest> = new Map();
+    private _pending: Map<string, PendingRequest> = new Map();
     private _initialized = false;
     
     constructor(ipc: IPC) {
         this.ipc = ipc;
     }
     
-    /**
-     * 初始化桥接：
-     * 1. 监听 background:* IPC 事件
-     * 2. 设置 chrome.runtime.onMessage 接收 background 响应
-     */
     init(): void {
         if (this._initialized) return;
         this._initialized = true;
         
-        // ─── 监听 IPC 事件 → 转发到 background ───
-        
-        // 初始化自动注入
-        this.ipc.on(KernelEvents.BACKGROUND.INIT_AUTO_INJECT, async (data) => {
-            try {
-                const result = await this._sendToBackground('initAutoInject', data);
-                this.ipc.emit(KernelEvents.BACKGROUND.INIT_AUTO_INJECT_RESULT, result);
-            } catch (e) {
-                this.ipc.emit(KernelEvents.BACKGROUND.INIT_AUTO_INJECT_RESULT, { error: (e as Error).message });
-            }
-        });
-        
-        // 同步用户脚本
-        this.ipc.on(KernelEvents.BACKGROUND.SYNC_USER_SCRIPTS, async (data) => {
-            try {
-                const result = await this._sendToBackground('syncUserScripts', data);
-                this.ipc.emit(KernelEvents.BACKGROUND.SYNC_USER_SCRIPTS_RESULT, result);
-            } catch (e) {
-                this.ipc.emit(KernelEvents.BACKGROUND.SYNC_USER_SCRIPTS_RESULT, { error: (e as Error).message });
-            }
-        });
-        
-        // GM_xmlhttpRequest
-        this.ipc.on(KernelEvents.BACKGROUND.GM_XMLHTTP_REQUEST, async (data) => {
-            try {
-                const result = await this._sendToBackground('GM_xmlhttpRequest', data);
-                this.ipc.emit(KernelEvents.BACKGROUND.GM_XMLHTTP_REQUEST_RESULT, result);
-            } catch (e) {
-                this.ipc.emit(KernelEvents.BACKGROUND.GM_XMLHTTP_REQUEST_RESULT, { error: (e as Error).message });
-            }
-        });
-        
-        // GM_notification（无需等待响应）
-        this.ipc.on(KernelEvents.BACKGROUND.GM_NOTIFICATION, (data) => {
-            chrome.runtime.sendMessage({ method: 'GM_notification', ...data }).catch(() => {});
-        });
-        
-        // ─── 监听 background 主动推送到 sidepanel ───
-        chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-            // GM_toolscript_return 是脚本在页面执行后通过 background 转发回来的
-            if (message.method === 'GM_toolscript_return') {
-                this.ipc.emit(KernelEvents.BACKGROUND.TOOL_SCRIPT_RETURN, {
-                    scriptId: message.scriptId,
-                    result: message.result
-                });
-            }
-            if (message.method === 'GM_toolscript_error') {
-                this.ipc.emit(KernelEvents.BACKGROUND.TOOL_SCRIPT_ERROR, {
-                    scriptId: message.scriptId,
-                    error: message.message
-                });
-            }
-            if (message.method === 'GM_toolscript_progress') {
-                this.ipc.emit(KernelEvents.BACKGROUND.TOOL_SCRIPT_PROGRESS, {
-                    scriptId: message.scriptId,
-                    message: message.message,
-                    percentage: message.percentage
-                });
-            }
-        });
-        
-        Log.info('BackgroundBridge', 'Bridge initialized');
-    }
-    
-    /**
-     * 发送请求到 background 并等待响应
-     */
-    private _sendToBackground(method: string, data: any): Promise<any> {
-        return new Promise((resolve, reject) => {
-            const requestId = `bg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        // ─── 转发 RPC 请求到 background ───
+        this.ipc.on('rpc:request:background', (data: any) => {
+            const { method, params, requestId } = data;
             
-            const timeout = setTimeout(() => {
-                this._pendingRequests.delete(requestId);
-                reject(new Error(`Background request "${method}" timed out`));
-            }, 30000);
-            
-            this._pendingRequests.set(requestId, { resolve, reject, timeout });
-            
-            chrome.runtime.sendMessage({ method, requestId, ...data }, (response) => {
-                const pending = this._pendingRequests.get(requestId);
-                if (pending) {
-                    clearTimeout(pending.timeout);
-                    this._pendingRequests.delete(requestId);
-                    if (chrome.runtime.lastError) {
-                        reject(new Error(chrome.runtime.lastError.message));
-                    } else {
-                        resolve(response);
-                    }
+            chrome.runtime.sendMessage({ rpc: method, requestId, params }, (response) => {
+                if (chrome.runtime.lastError) {
+                    this.ipc.emit('rpc:response:background', {
+                        method, requestId, error: chrome.runtime.lastError.message
+                    });
+                } else {
+                    this.ipc.emit('rpc:response:background', {
+                        method, requestId, ...response
+                    });
                 }
             });
         });
+        
+        // ─── 转发 GM_toolscript 主动推送 → IPC 事件 ───
+        chrome.runtime.onMessage.addListener((message) => {
+            switch (message.method) {
+                case 'GM_toolscript_return':
+                    this.ipc.emit('background:toolScriptReturn', {
+                        scriptId: message.scriptId, result: message.result
+                    });
+                    break;
+                case 'GM_toolscript_error':
+                    this.ipc.emit('background:toolScriptError', {
+                        scriptId: message.scriptId, error: message.message
+                    });
+                    break;
+                case 'GM_toolscript_progress':
+                    this.ipc.emit('background:toolScriptProgress', {
+                        scriptId: message.scriptId, message: message.message, percentage: message.percentage
+                    });
+                    break;
+            }
+        });
+        
+        Log.info('BackgroundBridge', 'Transport bridge initialized');
     }
     
     destroy(): void {
-        this._pendingRequests.forEach((p) => clearTimeout(p.timeout));
-        this._pendingRequests.clear();
+        this._pending.clear();
         this._initialized = false;
     }
 }
 ```
 
-### 3.5 background.js 对应处理
+### 3.4 background.js — 纯 RPC 服务端
+
+background.js 只注册 RPC 方法，不关心谁调用：
 
 ```javascript
-// background.js — 只做消息处理，无业务逻辑
+// background.js — RPC 服务端
+//
+// 职责：
+// 1. 注册 RPC 方法（通过 registerRPC）
+// 2. 接收 chrome.runtime.onMessage 路由到对应 handler
+// 3. 不包含业务逻辑，只做执行
+
+// ─── RPC 处理器注册表 ───
+const rpcHandlers = {};
+
+function registerRPC(method, handler) {
+    rpcHandlers[method] = handler;
+}
+
+// ─── 消息入口 ───
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    switch (message.method) {
-        case 'initAutoInject':
-            initAutoInject().then(() => sendResponse({ success: true }));
-            return true;
-            
-        case 'syncUserScripts':
-            syncRegisteredScripts().then((r) => sendResponse({ success: r }));
-            return true;
-            
-        case 'GM_xmlhttpRequest':
-            fetch(message.details.url, {
-                method: message.details.method || 'GET',
-                headers: message.details.headers,
-                body: message.details.data
-            })
-            .then(r => r.text())
-            .then(body => sendResponse({ responseText: body, status: 200 }))
-            .catch(e => sendResponse({ status: 0, error: e.message }));
-            return true;
-            
-        case 'GM_notification':
-            chrome.notifications.create({
-                type: 'basic',
-                iconUrl: 'assets/icons/icon128.png',
-                title: message.details?.title || 'Script Notification',
-                message: message.details?.text || ''
-            });
-            break;
+    if (!message.rpc) return; // 非 RPC 消息（GM_toolscript 回传等）
+    
+    const handler = rpcHandlers[message.rpc];
+    if (!handler) {
+        sendResponse({ error: `Unknown RPC method: ${message.rpc}` });
+        return;
     }
+    
+    Promise.resolve()
+        .then(() => handler(message.params, sender))
+        .then(result => sendResponse({ result }))
+        .catch(error => sendResponse({ error: error.message }));
+    
+    return true; // 异步响应
 });
 
-let _autoInjectInitialized = false;
+// ─── 注册 RPC 方法 ───
 
-async function initAutoInject() {
-    if (_autoInjectInitialized) return;
+registerRPC('initAutoInject', async (params) => {
+    if (_autoInjectInitialized) return { success: true };
     _autoInjectInitialized = true;
     
     chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -436,7 +492,36 @@ async function initAutoInject() {
     });
     
     await syncRegisteredScripts();
-}
+    return { success: true };
+});
+
+registerRPC('syncUserScripts', async (params) => {
+    const success = await syncRegisteredScripts();
+    return { success };
+});
+
+registerRPC('GM_xmlhttpRequest', async (params) => {
+    const response = await fetch(params.details.url, {
+        method: params.details.method || 'GET',
+        headers: params.details.headers,
+        body: params.details.data
+    });
+    const text = await response.text();
+    return { responseText: text, status: response.status };
+});
+
+registerRPC('GM_notification', async (params) => {
+    chrome.notifications.create({
+        type: 'basic',
+        iconUrl: 'assets/icons/icon128.png',
+        title: params.details?.title || 'Script Notification',
+        message: params.details?.text || ''
+    });
+    return { success: true };
+});
+
+// ─── 内部实现 ───
+let _autoInjectInitialized = false;
 
 async function syncRegisteredScripts() {
     let scripts = [];
@@ -447,13 +532,9 @@ async function syncRegisteredScripts() {
         console.error('[Background] Read scripts failed:', e);
         return false;
     }
-    
     const enabled = scripts.filter(s => s.enabled && s.match && s.match.length > 0);
-    
     try { await chrome.userScripts.unregister(); } catch {}
-    
     if (enabled.length === 0) return true;
-    
     const registrations = enabled.map(s => ({
         id: s.id,
         matches: s.match,
@@ -461,7 +542,6 @@ async function syncRegisteredScripts() {
         world: 'MAIN',
         runAt: RUN_AT_MAP[s.runAt || 'document-idle']
     }));
-    
     try {
         await chrome.userScripts.register(registrations);
         console.log(`[Background] Registered ${registrations.length} user scripts`);
@@ -473,54 +553,33 @@ async function syncRegisteredScripts() {
 }
 ```
 
----
+### 3.5 工具代码调用方式
 
-## 四、工具逻辑改造
-
-### 4.1 ManageUserScriptsTool — 通过 IPC 通知 background
+工具代码通过 `RPCService.call()` 调用 background 方法：
 
 ```javascript
-// ManageUserScriptsTool.js — 改造后
-// CRUD 操作后不再直接调 chrome.runtime.sendMessage，而是发射 IPC 事件
-
+// ManageUserScriptsTool.js
 class ManageUserScriptsTool extends Tool {
     constructor() {
         super({
             name: 'manage_user_scripts',
-            // ... 定义保持不变 ...
             handler: async (args, context) => {
                 const kernel = context?.kernel;
-                const ipc = kernel?.getIPC?.();
+                const rpc = kernel?.getRPCService?.();
                 const storage = kernel?.getStorageManager?.();
                 if (!storage) throw new Error('Storage manager not available');
                 
-                const getAllScripts = () => storage.get(STORAGE_KEY).then(v => v || []);
-                const saveScripts = (scripts) => storage.set(STORAGE_KEY, scripts);
-                
-                // ... parseMetadata, getScriptById 等辅助函数 ...
+                // ... CRUD 操作 ...
                 
                 switch (args.action) {
-                    case 'install': {
-                        const script = await installScript(args.code);
-                        if (ipc) ipc.emit('background:syncUserScripts', {});  // ← IPC 事件
+                    case 'install':
+                    case 'update':
+                    case 'toggle':
+                    case 'delete':
+                        const script = await /* 执行 CRUD */;
+                        // 通过 RPC 框架通知 background 重新注册
+                        if (rpc) await rpc.call('background', 'syncUserScripts', {});
                         return script;
-                    }
-                    case 'update': {
-                        const script = await updateScriptCode(args.id, args.code);
-                        if (ipc) ipc.emit('background:syncUserScripts', {});
-                        return script;
-                    }
-                    case 'toggle': {
-                        const script = await toggleScript(args.id, args.enabled);
-                        if (ipc) ipc.emit('background:syncUserScripts', {});
-                        return script;
-                    }
-                    case 'delete': {
-                        await removeScript(args.id);
-                        if (ipc) ipc.emit('background:syncUserScripts', {});
-                        return { success: true, id: args.id };
-                    }
-                    // list, get 不需要通知 background
                 }
             }
         });
@@ -528,64 +587,40 @@ class ManageUserScriptsTool extends Tool {
 }
 ```
 
-### 4.2 ScriptsManager — 脚本工具注册时初始化 Bridge
-
-```typescript
-// ScriptsManager.ts — 新增方法
-async initScriptAutoInject(ipc: IPC): Promise<void> {
-    // 通过 IPC 触发 BackgroundBridge 初始化
-    ipc.emit('background:initAutoInject', {});
-}
-```
-
-### 4.3 RunUserScriptTool — 等待 GM_toolscript 回传
-
 ```javascript
-// RunUserScriptTool.js — 使用 IPC 监听 GM_toolscript 回传
-// 不需要直接调 chrome.runtime.*，由 BackgroundBridge 转发
-
+// RunUserScriptTool.js
 class RunUserScriptTool extends Tool {
     constructor() {
         super({
             name: 'run_user_script',
-            // ...
             handler: async (args, context) => {
                 const kernel = context?.kernel;
                 const ipc = kernel?.getIPC?.();
-                const { code, world = 'MAIN', timeout } = args || {};
                 
                 const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
                 if (!tab?.id) throw new Error('无法找到当前活动标签页');
                 
-                // 监听 GM_toolscript 回传（通过 IPC，由 BackgroundBridge 转发）
+                // 通过 IPC 监听 GM_toolscript 回传
                 const waitForResult = new Promise((resolve, reject) => {
-                    if (!ipc) {
-                        // 无 IPC 时直接执行（降级）
-                        resolve(await executeDirect(tab.id, code));
-                        return;
-                    }
-                    
+                    if (!ipc) return;
                     const unsubReturn = ipc.on('background:toolScriptReturn', (data) => {
-                        unsubReturn();
-                        unsubError();
+                        unsubReturn(); unsubError();
                         resolve(data.result);
                     });
                     const unsubError = ipc.on('background:toolScriptError', (data) => {
-                        unsubReturn();
-                        unsubError();
+                        unsubReturn(); unsubError();
                         reject(new Error(data.error));
                     });
                 });
                 
-                // 通过 userScripts.execute 注入
                 await chrome.userScripts.execute({
                     target: { tabId: tab.id },
-                    js: [{ code }],
+                    js: [{ code: args.code }],
                     world: 'MAIN',
                     injectImmediately: true
                 });
                 
-                const effectiveTimeout = (typeof timeout === 'number' && timeout > 0) ? timeout : 300000;
+                const effectiveTimeout = (typeof args.timeout === 'number' && args.timeout > 0) ? args.timeout : 300000;
                 return await Promise.race([
                     waitForResult,
                     new Promise((_, reject) => 
@@ -598,67 +633,58 @@ class RunUserScriptTool extends Tool {
 }
 ```
 
----
-
-## 五、初始化流程
+### 3.6 初始化流程
 
 ```
 1. Service Worker 启动 (background.js)
    │  chrome.runtime.onMessage 监听器就绪
-   │  等待 sidepanel 发送 initAutoInject
+   │  RPC 方法已注册（initAutoInject, syncUserScripts, ...）
+   │  等待 sidepanel 连接
    │
 2. 用户打开 sidepanel
    │  Kernel 启动 → Bootloader.START 阶段
    │
 3. main.ts START 阶段
+   │  ├── 创建 RPCService(ipc).init()      ← 内核级 RPC 框架
+   │  ├── 创建 BackgroundBridge(ipc).init() ← 传输层桥接
    │  ├── 注册所有工具到 ToolsManager
-   │  ├── 创建 ChatProgram / ChatEventHandler
-   │  └── 创建 BackgroundBridge(ipc).init()
-   │       │  ── 监听 background:* IPC 事件
-   │       │  ── 设置 chrome.runtime.onMessage 接收响应
-   │       │  ── 发射 background:initAutoInject
-   │       │       │
-   │       │       ▼ BackgroundBridge 翻译 → sendMessage('initAutoInject')
-   │       │       │
-   │       │       ▼ background.js 收到 → 注册 storage.onChanged + syncRegisteredScripts()
-   │       │
-   │       └── 初始化完成
+   │  └── 创建 ChatProgram / ChatEventHandler
    │
-4. ManageUserScriptsTool CRUD 操作
-   │  ipc.emit('background:syncUserScripts')
-   │       │
-   │       ▼ BackgroundBridge → sendMessage('syncUserScripts')
-   │       │
-   │       ▼ background.js → chrome.userScripts.unregister() + register()
+4. 初始化自动注入
+   │  rpc.call('background', 'initAutoInject', {})
+   │       → IPC emit('rpc:request:background', { method: 'initAutoInject' })
+   │       → BackgroundBridge → sendMessage({ rpc: 'initAutoInject' })
+   │       → background → 注册 storage.onChanged + syncRegisteredScripts()
+   │       → 响应原路返回
    │
-5. AI 调用脚本工具
+5. ManageUserScriptsTool CRUD 操作
+   │  rpc.call('background', 'syncUserScripts', {})
+   │       → IPC → BackgroundBridge → background → 重新 register()
+   │
+6. AI 调用脚本工具
    │  RunUserScriptTool → chrome.userScripts.execute()
    │  页面内脚本调用 GM_toolscript.return(result)
-   │       │
-   │       ▼ chrome.runtime.sendMessage({ method: 'GM_toolscript_return' })
-   │       │
-   │       ▼ BackgroundBridge 的 onMessage 监听收到
-   │       │  ipc.emit('background:toolScriptReturn', { scriptId, result })
-   │       │
-   │       ▼ RunUserScriptTool 的 IPC 监听器收到 → Promise resolve
-   │
-   │  AI 继续 ReAct 循环
+   │       → chrome.runtime.sendMessage({ method: 'GM_toolscript_return' })
+   │       → BackgroundBridge onMessage 收到
+   │       → ipc.emit('background:toolScriptReturn')
+   │       → RunUserScriptTool 的 IPC 监听器 → Promise resolve
 ```
 
 ---
 
-## 六、升级路线（4 阶段）
+## 四、升级路线（4 阶段）
 
 ### 第一阶段：基础兼容（P0）
 
 | 文件 | 改动 |
 |------|------|
+| `kernel/services/RPCService.ts` | **新文件**：基于 IPC 的通用 RPC 框架（registerServer / call） |
 | `kernel/Events.ts` | 新增 `BACKGROUND` 命名空间事件常量 |
-| `sidepanel/services/BackgroundBridge.ts` | **新文件**：IPC ↔ chrome.runtime.sendMessage 桥接 |
-| `sidepanel/main.ts` | START 阶段创建 `BackgroundBridge(ipc).init()` |
-| `background.js` | 重构为消息代理模式：`onMessage` 处理 + `syncRegisteredScripts()` |
+| `sidepanel/services/BackgroundBridge.ts` | **新文件**：纯传输层（IPC ↔ chrome.runtime.sendMessage） |
+| `sidepanel/main.ts` | START 阶段创建 RPCService.init() + BackgroundBridge.init() |
+| `background.js` | 重构为 RPC 服务端（registerRPC + 消息路由） |
 | `shared/gm-api.js` | **新文件**：GM_* API 包裹 + wrapWithGM + RUN_AT_MAP |
-| `sidepanel/tools/ManageUserScriptsTool.js` | CRUD 后 `ipc.emit('background:syncUserScripts')` |
+| `sidepanel/tools/ManageUserScriptsTool.js` | CRUD 后 `rpc.call('background', 'syncUserScripts', {})` |
 | `kernel/services/ScriptsManager.ts` | @grant → capability 映射 |
 | `kernel/models/Scripts.ts` | UserScript 增加 `permissions` 字段 |
 
@@ -691,7 +717,7 @@ class RunUserScriptTool extends Tool {
 
 ---
 
-## 七、UI 设计示意
+## 五、UI 设计示意
 
 ```
 ┌─────────────────────────────────────┐
@@ -711,14 +737,14 @@ class RunUserScriptTool extends Tool {
 
 ---
 
-## 八、注意事项
+## 六、注意事项
 
 1. **userScripts API 是唯一执行路径**：YouTube 等站点通过 Trusted Types 策略拦截 `new Function()`、`eval()`、`<script>`。`chrome.userScripts` 使用 Chrome 内部 V8 API 编译注入，不受限制。
 
-2. **BackgroundBridge 是唯一的跨上下文通道**：所有 sidepanel ↔ background 通信统一走 `background:*` IPC 事件 → BackgroundBridge → `chrome.runtime.sendMessage`。工具代码不直接调 `chrome.runtime.*`。
+2. **RPCService 在内核 service 层**：基于 kernel IPC 通道实现，`registerServer()` 注册服务端，`call()` 发起远程调用。新增 background 功能只需在 `background.js` 中 `registerRPC(method, handler)`。
 
-3. **事件命名规范**：`background:{action}` 用于请求，`background:{action}:result` 用于响应。与 `chat:`、`settings:` 等命名空间保持一致。
+3. **BackgroundBridge 是纯传输层**：不包含业务逻辑，只做 IPC ↔ chrome.runtime.sendMessage 的翻译。`rpc:request:background` → sendMessage，sendMessage 响应 → `rpc:response:background`。
 
-4. **IPC 事件在 `kernel/Events.ts` 定义**：所有 `background:*` 事件常量统一在 `KernelEvents.BACKGROUND` 中定义，Shell 层消息集中管理。
+4. **background.js 是纯 RPC 服务端**：通过 `registerRPC()` 注册方法，`chrome.runtime.onMessage` 统一路由。不关心谁调用、不关心业务上下文。
 
 5. **回传通道**：`userScripts.execute()` 注入的代码运行在 MAIN world，可以直接调 `chrome.runtime.sendMessage`。background 收到后通过 chrome.onMessage 传给 BackgroundBridge，后者发射 IPC 事件给等待的 Tool。
