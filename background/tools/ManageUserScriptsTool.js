@@ -1,12 +1,12 @@
 /**
  * ManageUserScriptsTool - 用户脚本管理工具
  * 允许 AI 查看、安装、编辑、启用、禁用和删除用户脚本
- * 通过 kernel 的 storageAdapter 访问 chrome.storage，不直接调用 chrome API
  *
- * 迁移自 sidepanel/js/tools/ManageUserScriptsTool.js
+ * 运行在 Service Worker 中，直接调用 chrome API
  */
 import { Log } from 'kernel/services/Log.js';
 import { Tool } from 'kernel/models/Tool.js';
+import { wrapWithGM, RUN_AT_MAP } from '../gm-api.js';
 
 const STORAGE_KEY = 'user_scripts';
 
@@ -30,12 +30,8 @@ class ManageUserScriptsTool extends Tool {
         required: ['action']
       },
       handler: async (args, context) => {
-        const storage = context?.kernel?.getStorageManager?.()
-                     || context?.kernel?.get?.('storageManager');
-        if (!storage) throw new Error('Storage manager not available');
-
-        const getAllScripts = () => storage.get(STORAGE_KEY).then(v => v || []);
-        const saveScripts = (scripts) => storage.set(STORAGE_KEY, scripts);
+        const getAllScripts = () => chrome.storage.local.get([STORAGE_KEY]).then(r => r[STORAGE_KEY] || []);
+        const saveScripts = (scripts) => chrome.storage.local.set({ [STORAGE_KEY]: scripts });
 
         const getScriptById = async (id) => {
           const scripts = await getAllScripts();
@@ -59,6 +55,23 @@ class ManageUserScriptsTool extends Tool {
           let g; while ((g = grantRegex.exec(block)) !== null) metadata.grant.push(g[1].trim());
           if (!metadata.name) metadata.name = '未命名脚本';
           return metadata;
+        };
+
+        const syncRegisteredScripts = async () => {
+          const scripts = await getAllScripts();
+          const enabled = scripts.filter(s => s.enabled && s.match && s.match.length > 0);
+          const registrations = enabled.map(s => ({
+            id: s.id,
+            matches: s.match,
+            js: [{ code: wrapWithGM(s.code, s) }],
+            world: 'MAIN',
+            runAt: RUN_AT_MAP[s.runAt] || 'document_idle'
+          }));
+          await chrome.userScripts.unregister();
+          if (registrations.length > 0) {
+            await chrome.userScripts.register(registrations);
+          }
+          Log.info('ManageUserScriptsTool', `Synced ${registrations.length} scripts`);
         };
 
         const installScript = async (code) => {
@@ -110,24 +123,31 @@ class ManageUserScriptsTool extends Tool {
           case 'install':
             Log.info('ManageUserScriptsTool', 'action=install, codeLength:', args.code?.length || 0);
             if (!args.code) throw new Error('code is required');
-            return await installScript(args.code);
+            const installed = await installScript(args.code);
+            await syncRegisteredScripts();
+            return installed;
 
           case 'update':
             Log.info('ManageUserScriptsTool', 'action=update, id:', args.id);
             if (!args.id) throw new Error('id is required');
             if (!args.code) throw new Error('code is required');
-            return await updateScriptCode(args.id, args.code);
+            const updated = await updateScriptCode(args.id, args.code);
+            await syncRegisteredScripts();
+            return updated;
 
           case 'toggle':
             Log.info('ManageUserScriptsTool', 'action=toggle, id:', args.id, '→', args.enabled);
             if (!args.id) throw new Error('id is required');
             if (args.enabled === undefined) throw new Error('enabled is required');
-            return await toggleScript(args.id, args.enabled);
+            const toggled = await toggleScript(args.id, args.enabled);
+            await syncRegisteredScripts();
+            return toggled;
 
           case 'delete':
             Log.info('ManageUserScriptsTool', 'action=delete, id:', args.id);
             if (!args.id) throw new Error('id is required');
             await removeScript(args.id);
+            await syncRegisteredScripts();
             return { success: true, id: args.id };
 
           default:
@@ -138,4 +158,5 @@ class ManageUserScriptsTool extends Tool {
     });
   }
 }
+
 export { ManageUserScriptsTool };

@@ -24,7 +24,7 @@
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "sidepanel/background.js",
+    "service_worker": "dist/background.bundle.js",
     "type": "module"
   },
   "side_panel": {

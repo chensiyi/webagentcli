@@ -2,6 +2,8 @@
  * 用户脚本运行工具
  * 在用户当前活动标签页中执行 JS 脚本（Turing-complete）
  *
+ * 运行在 Service Worker 中，直接调用 chrome API
+ *
  * 优先使用 chrome.userScripts.execute()（Chrome 135+，不受 Trusted Types 限制）
  * 降级为 chrome.scripting.executeScript({ func }) + new Function
  */
@@ -51,7 +53,6 @@ class RunUserScriptTool extends Tool {
         const effectiveTimeout = (typeof timeout === 'number' && timeout > 0) ? timeout : 300000;
         let timeoutId;
 
-        // 格式化输出（与原有行为一致）
         const formatOutput = (data) => {
           if (data === undefined) return 'undefined';
           if (typeof data === 'object') return JSON.stringify(data, null, 2);
@@ -59,7 +60,6 @@ class RunUserScriptTool extends Tool {
         };
 
         // ─── 优先：chrome.userScripts.execute()（Chrome 135+）───
-        // Chrome 内部 V8 API 编译注入，不走 new Function/eval/script.textContent，不触发 Trusted Types
         if (typeof chrome.userScripts?.execute === 'function') {
           try {
             const wrappedCode = `(function() { ${code} })()`;
@@ -88,26 +88,21 @@ class RunUserScriptTool extends Tool {
             }
             return formatOutput(result?.result);
           } catch (e) {
-            // userScripts.execute 失败（API 不可用/权限不足等），降级到 scripting.executeScript
             console.warn('[RunUserScript] userScripts.execute failed, falling back:', e.message);
             if (timeoutId) clearTimeout(timeoutId);
           }
         }
 
         // ─── 降级：chrome.scripting.executeScript({ func }) ───
-        // func 内部用 new Function 解析用户代码
-        // ISOLATED 世界不受 Trusted Types 限制；MAIN 世界在严格站点（如 YouTube）可能被拦截
         const executePromise = chrome.scripting.executeScript({
           target: { tabId: tab.id },
           world: world,
           func: (execCode) => {
             try {
-              // 先尝试作为表达式执行（用 return 捕获 IIFE 等的返回值）
               const trimmed = execCode.replace(/[;\s]+$/, '');
               const result = new Function(`return ${trimmed}`)();
               return { success: true, data: result };
             } catch (e) {
-              // 如果表达式化求值失败（例如纯语句块），降级为无 return 执行
               try {
                 const result = new Function(execCode)();
                 return { success: true, data: result };

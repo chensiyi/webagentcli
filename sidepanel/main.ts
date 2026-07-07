@@ -1,7 +1,10 @@
 /**
- * Svelte 5 UI 入口
- * 
- * 独立启动入口——自行 Boot Kernel，然后挂载 Svelte App。
+ * sidepanel/main.ts — UI Shell 入口
+ *
+ * 职责：
+ * - 通过 IPCTransport 连接 background Kernel
+ * - 渲染 Svelte UI 组件
+ * - 转发用户操作到 Kernel
  */
 
 import { mount } from 'svelte';
@@ -11,147 +14,50 @@ import './styles/utilities.css';
 import './styles/components.css';
 import './styles/pages.css';
 
-import { ConsoleLogger } from 'kernel/services/ConsoleLogger.js';
 import { IPC } from 'kernel/IPC.js';
-import { ToolsManager } from 'kernel/ToolsManager.js';
-import { CapabilityManager } from 'kernel/CapabilityManager.js';
-import { Kernel } from 'kernel/Kernel.js';
-import { Bootloader } from 'kernel/Bootloader.js';
-import { SessionManager } from 'kernel/services/SessionManager.js';
-import { SettingsManager } from 'kernel/services/SettingsManager.js';
-import { ScriptsManager } from 'kernel/services/ScriptsManager.js';
-import { ProcessManager } from 'kernel/services/ProcessManager.js';
-import { ProviderFactory } from 'kernel/services/ProviderFactory.js';
-import { ChatProgram } from 'kernel/programs/ChatProgram.js';
-import { ChromeStorageAdapter } from './services/ChromeStorageAdapter.js';
-import { RunUserScriptTool } from './tools/RunUserScriptTool.js';
-import { ManageUserScriptsTool } from './tools/ManageUserScriptsTool.js';
-import { ChatEventHandler } from './pages/chat/ChatEventHandler.js';
-
-async function bootKernel() {
-  console.log('[SvelteApp] Booting Kernel...');
-
-  const log = new ConsoleLogger();
-  const ipc = new IPC({ origin: 'svelte-app' });
-
-  const toolsManager = new ToolsManager();
-  const capabilities = new CapabilityManager();
-
-  ipc.use((message, next) => {
-    log.debug('IPC', `Event: ${message.event} (origin: ${message.origin})`);
-    return next();
-  });
-
-    const kernel = new Kernel({
-      ipc,
-      origin: 'webagentcli-svelte',
-      toolsManager,
-      capabilities,
-    });
-
-  const bootloader = new Bootloader(kernel);
-
-  // ---- Phase 1: INIT ----
-  bootloader.on(Bootloader.PHASES.INIT, async () => {
-    log.info('BOOT', 'IPC ready');
-  });
-
-  // ---- Phase 2: REGISTER ----
-  bootloader.on(Bootloader.PHASES.REGISTER, async () => {
-    const chromeStorageAdapter = new ChromeStorageAdapter(kernel);
-
-    kernel.register('storageAdapter', async () => chromeStorageAdapter);
-    kernel.register('storageManager', async () => chromeStorageAdapter);
-
-    kernel.register('sessionManager', async () => {
-      const sm = new SessionManager({ ipc, storage: chromeStorageAdapter, log });
-      await sm.initialize();
-      return sm;
-    }, { dependsOn: ['storageAdapter'] });
-
-    kernel.register('settingsManager', async () => {
-      return new SettingsManager({ ipc, storage: chromeStorageAdapter, log });
-    }, { dependsOn: ['storageAdapter'] });
-
-    kernel.register('scriptsManager', async () => {
-      return new ScriptsManager(kernel);
-    });
-
-    kernel.register('processManager', async () => {
-      return new ProcessManager(kernel);
-    });
-
-    kernel.register('providerFactory', async () => {
-      return new ProviderFactory(kernel);
-    }, { dependsOn: ['settingsManager'] });
-  });
-
-  // ---- Phase 3: START ----
-  bootloader.on(Bootloader.PHASES.START, async () => {
-    // 1. 初始化所有服务（ProcessManager.init 在此自动调用，注册 IPC 监听）
-    await kernel.boot();
-    log.info('APP', 'Services initialized from Kernel');
-
-    // 2. 注册内置工具
-    const builtInClasses = [RunUserScriptTool, ManageUserScriptsTool];
-    builtInClasses.forEach((ToolClass) => {
-      if (typeof ToolClass !== 'function') return;
-      try {
-        const tool = new (ToolClass as any)();
-        if (tool.name) {
-          toolsManager.register(tool);
-          log.info('TOOL', `Registered: ${tool.name}`);
-        }
-      } catch (e) {
-        log.warn('TOOL', 'Failed to register tool', e);
-      }
-    });
-
-    // 3. 创建 ChatProgram + 事件转译层
-    const chatProgram = new ChatProgram({ kernel, name: 'main' });
-    (kernel as any).chatProgram = chatProgram;
-    log.info('APP', 'ChatProgram initialized');
-
-    // ChatEventHandler：USER_APPLY_* → ChatProgram（鉴权/校验预留）
-    const chatEventHandler = new ChatEventHandler(kernel, chatProgram);
-    (kernel as any).chatEventHandler = chatEventHandler;
-    log.info('APP', 'ChatEventHandler initialized');
-
-    // 4. 加载配置
-    const settingsManager = kernel.getSettingsManager();
-    await settingsManager.loadSettings();
-    log.info('APP', 'ProviderFactory ready');
-  });
-
-  await bootloader.boot();
-  log.info('APP', `Kernel boot complete. Timings: ${JSON.stringify(bootloader.getTimings())}`);
-
-  return kernel;
-}
+import { IPCTransport } from 'kernel/IPCTransport.js';
+import { ConsoleLogger } from 'kernel/services/ConsoleLogger.js';
 
 async function init() {
-  console.log('[SvelteApp] Initializing...');
+    console.log('[Shell] Initializing...');
 
-  const root = document.getElementById('root');
-  if (!root) {
-    console.error('[SvelteApp] #root element not found');
-    return;
-  }
+    const log = new ConsoleLogger();
+    const ipc = new IPC({ origin: 'sidepanel-shell' });
 
-  try {
-    const kernel = await bootKernel();
+    // IPC 远程传输：连接 background Kernel
+    const transport = new IPCTransport(ipc, 'shell');
+    transport.init();
 
-    // 挂载侧边栏 Shell
-    mount(Sidepanel, {
-      target: root,
-      props: { kernel },
+    // 等待 Kernel 就绪
+    await new Promise<void>((resolve) => {
+        const unsub = ipc.on('kernel:bootComplete', () => {
+            unsub();
+            log.info('SHELL', 'Kernel ready');
+            resolve();
+        });
+        // 如果 Kernel 已经就绪但事件已错过，发送查询
+        ipc.emit('kernel:ping', {});
+        // 超时保护：3 秒后即使没收到也继续
+        setTimeout(() => {
+            unsub();
+            log.warn('SHELL', 'Kernel not responding, continuing anyway');
+            resolve();
+        }, 3000);
     });
 
-    console.log('[SvelteApp] Mounted successfully');
-  } catch (err) {
-    console.error('[SvelteApp] Initialization failed:', err);
-    root.textContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
-  }
+    // 挂载侧边栏 Shell
+    const root = document.getElementById('root');
+    if (!root) {
+        console.error('[Shell] #root element not found');
+        return;
+    }
+
+    mount(Sidepanel, {
+        target: root,
+        props: { kernel: null }, // kernel 为 null，通过 IPCTransport 远程调用
+    });
+
+    console.log('[Shell] Mounted successfully');
 }
 
 window.addEventListener('load', init);
