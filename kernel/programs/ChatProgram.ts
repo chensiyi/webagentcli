@@ -54,7 +54,7 @@ export class ChatProgram {
   _assistantMsgId: string | null;
   _currentRequest: CurrentRequest | null;
 
-  constructor(options: { kernel: Kernel; name?: string } = { kernel: null as unknown as Kernel, name: 'ChatProgram' }) {
+  constructor(options: { kernel: Kernel; name?: string }) {
     this.name = options.name || 'ChatProgram';
     this.kernel = options.kernel;
     this.ipc = this.kernel.getIPC();

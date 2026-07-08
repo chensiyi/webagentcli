@@ -22,7 +22,7 @@ class LMStudioService extends BaseProviderAPIService {
     if (!this.config.apiKey) this.config.apiKey = '';
   }
 
-  buildUrl(path) {
+  buildUrl(path: string): string {
     const cleanBase = this.config.endpoint.replace(/\/$/, '');
     const cleanPath = path.startsWith('/') ? path : `/${path}`;
     if (path === '/chat') return `${cleanBase}/v1/chat/completions`;
@@ -39,7 +39,7 @@ class LMStudioService extends BaseProviderAPIService {
     return headers;
   }
 
-  formatMessages(messages) {
+  formatMessages(messages: any[]): any[] {
     if (!messages || !Array.isArray(messages)) return [];
     const { MessageStructure } = MessageContent;
     return messages.map(msg => MessageStructure.toAPIFormat(msg, 'openai'));
@@ -68,19 +68,19 @@ class LMStudioService extends BaseProviderAPIService {
   }
 
   /** 解析非流式响应 → StandardResponse（含 ToolCall[]） */
-  _parseResponse(data) {
+  _parseResponse(data: any): any {
     const { MessageStructure } = MessageContent;
 
     if (data.output && Array.isArray(data.output)) {
-      const messageOutput = data.output.find(item => item.type === 'message');
-      const reasoningOutputs = data.output.filter(item => item.type === 'reasoning');
-      const rawToolCalls = data.output.filter(item => item.type === 'tool_call').map(tc => ({
+      const messageOutput = data.output.find((item: any) => item.type === 'message');
+      const reasoningOutputs = data.output.filter((item: any) => item.type === 'reasoning');
+      const rawToolCalls = data.output.filter((item: any) => item.type === 'tool_call').map((tc: any) => ({
         id: tc.tool,
         function: { name: tc.tool, arguments: JSON.stringify(tc.arguments || {}) }
       }));
       return {
         content: messageOutput?.content || '',
-        reasoning_content: reasoningOutputs.map(r => r.content).join(''),
+        reasoning_content: reasoningOutputs.map((r: any) => r.content).join(''),
         toolCalls: MessageStructure.parseToolCallsFromOpenAI(rawToolCalls),
         finishReason: 'stop',
         usage: data.stats ? {
@@ -108,7 +108,7 @@ class LMStudioService extends BaseProviderAPIService {
   }
 
   /** 解析流式单片数据 → 返回 { contentChunk, reasoningChunk, rawToolCall?, finishReason? } */
-  _parseStreamChunkRaw(data) {
+  _parseStreamChunkRaw(data: any): any {
     if (data.type && data.output !== undefined) {
       switch (data.type) {
         case 'chunk':
@@ -138,7 +138,7 @@ class LMStudioService extends BaseProviderAPIService {
 
   // ==================== 非流式 ====================
 
-  chat(request): Promise<any> {
+  chat(request: any): Promise<any> {
     const url = this.buildUrl('/chat');
     const headers = this.buildHeaders(request);
     request.stream = false;
@@ -163,7 +163,7 @@ class LMStudioService extends BaseProviderAPIService {
       Log.info('LMStudioService', `Chat response received: finishReason=${result.finishReason}`);
       return result;
     })
-    .catch(error => {
+    .catch((error: any): any => {
       if (error.name === 'AbortError') {
         Log.info('LMStudioService', 'Chat cancelled');
         return null;
@@ -176,24 +176,25 @@ class LMStudioService extends BaseProviderAPIService {
 
   // ==================== 流式 ====================
 
-  chatStream(request, onChunk): Promise<any> {
+  chatStream(request: any, onChunk?: (chunk: any) => void): Promise<any> {
     const url = this.buildUrl('/chat');
     const headers = this.buildHeaders(request);
     request.stream = true;
     const body = this.buildRequestBody(request);
 
     this.abortController = new AbortController();
+    const ac = this.abortController;
     let pendingContent = '';
     let pendingReasoning = '';
-    const pendingToolCalls = {}; // index → raw
-    let pendingFinishReason = null;
+    const pendingToolCalls: Record<number, any> = {}; // index → raw
+    let pendingFinishReason: string | null = null;
 
     Log.info('LMStudioService', `Stream request: model=${body.model}, messages=${body.messages?.length}`);
 
     return new Promise((resolve, reject) => {
       fetch(url, {
         method: 'POST', headers, body: JSON.stringify(body),
-        signal: this.abortController.signal
+        signal: ac.signal
       })
       .then(response => {
         if (!response.ok) return response.text().then(t => {
@@ -201,69 +202,73 @@ class LMStudioService extends BaseProviderAPIService {
           throw new Error(`LM Studio API error: ${response.status} - ${t}`);
         });
 
-        const reader = response.body.getReader();
+        const body = response.body;
+        if (!body) { resolve(null); return; }
+        const reader = body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
 
-        const processStream = () => {
-          return reader.read().then(({ done, value }) => {
-            if (done) {
-              const { MessageStructure } = MessageContent;
-              Log.info('LMStudioService', `Stream completed: content=${pendingContent.length}chars, finishReason=${pendingFinishReason || 'stop'}`);
-              resolve({
-                content: pendingContent,
-                reasoning_content: pendingReasoning,
-                toolCalls: MessageStructure.parseToolCallsFromOpenAI(Object.values(pendingToolCalls)),
-                finishReason: pendingFinishReason || 'stop',
-                usage: null,
-                model: null
-              });
-              return;
-            }
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop();
-
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (!trimmed || trimmed === 'data: [DONE]') continue;
-              if (!trimmed.startsWith('data: ')) continue;
-
-              try {
-                const json = JSON.parse(trimmed.slice(6));
-                const raw = this._parseStreamChunkRaw(json);
-                if (!raw) continue;
-
-                if (raw.finishReason) pendingFinishReason = raw.finishReason;
-
-                // 累计 tool_call（按 index 合并）
-                if (raw.rawToolCall) {
-                  const idx = Object.keys(pendingToolCalls).length;
-                  pendingToolCalls[idx] = {
-                    id: raw.rawToolCall.tool || raw.rawToolCall.id,
-                    index: idx,
-                    function: {
-                      name: raw.rawToolCall.tool,
-                      arguments: typeof raw.rawToolCall.arguments === 'string'
-                        ? raw.rawToolCall.arguments
-                        : JSON.stringify(raw.rawToolCall.arguments || {})
-                    }
-                  };
-                }
-
-                if (raw.contentChunk) pendingContent += raw.contentChunk;
-                if (raw.reasoningChunk) pendingReasoning += raw.reasoningChunk;
-
-                if (onChunk && (raw.contentChunk || raw.reasoningChunk)) {
-                  onChunk({ content: raw.contentChunk || '', reasoning_content: raw.reasoningChunk || '' });
-                }
-              } catch (e) {
-                Log.warn('LMStudioService', 'Failed to parse chunk:', e);
+        const processStream = (): Promise<void> => {
+          return reader.read().then(
+            ({ done, value }: { done: boolean; value: Uint8Array | undefined }): Promise<void> => {
+              if (done) {
+                const { MessageStructure } = MessageContent;
+                Log.info('LMStudioService', `Stream completed: content=${pendingContent.length}chars, finishReason=${pendingFinishReason || 'stop'}`);
+                resolve({
+                  content: pendingContent,
+                  reasoning_content: pendingReasoning,
+                  toolCalls: MessageStructure.parseToolCallsFromOpenAI(Object.values(pendingToolCalls)),
+                  finishReason: pendingFinishReason || 'stop',
+                  usage: null,
+                  model: null
+                });
+                return Promise.resolve();
               }
+
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || '';
+
+              for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed || trimmed === 'data: [DONE]') continue;
+                if (!trimmed.startsWith('data: ')) continue;
+
+                try {
+                  const json = JSON.parse(trimmed.slice(6));
+                  const raw = this._parseStreamChunkRaw(json);
+                  if (!raw) continue;
+
+                  if (raw.finishReason) pendingFinishReason = raw.finishReason;
+
+                  // 累计 tool_call（按 index 合并）
+                  if (raw.rawToolCall) {
+                    const idx = Object.keys(pendingToolCalls).length;
+                    pendingToolCalls[idx] = {
+                      id: raw.rawToolCall.tool || raw.rawToolCall.id,
+                      index: idx,
+                      function: {
+                        name: raw.rawToolCall.tool,
+                        arguments: typeof raw.rawToolCall.arguments === 'string'
+                          ? raw.rawToolCall.arguments
+                          : JSON.stringify(raw.rawToolCall.arguments || {})
+                      }
+                    };
+                  }
+
+                  if (raw.contentChunk) pendingContent += raw.contentChunk;
+                  if (raw.reasoningChunk) pendingReasoning += raw.reasoningChunk;
+
+                  if (onChunk && (raw.contentChunk || raw.reasoningChunk)) {
+                    onChunk({ content: raw.contentChunk || '', reasoning_content: raw.reasoningChunk || '' });
+                  }
+                } catch (e) {
+                  Log.warn('LMStudioService', 'Failed to parse chunk:', e);
+                }
+              }
+              return processStream();
             }
-            return processStream();
-          });
+          );
         };
         return processStream();
       })
@@ -290,20 +295,20 @@ class LMStudioService extends BaseProviderAPIService {
       this.config.endpoint.replace(/\/$/, '') + '/v1/models'
     ];
 
-    const tryEndpoint = (index) => {
+    const tryEndpoint = (index: number): Promise<any> => {
       if (index >= endpoints.length) return Promise.reject(new Error('Failed to fetch models from any LM Studio endpoint'));
       const url = endpoints[index];
       return fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } })
-      .then(r => {
+      .then((r: Response): Promise<any> => {
         if (!r.ok) return tryEndpoint(index + 1);
         return r.json();
       })
-      .then(result => {
-        let modelsArray = [];
+      .then((result: any): any => {
+        let modelsArray: any[] = [];
         if (result.data?.length) modelsArray = result.data;
         else if (result.models?.length) modelsArray = result.models;
         if (modelsArray.length === 0) return tryEndpoint(index + 1);
-        const mappedModels = modelsArray.map(m => ({
+        const mappedModels = modelsArray.map((m: any) => ({
           id: m.key || m.id, name: m.name || m.key || m.id,
           context_length: m.max_context_length || m.context_length || null,
           max_output_tokens: m.max_output_tokens || null,
@@ -318,13 +323,13 @@ class LMStudioService extends BaseProviderAPIService {
         Log.info('LMStudioService', `Model list fetched: ${mappedModels.length} models from ${url}`);
         return mappedModels;
       })
-      .catch(e => { Log.warn('LMStudioService', `Failed from ${endpoints[index]}:`, e); return tryEndpoint(index + 1); });
+      .catch((e: any) => { Log.warn('LMStudioService', `Failed from ${endpoints[index]}:`, e); return tryEndpoint(index + 1); });
     };
     return tryEndpoint(0);
   }
 
-  getModelDetails(modelId) {
-    return this.listModels().then(models => models.find(m => m.id === modelId) || null);
+  getModelDetails(modelId: string) {
+    return this.listModels().then((models: any[]) => models.find((m: any) => m.id === modelId) || null);
   }
 }
 export default LMStudioService;

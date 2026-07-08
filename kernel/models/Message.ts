@@ -36,13 +36,13 @@ export class Message extends BaseModel {
   reasoning_content: unknown;
   toolCallId: string | null;
   metadata: Record<string, unknown>;
-  toolCalls: unknown[];
+  toolCalls: ToolCall[];
 
   constructor(options: Record<string, unknown> = {}) {
     super(options);
     this.role = (options.role as RoleType) || Role.USER;
     this.content = options.content || '';
-    this.timestamp = (options.timestamp as number) || ((this as unknown as { createdAt: number }).createdAt);
+    this.timestamp = (options.timestamp as number) || this.createdAt;
     this.reasoning_content = options.reasoning_content || null;
     this.toolCallId = (options.toolCallId as string) || null;
     this.metadata = (options.metadata as Record<string, unknown>) || {};
@@ -53,12 +53,12 @@ export class Message extends BaseModel {
   addToolCall(toolCall: unknown): void {
     if (!toolCall) return;
     const tc = toolCall instanceof ToolCall ? toolCall : ToolCall.fromJSON(toolCall as Record<string, unknown>);
-    if (!tc || this.toolCalls.some(e => (e as unknown as { id: string }).id === (tc as unknown as { id: string }).id)) return;
+    if (!tc || this.toolCalls.some(e => e.id === tc.id)) return;
     this.toolCalls.push(tc);
     this.touch();
   }
 
-  getToolCall(id: string): unknown { return this.toolCalls.find(tc => (tc as unknown as { id: string }).id === id) || null; }
+  getToolCall(id: string): unknown { return this.toolCalls.find(tc => tc.id === id) || null; }
   isRichContent(): boolean { return Array.isArray(this.content); }
   getText(): string {
     if (typeof this.content === 'string') return this.content as string;
@@ -79,7 +79,7 @@ export class Message extends BaseModel {
       ...(this.timestamp && { timestamp: this.timestamp }),
       ...(this.reasoning_content ? { reasoning_content: this.reasoning_content } : {}),
       ...(this.toolCallId && { toolCallId: this.toolCallId }),
-      ...(this.toolCalls.length > 0 && { toolCalls: this.toolCalls.map(tc => (typeof (tc as any).toJSON === 'function' ? (tc as any).toJSON() : tc)) }),
+      ...(this.toolCalls.length > 0 && { toolCalls: this.toolCalls.map(tc => tc.toJSON()) }),
       ...((Object.keys(this.metadata || {}).length > 0) && { metadata: this.metadata })
     };
   }

@@ -43,8 +43,8 @@ export class ToolExecutor {
    * 判断错误是否值得重试
    * 重试条件：超时错误、网络错误、临时性错误
    */
-  private _isRetryableError(error: unknown): boolean {
-    const msg = (error as Error)?.message || String(error);
+  private _isRetryableError(error: any): boolean {
+    const msg = (error)?.message || String(error);
     const retryable = [
       '超时', 'timeout', 'TIMEOUT',
       '网络', 'network', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT',
@@ -66,7 +66,7 @@ export class ToolExecutor {
     context: Record<string, unknown>,
     retries: number = MAX_RETRIES
   ): Promise<ToolResult> {
-    let lastError: unknown;
+    let lastError: any;
     
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
@@ -99,7 +99,7 @@ export class ToolExecutor {
     return new ToolResult({
       toolCallId: tc.id,
       status: 'failed',
-      error: (lastError as Error)?.message || String(lastError),
+      error: (lastError)?.message || String(lastError),
     });
   }
 

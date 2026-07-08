@@ -18,16 +18,15 @@ export type CapabilityDenyHandler = (key: string, capability: Capability, ctx: R
 export interface AuditEntry { action: string; key: string; capabilities: string[]; result: boolean; context: Record<string, unknown>; timestamp: number; id: string; }
 
 export class CapabilityError extends Error {
+  static readonly CAPABILITIES = Object.freeze({
+    NETWORK: 'network', STORAGE_READ: 'storage:read', STORAGE_WRITE: 'storage:write',
+    EXECUTE: 'execute', FILESYSTEM: 'filesystem', USER_SCRIPT: 'user_script',
+    PROVIDER: 'provider', SETTINGS: 'settings', TOOL: 'tool', IPC: 'ipc'
+  } as const);
   key: string;
   capability: Capability;
   constructor(message: string, key: string, capability: Capability) { super(message); this.name = 'CapabilityError'; this.key = key; this.capability = capability; }
 }
-
-(CapabilityError as unknown as Record<string, unknown>).CAPABILITIES = Object.freeze({
-  NETWORK: 'network', STORAGE_READ: 'storage:read', STORAGE_WRITE: 'storage:write',
-  EXECUTE: 'execute', FILESYSTEM: 'filesystem', USER_SCRIPT: 'user_script',
-  PROVIDER: 'provider', SETTINGS: 'settings', TOOL: 'tool', IPC: 'ipc'
-} as const);
 
 export class CapabilityManager {
   private _grants: Map<string, Set<Capability>> = new Map();

@@ -1,4 +1,5 @@
 import { BaseSettings } from './ISettings.js';
+import { IPC } from '../IPC.js';
 import { KernelEvents } from '../Events.js';
 import { Log } from './Log.js';
 import { IStorageManager } from './IStorageManager.js';
@@ -7,9 +8,9 @@ export class SettingsManager extends BaseSettings {
   storage: IStorageManager | null;
   _settings: Record<string, unknown>;
 
-  constructor(obj = null) {
+  constructor(obj: { ipc?: IPC | null; storage?: IStorageManager | null } = {}) {
     super(obj);
-    this.storage = obj?.storage || null;
+    this.storage = obj?.storage ?? null;
     this._settings = {};
   }
   async loadSettings() {
@@ -25,29 +26,29 @@ export class SettingsManager extends BaseSettings {
         Log.info('SETTINGS', 'No valid settings in storage, keeping defaults');
       }
     } catch (e) {
-      Log.warn('SETTINGS', `loadSettings error: ${e?.message}`);
+      Log.warn('SETTINGS', `loadSettings error: ${(e)?.message}`);
     }
     // 通过 IPC 通知 settingsChannel 设置已加载
     try {
       const channel = this.ipc?.getOrCreateChannel('settings');
       channel?.emit(KernelEvents.SETTINGS.LOADED, { settings: this._settings });
     } catch (e) {
-      Log.warn('SETTINGS', `emit LOADED error: ${e?.message}`);
+      Log.warn('SETTINGS', `emit LOADED error: ${(e)?.message}`);
     }
     return this._settings;
   }
-  async saveSetting(key, value) {
+  async saveSetting(key: string, value: unknown) {
     // 防御：剥离 Svelte $state Proxy
     const plainValue = JSON.parse(JSON.stringify(value));
     this._settings[key] = plainValue;
     if (this.storage) {
       try { await this.storage.set('app_settings', JSON.parse(JSON.stringify(this._settings))); } catch (e) {
-        Log.warn('SETTINGS', `saveSetting error: ${e?.message}`);
+        Log.warn('SETTINGS', `saveSetting error: ${(e)?.message}`);
       }
     }
     return this;
   }
-  getSetting(key) { return this._settings[key]; }
+  getSetting(key: string) { return this._settings[key]; }
   getSettings() { return { ...this._settings }; }
   resetSettings() { this._settings = {}; }
 
@@ -62,14 +63,14 @@ export class SettingsManager extends BaseSettings {
       try {
         await this.storage.set('app_settings', JSON.parse(JSON.stringify(this._settings)));
       } catch (e) {
-        Log.warn('SETTINGS', `saveSettings error: ${e?.message}`);
+        Log.warn('SETTINGS', `saveSettings error: ${(e)?.message}`);
       }
     }
     try {
       const channel = this.ipc?.getOrCreateChannel('settings');
       channel?.emit(KernelEvents.SETTINGS.SAVED, { settings: { ...this._settings } });
     } catch (e) {
-      Log.warn('SETTINGS', `emit SAVED error: ${e?.message}`);
+      Log.warn('SETTINGS', `emit SAVED error: ${(e)?.message}`);
     }
     Log.info('SETTINGS', 'Settings saved and SAVED event emitted');
   }

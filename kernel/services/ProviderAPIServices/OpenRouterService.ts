@@ -74,6 +74,7 @@ export default class OpenRouterService extends OpenAIService {
     request.stream = true;
     const body = this.buildRequestBody(request);
     this.abortController = new AbortController();
+    const ac = this.abortController;
 
     let pendingContent = '';
     let pendingReasoning = '';
@@ -85,7 +86,7 @@ export default class OpenRouterService extends OpenAIService {
     return new Promise((resolve, reject) => {
       fetch(url, {
         method: 'POST', headers, body: JSON.stringify(body),
-        signal: this.abortController.signal
+        signal: ac.signal
       })
       .then(response => {
         if (!response.ok) {
@@ -99,66 +100,68 @@ export default class OpenRouterService extends OpenAIService {
         const decoder = new TextDecoder();
         let buffer = '';
 
-        const processStream = () => {
-          return reader.read().then(({ done, value }) => {
-            if (done) {
-              const { MessageStructure } = MessageContent;
-              Log.info('OpenRouterService', `Stream completed: content=${pendingContent.length}chars, finishReason=${pendingFinishReason || 'stop'}`);
-              resolve({
-                content: pendingContent,
-                reasoning_content: pendingReasoning,
-                toolCalls: MessageStructure.parseToolCallsFromOpenAI(Object.values(pendingToolCalls)),
-                finishReason: pendingFinishReason || 'stop',
-                usage: null,
-                model: null
-              });
-              return;
-            }
+        const processStream = (): Promise<void> => {
+          return reader.read().then(
+            ({ done, value }: { done: boolean; value: Uint8Array | undefined }): Promise<void> => {
+              if (done) {
+                const { MessageStructure } = MessageContent;
+                Log.info('OpenRouterService', `Stream completed: content=${pendingContent.length}chars, finishReason=${pendingFinishReason || 'stop'}`);
+                resolve({
+                  content: pendingContent,
+                  reasoning_content: pendingReasoning,
+                  toolCalls: MessageStructure.parseToolCallsFromOpenAI(Object.values(pendingToolCalls)),
+                  finishReason: pendingFinishReason || 'stop',
+                  usage: null,
+                  model: null
+                });
+                return Promise.resolve();
+              }
 
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop();
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || '';
 
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (!trimmed || trimmed === 'data: [DONE]') continue;
-              if (!trimmed.startsWith('data: ')) continue;
+              for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed || trimmed === 'data: [DONE]') continue;
+                if (!trimmed.startsWith('data: ')) continue;
 
-              try {
-                const json = JSON.parse(trimmed.slice(6));
-                const choice = json.choices?.[0];
-                if (!choice) continue;
-                const delta = choice.delta || {};
-                const finish = choice.finish_reason;
-                if (finish) pendingFinishReason = finish;
+                try {
+                  const json = JSON.parse(trimmed.slice(6));
+                  const choice = json.choices?.[0];
+                  if (!choice) continue;
+                  const delta = choice.delta || {};
+                  const finish = choice.finish_reason;
+                  if (finish) pendingFinishReason = finish;
 
-                if (delta.tool_calls) {
-                  for (const tc of delta.tool_calls) {
-                    if (!pendingToolCalls[tc.index]) {
-                      pendingToolCalls[tc.index] = tc;
-                    } else {
-                      const existing = pendingToolCalls[tc.index];
-                      if (tc.function) {
-                        existing.function = existing.function || { arguments: '' };
-                        existing.function.arguments = (existing.function.arguments || '') + (tc.function.arguments || '');
+                  if (delta.tool_calls) {
+                    for (const tc of delta.tool_calls) {
+                      if (!pendingToolCalls[tc.index]) {
+                        pendingToolCalls[tc.index] = tc;
+                      } else {
+                        const existing = pendingToolCalls[tc.index];
+                        if (tc.function) {
+                          existing.function = existing.function || { arguments: '' };
+                          existing.function.arguments = (existing.function.arguments || '') + (tc.function.arguments || '');
+                        }
                       }
                     }
                   }
-                }
 
-                const contentChunk = delta.content || '';
-                const reasoningChunk = delta.reasoning || delta.reasoning_content || '';
-                if (contentChunk) pendingContent += contentChunk;
-                if (reasoningChunk) pendingReasoning += reasoningChunk;
-                if (onChunk && (contentChunk || reasoningChunk)) {
-                  onChunk({ content: contentChunk, reasoning_content: reasoningChunk });
+                  const contentChunk = delta.content || '';
+                  const reasoningChunk = delta.reasoning || delta.reasoning_content || '';
+                  if (contentChunk) pendingContent += contentChunk;
+                  if (reasoningChunk) pendingReasoning += reasoningChunk;
+                  if (onChunk && (contentChunk || reasoningChunk)) {
+                    onChunk({ content: contentChunk, reasoning_content: reasoningChunk });
+                  }
+                } catch (e) {
+                  Log.warn('OpenRouterService', 'Failed to parse chunk:', e);
                 }
-              } catch (e) {
-                Log.warn('OpenRouterService', 'Failed to parse chunk:', e);
               }
+              return processStream();
             }
-            return processStream();
-          });
+          );
         };
         return processStream();
       })
@@ -220,7 +223,7 @@ export default class OpenRouterService extends OpenAIService {
   }
 
   getModelDetails(modelId: string) {
-    return this.listModels().then((models: any[]) => models.find(m => m.id === modelId) || null);
+    return this.listModels().then((models: any[]) => models.find((m: any) => m.id === modelId) || null);
   }
 }
 export { OpenRouterService };

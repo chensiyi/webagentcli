@@ -73,10 +73,10 @@ export class Bootloader {
         this._phaseTimings.push({ phase, dur });
         this.phaseResults.set(phase, { status: 'completed', dur });
         Log.info('BOOT', `Phase "${phase}" completed in ${dur}ms`);
-      } catch (err: unknown) {
+      } catch (err) {
         const dur = Date.now() - start;
         this._phaseTimings.push({ phase, dur });
-        this.phaseResults.set(phase, { status: 'failed', dur, error: (err as Error)?.message ?? String(err) });
+        this.phaseResults.set(phase, { status: 'failed', dur, error: (err)?.message ?? String(err) });
         Log.error('BOOT', `Phase "${phase}" failed`, err);
         throw err;
       }

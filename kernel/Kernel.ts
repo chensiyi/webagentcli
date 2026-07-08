@@ -23,6 +23,8 @@ import { ScriptsManager } from './services/ScriptsManager.js';
 import { SessionManager } from './services/SessionManager.js';
 import { SettingsManager } from './services/SettingsManager.js';
 
+type HookFn = (kernel: Kernel) => void | Promise<void>;
+
 export class Kernel {
   static STATE = Object.freeze({ CREATED: 'created', BOOTING: 'booting', RUNNING: 'running', SHUTTING_DOWN: 'shutting_down', SHUTDOWN: 'shutdown', FAILED: 'failed' });
 
@@ -34,7 +36,7 @@ export class Kernel {
   toolsManager: ToolsManager | null;
   capabilities: CapabilityManager | null;
   private _services: Map<string, { factory: unknown; instance: any; options: Record<string, unknown> }>;
-  private _hooks: { beforeBoot: unknown[]; afterBoot: unknown[]; beforeShutdown: unknown[]; afterShutdown: unknown[] };
+  private _hooks: { beforeBoot: HookFn[]; afterBoot: HookFn[]; beforeShutdown: HookFn[]; afterShutdown: HookFn[] };
   private _bootOrder: string[];
 
   constructor(options: { name?: string; origin?: string; ipc?: IPC | null; storage?: IStorageManager | null; toolsManager?: ToolsManager | null; capabilities?: CapabilityManager | null } = {}) {
@@ -112,17 +114,17 @@ export class Kernel {
     return entry.instance;
   }
 
-  has(name) { return this._services.has(name); }
+  has(name: string) { return this._services.has(name); }
   getServiceNames() { return Array.from(this._services.keys()); }
   getAllServices() { const r = new Map(); this._services.forEach((e, n) => { if (e.instance !== null) r.set(n, e.instance); }); return r; }
 
-  on(phase, hook) {
+  on(phase: 'beforeBoot' | 'afterBoot' | 'beforeShutdown' | 'afterShutdown', hook: (kernel: Kernel) => void | Promise<void>) {
     if (!this._hooks[phase]) throw new Error(`[Kernel] Unknown phase: "${phase}"`);
     this._hooks[phase].push(hook);
     return this;
   }
 
-  async _initService(name, entry) {
+  async _initService(name: string, entry: { factory: unknown; instance: any; options: any }) {
     if (entry.instance !== null) return;
     const { factory, options } = entry;
     if (options.dependsOn?.length) {
@@ -136,7 +138,7 @@ export class Kernel {
     if (entry.instance && typeof entry.instance.init === 'function') await entry.instance.init(this);
   }
 
-  async _runHooks(phase) {
+  async _runHooks(phase: 'beforeBoot' | 'afterBoot' | 'beforeShutdown' | 'afterShutdown') {
     for (const hook of this._hooks[phase] || []) { try { await hook(this); } catch (e) { Log.error('KERNEL', `Hook error in "${phase}"`, e); throw e; } }
   }
 

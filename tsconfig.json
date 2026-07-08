@@ -3,15 +3,16 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "noEmit": true,
     "strict": false,
-    "noImplicitAny": false,
+    "noImplicitAny": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "useUnknownInCatchVariables": false,
     "strictNullChecks": false,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "isolatedModules": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
     "baseUrl": ".",
     "paths": {
       "kernel/*": ["kernel/*"]
@@ -19,5 +20,6 @@
     "types": ["chrome", "svelte", "vite/client"],
     "ignoreDeprecations": "6.0"
   },
-  "include": ["kernel/**/*.ts", "background/**/*.ts", "bridge/**/*.ts", "sidepanel/**/*.ts", "sidepanel/**/*.svelte", "global.d.ts"]
+  "include": ["kernel/**/*.ts"],
+  "exclude": ["**/*.test.ts", "**/*.spec.ts"]
 }

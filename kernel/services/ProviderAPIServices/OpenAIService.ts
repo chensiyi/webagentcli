@@ -5,7 +5,7 @@ import { MessageStructure } from '../../models/MessageContent.js';
 export default class OpenAIService extends BaseProviderAPIService {
   constructor() { super(); this.name = 'openai'; }
 
-  buildUrl(path) {
+  buildUrl(path: string) {
     const base = (this.config.endpoint || 'https://api.openai.com/v1').replace(/\/$/, '');
     return `${base}${path}`;
   }
@@ -23,7 +23,7 @@ export default class OpenAIService extends BaseProviderAPIService {
       tools: request.tools || undefined,
     };
   }
-  _buildStandardResponse(choice, data) {
+  _buildStandardResponse(choice: any, data: any) {
     const msg = choice.message || {};
     return {
       content: msg.content || '',
@@ -34,7 +34,7 @@ export default class OpenAIService extends BaseProviderAPIService {
       model: data.model || null,
     };
   }
-  async chat(request) {
+  async chat(request: any) {
     const url = this.buildUrl('/chat/completions');
     const body = this.buildRequestBody(request);
     Log.info('OpenAIService', `Chat request: model=${body.model}, messages=${body.messages?.length}`);
@@ -57,13 +57,13 @@ export default class OpenAIService extends BaseProviderAPIService {
       Log.info('OpenAIService', `Chat response received: finishReason=${choice.finish_reason}`);
       return this._buildStandardResponse(choice, data);
     } catch (error) {
-      if (error.name !== 'AbortError') {
+      if ((error).name !== 'AbortError') {
         Log.error('OpenAIService', 'Chat failed:', error);
       }
       throw error;
     }
   }
-  async chatStream(request, onChunk): Promise<any> {
+  async chatStream(request: any, onChunk?: (chunk: any) => void): Promise<any> {
     const url = this.buildUrl('/chat/completions');
     const body: Record<string, any> = { ...this.buildRequestBody(request), stream: true };
     Log.info('OpenAIService', `Stream request: model=${body.model}, messages=${body.messages?.length}`);
@@ -144,7 +144,7 @@ export default class OpenAIService extends BaseProviderAPIService {
         model: null
       };
     } catch (error) {
-      if (error.name === 'AbortError') {
+      if ((error).name === 'AbortError') {
         Log.info('OpenAIService', 'Stream cancelled');
         return null;
       }

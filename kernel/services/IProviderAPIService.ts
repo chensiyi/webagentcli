@@ -49,9 +49,9 @@ export class BaseProviderAPIService {
     return headers;
   }
 
-  async chat(request: any, onChunk?: (chunk: any) => void): Promise<StandardResponse> { throw new Error('Not implemented'); }
-  async chatStream(request: any, onChunk?: (chunk: any) => void): Promise<StandardResponse | null> { throw new Error('Not implemented'); }
-  shouldApplyCache(request: any): boolean { return false; }
+  async chat(_request: any, _onChunk?: (chunk: any) => void): Promise<StandardResponse> { throw new Error('Not implemented'); }
+  async chatStream(_request: any, _onChunk?: (chunk: any) => void): Promise<StandardResponse | null> { throw new Error('Not implemented'); }
+  shouldApplyCache(_request: any): boolean { return false; }
   cancel(): void {}
 }
 export default BaseProviderAPIService;

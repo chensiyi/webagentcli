@@ -40,7 +40,7 @@ export class ToolsManager {
   }
 
   registerAll(tools: Tool[]): this {
-    tools.forEach(t => { try { this.register(t); } catch (e) { Log.warn('ToolsManager', (e as Error).message); } });
+    tools.forEach(t => { try { this.register(t); } catch (e) { Log.warn('ToolsManager', (e).message); } });
     return this;
   }
 
@@ -165,7 +165,7 @@ export class ToolsManager {
       }
     } catch (err) {
       const duration = Date.now() - start;
-      const errMsg = (err as Error)?.message || String(err);
+      const errMsg = (err)?.message || String(err);
       Log.error('ToolsManager', `Failed: ${toolName} — ${errMsg}`);
       result = new ToolResult({ toolCallId, status: 'failed', error: errMsg, duration });
     }

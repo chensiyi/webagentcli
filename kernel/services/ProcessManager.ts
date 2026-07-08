@@ -22,7 +22,7 @@
  *     └─ 看门狗触发 → forceKill(id)      // 状态 → killed
  */
 
-import { Process, ProcessStatus, TerminateFn } from '../models/Process.js';
+import { Process, TerminateFn } from '../models/Process.js';
 import { KernelEvents } from '../Events.js';
 import { IPC } from '../IPC.js';
 import { Log } from './Log.js';
@@ -220,7 +220,7 @@ export class ProcessManager {
         // terminateFn 抛错，如果看门狗还没触发，直接 forceKill
         if (p.status === 'cancelling') {
           p.clearWatchdog();
-          this._forceKill(id, `terminateFn threw: ${(err as Error)?.message || err}`);
+          this._forceKill(id, `terminateFn threw: ${(err)?.message || err}`);
         }
       }
     } else {

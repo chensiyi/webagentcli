@@ -8,7 +8,7 @@ export class SessionManager extends BaseSessionManager {
   currentSessionId: string | null;
   sessions: Session[];
 
-  constructor(obj = null) {
+  constructor(obj: any = null) {
     super(obj);
     this.currentSessionId = null;
     this.sessions = [];
@@ -172,11 +172,11 @@ export class SessionManager extends BaseSessionManager {
             Log.info('SESSION', 'No sessions found in storage');
           }
         } catch (e) {
-          Log.warn('SESSION', `currentSessionId restore error: ${(e as Error)?.message}`);
+          Log.warn('SESSION', `currentSessionId restore error: ${(e)?.message}`);
         }
       }
     } catch (e) {
-      Log.warn('SESSION', `initialize error: ${(e as Error)?.message}`);
+      Log.warn('SESSION', `initialize error: ${(e)?.message}`);
     }
   }
 
@@ -186,7 +186,7 @@ export class SessionManager extends BaseSessionManager {
       // 过滤掉 undefined 或 null 的会话，防止 toJSON 调用失败
       await this.storage.set('sessions', this.sessions.filter(s => s && s.id).map(s => s.toJSON()));
     } catch (e) {
-      Log.warn('SESSION', `persistSessions error: ${(e as Error)?.message}`);
+      Log.warn('SESSION', `persistSessions error: ${(e)?.message}`);
     }
   }
 
@@ -195,7 +195,7 @@ export class SessionManager extends BaseSessionManager {
     try {
       await this.storage.set('currentSessionId', this.currentSessionId);
     } catch (e) {
-      Log.warn('SESSION', `persistCurrentSessionId error: ${(e as Error)?.message}`);
+      Log.warn('SESSION', `persistCurrentSessionId error: ${(e)?.message}`);
     }
   }
 
