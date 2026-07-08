@@ -2,12 +2,12 @@
  * ContextBuilder — LLM 上下文组装器
  *
  * 职责：
- * 1. 构建 System Prompt（身份声明 + 页面环境 + 可用工具列表 + 行为原则）
+ * 1. 构建 System Prompt（身份声明 + 可用工具列表 + 行为原则）
  * 2. 按 contextWindowSize 截断历史消息，保护 tool_call/tool_result 配对
  * 3. 将内部消息格式统一转为 LLM API 格式
  *
  * 纯逻辑类，零副作用（不 emit 事件、不写存储）。
- * chrome.tabs 查询是唯一的浏览器依赖，在非浏览器环境静默跳过。
+ * 零浏览器依赖，可在任何 JS 环境运行。
  */
 
 import { MessageStructure } from '../../models/MessageContent.js';
@@ -73,10 +73,6 @@ export class ContextBuilder {
 
     parts.push(this.systemRole);
 
-    // 当前页面环境
-    const pageCtx = await this._getPageContext();
-    if (pageCtx) parts.push(pageCtx);
-
     // 可用工具清单（仅名称，完整定义通过 API tools 参数传递）
     if (tools && tools.length > 0) {
       const names = tools
@@ -90,17 +86,6 @@ export class ContextBuilder {
     parts.push(this.systemPrinciples);
 
     return { role: 'system', content: parts.join('\n\n') };
-  }
-
-  private async _getPageContext(): Promise<string> {
-    try {
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      const tab = tabs[0];
-      if (tab) {
-        return `当前页面: ${tab.title || '(无标题)'} — ${tab.url || '(无URL)'}`;
-      }
-    } catch (_e) { /* 非浏览器环境，跳过 */ }
-    return '';
   }
 
   // ─── 消息准备 ──────────────────────────────────────────────

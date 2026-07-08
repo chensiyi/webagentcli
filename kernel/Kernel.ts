@@ -33,7 +33,7 @@ export class Kernel {
   storage: IStorageManager | null;
   toolsManager: ToolsManager | null;
   capabilities: CapabilityManager | null;
-  private _services: Map<string, { factory: unknown; instance: unknown; options: Record<string, unknown> }>;
+  private _services: Map<string, { factory: unknown; instance: any; options: Record<string, unknown> }>;
   private _hooks: { beforeBoot: unknown[]; afterBoot: unknown[]; beforeShutdown: unknown[]; afterShutdown: unknown[] };
   private _bootOrder: string[];
 
@@ -98,7 +98,7 @@ export class Kernel {
     }
   }
 
-  register(name, factory, options = {}) {
+  register(name: string, factory: unknown, options: Record<string, unknown> = {}) {
     if (this._services.has(name)) throw new Error(`[Kernel] Service "${name}" already registered`);
     if (this.state !== Kernel.STATE.CREATED && this.state !== Kernel.STATE.BOOTING) throw new Error(`[Kernel] Cannot register service "${name}" after boot`);
     this._services.set(name, { factory, instance: null, options: { autoInit: true, singleton: true, dependsOn: [], ...options } });
@@ -106,7 +106,7 @@ export class Kernel {
     return this;
   }
 
-  get(name) {
+  get(name: string): any {
     const entry = this._services.get(name);
     if (!entry) throw new Error(`[Kernel] Service "${name}" not registered`);
     return entry.instance;

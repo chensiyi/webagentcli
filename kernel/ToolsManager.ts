@@ -112,14 +112,9 @@ export class ToolsManager {
    * 执行工具调用
    * 统一处理：预处理钩子 → handler 调用 → 计时 → 结果包装 → 后置钩子 → 记录历史
    */
-  async invoke(toolCall: ToolCall | Record<string, unknown>, context: Record<string, unknown> = {}): Promise<ToolResult> {
-    const tc = toolCall instanceof ToolCall ? toolCall : new ToolCall(
-      (toolCall as any).id,
-      (toolCall as any).toolName || (toolCall as any).name || '',
-      (toolCall as any).input ?? (toolCall as any).arguments ?? {}
-    );
-    const toolCallId = tc.id;
-    const toolName = tc.toolName;
+  async invoke(toolCall: ToolCall , context: Record<string, unknown> = {}): Promise<ToolResult> {
+    const toolCallId = toolCall.id;
+    const toolName = toolCall.toolName;
 
     // 1. 查找工具
     const tool = toolName ? this._tools.get(toolName) : null;
@@ -130,7 +125,7 @@ export class ToolsManager {
     }
 
     // 2. 参数类型校验（根据 inputSchema 校验参数类型）
-    const validationError = this._validateArgs(tc.input, tool.inputSchema as any);
+    const validationError = this._validateArgs(toolCall.input, tool.inputSchema);
     if (validationError) {
       const result = new ToolResult({ toolCallId, status: 'failed', error: `参数校验失败：${validationError}` });
       this._recordInvocation(result);
@@ -141,7 +136,7 @@ export class ToolsManager {
     if (this._beforeInvoke) {
       let proceed = true;
       try {
-        proceed = await this._beforeInvoke(tc, context);
+        proceed = await this._beforeInvoke(toolCall, context);
       } catch (e) {
         Log.error('ToolsManager', 'beforeInvoke error:', e);
         proceed = false;
@@ -158,7 +153,7 @@ export class ToolsManager {
     let result: ToolResult;
     try {
       Log.info('ToolsManager', `Invoking: ${toolName} (callId=${toolCallId})`);
-      const output = await tool.handler!(tc.input, context);
+      const output = await tool.handler!(toolCall.input, context);
 
       // handler 可能直接返回 ToolResult
       if (output && typeof (output as any).isSuccess === 'function') {

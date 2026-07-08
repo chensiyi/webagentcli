@@ -2,25 +2,15 @@
  * ContextBuilder — LLM 上下文组装器测试
  *
  * 覆盖：
- * - System prompt 构建（含工具列表、页面环境）
+ * - System prompt 构建（含工具列表）
  * - 消息截断算法（tool_call/tool_result 配对保护）
  * - 基本消息数量控制
  * - API 格式转换
  *
- * 注意：chrome.tabs.query 在 Node 环境不可用，_getPageContext 会静默跳过。
- * tool_call/tool_result 配对保护的核心逻辑不依赖浏览器 API。
+ * 纯逻辑测试，零浏览器依赖，可在任何 JS 环境运行。
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { ContextBuilder } from './ContextBuilder.js';
-
-// 全局模拟 chrome.tabs.query 用于非浏览器环境
-if (typeof globalThis.chrome === 'undefined') {
-  (globalThis as any).chrome = {
-    tabs: {
-      query: vi.fn().mockRejectedValue(new Error('not in browser')),
-    },
-  };
-}
 
 describe('ContextBuilder', () => {
 
@@ -30,7 +20,7 @@ describe('ContextBuilder', () => {
     it('默认 systemRole/systemPrinciples', () => {
       const builder = new ContextBuilder();
       expect((builder as any).systemRole).toContain('Web Agent');
-      expect((builder as any).systemPrinciples).toContain('不需要用户确认');
+      expect((builder as any).systemPrinciples).toContain('优先使用工具');
     });
 
     it('自定义 systemRole/systemPrinciples', () => {
@@ -150,8 +140,8 @@ describe('ContextBuilder', () => {
       }));
       // 在消息末尾添加 tool_call → tool_result 序列
       messages.push(
-        { role: 'assistant', content: '', toolCalls: [{ id: 'tc1', toolName: 'search', input: {} }] },
-        { role: 'tool', toolCallId: 'tc1', content: 'result data' },
+        { role: 'assistant', content: '', toolCalls: [{ id: 'tc1', toolName: 'search', input: {} }] } as any,
+        { role: 'tool', toolCallId: 'tc1', content: 'result data' } as any,
       );
       const session = { messages };
       // windowSize 很小，截断点会落在 tool 或 assistant 消息上
@@ -175,9 +165,9 @@ describe('ContextBuilder', () => {
       }
       // 末尾三轮 tool call
       messages.push(
-        { role: 'assistant', content: 'calling', toolCalls: [{ id: 't1', toolName: 'f1' }] },
-        { role: 'tool', toolCallId: 't1', content: 'r1' },
-        { role: 'user', content: 'ok' },
+        { role: 'assistant' as const, content: 'calling', toolCalls: [{ id: 't1', toolName: 'f1' }] },
+        { role: 'tool' as const, toolCallId: 't1', content: 'r1' },
+        { role: 'user' as const, content: 'ok' },
       );
 
       const session = { messages };

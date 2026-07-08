@@ -40,7 +40,7 @@ export class Message extends BaseModel {
 
   constructor(options: Record<string, unknown> = {}) {
     super(options);
-    this.role = (options.role as string) || Role.USER;
+    this.role = (options.role as RoleType) || Role.USER;
     this.content = options.content || '';
     this.timestamp = (options.timestamp as number) || ((this as unknown as { createdAt: number }).createdAt);
     this.reasoning_content = options.reasoning_content || null;

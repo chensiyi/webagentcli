@@ -19,5 +19,5 @@
     "types": ["chrome", "svelte", "vite/client"],
     "ignoreDeprecations": "6.0"
   },
-  "include": ["kernel/**/*.ts", "sidepanel/**/*.ts", "sidepanel/**/*.svelte", "global.d.ts"]
+  "include": ["kernel/**/*.ts", "background/**/*.ts", "bridge/**/*.ts", "sidepanel/**/*.ts", "sidepanel/**/*.svelte", "global.d.ts"]
 }

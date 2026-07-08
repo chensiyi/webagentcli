@@ -30,7 +30,14 @@ class LMStudioService extends BaseProviderAPIService {
     return `${cleanBase}/api/v1${cleanPath}`;
   }
 
-  buildHeaders() { return { 'Content-Type': 'application/json' }; }
+  buildHeaders(request?: any):  Record<string, string>{
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    // 合并 request.headers（由 Shell 层传入浏览器相关头，kernel 不直接引用 window/chrome）
+    if (request?.headers) {
+      Object.assign(headers, request.headers);
+    }
+    return headers;
+  }
 
   formatMessages(messages) {
     if (!messages || !Array.isArray(messages)) return [];
@@ -131,9 +138,9 @@ class LMStudioService extends BaseProviderAPIService {
 
   // ==================== 非流式 ====================
 
-  chat(request) {
+  chat(request): Promise<any> {
     const url = this.buildUrl('/chat');
-    const headers = this.buildHeaders();
+    const headers = this.buildHeaders(request);
     request.stream = false;
     const body = this.buildRequestBody(request);
 
@@ -169,9 +176,9 @@ class LMStudioService extends BaseProviderAPIService {
 
   // ==================== 流式 ====================
 
-  chatStream(request, onChunk) {
+  chatStream(request, onChunk): Promise<any> {
     const url = this.buildUrl('/chat');
-    const headers = this.buildHeaders();
+    const headers = this.buildHeaders(request);
     request.stream = true;
     const body = this.buildRequestBody(request);
 

@@ -6,11 +6,12 @@
  */
 
 import { BaseModel } from './BaseModel.js';
+import { Message } from './Message.js';
 
 export class Session extends BaseModel {
   title: string;
-  messages: unknown[];
-  reasoningEffort: string;
+  messages: Message[];
+  reasoningEffort: string | null;
   model: unknown;
 
   constructor(options: Record<string, unknown> = {}) {
@@ -31,7 +32,7 @@ export class Session extends BaseModel {
       ...(super.toJSON() as Record<string, unknown>),
       title: this.title,
       // 过滤掉 undefined 或 null 的消息，并安全调用 toJSON
-      messages: this.messages.filter(m => m != null).map(m => (m as { toJSON: () => unknown }).toJSON?.() ?? m),
+      messages: this.messages.filter(m => m != null).map(m => m.toJSON()),
       reasoningEffort: this.reasoningEffort,
       model: this.model,
       createdAt: this.createdAt,

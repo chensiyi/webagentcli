@@ -1,3 +1,4 @@
+import { ToolCall } from "./Tool";
 export class TextBlock { type: string; text: string; constructor(text: string) { this.type = 'text'; this.text = text; } toJSON(): { type: string; text: string } { return { type: 'text', text: this.text }; } static fromJSON(d: { text: string }): TextBlock { return new TextBlock(d.text); } }
 export class ImageBlock { type: string; source: string; constructor(source: string) { this.type = 'image'; this.source = source; } toJSON(): { type: string; source: string } { return { type: 'image', source: this.source }; } static fromJSON(d: { source: string }): ImageBlock { return new ImageBlock(d.source); } }
 export class ToolUseBlock { type: string; id: string; name: string; input: unknown; constructor(id: string, name: string, input: unknown) { this.type = 'tool_use'; this.id = id; this.name = name; this.input = input; } toJSON(): { type: string; id: string; name: string; input: unknown } { return { type: 'tool_use', id: this.id, name: this.name, input: this.input }; } static fromJSON(d: { id: string; name: string; input: unknown }): ToolUseBlock { return new ToolUseBlock(d.id, d.name, d.input); } }
@@ -19,7 +20,7 @@ export class MessageStructure {
    * OpenAI 格式: { id, function: { name, arguments } }
    * ToolCall 格式: { id, toolName, input, status, ... }
    */
-  static parseToolCallsFromOpenAI(rawToolCalls: any[]): any[] {
+  static parseToolCallsFromOpenAI(rawToolCalls: Array<{ id?: string; function?: { name?: string; arguments?: string }; name?: string; input?: unknown }>): ToolCall[] {
     if (!rawToolCalls || !Array.isArray(rawToolCalls)) return [];
     return rawToolCalls.map(tc => {
       const id = tc.id || `call_${Date.now()}`;
@@ -30,22 +31,22 @@ export class MessageStructure {
       } else if (tc.input) {
         input = tc.input;
       }
-      return { id, toolName: name, input };
+      return new ToolCall(id, name, input);
     });
   }
 
   /**
    * 将内部 toolCalls 格式转回 OpenAI 格式，供 API 请求使用。
-   * 内部格式: { id, toolName, input }
+   * 内部格式: ToolCall[]
    * OpenAI 格式: { id, type: 'function', function: { name, arguments } }
    */
-  static toOpenAIToolCalls(toolCalls: any[]): any[] {
+  static toOpenAIToolCalls(toolCalls: ToolCall[]): Array<{ id: string; type: string; function: { name: string; arguments: string } }> {
     if (!toolCalls || !Array.isArray(toolCalls)) return [];
     return toolCalls.map(tc => ({
       id: tc.id,
       type: 'function',
       function: {
-        name: tc.toolName || tc.name || '',
+        name: tc.toolName || '',
         arguments: typeof tc.input === 'string' ? tc.input : JSON.stringify(tc.input || {})
       }
     }));
@@ -74,4 +75,4 @@ export class MessageStructure {
     return { role: msg.role, content: msg.content };
   }
 }
-export class MessagesRequest { model: string; messages: unknown[]; stream: boolean; temperature: number; max_tokens: number; thinking: unknown; tools: unknown; constructor(opts: Record<string, unknown> = {}) { this.model = opts.model as string; this.messages = (opts.messages as unknown[]) || []; this.stream = (opts.stream as boolean) || false; this.temperature = opts.temperature as number; this.max_tokens = opts.max_tokens as number; this.thinking = opts.thinking as ThinkingConfig | null; this.tools = opts.tools as unknown[] | null; } }
+export class MessagesRequest { model: string; messages: unknown[]; stream: boolean; temperature: number; max_tokens: number; thinking: unknown; tools: unknown; /** 自定义 HTTP 头部（由 Shell 层传入浏览器相关头，如 Referer） */ headers: Record<string, string>; constructor(opts: Record<string, unknown> = {}) { this.model = opts.model as string; this.messages = (opts.messages as unknown[]) || []; this.stream = (opts.stream as boolean) || false; this.temperature = opts.temperature as number; this.max_tokens = opts.max_tokens as number; this.thinking = opts.thinking as ThinkingConfig | null; this.tools = opts.tools as unknown[] | null; this.headers = (opts.headers as Record<string, string>) || {}; } }

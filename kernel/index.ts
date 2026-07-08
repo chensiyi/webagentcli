@@ -23,7 +23,8 @@ import { Settings } from './models/Settings.js';
 import { Model } from './models/Model.js';
 import { UserScript } from './models/Scripts.js';
 import { Process } from './models/Process.js';
-export { BaseModel, Tool, ToolCall, ToolResult, TextBlock, ImageBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock, ThinkingConfig, MediaContent, MessageStructure, MessagesRequest, Message, Role, Session, Settings, Model, UserScript, Process };
+export { BaseModel, Tool, ToolCall, ToolResult, TextBlock, ImageBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock, MediaContent, MessageStructure, Message, Role, Session, Settings, Model, Process };
+export type { UserScript, ThinkingConfig, MessagesRequest };
 
 // ==================== 服务接口 ====================
 import { IStorageManager } from './services/IStorageManager.js';
@@ -58,4 +59,3 @@ export { ChatProgram };
 declare const __VERSION__: string;
 export const VERSION = __VERSION__;
 export const CODENAME = 'Microkernel-Esm';
-

@@ -8,7 +8,8 @@
  */
 
 import { IPC } from 'kernel/IPC.js';
-import { IPCTransport } from 'kernel/IPCTransport.js';
+import { IPCTransport } from '../bridge/IPCTransport.js';
+import { RPC, RPC_RES } from '../bridge/RPC.js';
 import { Kernel } from 'kernel/Kernel.js';
 import { Bootloader } from 'kernel/Bootloader.js';
 import { ToolsManager } from 'kernel/ToolsManager.js';
@@ -19,10 +20,11 @@ import { SettingsManager } from 'kernel/services/SettingsManager.js';
 import { ScriptsManager } from 'kernel/services/ScriptsManager.js';
 import { ProcessManager } from 'kernel/services/ProcessManager.js';
 import { ProviderFactory } from 'kernel/services/ProviderFactory.js';
-import { ChatProgram } from 'kernel/programs/ChatProgram.js';
+import { ChatProgram, CMD } from 'kernel/programs/ChatProgram.js';
 import { ChromeStorageAdapter } from './services/ChromeStorageAdapter.js';
 import { RunUserScriptTool } from './tools/RunUserScriptTool.js';
 import { ManageUserScriptsTool } from './tools/ManageUserScriptsTool.js';
+import {KernelEvents} from 'kernel/Events.js';
 
 async function bootKernel() {
     const log = new ConsoleLogger();
@@ -112,6 +114,75 @@ async function bootKernel() {
         ipc.emit('kernel:bootComplete', { timestamp: Date.now() });
     });
 
+    // ─── Phase 4: Shell 事件转义 + RPC ───
+    bootloader.on(Bootloader.PHASES.READY, async () => {
+        const chatChannel = ipc.getOrCreateChannel('chat');
+        const toolChannel = ipc.getOrCreateChannel('tool');
+
+        // ── Shell 用户意图 → 内核授权命令 ──
+        chatChannel.on(KernelEvents.CHAT.USER_APPLY_SEND, (data: any) => {
+            chatChannel.emit(CMD.SEND, data);
+        });
+        chatChannel.on(KernelEvents.CHAT.USER_APPLY_STOP, () => {
+            chatChannel.emit(CMD.STOP);
+        });
+        chatChannel.on(KernelEvents.CHAT.USER_APPLY_DELETE_MESSAGE, (data: any) => {
+            chatChannel.emit(CMD.DELETE_MESSAGE, data);
+        });
+
+        // ── Session RPC ──
+        chatChannel.on(RPC.SESSION_GET_CURRENT, () => {
+            const sm = kernel.getSessionManager();
+            const s = sm.getCurrentSession();
+            chatChannel.emit(RPC_RES.SESSION_CURRENT, {
+                session: s,
+                messages: s?.messages || [],
+                reasoningEffort: s?.reasoningEffort || 'medium',
+            });
+        });
+
+        chatChannel.on(RPC.SESSION_NEW, async () => {
+            const sm = kernel.getSessionManager();
+            await sm.createSession();
+            const s = sm.getCurrentSession();
+            chatChannel.emit(KernelEvents.CHAT.CURRENT_SESSION_CHANGED, { sessionId: s?.id });
+            chatChannel.emit(RPC_RES.SESSION_CURRENT, {
+                session: s,
+                messages: [],
+                reasoningEffort: kernel.getSettingsManager().getSettings().reasoningEffort || 'medium',
+            });
+        });
+
+        chatChannel.on(RPC.SESSION_UPDATE, async (data: any) => {
+            if (!data?.sessionId) return;
+            const sm = kernel.getSessionManager();
+            await sm.updateSession(data.sessionId, data.data as any);
+            chatChannel.emit(KernelEvents.CHAT.SESSION_UPDATED, { sessionId: data.sessionId });
+        });
+
+        chatChannel.on(RPC.SESSION_DELETE_MSG, async (data: any) => {
+            if (!data?.messageId || !data?.sessionId) return;
+            const sm = kernel.getSessionManager();
+            const ok = await sm.deleteMessage(data.messageId, data.sessionId);
+            if (ok) {
+                chatChannel.emit(KernelEvents.CHAT.MESSAGE_DELETED, { messageId: data.messageId, sessionId: data.sessionId });
+            }
+        });
+
+        // ── Tool RPC ──
+        toolChannel.on(RPC.TOOL_LIST, () => {
+            const tools = kernel.toolsManager?.getAll() || [];
+            toolChannel.emit(RPC_RES.TOOL_LIST, { tools });
+        });
+
+        toolChannel.on(RPC.TOOL_TOGGLE, (data: any) => {
+            if (!data?.name) return;
+            const tm = kernel.toolsManager;
+            if (data.enabled) tm?.enable(data.name);
+            else tm?.disable(data.name);
+        });
+    });
+
     await bootloader.boot();
     log.info('BACKGROUND', `Kernel boot complete. Timings: ${JSON.stringify(bootloader.getTimings())}`);
 
@@ -123,16 +194,13 @@ chrome.runtime.onInstalled.addListener(() => {
     bootKernel();
 });
 
-// 如果 Service Worker 被唤醒（例如 sidepanel 发来消息），确保 Kernel 已启动
+// 如果 Service Worker 被唤醒，确保 Kernel 已启动
 let kernelPromise: Promise<any> | null = null;
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    // 如果收到 IPC 消息但 Kernel 还未启动，先启动
     if (message._ipc && !kernelPromise) {
         kernelPromise = bootKernel();
     }
-    // 让 IPCTransport 处理实际的消息路由
-    // 这里不拦截，IPCTransport 的 onMessage 监听器会处理
 });
 
 console.log('[Background] Service worker loaded');

@@ -10,13 +10,14 @@
  * 设计原则：
  * - 依赖注入：ToolsManager 和 SessionManager 通过 Kernel 获取，emit 通过回调注入
  * - 不持有 IPC 引用，不管理状态，纯执行
+ * - 零浏览器依赖：tabId 由调用方传入，内核不查询 chrome.tabs
  */
 
-import { ToolResult } from '../../models/Tool.js';
-import { Message, Role } from '../../models/Message.js';
-import { Kernel } from '../../Kernel.js';
-import { KernelEvents } from '../../Events.js';
-import { Log } from '../../services/Log.js';
+import { ToolCall, ToolResult } from 'kernel/models/Tool.js';
+import { Message, Role } from 'kernel/models/Message.js';
+import { Kernel } from 'kernel/Kernel.js';
+import { KernelEvents } from 'kernel/Events.js';
+import { Log } from 'kernel/services/Log.js';
 
 type EmitFn = (event: string, data: unknown) => void;
 
@@ -55,23 +56,21 @@ export class ToolExecutor {
 
   /**
    * 带重试的执行单个工具
+   *
+   * @param tc       工具调用信息
+   * @param context  执行上下文（含 tabId 等，由调用方传入）
+   * @param retries  最大重试次数
    */
   private async _invokeWithRetry(
-    tc: { id: string; toolName: string; input?: unknown },
+    tc: ToolCall,
     context: Record<string, unknown>,
     retries: number = MAX_RETRIES
   ): Promise<ToolResult> {
     let lastError: unknown;
-
+    
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        let tabId: number | null = null;
-        try {
-          const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-          tabId = tabs[0]?.id || null;
-        } catch (_e) { /* 非浏览器环境 */ }
-
-        const result = await this.kernel.toolsManager!.invoke(tc, { ...context, tabId });
+        const result = await this.kernel.toolsManager!.invoke(tc, context);
 
         // 失败且可重试
         if (!result.isSuccess() && attempt < retries && this._isRetryableError(result.error)) {
@@ -109,16 +108,17 @@ export class ToolExecutor {
    *
    * @param toolCalls  LLM 返回的 tool call 数组 { id, toolName, input }
    * @param sessionId  当前会话 ID
+   * @param context    执行上下文（可选，含 tabId 等浏览器环境信息，由 Shell 层传入）
    * @returns 执行结果数组
    */
-  async execute(toolCalls: Array<{ id: string; toolName: string; input?: unknown }>, sessionId: string): Promise<ToolResult[]> {
+  async execute(toolCalls: ToolCall[], sessionId: string, context: Record<string, unknown> = {}): Promise<ToolResult[]> {
     const sm = this.kernel.getSessionManager();
     const toolResults: ToolResult[] = [];
 
     for (const tc of toolCalls) {
       this.emit(KernelEvents.TOOL.EXECUTING, { toolName: tc.toolName, toolCallId: tc.id, sessionId });
 
-      const toolResult = await this._invokeWithRetry(tc, { sessionId, kernel: this.kernel });
+      const toolResult = await this._invokeWithRetry(tc, { sessionId, kernel: this.kernel, ...context });
 
       toolResults.push(toolResult);
       this.emit(KernelEvents.TOOL.COMPLETED, {
@@ -137,7 +137,7 @@ export class ToolExecutor {
           ? (typeof toolResult.output === 'string' ? toolResult.output : JSON.stringify(toolResult.output, null, 2))
           : `⚠️ 执行失败: ${toolResult.error}`,
       });
-      await sm.addMessage(toolMsg.toJSON(), sessionId);
+      await sm.addMessage(toolMsg, sessionId);
       this.emit(KernelEvents.CHAT.MESSAGE_ADDED, { messageId: toolMsg.id, sessionId });
     }
 

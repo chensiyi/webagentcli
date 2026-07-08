@@ -25,13 +25,11 @@
   import ScriptsPage from './pages/ScriptsPage.svelte';
   import SettingsPage from './pages/SettingsPage.svelte';
 
-  let { kernel }: { kernel: unknown } = $props();
+  let { ipc }: { ipc: unknown } = $props();
 
-  // 注入 Kernel 到 Svelte context（子组件通过 useKernel() 访问）
-  // 注意：setContext 必须在组件初始化阶段同步调用，不能放在 $effect 中
-  // kernel prop 由 bootKernel() 完成后传入，生命周期内不会变化，因此只捕获初始值是预期行为
-  // svelte-ignore state_referenced_locally
-  setContext('kernel', kernel);
+  // 注入 IPC 到 Svelte context（子组件通过 getContext('ipc') 访问）
+  // ipc 是 IPC 事件总线实例，所有页面通过 IPC 通道与 Kernel 通信
+  setContext('ipc', ipc);
   setContext('navigate', navigateTo);
 
   let activePage = $state<PageId>('chat');

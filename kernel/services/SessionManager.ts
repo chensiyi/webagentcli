@@ -1,5 +1,6 @@
 import { BaseSessionManager } from './ISessionManager.js';
 import { Session } from '../models/Session.js';
+import { Message } from '../models/Message.js';
 import { Log } from './Log.js';
 import { KernelEvents } from '../Events.js';
 
@@ -80,7 +81,7 @@ export class SessionManager extends BaseSessionManager {
   }
 
   /** SessionManager 持有的消息增删改（原 Session 模型的集合方法迁移至此） */
-  async addMessage(message: Record<string, unknown>, sessionId: string): Promise<void> {
+  async addMessage(message: Message, sessionId: string): Promise<void> {
     const s = this.getSession(sessionId);
     if (s) {
       s.messages.push(message);
@@ -92,7 +93,7 @@ export class SessionManager extends BaseSessionManager {
   async deleteMessage(messageId: string, sessionId: string): Promise<boolean> {
     const s = this.getSession(sessionId);
     if (!s) return false;
-    const i = s.messages.findIndex((m: Record<string, unknown>) => m.id === messageId);
+    const i = s.messages.findIndex((m: Message) => m.id === messageId);
     if (i !== -1) {
       s.messages.splice(i, 1);
       await this._persistSessions();
@@ -101,18 +102,18 @@ export class SessionManager extends BaseSessionManager {
     return false;
   }
 
-  async updateMessage(messageId: string, updater: ((msg: Record<string, unknown>) => Record<string, unknown>) | Record<string, unknown>, sessionId: string): Promise<boolean> {
+  async updateMessage(messageId: string, updater: ((msg: Message) => Message) | Message, sessionId: string): Promise<boolean> {
     const s = this.getSession(sessionId);
     if (!s) return false;
-    const idx = s.messages.findIndex((m: Record<string, unknown>) => m.id === messageId);
+    const idx = s.messages.findIndex((m: Message) => m.id === messageId);
     if (idx !== -1) {
-      const msg = s.messages[idx] as Record<string, unknown>;
+      const msg = s.messages[idx];
       if (typeof updater === 'function') {
         const updated = updater(msg);
         // 防御：updater 未返回值时保留原消息，避免 undefined 写入数组
         s.messages[idx] = updated ?? msg;
       } else {
-        s.messages[idx] = { ...msg, ...updater };
+        s.messages[idx] = Object.assign(msg, updater);
       }
       await this._persistSessions();
       return true;
@@ -121,14 +122,14 @@ export class SessionManager extends BaseSessionManager {
   }
 
   streamChunkMessage(messageId: string, chunk: Record<string, unknown> | string, sessionId: string): Promise<boolean> {
-    return this.updateMessage(messageId, (msg: Record<string, unknown>) => {
+    return this.updateMessage(messageId, (msg: Message) => {
       if (chunk && typeof chunk === 'object') {
         if ((chunk as Record<string, unknown>).content != null)
-          msg.content = (msg.content || '') + (chunk as Record<string, unknown>).content;
+          msg.content = String(msg.content || '') + String((chunk as Record<string, unknown>).content || '');
         if ((chunk as Record<string, unknown>).reasoning_content != null)
-          msg.reasoning_content = (msg.reasoning_content || '') + (chunk as Record<string, unknown>).reasoning_content;
+          msg.reasoning_content = String(msg.reasoning_content || '') + String((chunk as Record<string, unknown>).reasoning_content || '');
       } else {
-        msg.content = (msg.content || '') + String(chunk);
+        msg.content = String(msg.content || '') + String(chunk);
       }
       return msg;
     }, sessionId);

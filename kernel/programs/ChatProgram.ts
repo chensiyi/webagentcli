@@ -1,23 +1,23 @@
 /**
- * ChatProgram — 聊天编排器（v0.7 模块化重构）
+ * ChatProgram — 聊天编排器
  *
  * 职责：命令路由 + 发送管线编排 + 取消/删除操作
  *
  * 模块拆分：
- * - ChatStateManager  → 状态机（IDLE/WAITING/THINKING/GENERATING/终态）
  * - ContextBuilder    → System Prompt 构建 + 消息截断 + API 格式转换
  * - ToolExecutor      → 工具调用循环（执行/结果收集/消息写入/事件发射）
  *
- * 公共 API：sendMessage / cancel / deleteMessage / getQueueStatus
+ * 公共 API：sendMessage / cancel / deleteMessage
  */
 
 import { KernelEvents } from '../Events.js';
 import { Log } from '../services/Log.js';
 import { MessagesRequest, ThinkingConfig } from '../models/MessageContent.js';
 import { Message } from '../models/Message.js';
+import { Session } from '../models/Session.js';
 import { IPC } from '../IPC.js';
 import { Kernel } from '../Kernel.js';
-import { CHAT_STATE, ChatStateManager, ContextBuilder, ToolExecutor } from './chat/index.js';
+import { ContextBuilder, ToolExecutor } from './chat/index.js';
 
 // ─── 命令常量（保持向后兼容，ChatPage.svelte 依赖此导出） ───
 
@@ -26,6 +26,14 @@ export const CMD = Object.freeze({
   STOP: 'chat:cmd:stop',
   DELETE_MESSAGE: 'chat:cmd:deleteMessage',
 });
+
+/** 当前进行中的请求上下文 */
+export interface CurrentRequest {
+  sessionId: string;
+  assistantMessageId: string;
+  startedAt: number;
+  lastActiveAt: number;
+}
 
 // ─── ChatProgram ──────────────────────────────────────────────
 
@@ -38,13 +46,13 @@ export class ChatProgram {
   chatChannel: IPC | null;
 
   // 子模块
-  private _state: ChatStateManager;
   private _context: ContextBuilder;
   private _toolExecutor: ToolExecutor;
 
   // 编排状态
+  _active: boolean;
   _assistantMsgId: string | null;
-  _currentRequest: Record<string, unknown> | null;
+  _currentRequest: CurrentRequest | null;
 
   constructor(options: { kernel: Kernel; name?: string } = { kernel: null as unknown as Kernel, name: 'ChatProgram' }) {
     this.name = options.name || 'ChatProgram';
@@ -52,13 +60,10 @@ export class ChatProgram {
     this.ipc = this.kernel.getIPC();
     this.chatChannel = this.ipc?.getOrCreateChannel('chat');
 
-    // 初始化子模块（state 变更自动 emit ACTIVITY_STATE_CHANGED 到 UI）
-    this._state = new ChatStateManager(CHAT_STATE.IDLE, () => {
-      this.chatChannel?.emit(KernelEvents.CHAT.ACTIVITY_STATE_CHANGED, this.getQueueStatus());
-    });
     this._context = new ContextBuilder();
-    this._toolExecutor = new ToolExecutor(this.kernel, (event, data) => this._emit(event, data));
+    this._toolExecutor = new ToolExecutor(this.kernel, (event, data) => this.chatChannel?.emit(event, data));
 
+    this._active = false;
     this._assistantMsgId = null;
     this._currentRequest = null;
 
@@ -66,8 +71,8 @@ export class ChatProgram {
     this.chatChannel?.on(CMD.SEND, (data: unknown) => {
       this.sendMessage(data as Record<string, unknown>).catch(err => {
         Log.error(this.name, 'Unhandled error in sendMessage:', err);
-        this._state.transition(CHAT_STATE.FAILED);
-        this._emit(KernelEvents.CHAT.STREAM_ERROR, { error: err, message: err.message || String(err) });
+        this._active = false;
+        this.chatChannel?.emit(KernelEvents.CHAT.STREAM_ERROR, { error: err, message: err.message || String(err) });
         this._currentRequest = null;
         this._assistantMsgId = null;
       });
@@ -88,7 +93,7 @@ export class ChatProgram {
     // 如果删除的会话是当前进行中的，自动取消
     this.chatChannel?.on(KernelEvents.CHAT.SESSION_DELETED, (data: unknown) => {
       const { sessionId } = (data || {}) as Record<string, unknown>;
-      if (sessionId && (this._currentRequest as any)?.sessionId === sessionId) {
+      if (sessionId && this._currentRequest?.sessionId === sessionId) {
         Log.info(this.name, `Session ${sessionId} deleted while active, auto-cancelling`);
         this.cancel();
       }
@@ -97,19 +102,21 @@ export class ChatProgram {
 
   // ─── 主发送管线 ─────────────────────────────────────────────
 
-  async sendMessage({
-    content = '',
-    sessionId = null,
-    model = null,
-    reasoningEffort = undefined,
-    isToolContinuation = false,
-  }: Record<string, unknown> = {}): Promise<void> {
+  async sendMessage(options: Record<string, unknown> = {}): Promise<void> {
+    const {
+      content = '',
+      sessionId = null,
+      model = null,
+      reasoningEffort = 'off',
+      isToolContinuation = false,
+    } = options;
+
     if (!isToolContinuation && !(content as string)?.trim()) return;
 
     const service = this.kernel.getProviderFactory()?.getCurrentProvider();
     if (!service) {
       const err = new Error('Provider service not initialized yet. Please wait for settings to load or configure a provider in Settings.');
-      this._emit(KernelEvents.CHAT.STREAM_ERROR, { error: err, message: err.message });
+      this.chatChannel?.emit(KernelEvents.CHAT.STREAM_ERROR, { error: err, message: err.message });
       return;
     }
 
@@ -118,14 +125,14 @@ export class ChatProgram {
     const defaultEffort = settings?.reasoningEffort || 'medium';
 
     let assistantMsgId: string | null = null;
-    let session: Record<string, unknown> | null = null;
+    let session: Session | null = null;
 
     try {
       // ── 前置校验 ──
       if (!isToolContinuation) {
         if (!content || !(content as string).trim()) throw new Error('Message content is required');
         if (this._assistantMsgId) throw new Error('A message is already being generated');
-        this._state.transition(CHAT_STATE.WAITING);
+        this._active = true;
       }
 
       // ── 会话管理 ──
@@ -136,23 +143,23 @@ export class ChatProgram {
           title: '新对话',
           reasoningEffort: reasoningEffort || defaultEffort,
         });
-        this._emit(KernelEvents.CHAT.CURRENT_SESSION_CHANGED, { sessionId: (session as any).id });
-      } else if (reasoningEffort && (session as any).reasoningEffort !== reasoningEffort) {
-        (session as any).reasoningEffort = reasoningEffort;
+        this.chatChannel?.emit(KernelEvents.CHAT.CURRENT_SESSION_CHANGED, { sessionId: session.id });
+      } else if (reasoningEffort && session.reasoningEffort !== (reasoningEffort as string)) {
+        session.reasoningEffort = reasoningEffort as string;
       }
 
-      const sid = (session as any).id;
+      const sid = session.id;
       const modelId = model ? (model as any).id : (settings?.model || '');
-      const thinkingEffort = (session as any).reasoningEffort || 'off';
+      const thinkingEffort = session.reasoningEffort || 'off';
 
       // ── 用户消息 ──
       if (!isToolContinuation) {
         const userMsg = new Message({ role: 'user', content: (content as string).trim() });
         await sm.addMessage(userMsg, sid);
-        this._emit(KernelEvents.CHAT.MESSAGE_ADDED, { messageId: userMsg.id, sessionId: sid });
+        this.chatChannel?.emit(KernelEvents.CHAT.MESSAGE_ADDED, { messageId: userMsg.id, sessionId: sid });
 
         // 会话中仅此一条消息 → 首次发送，自动生成标题
-        if ((session as any).messages.length === 1) {
+        if (session.messages.length === 1) {
           const titleText = (content as string).trim().replace(/\n/g, ' ');
           const autoTitle = titleText.length > 24 ? titleText.slice(0, 24) + '…' : titleText;
           await sm.updateSession(sid, { title: autoTitle });
@@ -185,29 +192,26 @@ export class ChatProgram {
       await sm.addMessage(assistantMsg, sid);
       assistantMsgId = assistantMsg.id;
       this._assistantMsgId = assistantMsgId;
-      this._emit(KernelEvents.CHAT.MESSAGE_ADDED, { messageId: assistantMsgId, sessionId: sid });
+      this.chatChannel?.emit(KernelEvents.CHAT.MESSAGE_ADDED, { messageId: assistantMsgId, sessionId: sid });
 
       this._currentRequest = {
         sessionId: sid,
         assistantMessageId: assistantMsgId,
         startedAt: Date.now(),
         lastActiveAt: Date.now(),
-      };
+      } satisfies CurrentRequest;
 
-      this._emit(KernelEvents.CHAT.STREAM_START, { sessionId: sid, messageId: assistantMsgId });
+      this.chatChannel?.emit(KernelEvents.CHAT.STREAM_START, { sessionId: sid, messageId: assistantMsgId });
 
       // ── 流式响应 ──
       const result = await service.chatStream(request, (chunk: Record<string, unknown>) => {
-        if (this._currentRequest) (this._currentRequest as any).lastActiveAt = Date.now();
+        if (this._currentRequest) this._currentRequest.lastActiveAt = Date.now();
 
         const c = chunk.content as string || '';
         const r = chunk.reasoning_content as string || '';
 
-        if (r) this._state.transition(CHAT_STATE.THINKING);
-        else if (c) this._state.transition(CHAT_STATE.GENERATING);
-
         sm.streamChunkMessage(assistantMsgId, { content: c, reasoning_content: r }, sid);
-        this._emit(KernelEvents.CHAT.STREAM_CHUNK_APPEND, {
+        this.chatChannel?.emit(KernelEvents.CHAT.STREAM_CHUNK_APPEND, {
           sessionId: sid, messageId: assistantMsgId, content: c, reasoning_content: r,
         });
       });
@@ -218,45 +222,39 @@ export class ChatProgram {
       }
 
       // ── 工具调用（委托 ToolExecutor 做执行循环） ──
-      if ((result as any).toolCalls && (result as any).toolCalls.length > 0) {
+      if (result.toolCalls && result.toolCalls.length > 0) {
         await sm.updateMessage(assistantMsgId, (msg: any) => {
-          (result as any).toolCalls.forEach((tc: unknown) => msg.addToolCall(tc));
+          result.toolCalls.forEach((tc: any) => msg.addToolCall(tc));
           return msg;
         }, sid);
 
-        this._state.transition(CHAT_STATE.COMPLETED);
-        const duration = Date.now() - ((this._currentRequest as any).startedAt as number);
-        this._emit(KernelEvents.CHAT.STREAM_COMPLETE, { sessionId: sid, messageId: assistantMsgId, duration });
+        const duration = Date.now() - this._currentRequest!.startedAt;
+        this.chatChannel?.emit(KernelEvents.CHAT.STREAM_COMPLETE, { sessionId: sid, messageId: assistantMsgId, duration });
 
-        await this._toolExecutor.execute((result as any).toolCalls, sid);
+        await this._toolExecutor.execute(result.toolCalls, sid);
         // 工具执行完成后，继续下一轮（ReAct 循环）
         await this.sendMessage({ sessionId: sid, isToolContinuation: true });
         return;
       }
 
-      this._state.transition(CHAT_STATE.COMPLETED);
-      const duration = Date.now() - ((this._currentRequest as any).startedAt as number);
-      this._emit(KernelEvents.CHAT.STREAM_COMPLETE, { sessionId: sid, messageId: assistantMsgId, duration });
+      const duration = Date.now() - this._currentRequest!.startedAt;
+      this.chatChannel?.emit(KernelEvents.CHAT.STREAM_COMPLETE, { sessionId: sid, messageId: assistantMsgId, duration });
     } catch (error: any) {
-      this._state.transition(CHAT_STATE.FAILED);
+      this._active = false;
       if (assistantMsgId && session) {
         sm.updateMessage(assistantMsgId, (msg: any) => {
           msg.content = `❌ 发送失败: ${error.message}`;
           return msg;
-        }, (session as any).id);
+        }, session.id);
       }
-      this._emit(KernelEvents.CHAT.STREAM_ERROR, {
+      this.chatChannel?.emit(KernelEvents.CHAT.STREAM_ERROR, {
         error, message: error.message,
-        sessionId: (session as any)?.id, messageId: assistantMsgId,
+        sessionId: session?.id, messageId: assistantMsgId,
       });
     } finally {
       this._currentRequest = null;
       this._assistantMsgId = null;
-      setTimeout(() => {
-        if (!this._currentRequest && this._state.isActive) {
-          this._state.reset();
-        }
-      }, 50);
+      this._active = false;
     }
   }
 
@@ -267,12 +265,11 @@ export class ChatProgram {
     const stoppedRequest = this._currentRequest;
     this._currentRequest = null;
     this._assistantMsgId = null;
-    this._state.transition(CHAT_STATE.STOPPED);
-    this._emit(KernelEvents.CHAT.STREAM_STOP, {
-      sessionId: (stoppedRequest as any)?.sessionId,
-      messageId: (stoppedRequest as any)?.assistantMessageId,
+    this._active = false;
+    this.chatChannel?.emit(KernelEvents.CHAT.STREAM_STOP, {
+      sessionId: stoppedRequest?.sessionId,
+      messageId: stoppedRequest?.assistantMessageId,
     });
-    setTimeout(() => this._state.reset(), 50);
   }
 
   // ─── 删除消息 ──────────────────────────────────────────────
@@ -281,24 +278,13 @@ export class ChatProgram {
     const sm = this.kernel.getSessionManager();
     const session = sm.getCurrentSession();
     if (!session) return false;
-    const result = await sm.deleteMessage(messageId, (session as any).id);
+    const result = await sm.deleteMessage(messageId, session.id);
     if (result) {
-      this._emit(KernelEvents.CHAT.MESSAGE_DELETED, { messageId, sessionId: (session as any).id });
+      this.chatChannel?.emit(KernelEvents.CHAT.MESSAGE_DELETED, { messageId, sessionId: session.id });
     }
     return result;
   }
 
-  // ─── 状态查询 ──────────────────────────────────────────────
-
-  getQueueStatus(): Record<string, unknown> {
-    return this._state.getQueueStatus(
-      (this._currentRequest as any)?.sessionId || null
-    );
-  }
-
   // ─── 内部 ──────────────────────────────────────────────────
 
-  private _emit(event: string, data: unknown): void {
-    this.chatChannel?.emit(event, data);
-  }
 }

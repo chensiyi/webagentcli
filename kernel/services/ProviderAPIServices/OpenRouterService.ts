@@ -22,10 +22,10 @@ export default class OpenRouterService extends OpenAIService {
     if (!this.config.apiKey) throw new Error('OpenRouter: apiKey is required');
   }
 
-  buildHeaders() {
-    const headers = super.buildHeaders();
-    // FIXME: window 依赖 — 已知浏览器环境耦合（参见 MEMORY.md）
-    headers['HTTP-Referer'] = window.location.href || 'http://localhost';
+  buildHeaders(request?: any):  Record<string, string>{
+    const headers = super.buildHeaders(request);
+    // referer 由 Shell 层通过 request.headers 传入（kernel 不引用 window）
+    headers['HTTP-Referer'] = request?.headers?.['HTTP-Referer'] || 'http://localhost';
     headers['X-Title'] = 'Web Agent Client';
     return headers;
   }
@@ -68,9 +68,9 @@ export default class OpenRouterService extends OpenAIService {
     }
   }
 
-  chatStream(request: any, onChunk: any) {
+  chatStream(request: any, onChunk: any): Promise<any> {
     const url = this.buildUrl('/chat/completions');
-    const headers = this.buildHeaders();
+    const headers = this.buildHeaders(request);
     request.stream = true;
     const body = this.buildRequestBody(request);
     this.abortController = new AbortController();

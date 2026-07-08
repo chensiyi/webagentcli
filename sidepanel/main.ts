@@ -2,9 +2,9 @@
  * sidepanel/main.ts — UI Shell 入口
  *
  * 职责：
- * - 通过 IPCTransport 连接 background Kernel
+ * - 创建 IPC 实例，通过 IPCTransport 连接 background Kernel
  * - 渲染 Svelte UI 组件
- * - 转发用户操作到 Kernel
+ * - 所有页面通过 IPC 通道与 Kernel 通信，不直接访问 kernel 模块
  */
 
 import { mount } from 'svelte';
@@ -15,7 +15,7 @@ import './styles/components.css';
 import './styles/pages.css';
 
 import { IPC } from 'kernel/IPC.js';
-import { IPCTransport } from 'kernel/IPCTransport.js';
+import { IPCTransport } from '../bridge/IPCTransport.js';
 import { ConsoleLogger } from 'kernel/services/ConsoleLogger.js';
 
 async function init() {
@@ -45,7 +45,7 @@ async function init() {
         }, 3000);
     });
 
-    // 挂载侧边栏 Shell
+    // 挂载侧边栏 Shell，注入 IPC 实例
     const root = document.getElementById('root');
     if (!root) {
         console.error('[Shell] #root element not found');
@@ -54,7 +54,7 @@ async function init() {
 
     mount(Sidepanel, {
         target: root,
-        props: { kernel: null }, // kernel 为 null，通过 IPCTransport 远程调用
+        props: { ipc }, // 注入 IPC 实例，页面通过 IPC 通道与 Kernel 通信
     });
 
     console.log('[Shell] Mounted successfully');

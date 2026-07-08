@@ -9,8 +9,9 @@ export default class OpenAIService extends BaseProviderAPIService {
     const base = (this.config.endpoint || 'https://api.openai.com/v1').replace(/\/$/, '');
     return `${base}${path}`;
   }
-  buildHeaders() {
-    return { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.config.apiKey}` };
+  buildHeaders(request?: any): Record<string, string> {
+    // 委托父类构建基础头 + 合并 request.headers
+    return super.buildHeaders(request);
   }
   buildRequestBody(request: Record<string, any>): Record<string, any> {
     return {
@@ -24,7 +25,14 @@ export default class OpenAIService extends BaseProviderAPIService {
   }
   _buildStandardResponse(choice, data) {
     const msg = choice.message || {};
-    return { content: msg.content, reasoning_content: null, toolCalls: msg.tool_calls || [], finishReason: choice.finish_reason };
+    return {
+      content: msg.content || '',
+      reasoning_content: msg.reasoning_content || null,
+      toolCalls: MessageStructure.parseToolCallsFromOpenAI(msg.tool_calls || []),
+      finishReason: choice.finish_reason || null,
+      usage: data.usage || null,
+      model: data.model || null,
+    };
   }
   async chat(request) {
     const url = this.buildUrl('/chat/completions');
@@ -33,7 +41,7 @@ export default class OpenAIService extends BaseProviderAPIService {
 
     try {
       const res = await fetch(url, {
-        method: 'POST', headers: this.buildHeaders(), body: JSON.stringify(body)
+        method: 'POST', headers: this.buildHeaders(request), body: JSON.stringify(body)
       });
       if (!res.ok) {
         const errText = await res.text().catch(() => '(no body)');
@@ -55,9 +63,9 @@ export default class OpenAIService extends BaseProviderAPIService {
       throw error;
     }
   }
-  async chatStream(request, onChunk) {
+  async chatStream(request, onChunk): Promise<any> {
     const url = this.buildUrl('/chat/completions');
-    const body = { ...this.buildRequestBody(request), stream: true };
+    const body: Record<string, any> = { ...this.buildRequestBody(request), stream: true };
     Log.info('OpenAIService', `Stream request: model=${body.model}, messages=${body.messages?.length}`);
 
     const pendingToolCalls: Record<number, any> = {};
@@ -67,7 +75,7 @@ export default class OpenAIService extends BaseProviderAPIService {
 
     try {
       const res = await fetch(url, {
-        method: 'POST', headers: { ...this.buildHeaders() }, body: JSON.stringify(body)
+        method: 'POST', headers: { ...this.buildHeaders(request) }, body: JSON.stringify(body)
       });
       if (!res.ok) {
         const errText = await res.text().catch(() => '(no body)');
