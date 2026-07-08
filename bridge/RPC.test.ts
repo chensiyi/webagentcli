@@ -10,7 +10,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { IPC } from '../kernel/IPC.js';
 import { IPCTransport } from './IPCTransport.js';
-import { RPC, RPCClient, RPCServer, createApiClient } from './RPC.js';
+import { RPCClient, RPCServer, createApiClient } from './RPC.js';
 import { sanitizeForClone } from './serialize.js';
 import { Tool } from '../kernel/models/Tool.js';
 
@@ -119,13 +119,13 @@ describe('RPCClient ↔ RPCServer', () => {
     const bgIpc = new IPC({ origin: 'bg' });
     new IPCTransport(bgIpc, 'kernel').init();
     const server = new RPCServer(bgIpc);
-    server.register(RPC.SESSION_LIST, () => ({ sessions: [{ id: 's1' }] }));
+    server.register('session.list', () => ({ sessions: [{ id: 's1' }] }));
 
     const shIpc = new IPC({ origin: 'sh' });
     new IPCTransport(shIpc, 'shell').init();
     const client = new RPCClient(shIpc);
 
-    const res = await client.call<{ sessions: any[] }>(RPC.SESSION_LIST);
+    const res = await client.call<{ sessions: any[] }>('session.list');
     expect(res.sessions).toEqual([{ id: 's1' }]);
   });
 
@@ -133,13 +133,13 @@ describe('RPCClient ↔ RPCServer', () => {
     const bgIpc = new IPC({ origin: 'bg' });
     new IPCTransport(bgIpc, 'kernel').init();
     const server = new RPCServer(bgIpc);
-    server.register(RPC.SETTINGS_GET, () => { throw new Error('kaboom'); });
+    server.register('settings.get', () => { throw new Error('kaboom'); });
 
     const shIpc = new IPC({ origin: 'sh' });
     new IPCTransport(shIpc, 'shell').init();
     const client = new RPCClient(shIpc);
 
-    await expect(client.call(RPC.SETTINGS_GET)).rejects.toThrow('kaboom');
+    await expect(client.call('settings.get')).rejects.toThrow('kaboom');
   });
 
   it('并发多个请求各自正确关联（不会串台）', async () => {
@@ -161,12 +161,7 @@ describe('RPCClient ↔ RPCServer', () => {
   });
 });
 
-describe('RPC 方法名约束', () => {
-  it('所有方法名全局唯一（请求/响应共用同一命名空间，杜绝碰撞）', () => {
-    const names = Object.values(RPC);
-    expect(new Set(names).size).toBe(names.length);
-  });
-});
+// 方法名唯一性约束：expose 注册为 `${service}.${method}`，由单一 RPCServer 实例的 handlers Map 保证 key 唯一（重复注册会被 warn 覆盖）。
 
 describe('Tool 序列化', () => {
   it('含 handler 的 Tool 必须经 toJSON 才能结构化克隆', () => {

@@ -80,6 +80,7 @@ class LogService implements ILogger {
   // ---- 内部 ----
 
   private _log(level: LogLevel, tag: string, ...args: unknown[]): void {
+    if (level === 'silent') return;
     if (LEVEL_RANK[level] < LEVEL_RANK[this._minLevel]) return;
     const d = new Date();
     const ts = `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;

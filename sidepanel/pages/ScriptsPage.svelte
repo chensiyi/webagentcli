@@ -8,11 +8,11 @@
   import EmptyState from '../components/layout/EmptyState.svelte';
   import { useToast } from '../components/overlays/toast-store.svelte';
   import { KernelEvents } from '../../kernel/Events.js';
-  import { RPC } from '../../bridge/RPC.js';
+  import type { KernelAPIContract } from '../api-contract.js';
 
   const ipc: any = getContext('ipc');
   const scriptsChannel = ipc?.getOrCreateChannel?.('scripts') || ipc;
-  const rpc: any = getContext('rpc');
+  const api = getContext('api') as KernelAPIContract;
   const toast = useToast();
 
   // ---------- State ----------
@@ -55,7 +55,7 @@
   async function refreshList() {
     isLoading = true;
     try {
-      const data = await rpc.call(RPC.SCRIPTS_LIST);
+      const data = await api.scripts.list();
       scripts = data?.scripts || [];
     } catch {
       scripts = [];
@@ -77,7 +77,7 @@
       return;
     }
     try {
-      const data = await rpc.call(RPC.SCRIPTS_INSTALL, { code: editCode });
+      const data = await api.scripts.install({ code: editCode });
       scripts = data?.scripts || [];
       toast.success('脚本已安装');
       showInstallForm = false;
@@ -106,7 +106,7 @@
       return;
     }
     try {
-      const data = await rpc.call(RPC.SCRIPTS_EDIT, { id: editingScriptId, code: editCode });
+      const data = await api.scripts.edit({ id: editingScriptId, code: editCode });
       scripts = data?.scripts || [];
       toast.success('已保存');
       editingScriptId = null;
@@ -118,7 +118,7 @@
 
   async function toggleScript(id: string, enabled: boolean) {
     try {
-      const data = await rpc.call(RPC.SCRIPTS_TOGGLE, { id, enabled });
+      const data = await api.scripts.toggle({ id, enabled });
       scripts = data?.scripts || [];
       toast.success(enabled ? '已启用' : '已禁用');
     } catch {
@@ -133,7 +133,7 @@
   async function executeDelete() {
     if (!deleteTargetId) return;
     try {
-      const data = await rpc.call(RPC.SCRIPTS_UNINSTALL, { id: deleteTargetId });
+      const data = await api.scripts.uninstall({ id: deleteTargetId });
       scripts = data?.scripts || [];
       toast.success('已删除');
     } catch {

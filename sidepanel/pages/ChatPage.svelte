@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy, getContext } from 'svelte';
   import { KernelEvents } from '../../kernel/Events.js';
-  import { RPC } from '../../bridge/RPC.js';
+  import type { KernelAPIContract } from '../api-contract.js';
   import { extractText, renderMarkdown } from '../utils/text.js';
   import { autoScrollToBottom } from '../utils/dom.js';
   import { useToast } from '../components/overlays/toast-store.svelte';
@@ -22,7 +22,7 @@
   const chatChannel = ipc?.getOrCreateChannel?.('chat') || ipc;
   const toolChannel = ipc?.getOrCreateChannel?.('tool') || ipc;
   const navigate = getContext('navigate');
-  const rpc: any = getContext('rpc');
+  const api = getContext('api') as KernelAPIContract;
   const toast = useToast();
 
   // ==================== 响应式状态 ====================
@@ -95,11 +95,11 @@
   // ==================== 消息刷新 ====================
 
   function refreshMessages() {
-    rpc.call(RPC.SESSION_GET_CURRENT).then(applyCurrentSession).catch((e) => Log.error('ChatPage', 'load session failed', e));
+    api.session.getCurrent().then(applyCurrentSession).catch((e) => Log.error('ChatPage', 'load session failed', e));
   }
 
   function refreshTools() {
-    rpc.call(RPC.TOOL_LIST).then(applyToolList).catch((e) => Log.error('ChatPage', 'load tools failed', e));
+    api.tools.list().then(applyToolList).catch((e) => Log.error('ChatPage', 'load tools failed', e));
   }
 
   // ==================== 业务逻辑 ====================
@@ -120,7 +120,7 @@
   }
 
   function handleNewChat() {
-    rpc.call(RPC.SESSION_NEW)
+    api.session.create()
       .then((data) => { applyCurrentSession(data); streamingMap = {}; })
       .catch((e) => Log.error('ChatPage', 'new chat failed', e));
   }
@@ -138,14 +138,14 @@
       toast.error('会话不存在');
       return;
     }
-    rpc.call(RPC.SESSION_DELETE_MSG, { messageId: id, sessionId: sid }).catch((e) => Log.error('ChatPage', 'delete message failed', e));
+    api.session.deleteMessage({ messageId: id, sessionId: sid }).catch((e) => Log.error('ChatPage', 'delete message failed', e));
     deleteTargetId = null;
   }
 
   function handleReasoningEffortChange(val: string) {
     reasoningEffort = val;
     if (session) {
-      rpc.call(RPC.SESSION_UPDATE, { sessionId: session.id, data: { reasoningEffort: val } })
+      api.session.update({ sessionId: session.id, data: { reasoningEffort: val } })
         .catch((e) => Log.error('ChatPage', 'update session failed', e));
     }
   }
@@ -166,7 +166,7 @@
     const newTitle = editingTitle.trim() || '新对话';
     isEditingTitle = false;
     if (session.title !== newTitle) {
-      rpc.call(RPC.SESSION_UPDATE, { sessionId: session.id, data: { title: newTitle } })
+      api.session.update({ sessionId: session.id, data: { title: newTitle } })
         .catch((e) => Log.error('ChatPage', 'update title failed', e));
       session.title = newTitle;
     }
@@ -179,7 +179,7 @@
   function toggleTool(tool: any) {
     const name = tool.name;
     if (!name) return;
-    rpc.call(RPC.TOOL_TOGGLE, { name, enabled: !tool.enabled })
+    api.tools.toggle({ name, enabled: !tool.enabled })
       .catch((e) => Log.error('ChatPage', 'toggle tool failed', e));
     toolEnabledMap = { ...toolEnabledMap, [name]: !tool.enabled };
   }

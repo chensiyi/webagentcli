@@ -9,7 +9,8 @@
 
 import { IPC } from 'kernel/IPC.js';
 import { IPCTransport } from '../bridge/IPCTransport.js';
-import { RPC, RPCServer } from '../bridge/RPC.js';
+import { RPCServer } from '../bridge/RPC.js';
+import { createSessionFacade, createToolsFacade, createStorageFacade, createScriptsFacade } from './rpc-facades.js';
 import { Kernel } from 'kernel/Kernel.js';
 import { Bootloader } from 'kernel/Bootloader.js';
 import { ToolsManager } from 'kernel/ToolsManager.js';
@@ -169,165 +170,30 @@ async function bootKernel() {
         // ── RPC 分发（重设计：统一请求 ID 关联，错误回传，边界 sanitize） ──
         const rpcServer = new RPCServer(ipc);
 
-        rpcServer.register(RPC.SESSION_GET_CURRENT, () => {
-            const sm = kernel.getSessionManager();
-            const s = sm.getCurrentSession();
-            return {
-                session: s,
-                messages: s?.messages || [],
-                reasoningEffort: s?.reasoningEffort || 'medium',
-            };
+        // ── 标准外部访问接口：session / tools / settings / storage / scripts 统一用 expose 注册 ──
+        // expose 把 Manager（或其 facade）的公共方法注册为 `<service>.<method>` 形式的远程方法，
+        // 客户端通过 createApiClient 出的代理 api.<service>.<method>(...) 调用，类型与 kernel 侧一致。
+        // 复合返回形状（如 {session, messages, reasoningEffort}）、事件广播与入参校验由 facade 负责。
+        // 每个调用接入 capabilities.audit 能力监测钩子（后期填充 per-method 的能力映射）。
+        rpcServer.expose('session', createSessionFacade(kernel, chatChannel), {
+            methods: ['getCurrent', 'create', 'update', 'deleteMessage', 'list', 'switch', 'delete', 'clearMessages'],
+            capabilities: kernel.capabilities as any,
         });
-
-        rpcServer.register(RPC.SESSION_NEW, async () => {
-            const sm = kernel.getSessionManager();
-            await sm.createSession();
-            const s = sm.getCurrentSession();
-            chatChannel.emit(KernelEvents.CHAT.CURRENT_SESSION_CHANGED, { sessionId: s?.id });
-            return {
-                session: s,
-                messages: [],
-                reasoningEffort: kernel.getSettingsManager().getSettings().reasoningEffort || 'medium',
-            };
+        rpcServer.expose('tools', createToolsFacade(kernel), {
+            methods: ['list', 'toggle'],
+            capabilities: kernel.capabilities as any,
         });
-
-        rpcServer.register(RPC.SESSION_UPDATE, async (data: any) => {
-            if (!data?.sessionId) return null;
-            const sm = kernel.getSessionManager();
-            await sm.updateSession(data.sessionId, data.data as any);
-            chatChannel.emit(KernelEvents.CHAT.SESSION_UPDATED, { sessionId: data.sessionId });
-            return null;
-        });
-
-        rpcServer.register(RPC.SESSION_DELETE_MSG, async (data: any) => {
-            if (!data?.messageId || !data?.sessionId) return null;
-            const sm = kernel.getSessionManager();
-            const ok = await sm.deleteMessage(data.messageId, data.sessionId);
-            if (ok) {
-                chatChannel.emit(KernelEvents.CHAT.MESSAGE_DELETED, { messageId: data.messageId, sessionId: data.sessionId });
-            }
-            return null;
-        });
-
-        rpcServer.register(RPC.TOOL_LIST, () => {
-            const tools = (kernel.toolsManager?.getAll() || []).map(t => t.toJSON());
-            return { tools };
-        });
-
-        rpcServer.register(RPC.TOOL_TOGGLE, (data: any) => {
-            if (!data?.name) return null;
-            const tm = kernel.toolsManager;
-            if (data.enabled) tm?.enable(data.name);
-            else tm?.disable(data.name);
-            return null;
-        });
-
-        rpcServer.register(RPC.SESSION_LIST, () => {
-            const sm = kernel.getSessionManager();
-            return { sessions: sm.getAllSessions() };
-        });
-
-        rpcServer.register(RPC.SESSION_SWITCH, async (data: any) => {
-            if (!data?.sessionId) return null;
-            const sm = kernel.getSessionManager();
-            await sm.setCurrentSession(data.sessionId);
-            const s = sm.getCurrentSession();
-            chatChannel.emit(KernelEvents.CHAT.CURRENT_SESSION_CHANGED, { sessionId: s?.id });
-            return {
-                session: s,
-                messages: s?.messages || [],
-                reasoningEffort: s?.reasoningEffort || 'medium',
-            };
-        });
-
-        rpcServer.register(RPC.SESSION_DELETE, async (data: any) => {
-            if (!data?.sessionId) return null;
-            const sm = kernel.getSessionManager();
-            await sm.deleteSession(data.sessionId);
-            return { sessions: sm.getAllSessions() };
-        });
-
-        rpcServer.register(RPC.SESSION_CLEAR_MSGS, async (data: any) => {
-            if (!data?.sessionId) return null;
-            const sm = kernel.getSessionManager();
-            await sm.clearMessages(data.sessionId);
-            chatChannel.emit(KernelEvents.CHAT.SESSION_UPDATED, { sessionId: data.sessionId });
-            return null;
-        });
-
-        // ── 标准外部访问接口：按契约自动注册（settings 服务） ──
-        // 其余服务（session/scripts/storage/tools）暂保留旧 RPC.* 手动注册，逐步迁移。
-        // expose 通过契约把 SettingsManager 的公共方法注册为 settings.getSettings / settings.saveSettings 等，
-        // 同时把每个调用接入 capabilities.audit 能力监测钩子（后期填充 per-method 能力映射）。
         rpcServer.expose('settings', kernel.getSettingsManager(), {
             methods: ['getSettings', 'saveSettings', 'getSetting', 'saveSetting', 'resetSettings'],
             capabilities: kernel.capabilities as any,
         });
-
-        rpcServer.register(RPC.STORAGE_GET_ALL, async () => {
-            const storage = kernel.getStorageManager();
-            const items = storage ? await storage.getAll() : {};
-            return { items: Object.entries(items) };
+        rpcServer.expose('storage', createStorageFacade(kernel), {
+            methods: ['getAll', 'set', 'remove', 'clear'],
+            capabilities: kernel.capabilities as any,
         });
-
-        rpcServer.register(RPC.STORAGE_SET, async (data: any) => {
-            if (!data?.key) return null;
-            const storage = kernel.getStorageManager();
-            await storage?.set(data.key, data.value);
-            const items = storage ? await storage.getAll() : {};
-            return { items: Object.entries(items) };
-        });
-
-        rpcServer.register(RPC.STORAGE_DELETE, async (data: any) => {
-            if (!data?.key) return null;
-            const storage = kernel.getStorageManager();
-            await storage?.remove(data.key);
-            const items = storage ? await storage.getAll() : {};
-            return { items: Object.entries(items) };
-        });
-
-        rpcServer.register(RPC.STORAGE_CLEAR, async () => {
-            const storage = kernel.getStorageManager();
-            await storage?.clear();
-            return { items: [] };
-        });
-
-        rpcServer.register(RPC.SCRIPTS_LIST, async () => {
-            const sm = kernel.getScriptsManager();
-            const scripts = await sm.loadAll();
-            return { scripts };
-        });
-
-        rpcServer.register(RPC.SCRIPTS_INSTALL, async (data: any) => {
-            if (!data?.code) return null;
-            const sm = kernel.getScriptsManager();
-            await sm.install(data.code);
-            const scripts = await sm.loadAll();
-            return { scripts };
-        });
-
-        rpcServer.register(RPC.SCRIPTS_EDIT, async (data: any) => {
-            if (!data?.id || !data?.code) return null;
-            const sm = kernel.getScriptsManager();
-            await sm.edit(data.id, data.code);
-            const scripts = await sm.loadAll();
-            return { scripts };
-        });
-
-        rpcServer.register(RPC.SCRIPTS_TOGGLE, async (data: any) => {
-            if (!data?.id) return null;
-            const sm = kernel.getScriptsManager();
-            await sm.toggle(data.id, !!data.enabled);
-            const scripts = await sm.loadAll();
-            return { scripts };
-        });
-
-        rpcServer.register(RPC.SCRIPTS_UNINSTALL, async (data: any) => {
-            if (!data?.id) return null;
-            const sm = kernel.getScriptsManager();
-            await sm.uninstall(data.id);
-            const scripts = await sm.loadAll();
-            return { scripts };
+        rpcServer.expose('scripts', createScriptsFacade(kernel), {
+            methods: ['list', 'install', 'edit', 'toggle', 'uninstall'],
+            capabilities: kernel.capabilities as any,
         });
     });
 

@@ -7,11 +7,11 @@
   import Dialog from '../components/overlays/Dialog.svelte';
   import EmptyState from '../components/layout/EmptyState.svelte';
   import { useToast } from '../components/overlays/toast-store.svelte';
-  import { RPC } from '../../bridge/RPC.js';
+  import type { KernelAPIContract } from '../api-contract.js';
 
   const ipc: any = getContext('ipc');
   const storageChannel = ipc?.getOrCreateChannel?.('storage') || ipc;
-  const rpc: any = getContext('rpc');
+  const api = getContext('api') as KernelAPIContract;
   const toast = useToast();
 
   // ---------- State ----------
@@ -55,7 +55,7 @@
   async function refreshList() {
     isLoading = true;
     try {
-      const data = await rpc.call(RPC.STORAGE_GET_ALL);
+      const data = await api.storage.getAll();
       storageItems = data?.items || [];
     } catch (e) {
       toast.error('加载失败');
@@ -87,11 +87,11 @@
   async function executeDelete() {
     try {
       if (deleteTargetIsAll) {
-        const data = await rpc.call(RPC.STORAGE_CLEAR);
+        const data = await api.storage.clear();
         storageItems = data?.items || [];
         toast.success('已清空');
       } else if (deleteTarget) {
-        const data = await rpc.call(RPC.STORAGE_DELETE, { key: deleteTarget });
+        const data = await api.storage.remove({ key: deleteTarget });
         storageItems = data?.items || [];
         toast.success('已删除');
       }
@@ -123,7 +123,7 @@
     if (!editTarget) return;
     try {
       const parsed = JSON.parse(editValue);
-      const data = await rpc.call(RPC.STORAGE_SET, { key: editTarget, value: parsed });
+      const data = await api.storage.set({ key: editTarget, value: parsed });
       storageItems = data?.items || [];
       toast.success('已更新');
       editTarget = null;

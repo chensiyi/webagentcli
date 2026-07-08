@@ -6,12 +6,12 @@
   import Dialog from '../components/overlays/Dialog.svelte';
   import EmptyState from '../components/layout/EmptyState.svelte';
   import { KernelEvents } from '../../kernel/Events.js';
-  import { RPC } from '../../bridge/RPC.js';
+  import type { KernelAPIContract } from '../api-contract.js';
   import { Log } from '../../kernel/services/Log.js';
 
   const ipc: any = getContext('ipc');
   const chatChannel = ipc?.getOrCreateChannel?.('chat') || ipc;
-  const rpc: any = getContext('rpc');
+  const api = getContext('api') as KernelAPIContract;
   const navigateTo = getContext<any>('navigate');
 
   // ---------- Reactive State ----------
@@ -43,7 +43,7 @@
 
   async function refreshList() {
     try {
-      const data = await rpc.call(RPC.SESSION_LIST);
+      const data = await api.session.list();
       sessions = sortSessions(data?.sessions || []);
     } catch (e) {
       Log.error('HistoryPage', 'load sessions failed', e);
@@ -136,7 +136,7 @@
   }
 
   function loadConversation(id: string) {
-    rpc.call(RPC.SESSION_SWITCH, { sessionId: id })
+    api.session.switch({ sessionId: id })
       .then(() => navigateTo('chat'))
       .catch((e) => Log.error('HistoryPage', 'switch session failed', e));
   }
@@ -149,7 +149,7 @@
   async function executeDelete() {
     if (!deleteTargetId) return;
     try {
-      const data = await rpc.call(RPC.SESSION_DELETE, { sessionId: deleteTargetId });
+      const data = await api.session.delete({ sessionId: deleteTargetId });
       sessions = sortSessions(data?.sessions || []);
     } catch (e) {
       Log.error('HistoryPage', 'delete session failed', e);

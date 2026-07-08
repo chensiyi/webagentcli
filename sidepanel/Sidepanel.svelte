@@ -25,7 +25,7 @@
   import ScriptsPage from './pages/ScriptsPage.svelte';
   import SettingsPage from './pages/SettingsPage.svelte';
   import { RPCClient, createApiClient } from '../bridge/RPC.js';
-  import type { KernelAPIContract } from '../kernel/api/KernelAPI.js';
+  import type { KernelAPIContract } from './api-contract.js';
 
   let { ipc, bootError = null }: { ipc: unknown; bootError?: string | null } = $props();
 

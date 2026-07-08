@@ -11,52 +11,22 @@
  *    "Could not serialize message"。
  *
  * 使用：
- *   // Shell 端（通过 Svelte context 拿 rpc 实例）
- *   const data = await rpc.call(RPC.SETTINGS_GET);            // → { settings }
- *   await rpc.call(RPC.SETTINGS_SAVE, { settings });           // 写入
+ *   // Shell 端（通过 Svelte context 拿 api 代理）
+ *   const data = await api.settings.getSettings();            // → { ...settings }
+ *   await api.settings.saveSettings(settings);                // 写入
  *
  *   // Kernel 端（background/main.ts READY 阶段）
  *   const rpcServer = new RPCServer(kernelIpc);
- *   rpcServer.register(RPC.SETTINGS_GET, () => ({ settings: sm.getSettings() }));
+ *   rpcServer.expose('settings', kernel.getSettingsManager(), { methods: ['getSettings','saveSettings'] });
  */
 
 import { IPC } from '../kernel/IPC.js';
 import { Log } from '../kernel/services/Log.js';
 
-// ─── Shell → Kernel 请求方法名（同时作为 RPCServer 的注册 key） ───
-
-export const RPC = Object.freeze({
-  // Session
-  SESSION_GET_CURRENT: 'session.getCurrent',
-  SESSION_LIST:        'session.list',
-  SESSION_NEW:         'session.new',
-  SESSION_SWITCH:      'session.switch',
-  SESSION_DELETE:      'session.delete',
-  SESSION_UPDATE:      'session.update',
-  SESSION_DELETE_MSG:  'session.deleteMessage',
-  SESSION_CLEAR_MSGS:  'session.clearMessages',
-
-  // Tool
-  TOOL_LIST:   'tool.list',
-  TOOL_TOGGLE: 'tool.toggle',
-
-  // Settings
-  SETTINGS_GET: 'settings.get',
-  SETTINGS_SAVE: 'settings.save',
-
-  // Storage
-  STORAGE_GET_ALL: 'storage.getAll',
-  STORAGE_SET:    'storage.set',
-  STORAGE_DELETE: 'storage.delete',
-  STORAGE_CLEAR:  'storage.clear',
-
-  // Scripts
-  SCRIPTS_LIST:      'scripts.list',
-  SCRIPTS_INSTALL:   'scripts.install',
-  SCRIPTS_EDIT:      'scripts.edit',
-  SCRIPTS_TOGGLE:    'scripts.toggle',
-  SCRIPTS_UNINSTALL: 'scripts.uninstall',
-});
+// ─── Shell → Kernel 请求方法名 ───
+// 方法名不再由枚举集中定义，而是由 RPCServer.expose(service, impl) 自动注册为
+// `${service}.${method}`（如 'session.getCurrent'）。客户端用 createApiClient 出的代理
+// api.service.method(...) 调用，服务面类型见 sidepanel/api-contract.ts。
 
 // ─── 传输信封事件名（所有 RPC 共用，靠 id 区分请求） ───
 

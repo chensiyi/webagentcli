@@ -34,5 +34,5 @@ export class BaseModel {
     };
   }
 
-  static fromJSON(data: Record<string, unknown>): unknown { throw new Error('static fromJSON() must be implemented by subclass'); }
+  static fromJSON(_data: Record<string, unknown>): unknown { throw new Error('static fromJSON() must be implemented by subclass'); }
 }
