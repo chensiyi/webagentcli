@@ -7,8 +7,11 @@
   import Dialog from '../components/overlays/Dialog.svelte';
   import EmptyState from '../components/layout/EmptyState.svelte';
   import { useToast } from '../components/overlays/toast-store.svelte';
+  import { RPC } from '../../bridge/RPC.js';
 
-  const kernel = getContext<any>('kernel');
+  const ipc: any = getContext('ipc');
+  const storageChannel = ipc?.getOrCreateChannel?.('storage') || ipc;
+  const rpc: any = getContext('rpc');
   const toast = useToast();
 
   // ---------- State ----------
@@ -52,11 +55,8 @@
   async function refreshList() {
     isLoading = true;
     try {
-      const sm = kernel?.getStorageManager?.() || kernel?.get?.('storageManager');
-      if (sm?.getAll) {
-        const items = await sm.getAll();
-        storageItems = items;
-      }
+      const data = await rpc.call(RPC.STORAGE_GET_ALL);
+      storageItems = data?.items || [];
     } catch (e) {
       toast.error('加载失败');
     } finally {
@@ -86,20 +86,21 @@
 
   async function executeDelete() {
     try {
-      const sm = kernel?.getStorageManager?.() || kernel?.get?.('storageManager');
       if (deleteTargetIsAll) {
-        await sm?.clear?.();
+        const data = await rpc.call(RPC.STORAGE_CLEAR);
+        storageItems = data?.items || [];
         toast.success('已清空');
       } else if (deleteTarget) {
-        await sm?.remove?.(deleteTarget);
+        const data = await rpc.call(RPC.STORAGE_DELETE, { key: deleteTarget });
+        storageItems = data?.items || [];
         toast.success('已删除');
       }
-      deleteTarget = null;
-      deleteTargetIsAll = false;
-      refreshList();
     } catch (e) {
       console.error('[StoragePage] delete failed:', e);
       toast.error(`操作失败: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      deleteTarget = null;
+      deleteTargetIsAll = false;
     }
   }
 
@@ -122,12 +123,11 @@
     if (!editTarget) return;
     try {
       const parsed = JSON.parse(editValue);
-      const sm = kernel?.getStorageManager?.() || kernel?.get?.('storageManager');
-      await sm?.set?.(editTarget, parsed);
+      const data = await rpc.call(RPC.STORAGE_SET, { key: editTarget, value: parsed });
+      storageItems = data?.items || [];
       toast.success('已更新');
       editTarget = null;
       editValue = '';
-      refreshList();
     } catch (e) {
       console.error('[StoragePage] edit failed:', e);
       toast.error(e instanceof SyntaxError ? 'JSON 格式错误' : `操作失败: ${e instanceof Error ? e.message : String(e)}`);

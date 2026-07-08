@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getContext } from 'svelte';
+  import { getContext, onMount } from 'svelte';
   import Button from '../components/atoms/Button.svelte';
   import Input from '../components/forms/Input.svelte';
   import Select from '../components/forms/Select.svelte';
@@ -10,7 +10,9 @@
   import { useToast } from '../components/overlays/toast-store.svelte';
   import { Log } from '../../kernel/services/Log.js';
 
-  const kernel = getContext<any>('kernel');
+  const ipc: any = getContext('ipc');
+  const settingsChannel = ipc?.getOrCreateChannel?.('settings') || ipc;
+  const api: any = getContext('api');
   const toast = useToast();
 
   // ---------- Reactive State ----------
@@ -67,22 +69,23 @@
     metadata?: { description?: string };
   }
 
-  // ---------- Init: Load Settings ----------
-  // 关键：直接从 SettingsManager 读取已加载的设置（boot 时已从 Chrome Storage 反序列化）
-  // 注意：不能在这里调用 loadSettings()（$effect 不支持 async），boot 阶段已 await 完成
+  // ---------- Init: Load Settings via RPC ----------
   $effect(() => {
-    const sm = kernel?.getSettingsManager?.();
-    if (!sm || isLoaded) return;
-
-    const raw = sm.getSettings?.() || {};
-    // raw 来自 Chrome Storage 反序列化，始终是纯 JS 对象，直接解构即可
-    currentSettings = { ...raw };
+    if (isLoaded) return;
     isLoaded = true;
-
-    Log.info('SettingsPage', `Loaded settings, models count: ${Array.isArray(currentSettings.models) ? currentSettings.models.length : 'N/A'}`);
-
-    applyTheme(currentSettings.theme);
+    loadSettings();
   });
+
+  async function loadSettings() {
+    try {
+      const raw = await api.settings.getSettings();
+      currentSettings = { ...(raw || {}) };
+      applyTheme(currentSettings.theme);
+      Log.info('SettingsPage', 'Settings loaded via API contract');
+    } catch (e) {
+      Log.error('SettingsPage', 'Failed to load settings', e);
+    }
+  }
 
   // ---------- Handlers ----------
   function applyTheme(theme: string | undefined) {
@@ -127,8 +130,8 @@
   function handleThemeChange(theme: string) {
     currentSettings.theme = theme;
     applyTheme(theme);
-    const sm = kernel?.getSettingsManager?.();
-    sm?.saveSetting?.('theme', theme);
+    api.settings.saveSettings({ theme })
+      .catch((e) => toast.error('保存失败: ' + (e as Error).message));
   }
 
   async function handleLoadModels() {
@@ -195,12 +198,9 @@
       }));
 
       currentSettings.models = models;
-      
-      // 保存到存储
-      const sm = kernel?.getSettingsManager?.();
-      if (sm?.saveSetting) {
-        await sm.saveSetting('models', models);
-      }
+
+      // 通过 API 契约持久化模型列表
+      await api.settings.saveSettings({ models });
 
       toast.success(`已加载 ${models.length} 个模型`);
     } catch (e) {
@@ -214,18 +214,9 @@
   async function handleSave() {
     isSaving = true;
     try {
-      const sm = kernel?.getSettingsManager?.();
-      // 关键：currentSettings 是 Svelte $state Proxy，必须剥离为纯 JS 对象再传给 SettingsManager
-      // 否则 Object.assign 会将 Svelte 内部属性（$$ 等）注入 _settings，导致 Chrome Storage 序列化异常
+      // 关键：currentSettings 是 Svelte $state Proxy，必须剥离为纯 JS 对象再传给 Kernel
       const plainSettings = JSON.parse(JSON.stringify(currentSettings));
-      if (sm?.saveSettings) {
-        await sm.saveSettings(plainSettings);
-      } else {
-        // Fallback: 直接 emit SAVED 事件让 ProviderFactory 响应
-        const ipc = kernel?.getIPC?.();
-        const channel = ipc?.getOrCreateChannel?.('settings') || ipc;
-        channel?.emit('settings:saved', { settings: plainSettings });
-      }
+      await api.settings.saveSettings(plainSettings);
       Log.info('SettingsPage', `Saved settings, models count: ${Array.isArray(plainSettings.models) ? plainSettings.models.length : 'N/A'}`);
       toast.success('设置已保存');
     } catch (e) {

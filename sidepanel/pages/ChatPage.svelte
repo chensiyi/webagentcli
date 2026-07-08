@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount, onDestroy, getContext } from 'svelte';
   import { KernelEvents } from '../../kernel/Events.js';
-  import { RPC, RPC_RES } from '../../bridge/RPC.js';
+  import { RPC } from '../../bridge/RPC.js';
   import { extractText, renderMarkdown } from '../utils/text.js';
   import { autoScrollToBottom } from '../utils/dom.js';
   import { useToast } from '../components/overlays/toast-store.svelte';
+  import { Log } from '../../kernel/services/Log.js';
   import Button from '../components/atoms/Button.svelte';
   import Dialog from '../components/overlays/Dialog.svelte';
   import EmptyState from '../components/layout/EmptyState.svelte';
@@ -21,6 +22,7 @@
   const chatChannel = ipc?.getOrCreateChannel?.('chat') || ipc;
   const toolChannel = ipc?.getOrCreateChannel?.('tool') || ipc;
   const navigate = getContext('navigate');
+  const rpc: any = getContext('rpc');
   const toast = useToast();
 
   // ==================== 响应式状态 ====================
@@ -41,7 +43,8 @@
 
   // 推理强度
   let reasoningEffort = $state('medium');
-  let showThinkingControl = $state(false);
+  // 思考强度是会话级覆盖 + 全局默认配置，空对话也应展示默认配置供用户发送前预设
+  let showThinkingControl = $state(true);
 
   // 删除确认弹窗
   let deleteTargetId = $state<string | null>(null);
@@ -69,18 +72,34 @@
     return '';
   }
 
-  function checkModelSupportsThinking(): boolean {
-    return !!(session?.model);
+  // RPC 响应回调（数据经 rpc.call Promise 回传，不再监听魔法事件名）
+  function applyCurrentSession(data: any) {
+    if (!data) return;
+    session = data.session || null;
+    messages = data.messages ? data.messages.filter((m: any) => m != null).map((m: any) => ({ ...m })) : [];
+    reasoningEffort = data.reasoningEffort || 'medium';
+    showThinkingControl = true;
+  }
+
+  function applyToolList(data: any) {
+    if (data?.tools) {
+      allTools = [...data.tools];
+      const map: Record<string, boolean> = {};
+      for (const t of data.tools) {
+        if (t.name) map[t.name] = t.enabled;
+      }
+      toolEnabledMap = map;
+    }
   }
 
   // ==================== 消息刷新 ====================
 
   function refreshMessages() {
-    chatChannel?.emit(RPC.SESSION_GET_CURRENT);
+    rpc.call(RPC.SESSION_GET_CURRENT).then(applyCurrentSession).catch((e) => Log.error('ChatPage', 'load session failed', e));
   }
 
   function refreshTools() {
-    toolChannel?.emit(RPC.TOOL_LIST);
+    rpc.call(RPC.TOOL_LIST).then(applyToolList).catch((e) => Log.error('ChatPage', 'load tools failed', e));
   }
 
   // ==================== 业务逻辑 ====================
@@ -101,8 +120,9 @@
   }
 
   function handleNewChat() {
-    chatChannel?.emit(RPC.SESSION_NEW);
-    streamingMap = {};
+    rpc.call(RPC.SESSION_NEW)
+      .then((data) => { applyCurrentSession(data); streamingMap = {}; })
+      .catch((e) => Log.error('ChatPage', 'new chat failed', e));
   }
 
   function confirmDelete(id: string) {
@@ -118,14 +138,15 @@
       toast.error('会话不存在');
       return;
     }
-    chatChannel?.emit(RPC.SESSION_DELETE_MSG, { messageId: id, sessionId: sid });
+    rpc.call(RPC.SESSION_DELETE_MSG, { messageId: id, sessionId: sid }).catch((e) => Log.error('ChatPage', 'delete message failed', e));
     deleteTargetId = null;
   }
 
   function handleReasoningEffortChange(val: string) {
     reasoningEffort = val;
     if (session) {
-      chatChannel?.emit(RPC.SESSION_UPDATE, { sessionId: session.id, data: { reasoningEffort: val } });
+      rpc.call(RPC.SESSION_UPDATE, { sessionId: session.id, data: { reasoningEffort: val } })
+        .catch((e) => Log.error('ChatPage', 'update session failed', e));
     }
   }
 
@@ -145,7 +166,8 @@
     const newTitle = editingTitle.trim() || '新对话';
     isEditingTitle = false;
     if (session.title !== newTitle) {
-      chatChannel?.emit(RPC.SESSION_UPDATE, { sessionId: session.id, data: { title: newTitle } });
+      rpc.call(RPC.SESSION_UPDATE, { sessionId: session.id, data: { title: newTitle } })
+        .catch((e) => Log.error('ChatPage', 'update title failed', e));
       session.title = newTitle;
     }
   }
@@ -157,7 +179,8 @@
   function toggleTool(tool: any) {
     const name = tool.name;
     if (!name) return;
-    toolChannel?.emit(RPC.TOOL_TOGGLE, { name, enabled: !tool.enabled });
+    rpc.call(RPC.TOOL_TOGGLE, { name, enabled: !tool.enabled })
+      .catch((e) => Log.error('ChatPage', 'toggle tool failed', e));
     toolEnabledMap = { ...toolEnabledMap, [name]: !tool.enabled };
   }
 
@@ -264,31 +287,7 @@
         chatChannel.on(KernelEvents.TOOL.COMPLETED, (data: any) => {
           toolExecuting = false;
           toolExecutingName = '';
-        }),
-
-        // ── RPC 响应 ──
-
-        // 当前会话数据
-        chatChannel.on(RPC_RES.SESSION_CURRENT, (data: any) => {
-          if (data) {
-            session = data.session || null;
-            messages = data.messages ? data.messages.filter((m: any) => m != null).map((m: any) => ({ ...m })) : [];
-            reasoningEffort = data.reasoningEffort || 'medium';
-            showThinkingControl = checkModelSupportsThinking();
-          }
-        }),
-
-        // 工具列表
-        toolChannel?.on(RPC_RES.TOOL_LIST, (data: any) => {
-          if (data?.tools) {
-            allTools = [...data.tools];
-            const map: Record<string, boolean> = {};
-            for (const t of data.tools) {
-              if (t.name) map[t.name] = t.enabled;
-            }
-            toolEnabledMap = map;
-          }
-        }),
+        })
       );
     }
 

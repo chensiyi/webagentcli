@@ -28,7 +28,7 @@
     "type": "module"
   },
   "side_panel": {
-    "default_path": "sidepanel/index.html"
+    "default_path": "dist/sidepanel/index.html"
   },
   "action": {
     "default_title": "Open Web Agent",

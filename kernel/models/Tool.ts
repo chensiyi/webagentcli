@@ -107,4 +107,21 @@ export class Tool {
       }
     };
   }
+
+  /**
+   * 可序列化快照（用于跨进程 RPC 响应）。
+   * 显式排除 handler 等函数字段——否则 chrome.runtime.sendMessage
+   * 用结构化克隆会抛 "Could not serialize message"。
+   */
+  toJSON(): Record<string, unknown> {
+    return {
+      name: this.name,
+      description: this.description,
+      capabilities: this.capabilities,
+      inputSchema: this.inputSchema,
+      outputSchema: this.outputSchema,
+      enabled: this.enabled,
+      metadata: this.metadata
+    };
+  }
 }

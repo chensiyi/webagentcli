@@ -29,7 +29,7 @@ export class SessionManager extends BaseSessionManager {
     return this.sessions.find(s => s.id === id) || null;
   }
 
-  getAllSessions(): Session[] { return [...this.sessions]; }
+  getAllSessions(): Session[] { return [...this.sessions].filter((s) => s && s.id); }
 
   async createSession(opts: Record<string, unknown> = {}): Promise<Session> {
     const s = new Session({
@@ -148,9 +148,11 @@ export class SessionManager extends BaseSessionManager {
         Log.info('SESSION', `Loaded ${sessions.length} sessions from storage`);
       } else {
         const raw = await this.storage.getAll();
-        for (const [key, value] of raw) {
-          if (key.startsWith('session_') && value && (value as Record<string, unknown>).id) {
-            sessions.push(new Session(value as Record<string, unknown>));
+        // getAll() 返回的是普通对象（Record），必须用 Object.entries 迭代；
+        // 直接 for...of 会抛 "is not iterable"（首次运行/无 sessions 键时走此分支）。
+        for (const [key, value] of Object.entries(raw || {})) {
+          if (key.startsWith('session_') && value && (value as any).id) {
+            sessions.push(new Session(value as any));
           }
         }
         Log.info('SESSION', `Loaded ${sessions.length} sessions (fallback scan)`);

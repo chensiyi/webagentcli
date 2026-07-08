@@ -6,8 +6,12 @@
   import Dialog from '../components/overlays/Dialog.svelte';
   import EmptyState from '../components/layout/EmptyState.svelte';
   import { KernelEvents } from '../../kernel/Events.js';
+  import { RPC } from '../../bridge/RPC.js';
+  import { Log } from '../../kernel/services/Log.js';
 
-  const kernel = getContext<any>('kernel');
+  const ipc: any = getContext('ipc');
+  const chatChannel = ipc?.getOrCreateChannel?.('chat') || ipc;
+  const rpc: any = getContext('rpc');
   const navigateTo = getContext<any>('navigate');
 
   // ---------- Reactive State ----------
@@ -21,26 +25,29 @@
 
   // ---------- Init ----------
   $effect(() => {
-    const sm = kernel?.getSessionManager?.();
-    if (!sm || isLoaded) return;
+    if (isLoaded) return;
     isLoaded = true;
+    chatChannel?.on(KernelEvents.CHAT.SESSION_UPDATED, refreshList);
     refreshList();
-
-    // Listen for session changes
-    const ipc = kernel?.getIPC?.();
-    if (ipc) {
-      const chatChannel = ipc.getOrCreateChannel?.('chat') || ipc;
-      chatChannel.on(KernelEvents.CHAT.SESSION_UPDATED, refreshList);
-    }
   });
 
-  function refreshList() {
-    const sm = kernel?.getSessionManager?.();
-    if (!sm) return;
-    const all = sm.getAllSessions?.() || [];
-    sessions = [...all].sort(
-      (a: any, b: any) => (b.updated_at || b.updatedAt || 0) - (a.updated_at || a.updatedAt || 0)
-    );
+  function sortSessions(all: any[]): any[] {
+    // 防御：序列化边界可能把个别 toJSON 异常的会话变成 null，必须过滤掉，
+    // 否则比较器访问 a.updated_at 会抛 "Cannot read properties of null"。
+    return (all || [])
+      .filter((s: any) => s && s.id)
+      .sort(
+        (a: any, b: any) => (b.updated_at || b.updatedAt || 0) - (a.updated_at || a.updatedAt || 0)
+      );
+  }
+
+  async function refreshList() {
+    try {
+      const data = await rpc.call(RPC.SESSION_LIST);
+      sessions = sortSessions(data?.sessions || []);
+    } catch (e) {
+      Log.error('HistoryPage', 'load sessions failed', e);
+    }
   }
 
   // ---------- Helpers ----------
@@ -95,6 +102,7 @@
     const yesterdayStart = todayStart - 86400000;
 
     for (const s of filtered) {
+      if (!s || !s.id) continue; // 防御：跳过 null / 非法条目，避免读 updated_at 崩溃
       const ts = s.updated_at || s.updatedAt || 0;
       if (ts >= todayStart) today.push(s);
       else if (ts >= yesterdayStart) yesterday.push(s);
@@ -128,9 +136,9 @@
   }
 
   function loadConversation(id: string) {
-    const sm = kernel?.getSessionManager?.();
-    sm?.setCurrentSession?.(id);
-    navigateTo('chat');
+    rpc.call(RPC.SESSION_SWITCH, { sessionId: id })
+      .then(() => navigateTo('chat'))
+      .catch((e) => Log.error('HistoryPage', 'switch session failed', e));
   }
 
   function confirmDelete(id: string, e: MouseEvent) {
@@ -140,10 +148,14 @@
 
   async function executeDelete() {
     if (!deleteTargetId) return;
-    const sm = kernel?.getSessionManager?.();
-    await sm?.deleteSession?.(deleteTargetId);
-    deleteTargetId = null;
-    refreshList();
+    try {
+      const data = await rpc.call(RPC.SESSION_DELETE, { sessionId: deleteTargetId });
+      sessions = sortSessions(data?.sessions || []);
+    } catch (e) {
+      Log.error('HistoryPage', 'delete session failed', e);
+    } finally {
+      deleteTargetId = null;
+    }
   }
 
   function cancelDelete() {

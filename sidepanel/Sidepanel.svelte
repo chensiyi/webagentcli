@@ -24,12 +24,20 @@
   import StoragePage from './pages/StoragePage.svelte';
   import ScriptsPage from './pages/ScriptsPage.svelte';
   import SettingsPage from './pages/SettingsPage.svelte';
+  import { RPCClient, createApiClient } from '../bridge/RPC.js';
+  import type { KernelAPIContract } from '../kernel/api/KernelAPI.js';
 
-  let { ipc }: { ipc: unknown } = $props();
+  let { ipc, bootError = null }: { ipc: unknown; bootError?: string | null } = $props();
 
   // 注入 IPC 到 Svelte context（子组件通过 getContext('ipc') 访问）
   // ipc 是 IPC 事件总线实例，所有页面通过 IPC 通道与 Kernel 通信
   setContext('ipc', ipc);
+  // 注入 RPC 客户端（重设计后的请求/响应层，返回 Promise，自动关联请求 ID）
+  const rpc = new RPCClient(ipc as any);
+  setContext('rpc', rpc);
+  // 注入按「标准外部访问接口契约」自动生成的代理客户端：
+  // api.settings.getSettings() 等价于 rpc.call('settings.getSettings', [])，类型与 kernel 侧一致。
+  setContext('api', createApiClient<KernelAPIContract>(rpc));
   setContext('navigate', navigateTo);
 
   let activePage = $state<PageId>('chat');
@@ -40,6 +48,13 @@
 </script>
 
 <div class="sidepanel-container">
+  {#if bootError}
+    <div class="kernel-error-banner" role="alert">
+      <strong>⚠️ 内核未就绪</strong>
+      <span>{bootError}</span>
+      <span class="kernel-error-hint">请在扩展管理页重新加载插件，并查看后台 Service Worker 控制台获取详细错误。</span>
+    </div>
+  {/if}
   <div class="sidepanel-main-content">
     <div class="sidepanel-content-area">
       {#key activePage}
@@ -64,3 +79,19 @@
 </div>
 
 <ToastContainer />
+
+<style>
+  .kernel-error-banner {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 14px;
+    background: #fff4f4;
+    border-bottom: 1px solid #ffcccc;
+    color: #b00020;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .kernel-error-banner strong { font-size: 14px; }
+  .kernel-error-hint { color: #8a6d6d; font-size: 12px; }
+</style>

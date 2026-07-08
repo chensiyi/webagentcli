@@ -79,7 +79,7 @@ export class Message extends BaseModel {
       ...(this.timestamp && { timestamp: this.timestamp }),
       ...(this.reasoning_content && { reasoning_content: this.reasoning_content }),
       ...(this.toolCallId && { toolCallId: this.toolCallId }),
-      ...(this.toolCalls.length > 0 && { toolCalls: this.toolCalls.map(tc => (tc as { toJSON: () => unknown }).toJSON()) }),
+      ...(this.toolCalls.length > 0 && { toolCalls: this.toolCalls.map(tc => (typeof (tc as any).toJSON === 'function' ? (tc as any).toJSON() : tc)) }),
       ...((Object.keys(this.metadata || {}).length > 0) && { metadata: this.metadata })
     };
   }

@@ -53,6 +53,14 @@ export class CapabilityManager {
   getCapabilities(key: string): Capability[] { return Array.from(this._grants.get(key) || []); }
   getAllDeclarations(): Record<string, Capability[]> { const r: Record<string, Capability[]> = {}; this._grants.forEach((v, k) => r[k] = Array.from(v)); return r; }
   getAuditLog(flt: { action?: string; key?: string; since?: number; limit?: number } = {}): AuditEntry[] { let r: AuditEntry[] = [...this._auditLog]; if (flt.action) r = r.filter(e => e.action === flt.action); if (flt.key) r = r.filter(e => e.key === flt.key); const since = flt.since ?? 0; r = r.filter(e => e.timestamp >= since); if (flt.limit && r.length > flt.limit) r = r.slice(-flt.limit); return r; }
+  /**
+   * 公开审计入口。供 RPC expose 等远程调用层记录「谁调了什么方法」，
+   * 与 RpcCapabilityHook.audit 契约对齐（结构化接口，bridge 不反向依赖 kernel）。
+   * 后期可在此叠加 per-method 能力映射与授权决策。
+   */
+  audit(action: string, key: string, capabilities: string[], result: boolean, context: Record<string, unknown> = {}): void {
+    this._audit(action, key, capabilities as Capability[], result, context);
+  }
   clearAuditLog(): void { this._auditLog = []; }
   reset(): this { this._grants.clear(); this._auditLog = []; return this; }
   destroy(): void { this._grants.clear(); this._auditLog = []; this._onDeny = null; }

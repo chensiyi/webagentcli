@@ -55,7 +55,7 @@ export class ChatEventHandler {
   /** 用户发送消息 → 校验 → ChatProgram.sendMessage */
   private _handleApplySend(data: Record<string, unknown>) {
     const { content, reasoningEffort } = data;
-    if (!content?.trim?.()) {
+    if (typeof content !== 'string' || !content.trim()) {
       Log.warn('ChatEventHandler', 'Empty content blocked');
       return;
     }

@@ -29,18 +29,45 @@ async function init() {
     transport.init();
 
     // 等待 Kernel 就绪
+    let bootError: string | null = null;
+    let responded = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanup = (unsubBoot: () => void, unsubErr: () => void) => {
+        unsubBoot();
+        unsubErr();
+        if (timeoutId !== null) {
+            clearTimeout(timeoutId);
+            timeoutId = null;
+        }
+    };
+
     await new Promise<void>((resolve) => {
         const unsub = ipc.on('kernel:bootComplete', () => {
-            unsub();
+            responded = true;
+            cleanup(unsub, unsubErr);
             log.info('SHELL', 'Kernel ready');
+            resolve();
+        });
+        const unsubErr = ipc.on('kernel:bootError', (d: any) => {
+            responded = true;
+            cleanup(unsub, unsubErr);
+            bootError = (d && d.message) || 'Kernel boot failed';
+            log.error('SHELL', 'Kernel boot error:', bootError);
             resolve();
         });
         // 如果 Kernel 已经就绪但事件已错过，发送查询
         ipc.emit('kernel:ping', {});
-        // 超时保护：3 秒后即使没收到也继续
-        setTimeout(() => {
-            unsub();
-            log.warn('SHELL', 'Kernel not responding, continuing anyway');
+        // 超时保护：3 秒后若仍无响应，视为内核启动失败（SW 被回收等）
+        // 注意：成功收到 bootComplete/bootError 时必须 clearTimeout，否则定时器仍会
+        // 在 3 秒后触发并打印误导性的 "not responding"（内核其实早已就绪）。
+        timeoutId = setTimeout(() => {
+            timeoutId = null;
+            cleanup(unsub, unsubErr);
+            if (!responded) {
+                bootError = 'Kernel 未在 3 秒内就绪（可能启动失败或被 Service Worker 回收）';
+                log.warn('SHELL', 'Kernel not responding, continuing anyway');
+            }
             resolve();
         }, 3000);
     });
@@ -54,7 +81,7 @@ async function init() {
 
     mount(Sidepanel, {
         target: root,
-        props: { ipc }, // 注入 IPC 实例，页面通过 IPC 通道与 Kernel 通信
+        props: { ipc, bootError }, // 注入 IPC 实例，页面通过 IPC 通道与 Kernel 通信
     });
 
     console.log('[Shell] Mounted successfully');

@@ -23,7 +23,9 @@ export class Session extends BaseModel {
     this.createdAt = (options.createdAt as number) || Date.now();
     this.updatedAt = (options.updatedAt as number) || this.createdAt;
     if (Array.isArray(options.messages)) {
-      options.messages.filter(m => m != null).forEach(m => this.messages.push(m));
+      // 从存储重建时 messages 是纯对象数组，必须 rehydrate 成 Message 实例，
+      // 否则后续 toJSON() 调 m.toJSON() 会报 "e.toJSON is not a function"。
+      options.messages.filter(m => m != null).forEach(m => this.messages.push(m instanceof Message ? m : new Message(m)));
     }
   }
 
@@ -31,8 +33,8 @@ export class Session extends BaseModel {
     return {
       ...(super.toJSON() as Record<string, unknown>),
       title: this.title,
-      // 过滤掉 undefined 或 null 的消息，并安全调用 toJSON
-      messages: this.messages.filter(m => m != null).map(m => m.toJSON()),
+      // 过滤掉 undefined 或 null 的消息，并安全调用 toJSON（裸对象原样返回，不抛错）
+      messages: this.messages.filter(m => m != null).map(m => (typeof (m as any).toJSON === 'function' ? (m as any).toJSON() : m)),
       reasoningEffort: this.reasoningEffort,
       model: this.model,
       createdAt: this.createdAt,

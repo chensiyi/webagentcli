@@ -75,13 +75,28 @@ export function buildGMApiWrapper(scriptId, grantList, permissions = {}) {
     if (grantList.includes('GM_xmlhttpRequest') && permissions['GM_xmlhttpRequest'] !== false) {
         apis.push(`
             window.GM_xmlhttpRequest = function(details) {
-                chrome.runtime.sendMessage({
-                    method: 'GM_xmlhttpRequest',
-                    scriptId: '${scriptId}',
-                    details: details
-                }, function(response) {
-                    if (details.onload && response) details.onload(response);
-                });
+                try {
+                    var opts = {
+                        method: details.method || 'GET',
+                        headers: details.headers || {},
+                        body: details.data
+                    };
+                    fetch(details.url, opts).then(function(resp) {
+                        return resp.text().then(function(text) {
+                            var result = {
+                                status: resp.status,
+                                statusText: resp.statusText,
+                                responseText: text,
+                                finalUrl: resp.url
+                            };
+                            if (details.onload) details.onload(result);
+                        });
+                    }).catch(function(err) {
+                        if (details.onerror) details.onerror({ error: String(err) });
+                    });
+                } catch (e) {
+                    if (details.onerror) details.onerror({ error: String(e) });
+                }
             };
         `);
     }
@@ -89,11 +104,17 @@ export function buildGMApiWrapper(scriptId, grantList, permissions = {}) {
     if (grantList.includes('GM_notification') && permissions['GM_notification'] !== false) {
         apis.push(`
             window.GM_notification = function(details) {
-                chrome.runtime.sendMessage({
-                    method: 'GM_notification',
-                    scriptId: '${scriptId}',
-                    details: details
-                });
+                try {
+                    var title = details.title || 'Notification';
+                    var body = details.text || details.message || '';
+                    if (typeof Notification !== 'undefined') {
+                        new Notification(title, { body: body });
+                    } else {
+                        console.warn('[GM_notification] Notification API unavailable');
+                    }
+                } catch (e) {
+                    console.warn('[GM_notification] error:', e);
+                }
             };
         `);
     }
