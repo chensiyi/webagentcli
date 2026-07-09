@@ -28,6 +28,17 @@ import { USER_SCRIPT_WORLD, MAIN_WORLD, DEFAULT_RUN_AT } from '../keys.js';
  *   - @grant none（纯页面操作）            → MAIN_WORLD（页面主世界，可访问真实 DOM）
  */
 export async function syncRegisteredScripts(scriptsManager) {
+  // 若扩展未开启「允许用户脚本」开关（Chrome 138+），chrome.userScripts 整个命名空间为
+  // undefined，直接调用 unregister/register 会抛 TypeError 并导致内核启动失败。
+  // 此处优雅降级：跳过注册并告警，内核其余功能不受影响。
+  if (typeof chrome.userScripts?.unregister !== 'function') {
+    Log.warn(
+      'ManageUserScriptsTool',
+      'chrome.userScripts 不可用（未在扩展详情页开启「允许用户脚本」开关）。已跳过用户脚本注入注册，内核其余功能正常。'
+    );
+    return;
+  }
+
   const scripts = (await scriptsManager.loadAll()) || [];
   const enabled = scripts.filter(
     (s) => s.enabled && Array.isArray(s.match) && s.match.length > 0
