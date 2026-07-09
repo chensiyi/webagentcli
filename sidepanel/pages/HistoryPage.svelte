@@ -1,16 +1,17 @@
 <script lang="ts">
   import { getContext, onMount, onDestroy } from 'svelte';
+  import { waitKernelReady } from '../utils/kernel-ready.js';
   import Button from '../components/atoms/Button.svelte';
   import Input from '../components/forms/Input.svelte';
   import Badge from '../components/atoms/Badge.svelte';
   import Dialog from '../components/overlays/Dialog.svelte';
   import EmptyState from '../components/layout/EmptyState.svelte';
-  import { KernelEvents } from 'kernel/Events.js';
+  import { KernelEvents, KernelChannels } from 'kernel/Events.js';
   import type { KernelAPIContract } from '../api-contract.js';
   import { Log } from 'kernel/services/Log.js';
 
   const ipc: any = getContext('ipc');
-  const chatChannel = ipc?.getOrCreateChannel?.('chat') || ipc;
+  const chatChannel = ipc?.getOrCreateChannel?.(KernelChannels.CHAT) || ipc;
   const api = getContext('api') as KernelAPIContract;
   const navigateTo = getContext<any>('navigate');
 
@@ -29,7 +30,10 @@
   onMount(() => {
     // 订阅会话更新广播；组件销毁时必须退订（{#key activePage} 会重挂载，否则叠加幽灵监听器）
     unsubSessionUpdated = chatChannel?.on(KernelEvents.CHAT.SESSION_UPDATED, refreshList);
-    refreshList().finally(() => { isLoaded = true; });
+    // 内核就绪后再加载（等待 bootComplete 消息，时序门控）
+    waitKernelReady(ipc).then(() => {
+      refreshList().finally(() => { isLoaded = true; });
+    });
   });
 
   onDestroy(() => {

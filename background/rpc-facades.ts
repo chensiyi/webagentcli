@@ -15,6 +15,7 @@
 
 import type { Kernel } from 'kernel/Kernel.js';
 import { KernelEvents } from 'kernel/Events.js';
+import { syncRegisteredScripts } from './tools/ManageUserScriptsTool.js';
 
 export interface RpcChannel {
   emit(event: string, payload?: unknown): void;
@@ -162,6 +163,8 @@ export function createScriptsFacade(kernel: Kernel) {
       const sm = kernel.getScriptsManager();
       await sm.install(data.code);
       const scripts = await sm.loadAll();
+      // UI 路径安装后需重新注册到 chrome.userScripts，使脚本立即注入（与 AI 工具路径等价）
+      await syncRegisteredScripts(sm);
       return { scripts };
     },
 
@@ -170,6 +173,7 @@ export function createScriptsFacade(kernel: Kernel) {
       const sm = kernel.getScriptsManager();
       await sm.edit(data.id, data.code);
       const scripts = await sm.loadAll();
+      await syncRegisteredScripts(sm);
       return { scripts };
     },
 
@@ -178,6 +182,7 @@ export function createScriptsFacade(kernel: Kernel) {
       const sm = kernel.getScriptsManager();
       await sm.toggle(data.id, !!data.enabled);
       const scripts = await sm.loadAll();
+      await syncRegisteredScripts(sm);
       return { scripts };
     },
 
@@ -186,6 +191,7 @@ export function createScriptsFacade(kernel: Kernel) {
       const sm = kernel.getScriptsManager();
       await sm.uninstall(data.id);
       const scripts = await sm.loadAll();
+      await syncRegisteredScripts(sm);
       return { scripts };
     },
   };

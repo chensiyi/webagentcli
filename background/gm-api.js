@@ -4,18 +4,21 @@
  * 生成用户脚本注入时需要的 GM_* API 代码
  * 运行在 Service Worker 中，被 ManageUserScriptsTool 调用
  */
+import { GM_VALUE_PREFIX } from './keys.js';
 
 /**
  * 根据 @grant 列表生成 GM_* API 注入代码
  */
 export function buildGMApiWrapper(scriptId, grantList, permissions = {}) {
     const apis = [];
+    // 生成时已固化 scriptId 的 key 前缀，作为字面量注入到生成的代码里
+    const p = JSON.stringify(GM_VALUE_PREFIX + scriptId + '_');
 
     if (grantList.includes('GM_setValue') && permissions['GM_setValue'] !== false) {
         apis.push(`
             window.GM_setValue = function(key, value) {
                 chrome.storage.local.set({
-                    ['gm_${scriptId}_' + key]: JSON.stringify(value)
+                    [${p} + key]: JSON.stringify(value)
                 });
             };
         `);
@@ -24,8 +27,8 @@ export function buildGMApiWrapper(scriptId, grantList, permissions = {}) {
     if (grantList.includes('GM_getValue') && permissions['GM_getValue'] !== false) {
         apis.push(`
             window.GM_getValue = async function(key, defaultValue) {
-                const r = await chrome.storage.local.get(['gm_${scriptId}_' + key]);
-                const v = r['gm_${scriptId}_' + key];
+                const r = await chrome.storage.local.get([${p} + key]);
+                const v = r[${p} + key];
                 return v !== undefined ? JSON.parse(v) : defaultValue;
             };
         `);
@@ -34,7 +37,7 @@ export function buildGMApiWrapper(scriptId, grantList, permissions = {}) {
     if (grantList.includes('GM_deleteValue') && permissions['GM_deleteValue'] !== false) {
         apis.push(`
             window.GM_deleteValue = function(key) {
-                chrome.storage.local.remove('gm_${scriptId}_' + key);
+                chrome.storage.local.remove(${p} + key);
             };
         `);
     }
@@ -43,7 +46,7 @@ export function buildGMApiWrapper(scriptId, grantList, permissions = {}) {
         apis.push(`
             window.GM_listValues = async function() {
                 const all = await chrome.storage.local.get(null);
-                const prefix = 'gm_${scriptId}_';
+                const prefix = ${p};
                 return Object.keys(all)
                     .filter(k => k.startsWith(prefix))
                     .map(k => k.substring(prefix.length));

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy, getContext } from 'svelte';
+  import { waitKernelReady } from '../utils/kernel-ready.js';
   import Button from '../components/atoms/Button.svelte';
   import Card from '../components/layout/Card.svelte';
   import CodeEditor from '../components/forms/CodeEditor.svelte';
@@ -7,17 +8,16 @@
   import Dialog from '../components/overlays/Dialog.svelte';
   import EmptyState from '../components/layout/EmptyState.svelte';
   import { useToast } from '../components/overlays/toast-store.svelte';
-  import { KernelEvents } from 'kernel/Events.js';
+  import { KernelEvents, KernelChannels } from 'kernel/Events.js';
   import type { KernelAPIContract } from '../api-contract.js';
 
   const ipc: any = getContext('ipc');
-  const scriptsChannel = ipc?.getOrCreateChannel?.('scripts') || ipc;
+  const scriptsChannel = ipc?.getOrCreateChannel?.(KernelChannels.SCRIPTS) || ipc;
   const api = getContext('api') as KernelAPIContract;
   const toast = useToast();
 
   // ---------- State ----------
   let scripts = $state<any[]>([]);
-  let isLoaded = $state(false);
   let isLoading = $state(false);
   let showInstallForm = $state(false);
   let editingScriptId = $state<string | null>(null);
@@ -35,16 +35,14 @@
 })();`;
 
   // ---------- Init ----------
-  $effect(() => {
-    if (isLoaded) return;
-    isLoaded = true;
-    refreshList();
-  });
 
   // ---------- IPC 事件监听 ----------
   let unsubScriptError: (() => void) | undefined;
 
   onMount(() => {
+    // 内核就绪后再加载列表（等待 bootComplete 消息，时序门控）
+    waitKernelReady(ipc).then(() => refreshList());
+
     if (!scriptsChannel) return;
 
     // 脚本错误（Kernel 广播，非 RPC 响应）；组件销毁时必须退订

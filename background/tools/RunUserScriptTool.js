@@ -9,6 +9,7 @@
  */
 
 import { Tool } from 'kernel/models/Tool.js';
+import { USER_SCRIPT_WORLD, MAIN_WORLD, ISOLATED_WORLD } from '../keys.js';
 
 class RunUserScriptTool extends Tool {
   constructor() {
@@ -25,8 +26,8 @@ class RunUserScriptTool extends Tool {
           world: {
             type: 'string',
             description: 'MAIN 表示在当前标签页面主世界执行，ISOLATED 表示在扩展隔离环境中执行。',
-            enum: ['MAIN', 'ISOLATED'],
-            default: 'MAIN'
+            enum: [MAIN_WORLD, ISOLATED_WORLD],
+            default: MAIN_WORLD
           },
           timeout: {
             type: 'number',
@@ -37,7 +38,7 @@ class RunUserScriptTool extends Tool {
         required: ['code']
       },
       handler: async (args, context) => {
-        const { code, world = 'MAIN', timeout } = args || {};
+        const { code, world = MAIN_WORLD, timeout } = args || {};
         if (!code) {
           throw new Error('缺少 code 参数');
         }
@@ -46,7 +47,7 @@ class RunUserScriptTool extends Tool {
         if (!tab || !tab.id) {
           throw new Error('无法找到当前活动标签页');
         }
-        if (world === 'MAIN' && !tab.url?.startsWith('http')) {
+        if (world === MAIN_WORLD && !tab.url?.startsWith('http')) {
           throw new Error('当前标签页不支持 MAIN world 执行（仅支持 http/https 页面）');
         }
 
@@ -66,7 +67,7 @@ class RunUserScriptTool extends Tool {
             const executePromise = chrome.userScripts.execute({
               target: { tabId: tab.id },
               js: [{ code: wrappedCode }],
-              world: world === 'ISOLATED' ? 'USER_SCRIPT' : 'MAIN',
+              world: world === ISOLATED_WORLD ? USER_SCRIPT_WORLD : MAIN_WORLD,
               injectImmediately: true
             });
 

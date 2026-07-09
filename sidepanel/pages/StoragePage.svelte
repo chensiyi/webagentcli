@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { getContext } from 'svelte';
+import { getContext, onMount, onDestroy } from 'svelte';
+import { waitKernelReady } from '../utils/kernel-ready.js';
+import { KernelChannels } from 'kernel/Events.js';
   import Button from '../components/atoms/Button.svelte';
   import Input from '../components/forms/Input.svelte';
   import Card from '../components/layout/Card.svelte';
@@ -10,7 +12,7 @@
   import type { KernelAPIContract } from '../api-contract.js';
 
   const ipc: any = getContext('ipc');
-  const storageChannel = ipc?.getOrCreateChannel?.('storage') || ipc;
+  const storageChannel = ipc?.getOrCreateChannel?.(KernelChannels.STORAGE) || ipc;
   const api = getContext('api') as KernelAPIContract;
   const toast = useToast();
 
@@ -46,10 +48,15 @@
   );
 
   // ---------- Init ----------
-  $effect(() => {
-    if (isLoaded) return;
-    isLoaded = true;
-    refreshList();
+
+  onMount(() => {
+    // 内核就绪后再加载（等待 bootComplete 消息，时序门控）
+    waitKernelReady(ipc).then(() => {
+      refreshList().finally(() => { isLoaded = true; });
+    });
+  });
+
+  onDestroy(() => {
   });
 
   async function refreshList() {

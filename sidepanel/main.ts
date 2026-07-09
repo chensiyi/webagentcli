@@ -17,6 +17,10 @@ import './styles/pages.css';
 import { IPC } from 'kernel/IPC.js';
 import { IPCTransport } from 'bridge/IPCTransport.js';
 import { ConsoleLogger } from 'kernel/services/ConsoleLogger.js';
+import { KernelEvents } from 'kernel/Events.js';
+
+/** Shell 等待内核就绪的超时（毫秒）。超时后视为内核启动失败/被回收，继续挂载 UI。 */
+const BOOT_TIMEOUT_MS = 3000;
 
 async function init() {
     console.log('[Shell] Initializing...');
@@ -43,13 +47,13 @@ async function init() {
     };
 
     await new Promise<void>((resolve) => {
-        const unsub = ipc.on('kernel:bootComplete', () => {
+        const unsub = ipc.on(KernelEvents.KERNEL.BOOT_COMPLETE, () => {
             responded = true;
             cleanup(unsub, unsubErr);
             log.info('SHELL', 'Kernel ready');
             resolve();
         });
-        const unsubErr = ipc.on('kernel:bootError', (d: any) => {
+        const unsubErr = ipc.on(KernelEvents.KERNEL.BOOT_ERROR, (d: any) => {
             responded = true;
             cleanup(unsub, unsubErr);
             bootError = (d && d.message) || 'Kernel boot failed';
@@ -57,19 +61,19 @@ async function init() {
             resolve();
         });
         // 如果 Kernel 已经就绪但事件已错过，发送查询
-        ipc.emit('kernel:ping', {});
-        // 超时保护：3 秒后若仍无响应，视为内核启动失败（SW 被回收等）
+        ipc.emit(KernelEvents.KERNEL.PING, {});
+        // 超时保护：若仍无响应，视为内核启动失败（SW 被回收等）
         // 注意：成功收到 bootComplete/bootError 时必须 clearTimeout，否则定时器仍会
-        // 在 3 秒后触发并打印误导性的 "not responding"（内核其实早已就绪）。
+        // 在超时后触发并打印误导性的 "not responding"（内核其实早已就绪）。
         timeoutId = setTimeout(() => {
             timeoutId = null;
             cleanup(unsub, unsubErr);
             if (!responded) {
-                bootError = 'Kernel 未在 3 秒内就绪（可能启动失败或被 Service Worker 回收）';
+                bootError = 'Kernel 未在 ' + (BOOT_TIMEOUT_MS / 1000) + ' 秒内就绪（可能启动失败或被 Service Worker 回收）';
                 log.warn('SHELL', 'Kernel not responding, continuing anyway');
             }
             resolve();
-        }, 3000);
+        }, BOOT_TIMEOUT_MS);
     });
 
     // 挂载侧边栏 Shell，注入 IPC 实例

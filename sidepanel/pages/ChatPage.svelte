@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy, getContext } from 'svelte';
-  import { KernelEvents } from 'kernel/Events.js';
+  import { waitKernelReady } from '../utils/kernel-ready.js';
+  import { KernelEvents, KernelChannels } from 'kernel/Events.js';
   import type { KernelAPIContract } from '../api-contract.js';
   import { extractText, renderMarkdown } from '../utils/text.js';
   import { autoScrollToBottom } from '../utils/dom.js';
@@ -19,8 +20,8 @@
 
   // 通过 IPC 通道与 Kernel 通信，不直接访问 kernel 模块
   const ipc: any = getContext('ipc');
-  const chatChannel = ipc?.getOrCreateChannel?.('chat') || ipc;
-  const toolChannel = ipc?.getOrCreateChannel?.('tool') || ipc;
+  const chatChannel = ipc?.getOrCreateChannel?.(KernelChannels.CHAT) || ipc;
+  const toolChannel = ipc?.getOrCreateChannel?.(KernelChannels.TOOL) || ipc;
   const navigate = getContext('navigate');
   const api = getContext('api') as KernelAPIContract;
   const toast = useToast();
@@ -294,9 +295,11 @@
     // 键盘导航
     document.addEventListener('keydown', handleKeydown);
 
-    // 初始化：请求当前会话和工具列表
-    refreshMessages();
-    refreshTools();
+    // 内核就绪后再请求当前会话和工具列表（等待 bootComplete 消息，时序门控）
+    waitKernelReady(ipc).then(() => {
+      refreshMessages();
+      refreshTools();
+    });
   });
 
   // ==================== 键盘导航 ====================

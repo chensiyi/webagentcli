@@ -17,6 +17,7 @@ export const KernelEvents = {
     BOOT_PHASE: 'kernel:bootPhase',
     BOOT_COMPLETE: 'kernel:bootComplete',
     BOOT_ERROR: 'kernel:bootError',
+    CRASHED: 'kernel:crashed',
     PING: 'kernel:ping',
     SHUTDOWN: 'kernel:shutdown',
     STATE_CHANGED: 'kernel:stateChanged',

@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { getContext, onMount } from 'svelte';
+import { getContext, onMount, onDestroy } from 'svelte';
+import { waitKernelReady } from '../utils/kernel-ready.js';
+import { KernelChannels } from 'kernel/Events.js';
   import Button from '../components/atoms/Button.svelte';
   import Input from '../components/forms/Input.svelte';
   import Select from '../components/forms/Select.svelte';
@@ -11,7 +13,7 @@
   import { Log } from 'kernel/services/Log.js';
 
   const ipc: any = getContext('ipc');
-  const settingsChannel = ipc?.getOrCreateChannel?.('settings') || ipc;
+  const settingsChannel = ipc?.getOrCreateChannel?.(KernelChannels.SETTINGS) || ipc;
   const api: any = getContext('api');
   const toast = useToast();
 
@@ -70,10 +72,15 @@
   }
 
   // ---------- Init: Load Settings via RPC ----------
-  $effect(() => {
-    if (isLoaded) return;
-    isLoaded = true;
-    loadSettings();
+
+  onMount(() => {
+    // 内核就绪后再加载（等待 bootComplete 消息，时序门控）
+    waitKernelReady(ipc).then(() => {
+      loadSettings().finally(() => { isLoaded = true; });
+    });
+  });
+
+  onDestroy(() => {
   });
 
   async function loadSettings() {

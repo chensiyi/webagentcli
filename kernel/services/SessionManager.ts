@@ -3,6 +3,7 @@ import { Session } from '../models/Session.js';
 import { Message } from '../models/Message.js';
 import { Log } from './Log.js';
 import { KernelEvents, KernelChannels } from '../Events.js';
+import { StorageKeys } from '../Keys.js';
 
 export class SessionManager extends BaseSessionManager {
   currentSessionId: string | null;
@@ -21,7 +22,7 @@ export class SessionManager extends BaseSessionManager {
   async setCurrentSession(id: string): Promise<void> {
     this.currentSessionId = id;
     if (this.storage) {
-      try { await this.storage.set('currentSessionId', id); } catch (e) { /* ignore */ }
+      try { await this.storage.set(StorageKeys.CURRENT_SESSION_ID, id); } catch (e) { /* ignore */ }
     }
   }
 
@@ -142,26 +143,18 @@ export class SessionManager extends BaseSessionManager {
     }
     try {
       let sessions: Session[] = [];
-      const stored = await this.storage.get('sessions');
+      const stored = await this.storage.get(StorageKeys.SESSIONS);
       if (Array.isArray(stored)) {
         sessions = stored.filter((s: Record<string, unknown>) => s && s.id).map((d: Record<string, unknown>) => new Session(d));
         Log.info('SESSION', `Loaded ${sessions.length} sessions from storage`);
       } else {
-        const raw = await this.storage.getAll();
-        // getAll() 返回的是普通对象（Record），必须用 Object.entries 迭代；
-        // 直接 for...of 会抛 "is not iterable"（首次运行/无 sessions 键时走此分支）。
-        for (const [key, value] of Object.entries(raw || {})) {
-          if (key.startsWith('session_') && value && (value as any).id) {
-            sessions.push(new Session(value as any));
-          }
-        }
-        Log.info('SESSION', `Loaded ${sessions.length} sessions (fallback scan)`);
+        Log.info('SESSION', 'No sessions found in storage');
       }
       sessions.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
       this.sessions = sessions;
       if (this.storage) {
         try {
-          const meta = await this.storage.get('currentSessionId');
+          const meta = await this.storage.get(StorageKeys.CURRENT_SESSION_ID);
           if (meta && sessions.some(s => s.id === meta)) {
             this.currentSessionId = meta as string;
             Log.info('SESSION', `Restored current session: ${meta}`);
@@ -184,7 +177,7 @@ export class SessionManager extends BaseSessionManager {
     if (!this.storage) return;
     try {
       // 过滤掉 undefined 或 null 的会话，防止 toJSON 调用失败
-      await this.storage.set('sessions', this.sessions.filter(s => s && s.id).map(s => s.toJSON()));
+      await this.storage.set(StorageKeys.SESSIONS, this.sessions.filter(s => s && s.id).map(s => s.toJSON()));
     } catch (e) {
       Log.warn('SESSION', `persistSessions error: ${(e)?.message}`);
     }
@@ -193,7 +186,7 @@ export class SessionManager extends BaseSessionManager {
   async _persistCurrentSessionId(): Promise<void> {
     if (!this.storage) return;
     try {
-      await this.storage.set('currentSessionId', this.currentSessionId);
+      await this.storage.set(StorageKeys.CURRENT_SESSION_ID, this.currentSessionId);
     } catch (e) {
       Log.warn('SESSION', `persistCurrentSessionId error: ${(e)?.message}`);
     }

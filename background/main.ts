@@ -32,8 +32,8 @@ import { ProviderFactory } from 'kernel/services/ProviderFactory.js';
 import { ChatProgram, CMD } from 'kernel/programs/ChatProgram.js';
 import { ChromeStorageAdapter } from './services/ChromeStorageAdapter.js';
 import { RunUserScriptTool } from './tools/RunUserScriptTool.js';
-import { ManageUserScriptsTool } from './tools/ManageUserScriptsTool.js';
-import { KernelEvents } from 'kernel/Events.js';
+import { ManageUserScriptsTool, syncRegisteredScripts } from './tools/ManageUserScriptsTool.js';
+import { KernelEvents, KernelChannels } from 'kernel/Events.js';
 import { Log } from 'kernel/services/Log.js';
 
 /**
@@ -58,7 +58,7 @@ const transport = new IPCTransport(ipc, 'kernel', {
     // 并主动推送就绪信号，使 Shell 无需依赖竞态/超时即可可靠拿到 bootComplete。
     onShellConnect: () => {
         ensureBoot()
-            .then(() => ipc.emit('kernel:bootComplete', { timestamp: Date.now() }))
+            .then(() => ipc.emit(KernelEvents.KERNEL.BOOT_COMPLETE, { timestamp: Date.now() }))
             .catch(() => { /* 启动失败已通过 kernel:bootError 暴露 */ });
     },
 });
@@ -80,14 +80,14 @@ function onUnhandledRejection(e: PromiseRejectionEvent) {
     const detail = e?.reason?.message || String(e?.reason) || 'unknown';
     Log.error('BACKGROUND', 'Unhandled promise rejection', e?.reason);
     kernelCrashed = true;
-    activeIpc?.emit('kernel:crashed', { reason: 'unhandledrejection: ' + detail, ts: Date.now() });
+    activeIpc?.emit(KernelEvents.KERNEL.CRASHED, { reason: 'unhandledrejection: ' + detail, ts: Date.now() });
     triggerReload('unhandledrejection: ' + detail);
 }
 function onUncaughtError(e: ErrorEvent) {
     const detail = e?.message || 'unknown';
     Log.error('BACKGROUND', 'Uncaught error', e);
     kernelCrashed = true;
-    activeIpc?.emit('kernel:crashed', { reason: 'error: ' + detail, ts: Date.now() });
+    activeIpc?.emit(KernelEvents.KERNEL.CRASHED, { reason: 'error: ' + detail, ts: Date.now() });
     triggerReload('error: ' + detail);
 }
 (self as unknown as WorkerGlobalScope).addEventListener('unhandledrejection', onUnhandledRejection as EventListener);
@@ -95,9 +95,9 @@ function onUncaughtError(e: ErrorEvent) {
 
 // ── 兼容旧握手：Shell 初始 ping 回 bootComplete，但必须等内核完全启动（RPC 已暴露）后，
 //    否则 Shell 收到"就绪"却调不动 RPC，导致 session.getCurrent / tools.list 超时 ──
-ipc.on('kernel:ping', () => {
+ipc.on(KernelEvents.KERNEL.PING, () => {
     ensureBoot()
-        .then(() => ipc.emit('kernel:bootComplete', { ts: Date.now() }))
+        .then(() => ipc.emit(KernelEvents.KERNEL.BOOT_COMPLETE, { ts: Date.now() }))
         .catch(() => { /* 启动失败已通过 kernel:bootError 暴露 */ });
 });
 
@@ -108,7 +108,7 @@ function ensureBoot(): Promise<any> {
             .catch((err) => {
                 bootPromise = null; // 允许下次唤醒时重试
                 Log.error('BACKGROUND', 'Kernel boot failed', err);
-                activeIpc?.emit('kernel:bootError', { message: String((err as Error)?.message || err) });
+                activeIpc?.emit(KernelEvents.KERNEL.BOOT_ERROR, { message: String((err as Error)?.message || err) });
                 throw err;
             });
         return bootPromise;
@@ -177,16 +177,13 @@ async function bootKernel() {
         await kernel.boot();
         log.info('BACKGROUND', 'Services initialized');
 
-        // 注册内置工具
-        const builtInClasses = [RunUserScriptTool, ManageUserScriptsTool];
-        builtInClasses.forEach((ToolClass) => {
-            if (typeof ToolClass !== 'function') return;
+        // 注册内置工具（直接传实例：RunUserScriptTool 无参，ManageUserScriptsTool 需内核引用）
+        const builtInTools = [new RunUserScriptTool(), new ManageUserScriptsTool(kernel)];
+        builtInTools.forEach((tool) => {
+            if (!tool || !tool.name) return;
             try {
-                const tool = new (ToolClass as any)();
-                if (tool.name) {
-                    toolsManager.register(tool);
-                    log.info('BACKGROUND', `Tool registered: ${tool.name}`);
-                }
+                toolsManager.register(tool);
+                log.info('BACKGROUND', `Tool registered: ${tool.name}`);
             } catch (e) {
                 log.warn('BACKGROUND', 'Failed to register tool', e);
             }
@@ -207,8 +204,8 @@ async function bootKernel() {
 
     // ─── Phase 4: Shell 事件转义 + RPC ───
     bootloader.on(Bootloader.PHASES.READY, async () => {
-        const chatChannel = ipc.getOrCreateChannel('chat');
-        const toolChannel = ipc.getOrCreateChannel('tool');
+        const chatChannel = ipc.getOrCreateChannel(KernelChannels.CHAT);
+        const toolChannel = ipc.getOrCreateChannel(KernelChannels.TOOL);
 
         // ── Shell 用户意图 → 内核授权命令 ──
         chatChannel.on(KernelEvents.CHAT.USER_APPLY_SEND, (data: any) => {
@@ -244,6 +241,12 @@ async function bootKernel() {
             methods: ['list', 'install', 'edit', 'toggle', 'uninstall'],
             capabilities: kernel.capabilities as any,
         });
+
+        // 首次（每次 SW 唤醒）内核启动完毕时，把已启用的用户脚本注册到 chrome.userScripts。
+        // 注册是持久化的，SW/内核被回收后注入仍继续；此处保证「内核启动完毕」即完成注入初始化。
+        // 放在 READY 末尾并 await：bootComplete 在本函数完成后才发出，Shell 侧 waitKernelReady
+        // 会在「内核就绪 + 首次注入注册完成」之后才放行，彻底消除唤醒竞态。
+        await syncRegisteredScripts(kernel.getScriptsManager());
     });
 
     await bootloader.boot();

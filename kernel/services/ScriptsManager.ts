@@ -1,5 +1,6 @@
 import { BaseScriptsManager } from './IScriptsManager.js';
 import { KernelEvents, KernelChannels } from '../Events.js';
+import { StorageKeys } from '../Keys.js';
 import { IPC } from '../IPC.js';
 import { IStorageManager } from './IStorageManager.js';
 import { UserScript } from '../models/Scripts.js';
@@ -12,7 +13,7 @@ interface KernelRef {
   getStorageManager(): IStorageManager | null;
 }
 
-const STORAGE_KEY = 'user_scripts';
+const STORAGE_KEY = StorageKeys.USER_SCRIPTS;
 
 export class ScriptsManager extends BaseScriptsManager {
   kernel: KernelRef;

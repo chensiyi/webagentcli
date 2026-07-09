@@ -2,16 +2,61 @@
  * ManageUserScriptsTool - 用户脚本管理工具
  * 允许 AI 查看、安装、编辑、启用、禁用和删除用户脚本
  *
- * 运行在 Service Worker 中，直接调用 chrome API
+ * 运行在 Service Worker 中，直接调用 chrome API。
+ *
+ * 注意：所有脚本的读写都通过内核 ScriptsManager（内核 storage 层），
+ * 不再直接访问 chrome.storage —— 与 UI（RPC facade）路径共用同一数据源。
+ *
+ * 注入注册（syncRegisteredScripts）随本文件一并维护，是本工具的自有逻辑；
+ * 同时以命名导出提供给 rpc-facades（UI 路径）与 main.ts（首次启动）复用，
+ * 保证「AI 工具路径」与「UI 路径」的注入行为完全一致。
  */
-import { Log } from 'kernel/services/Log.js';
 import { Tool } from 'kernel/models/Tool.js';
 import { wrapWithGM, RUN_AT_MAP } from '../gm-api.js';
+import { Log } from 'kernel/services/Log.js';
+import { USER_SCRIPT_WORLD, MAIN_WORLD, DEFAULT_RUN_AT } from '../keys.js';
 
-const STORAGE_KEY = 'user_scripts';
+/**
+ * 把内核 ScriptsManager 中「已启用且有 @match」的脚本同步注册到 chrome.userScripts。
+ *
+ * 关键事实：chrome.userScripts.register 的注册是「持久化 + 声明式」的。
+ * 一旦注册成功，浏览器会在匹配页面自动注入，完全不依赖 SW / 内核是否还存活。
+ * 因此「注入」本体不需要任何运行时监听器 → SW 回收后注入照常工作，也无监听器累积。
+ *
+ * world 选择：
+ *   - @grant 含 GM_*（需要 chrome.* 权限）→ USER_SCRIPT_WORLD（隔离世界，有 chrome 权限）
+ *   - @grant none（纯页面操作）            → MAIN_WORLD（页面主世界，可访问真实 DOM）
+ */
+export async function syncRegisteredScripts(scriptsManager) {
+  const scripts = (await scriptsManager.loadAll()) || [];
+  const enabled = scripts.filter(
+    (s) => s.enabled && Array.isArray(s.match) && s.match.length > 0
+  );
+
+  const registrations = enabled.map((s) => {
+    const usesGrant =
+      Array.isArray(s.grant) &&
+      s.grant.some((g) => typeof g === 'string' && g.startsWith('GM_'));
+    return {
+      id: s.id,
+      matches: s.match,
+      js: [{ code: wrapWithGM(s.code, s) }],
+      world: usesGrant ? USER_SCRIPT_WORLD : MAIN_WORLD,
+      runAt: RUN_AT_MAP[s.runAt] || DEFAULT_RUN_AT,
+    };
+  });
+
+  // 先整体反注册再重新注册：幂等且能正确反映「禁用 / 删除」后的状态。
+  await chrome.userScripts.unregister();
+  if (registrations.length > 0) {
+    await chrome.userScripts.register(registrations);
+  }
+
+  Log.info('ManageUserScriptsTool', `Synced ${registrations.length} user scripts`);
+}
 
 class ManageUserScriptsTool extends Tool {
-  constructor() {
+  constructor(kernel) {
     super({
       name: 'manage_user_scripts',
       description: '管理存储在当前浏览器中的用户脚本（UserScript）。\n可用操作：\n- list: 列出所有已安装的脚本（不含代码内容）\n- get: 获取单个脚本的完整信息（含代码）\n- install: 安装新脚本（需要包含代码，会自动解析 @name/@match 等元数据）\n- update: 更新已有脚本的代码\n- toggle: 启用/禁用脚本\n- delete: 删除脚本\n注意：\n- 脚本存储在 chrome.storage 中，卸载扩展后数据会丢失\n- 脚本会在匹配 @match 规则的页面自动注入执行',
@@ -30,132 +75,69 @@ class ManageUserScriptsTool extends Tool {
         required: ['action']
       },
       handler: async (args, context) => {
-        const getAllScripts = () => chrome.storage.local.get([STORAGE_KEY]).then(r => r[STORAGE_KEY] || []);
-        const saveScripts = (scripts) => chrome.storage.local.set({ [STORAGE_KEY]: scripts });
+        // 统一通过内核 ScriptsManager 访问 storage（内核指定的 storage 层）
+        const sm = this.kernel.getScriptsManager();
 
         const getScriptById = async (id) => {
-          const scripts = await getAllScripts();
-          const script = scripts.find(s => s.id === id);
+          const scripts = await sm.loadAll();
+          const script = scripts.find((s) => s.id === id);
           if (!script) throw new Error('脚本不存在');
           return script;
         };
 
-        const parseMetadata = (code) => {
-          const metadata = { name: '', namespace: '', version: '', description: '', author: '', match: [], grant: [] };
-          const match = code.match(/==UserScript==([\s\S]*?)==\/UserScript==/);
-          if (!match) throw new Error('无效的 UserScript 格式');
-          const block = match[1];
-          ['name','namespace','version','description','author'].forEach(k => {
-            const m = block.match(new RegExp('@'+k+'\\s+(.+)'));
-            if (m) metadata[k] = m[1].trim();
-          });
-          const matchRegex = /@match\s+(.+)/g;
-          let m; while ((m = matchRegex.exec(block)) !== null) metadata.match.push(m[1].trim());
-          const grantRegex = /@grant\s+(.+)/g;
-          let g; while ((g = grantRegex.exec(block)) !== null) metadata.grant.push(g[1].trim());
-          if (!metadata.name) metadata.name = '未命名脚本';
-          return metadata;
-        };
-
-        const syncRegisteredScripts = async () => {
-          const scripts = await getAllScripts();
-          const enabled = scripts.filter(s => s.enabled && s.match && s.match.length > 0);
-          const registrations = enabled.map(s => ({
-            id: s.id,
-            matches: s.match,
-            js: [{ code: wrapWithGM(s.code, s) }],
-            world: 'MAIN',
-            runAt: RUN_AT_MAP[s.runAt] || 'document_idle'
-          }));
-          await chrome.userScripts.unregister();
-          if (registrations.length > 0) {
-            await chrome.userScripts.register(registrations);
-          }
-          Log.info('ManageUserScriptsTool', `Synced ${registrations.length} scripts`);
-        };
-
-        const installScript = async (code) => {
-          const meta = parseMetadata(code);
-          const id = `script_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-          const script = { id, name: meta.name, namespace: meta.namespace, version: meta.version, description: meta.description, author: meta.author, match: meta.match, grant: meta.grant, enabled: true, code, createdAt: Date.now(), updatedAt: Date.now() };
-          const scripts = await getAllScripts();
-          scripts.push(script);
-          await saveScripts(scripts);
-          return script;
-        };
-
-        const updateScriptCode = async (id, code) => {
-          const scripts = await getAllScripts();
-          const idx = scripts.findIndex(s => s.id === id);
-          if (idx === -1) throw new Error('脚本不存在');
-          const meta = parseMetadata(code);
-          scripts[idx] = { ...scripts[idx], name: meta.name, namespace: meta.namespace, version: meta.version, description: meta.description, author: meta.author, match: meta.match, grant: meta.grant, code, updatedAt: Date.now() };
-          await saveScripts(scripts);
-          return scripts[idx];
-        };
-
-        const toggleScript = async (id, enabled) => {
-          const scripts = await getAllScripts();
-          const idx = scripts.findIndex(s => s.id === id);
-          if (idx === -1) throw new Error('脚本不存在');
-          scripts[idx].enabled = enabled;
-          scripts[idx].updatedAt = Date.now();
-          await saveScripts(scripts);
-          return scripts[idx];
-        };
-
-        const removeScript = async (id) => {
-          const scripts = await getAllScripts();
-          await saveScripts(scripts.filter(s => s.id !== id));
-        };
-
         switch (args.action) {
-          case 'list':
-            Log.info('ManageUserScriptsTool', 'action=list');
-            const allScripts = await getAllScripts();
-            return allScripts.map(({ code, ...rest }) => rest);
+          case 'list': {
+            const all = await sm.loadAll();
+            return all.map(({ code, ...rest }) => rest);
+          }
 
-          case 'get':
-            Log.info('ManageUserScriptsTool', 'action=get, id:', args.id);
+          case 'get': {
             if (!args.id) throw new Error('id is required');
             return await getScriptById(args.id);
+          }
 
-          case 'install':
-            Log.info('ManageUserScriptsTool', 'action=install, codeLength:', args.code?.length || 0);
+          case 'install': {
             if (!args.code) throw new Error('code is required');
-            const installed = await installScript(args.code);
-            await syncRegisteredScripts();
+            const installed = await sm.install(args.code);
+            // 安装后重新注册到 chrome.userScripts（持久化注入）
+            await this.syncRegisteredScripts();
             return installed;
+          }
 
-          case 'update':
-            Log.info('ManageUserScriptsTool', 'action=update, id:', args.id);
+          case 'update': {
             if (!args.id) throw new Error('id is required');
             if (!args.code) throw new Error('code is required');
-            const updated = await updateScriptCode(args.id, args.code);
-            await syncRegisteredScripts();
-            return updated;
+            await sm.edit(args.id, args.code);
+            await this.syncRegisteredScripts();
+            return (await sm.loadAll()).find((s) => s.id === args.id);
+          }
 
-          case 'toggle':
-            Log.info('ManageUserScriptsTool', 'action=toggle, id:', args.id, '→', args.enabled);
+          case 'toggle': {
             if (!args.id) throw new Error('id is required');
             if (args.enabled === undefined) throw new Error('enabled is required');
-            const toggled = await toggleScript(args.id, args.enabled);
-            await syncRegisteredScripts();
-            return toggled;
+            await sm.toggle(args.id, args.enabled);
+            await this.syncRegisteredScripts();
+            return (await sm.loadAll()).find((s) => s.id === args.id);
+          }
 
-          case 'delete':
-            Log.info('ManageUserScriptsTool', 'action=delete, id:', args.id);
+          case 'delete': {
             if (!args.id) throw new Error('id is required');
-            await removeScript(args.id);
-            await syncRegisteredScripts();
+            await sm.uninstall(args.id);
+            await this.syncRegisteredScripts();
             return { success: true, id: args.id };
+          }
 
           default:
-            Log.warn('ManageUserScriptsTool', 'Unknown action:', args.action);
             throw new Error(`Unknown action: ${args.action}`);
         }
       }
     });
+    this.kernel = kernel;
+  }
+
+  /** 从内核 ScriptsManager 读取脚本并同步注册到 chrome.userScripts */
+  async syncRegisteredScripts() {
+    await syncRegisteredScripts(this.kernel.getScriptsManager());
   }
 }
 

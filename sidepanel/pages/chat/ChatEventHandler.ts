@@ -13,7 +13,7 @@
  */
 
 import { Log } from 'kernel/services/Log.js';
-import { KernelEvents } from 'kernel/Events.js';
+import { KernelEvents, KernelChannels } from 'kernel/Events.js';
 
 export class ChatEventHandler {
   private kernel: any;
@@ -25,7 +25,7 @@ export class ChatEventHandler {
     this.kernel = kernel;
     this.chatProgram = chatProgram;
     this.ipc = kernel?.getIPC?.();
-    this.chatChannel = this.ipc?.getOrCreateChannel?.('chat') || this.ipc;
+    this.chatChannel = this.ipc?.getOrCreateChannel?.(KernelChannels.CHAT) || this.ipc;
 
     this._registerEventListeners();
     Log.info('ChatEventHandler', 'Initialized');

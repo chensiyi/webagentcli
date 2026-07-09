@@ -1,6 +1,7 @@
 import { BaseSettings } from './ISettings.js';
 import { IPC } from '../IPC.js';
 import { KernelEvents, KernelChannels } from '../Events.js';
+import { StorageKeys } from '../Keys.js';
 import { Log } from './Log.js';
 import { IStorageManager } from './IStorageManager.js';
 import { clonePlain } from '../utils/clone.js';
@@ -20,7 +21,7 @@ export class SettingsManager extends BaseSettings {
       return this._settings;
     }
     try {
-      const stored = await this.storage.get('app_settings');
+      const stored = await this.storage.get(StorageKeys.APP_SETTINGS);
       if (stored && typeof stored === 'object') {
         this._settings = { ...stored };
       } else {
@@ -62,7 +63,7 @@ export class SettingsManager extends BaseSettings {
     Object.assign(this._settings, plainSettings);
     if (this.storage) {
       try {
-        await this.storage.set('app_settings', { ...this._settings });
+        await this.storage.set(StorageKeys.APP_SETTINGS, { ...this._settings });
       } catch (e) {
         Log.warn('SETTINGS', `saveSettings error: ${(e)?.message}`);
       }
