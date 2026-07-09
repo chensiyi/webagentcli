@@ -8,11 +8,11 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { IPC } from '../kernel/IPC.js';
+import { IPC } from 'kernel/IPC.js';
 import { IPCTransport } from './IPCTransport.js';
 import { RPCClient, RPCServer, createApiClient } from './RPC.js';
 import { sanitizeForClone } from './serialize.js';
-import { Tool } from '../kernel/models/Tool.js';
+import { Tool } from 'kernel/models/Tool.js';
 
 function installChromeStub() {
   const onConnectListeners: Array<(port: any) => void> = [];

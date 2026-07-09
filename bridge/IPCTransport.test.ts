@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { IPC } from '../kernel/IPC.js';
+import { IPC } from 'kernel/IPC.js';
 import { IPCTransport, IPC_PORT_NAME } from './IPCTransport.js';
 
 function installChromeStub() {

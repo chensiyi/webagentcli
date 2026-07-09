@@ -12,6 +12,10 @@
  * - 每个 key（通常是服务名或工具名）拥有一组 capabilities
  * - 与 ToolRegistry 配合：工具定义声明需要的能力，调用前通过 CapabilityManager 检查
  * - 零外部依赖
+ *
+ * ⚠️ 待开发：当前仅作为 RPC expose 的审计钩子占位（audit 固定传 result:true），未做实际鉴权。
+ * 预留能力管理接口，后续可在此落地 declare/require 鉴权；TS 严格检查未全仓强制覆盖，
+ * 因此调用方在传参（capabilities）时填写，用以辅助类型与属性检查。
  */
 export type Capability = 'network' | 'storage:read' | 'storage:write' | 'execute' | 'filesystem' | 'user_script' | 'provider' | 'settings' | 'tool' | 'ipc';
 export type CapabilityDenyHandler = (key: string, capability: Capability, ctx: Record<string, unknown>) => boolean | void;

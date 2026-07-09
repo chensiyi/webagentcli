@@ -27,8 +27,8 @@
  * 注：此文件依赖 chrome.runtime，仅用于 Chrome Extension 环境。
  */
 
-import { IPC } from '../kernel/IPC.js';
-import { Log } from '../kernel/services/Log.js';
+import { IPC } from 'kernel/IPC.js';
+import { Log } from 'kernel/services/Log.js';
 import { sanitizeForClone } from './serialize.js';
 
 export const IPC_PORT_NAME = 'webagent-ipc';

@@ -5,9 +5,9 @@
   import Badge from '../components/atoms/Badge.svelte';
   import Dialog from '../components/overlays/Dialog.svelte';
   import EmptyState from '../components/layout/EmptyState.svelte';
-  import { KernelEvents } from '../../kernel/Events.js';
+  import { KernelEvents } from '../kernel/Events.js';
   import type { KernelAPIContract } from '../api-contract.js';
-  import { Log } from '../../kernel/services/Log.js';
+  import { Log } from '../kernel/services/Log.js';
 
   const ipc: any = getContext('ipc');
   const chatChannel = ipc?.getOrCreateChannel?.('chat') || ipc;

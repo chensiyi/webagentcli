@@ -15,7 +15,7 @@ import './styles/components.css';
 import './styles/pages.css';
 
 import { IPC } from 'kernel/IPC.js';
-import { IPCTransport } from '../bridge/IPCTransport.js';
+import { IPCTransport } from 'bridge/IPCTransport.js';
 import { ConsoleLogger } from 'kernel/services/ConsoleLogger.js';
 
 async function init() {

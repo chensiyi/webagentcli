@@ -8,8 +8,8 @@
  */
 
 import { IPC } from 'kernel/IPC.js';
-import { IPCTransport } from '../bridge/IPCTransport.js';
-import { RPCServer } from '../bridge/RPC.js';
+import { IPCTransport } from 'bridge/IPCTransport.js';
+import { RPCServer } from 'bridge/RPC.js';
 import { createSessionFacade, createToolsFacade, createStorageFacade, createScriptsFacade } from './rpc-facades.js';
 import { Kernel } from 'kernel/Kernel.js';
 import { Bootloader } from 'kernel/Bootloader.js';
@@ -174,7 +174,8 @@ async function bootKernel() {
         // expose 把 Manager（或其 facade）的公共方法注册为 `<service>.<method>` 形式的远程方法，
         // 客户端通过 createApiClient 出的代理 api.<service>.<method>(...) 调用，类型与 kernel 侧一致。
         // 复合返回形状（如 {session, messages, reasoningEffort}）、事件广播与入参校验由 facade 负责。
-        // 每个调用接入 capabilities.audit 能力监测钩子（后期填充 per-method 的能力映射）。
+        // 每个调用接入 capabilities.audit 能力监测钩子（CapabilityManager 待开发，仅作预留能力管理接口；
+        //   此处传参用以辅助类型与属性检查，TS 严格检查未全仓强制覆盖）。
         rpcServer.expose('session', createSessionFacade(kernel, chatChannel), {
             methods: ['getCurrent', 'create', 'update', 'deleteMessage', 'list', 'switch', 'delete', 'clearMessages'],
             capabilities: kernel.capabilities as any,

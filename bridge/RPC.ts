@@ -20,8 +20,8 @@
  *   rpcServer.expose('settings', kernel.getSettingsManager(), { methods: ['getSettings','saveSettings'] });
  */
 
-import { IPC } from '../kernel/IPC.js';
-import { Log } from '../kernel/services/Log.js';
+import { IPC } from 'kernel/IPC.js';
+import { Log } from 'kernel/services/Log.js';
 
 // ─── Shell → Kernel 请求方法名 ───
 // 方法名不再由枚举集中定义，而是由 RPCServer.expose(service, impl) 自动注册为
@@ -64,7 +64,11 @@ export interface RpcCapabilityHook {
 export interface ExposeOptions {
   /** 只允许暴露的方法名白名单；省略则自动收集 impl 上所有函数属性（排除内部/基础设施方法） */
   methods?: string[];
-  /** 能力监测钩子（CapabilityManager 实例即可），每次调用前触发 audit 审计 */
+  /**
+   * 能力监测钩子（CapabilityManager 实例即可），每次调用前触发 audit 审计。
+   * ⚠️ 待开发：CapabilityManager 暂未落地鉴权，仅作预留能力管理接口；
+   * TS 格式检查不强制全仓覆盖，故在传参时填写此钩子以辅助类型与属性检查。
+   */
   capabilities?: RpcCapabilityHook | null;
 }
 

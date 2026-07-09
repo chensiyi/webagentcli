@@ -7,7 +7,7 @@
   import Dialog from '../components/overlays/Dialog.svelte';
   import EmptyState from '../components/layout/EmptyState.svelte';
   import { useToast } from '../components/overlays/toast-store.svelte';
-  import { KernelEvents } from '../../kernel/Events.js';
+  import { KernelEvents } from '../kernel/Events.js';
   import type { KernelAPIContract } from '../api-contract.js';
 
   const ipc: any = getContext('ipc');
