@@ -56,7 +56,8 @@ class LMStudioService extends BaseProviderAPIService {
     if (request.temperature !== undefined) body.temperature = request.temperature;
     if (request.maxTokens) body.max_tokens = request.maxTokens;
     if (request.system) body.messages.unshift({ role: 'system', content: request.system });
-    if (request.reasoningEffort !== undefined) body.reasoning_effort = request.reasoningEffort || 'off';
+    const effort = request.thinking?.effort;
+    if (effort && effort !== 'off') body.reasoning_effort = effort;
 
     // === LM Studio 端前缀缓存 ===
     // LM Studio v0.3.5+ 支持 context_overlap / cache_prompt

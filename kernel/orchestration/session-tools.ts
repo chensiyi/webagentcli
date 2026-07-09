@@ -14,7 +14,6 @@
  */
 
 import { ToolCall, ToolResult } from 'kernel/models/Tool.js';
-import { Message, Role } from 'kernel/models/Message.js';
 import { Kernel } from 'kernel/Kernel.js';
 import { KernelEvents } from 'kernel/Events.js';
 import { Log } from 'kernel/services/Log.js';
@@ -32,7 +31,7 @@ export class ToolExecutor {
 
   /**
    * @param kernel  内核实例（用于获取 toolsManager、sessionManager）
-   * @param emit    事件发射回调（ChatProgram 注入其 IPC emit 函数）
+   * @param emit    事件发射回调（由 session RPC facade 注入其 IPC emit 函数）
    */
   constructor(kernel: Kernel, emit: EmitFn) {
     this.kernel = kernel;
@@ -67,10 +66,10 @@ export class ToolExecutor {
     retries: number = MAX_RETRIES
   ): Promise<ToolResult> {
     let lastError: any;
-    
+
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        const result = await this.kernel.toolsManager!.invoke(tc, context);
+        const result = await this.kernel.getToolsManager().invoke(tc, context);
 
         // 失败且可重试
         if (!result.isSuccess() && attempt < retries && this._isRetryableError(result.error)) {
@@ -129,16 +128,13 @@ export class ToolExecutor {
         sessionId,
       });
 
-      // 工具结果作为 tool 角色消息写入会话
-      const toolMsg = new Message({
-        role: Role.TOOL,
-        toolCallId: tc.id,
-        content: toolResult.isSuccess()
-          ? (typeof toolResult.output === 'string' ? toolResult.output : JSON.stringify(toolResult.output, null, 2))
-          : `⚠️ 执行失败: ${toolResult.error}`,
-      });
-      await sm.addMessage(toolMsg, sessionId);
-      this.emit(KernelEvents.CHAT.MESSAGE_ADDED, { messageId: toolMsg.id, sessionId });
+      // 工具结果作为 tool 角色消息写入会话（数据操作下沉到 SessionManager）
+      const isError = !toolResult.isSuccess();
+      const out = toolResult.isSuccess()
+        ? (typeof toolResult.output === 'string' ? toolResult.output : JSON.stringify(toolResult.output, null, 2))
+        : String(toolResult.error || 'unknown error');
+      const toolMsg = await sm.appendToolResult(sessionId, tc.id, out, isError);
+      this.emit(KernelEvents.SESSION.MESSAGE_ADDED, { messageId: toolMsg.id, sessionId });
     }
 
     this.emit(KernelEvents.TOOL.ALL_COMPLETED, { toolResults, sessionId });

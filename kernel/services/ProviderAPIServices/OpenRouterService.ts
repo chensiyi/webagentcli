@@ -37,12 +37,15 @@ export default class OpenRouterService extends OpenAIService {
     if (request.metadata?.transforms) body.transforms = request.metadata.transforms;
     if (request.metadata?.provider) body.provider = request.metadata.provider;
     if (request.metadata?.route) body.route = request.metadata.route;
-    const thinking = request.thinking;
-    if (thinking && thinking.effort) {
-      body.reasoning_effort = thinking.effort === 'off' ? 'none' : thinking.effort;
+    // OpenRouter 官方用 reasoning 对象控制推理强度（非顶层 reasoning_effort）。
+    // 清掉父类可能为推理模型加上的顶层 reasoning_effort，避免参数冲突。
+    delete body.reasoning_effort;
+    const effort = request.thinking?.effort;
+    if (effort && effort !== 'off') {
+      body.reasoning = { effort, exclude: false };
     }
     // 不记录完整请求体（含 API Key），仅记录关键元数据
-    Log.debug('OpenRouterService', `Request: model=${body.model}, messages=${body.messages?.length}, reasoning_effort=${body.reasoning_effort || 'none'}`);
+    Log.debug('OpenRouterService', `Request: model=${body.model}, messages=${body.messages?.length}, reasoning=${body.reasoning ? JSON.stringify(body.reasoning) : 'none'}`);
     if (this.shouldApplyCache(request)) {
       this._applyCacheControl(body);
     }

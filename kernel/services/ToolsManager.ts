@@ -12,8 +12,8 @@
  * - 工具与能力（capability）绑定，供 CapabilityManager 检查
  * - invoke 封装了执行、计时、日志、结果包装的公共逻辑
  */
-import { Log } from './services/Log.js';
-import { Tool, ToolCall, ToolResult } from './models/Tool.js';
+import { Log } from './Log.js';
+import { Tool, ToolCall, ToolResult } from '../models/Tool.js';
 
 export class ToolsManager {
   private _tools: Map<string, Tool>;

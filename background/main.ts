@@ -21,15 +21,14 @@ import { RPCServer } from 'bridge/RPC.js';
 import { createSessionFacade, createToolsFacade, createStorageFacade, createScriptsFacade } from './rpc-facades.js';
 import { Kernel } from 'kernel/Kernel.js';
 import { Bootloader } from 'kernel/Bootloader.js';
-import { ToolsManager } from 'kernel/ToolsManager.js';
-import { CapabilityManager } from 'kernel/CapabilityManager.js';
+import { ToolsManager } from 'kernel/services/ToolsManager.js';
+import { CapabilityManager } from 'kernel/services/CapabilityManager.js';
 import { ConsoleLogger } from 'kernel/services/ConsoleLogger.js';
 import { SessionManager } from 'kernel/services/SessionManager.js';
 import { SettingsManager } from 'kernel/services/SettingsManager.js';
 import { ScriptsManager } from 'kernel/services/ScriptsManager.js';
 import { ProcessManager } from 'kernel/services/ProcessManager.js';
 import { ProviderFactory } from 'kernel/services/ProviderFactory.js';
-import { ChatProgram, CMD } from 'kernel/programs/ChatProgram.js';
 import { createChromeStorage } from './services/chromeStorage.js';
 import { RunUserScriptTool } from './tools/RunUserScriptTool.js';
 import { ManageUserScriptsTool, syncRegisteredScripts } from './tools/ManageUserScriptsTool.js';
@@ -47,6 +46,8 @@ let bootPromise: Promise<any> | null = null;
 let kernelCrashed = false;
 /** 一次性重启守卫：避免崩溃风暴下反复 reload。 */
 let reloading = false;
+/** 当前已启动的内核实例（供 onSuspend 优雅清理时直接取用，免去二次 await）。 */
+let activeKernel: Kernel | null = null;
 
 /** 模块级 IPC：SW 加载时创建一次，确保 chrome 监听器只安装一次。 */
 const ipc: IPC = new IPC({ origin: 'background-kernel' });
@@ -125,14 +126,10 @@ function ensureBoot(): Promise<any> {
 
 async function bootKernel() {
     const log = new ConsoleLogger();
-    const toolsManager = new ToolsManager();
-    const capabilities = new CapabilityManager();
 
     const kernel = new Kernel({
         ipc,
         origin: 'webagentcli-bg',
-        toolsManager,
-        capabilities,
     });
 
     const bootloader = new Bootloader(kernel);
@@ -148,12 +145,15 @@ async function bootKernel() {
         // 不直接触碰 chrome，也不存在中转/代理类（原 ChromeStorageAdapter 已移除）。
         const storage = createChromeStorage();
 
+        // 工具管理 / 能力门控：与其余 Manager 一样走常规注册路径（不再构造器注入）
+        kernel.register('toolsManager', async () => new ToolsManager());
+        kernel.register('capabilities', async () => new CapabilityManager());
+
         kernel.register('storageManager', async () => storage);
 
         kernel.register('sessionManager', async () => {
-            const sm = new SessionManager({ ipc, storage, log });
-            await sm.initialize();
-            return sm;
+            // init()（原 initialize）由 Kernel._initService 在 boot 阶段按 init(kernel) 契约自动调用
+            return new SessionManager({ ipc, storage, log });
         }, { dependsOn: ['storageManager'] });
 
         kernel.register('settingsManager', async () => {
@@ -179,6 +179,8 @@ async function bootKernel() {
         log.info('BACKGROUND', 'Services initialized');
 
         // 注册内置工具（直接传实例：RunUserScriptTool 无参，ManageUserScriptsTool 需内核引用）
+        // toolsManager 已在 kernel.boot() 期间初始化，此处经 getter 取实例
+        const toolsManager = kernel.getToolsManager();
         const builtInTools = [new RunUserScriptTool(), new ManageUserScriptsTool(kernel)];
         builtInTools.forEach((tool) => {
             if (!tool || !tool.name) return;
@@ -190,11 +192,6 @@ async function bootKernel() {
             }
         });
 
-        // 创建 ChatProgram
-        const chatProgram = new ChatProgram({ kernel, name: 'main' });
-        (kernel as any).chatProgram = chatProgram;
-        log.info('BACKGROUND', 'ChatProgram initialized');
-
         // 加载配置
         const settingsManager = kernel.getSettingsManager();
         await settingsManager.loadSettings();
@@ -205,42 +202,31 @@ async function bootKernel() {
 
     // ─── Phase 4: Shell 事件转义 + RPC ───
     bootloader.on(Bootloader.PHASES.READY, async () => {
-        const chatChannel = ipc.getOrCreateChannel(KernelChannels.CHAT);
-        const toolChannel = ipc.getOrCreateChannel(KernelChannels.TOOL);
-
-        // ── Shell 用户意图 → 内核授权命令 ──
-        chatChannel.on(KernelEvents.CHAT.USER_APPLY_SEND, (data: any) => {
-            chatChannel.emit(CMD.SEND, data);
-        });
-        chatChannel.on(KernelEvents.CHAT.USER_APPLY_STOP, () => {
-            chatChannel.emit(CMD.STOP);
-        });
-        chatChannel.on(KernelEvents.CHAT.USER_APPLY_DELETE_MESSAGE, (data: any) => {
-            chatChannel.emit(CMD.DELETE_MESSAGE, data);
-        });
+        // 会话通道：RPC facade（createSessionFacade）直接驱动编排并把流式/生命周期事件回灌此通道
+        const sessionChannel = ipc.getOrCreateChannel(KernelChannels.SESSION);
 
         // ── RPC 分发（统一请求 ID 关联，错误回传，边界 sanitize） ──
         const rpcServer = new RPCServer(ipc);
 
-        rpcServer.expose('session', createSessionFacade(kernel, chatChannel), {
-            methods: ['getCurrent', 'create', 'update', 'deleteMessage', 'list', 'switch', 'delete', 'clearMessages'],
-            capabilities: kernel.capabilities as any,
+        rpcServer.expose('session', createSessionFacade(kernel, sessionChannel), {
+            methods: ['getCurrent', 'create', 'update', 'deleteMessage', 'list', 'switch', 'delete', 'clearMessages', 'send', 'stop'],
+            capabilities: kernel.getCapabilities() as any,
         });
         rpcServer.expose('tools', createToolsFacade(kernel), {
             methods: ['list', 'toggle'],
-            capabilities: kernel.capabilities as any,
+            capabilities: kernel.getCapabilities() as any,
         });
         rpcServer.expose('settings', kernel.getSettingsManager(), {
             methods: ['getSettings', 'saveSettings', 'getSetting', 'saveSetting', 'resetSettings'],
-            capabilities: kernel.capabilities as any,
+            capabilities: kernel.getCapabilities() as any,
         });
         rpcServer.expose('storage', createStorageFacade(kernel), {
             methods: ['getAll', 'set', 'remove', 'clear'],
-            capabilities: kernel.capabilities as any,
+            capabilities: kernel.getCapabilities() as any,
         });
         rpcServer.expose('scripts', createScriptsFacade(kernel), {
             methods: ['list', 'install', 'edit', 'toggle', 'uninstall'],
-            capabilities: kernel.capabilities as any,
+            capabilities: kernel.getCapabilities() as any,
         });
 
         // 首次（每次 SW 唤醒）内核启动完毕时，把已启用的用户脚本注册到 chrome.userScripts。
@@ -253,6 +239,7 @@ async function bootKernel() {
     await bootloader.boot();
     log.info('BACKGROUND', `Kernel boot complete. Timings: ${JSON.stringify(bootloader.getTimings())}`);
 
+    activeKernel = kernel; // 供 onSuspend 优雅清理取用
     return kernel;
 }
 
@@ -261,6 +248,17 @@ chrome.runtime.onInstalled.addListener(() => {
     ensureBoot();
     // 点击工具栏图标即打开侧边栏（MV3 默认行为兜底）
     chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => {});
+});
+
+// SW 即将被浏览器回收前：优雅清理内核（清定时器、off 监听、取消活跃进程）。
+// onSuspend 非可延长事件，无法可靠 await，故 fire-and-forget；shutdown 内部按 RUNNING 守卫，
+// 未启动/已崩溃的内核直接跳过，幂等安全。
+chrome.runtime.onSuspend.addListener(() => {
+    if (activeKernel && !kernelCrashed) {
+        void activeKernel.shutdown().catch((e) => {
+            Log.error('BACKGROUND', 'Kernel shutdown on suspend failed', e);
+        });
+    }
 });
 
 console.log('[Background] Service worker loaded');

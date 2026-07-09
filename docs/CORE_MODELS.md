@@ -585,7 +585,7 @@ new MediaContent({ type, text, dataUrl, url, filename, mimeType, size, metadata 
                        │ 0..1
                        ▼
                     ToolResult (toolCallId, status, output, error, duration)
-                    ⚠️ 不直接挂在 Session 上，由 ChatProgram 按"消息流"
+                    ⚠️ 不直接挂在 Session 上，由 orchestration/session.ts 按"消息流"
                        写一条 role=tool 的 Message 来表达结果
 
 独立单例：

@@ -27,10 +27,10 @@
 
 ### 1.1 结构问题
 - **P1 `models/Scripts.ts:6`** `import { BaseModel } from './BaseModel';` 缺 `.js` 扩展名。其余 42 个文件全用 `./BaseModel.js`，在 NodeNext/Bundler 解析下此 import 运行/编译期会失败。**唯一例外，明显 bug。**
-- **P1 `programs/chat/ToolExecutor.ts:16-20`** 用绝对别名 `kernel/...` 而非相对路径。Kernel 自称"可在任何 JS 环境运行、零外部依赖"，相对路径是唯一可移植写法。
+- **P1 `orchestration/session-tools.ts:16-20`** 用绝对别名 `kernel/...` 而非相对路径。Kernel 自称"可在任何 JS 环境运行、零外部依赖"，相对路径是唯一可移植写法。
 - **P1 `ToolsManager.getInvocationHistory` 的 `since` 过滤永远为空**（`ToolsManager.ts:270` 附近）：`ToolResult` 无 `timestamp` 字段，`(e as any).timestamp` 恒 `undefined` → 传 `since` 永远返回空数组。逻辑 bug。
 - **P1 `ProviderFactory._createService` 绕过 `configure()`**（`ProviderFactory.ts:85-90`）：直接 `Object.assign` 写 `config`，从不调 `configure()`。导致 `OpenRouterService.configure()`（含 apiKey 校验 + endpoint 默认值）和 `LMStudioService.configure()` 成为**死方法**；若 Shell 未预置 `endpoint`，会以 `undefined` 发请求。
-- **P2** `ChatProgram._assistantMsgId` 与 `_currentRequest.assistantMessageId` 重复持有同一状态需手动同步；`Session.ts` 构造器重复赋值 `createdAt/updatedAt`；`OpenAIService.buildHeaders` 空壳重写（仅 `return super.xxx`）。
+- **P2** `orchestration/session.ts` 的 `TurnState`（`turns` Map）已收敛原 `ChatProgram._assistantMsgId` 与 `_currentRequest.assistantMessageId` 的重复状态，手动同步问题随之消除；`Session.ts` 构造器重复赋值 `createdAt/updatedAt`；`OpenAIService.buildHeaders` 空壳重写（仅 `return super.xxx`）。
 
 ### 1.2 死代码 / 垃圾代码（可删）
 - **`models/Model.ts` 整个 `Model` 类**：kernel 内 0 引用，`index.ts` 导出但无消费方。
@@ -203,3 +203,19 @@
 ## 6. 一句话建议
 
 **先 Phase 1（纯删，零风险）→ 再 Phase 2（修 P0 泄漏与 XSS，关乎运行正确与安全）→ 最后 Phase 3/4（结构收敛与类型收紧）。** 其中 "CapabilityManager 仍空转" 与 "RPC 收口后 `getContext('api') as any` 废掉类型" 是两个最该在 Phase 3 拍板的点：**要么落地鉴权，要么整体降级为注释明确的占位并从 expose 链路移除**。
+
+---
+
+## 附：2026-07-09 结构变更（本审计之后的演进）
+
+本审计成文后，kernel 已完成一次结构演进，以下发现需要按新结构重新理解：
+
+- **`programs/chat/` → `orchestration/`**：会话编排层扁平化，`chat.ts → session.ts`（`runConversation` / `cancelConversation`）、`chat-context.ts → session-context.ts`（`ContextBuilder`）、`chat-tools.ts → session-tools.ts`（`ToolExecutor`）、新增 `request.ts`。
+- **新增 `eventhandler/`**：按消息组接管 IPC 接线。`eventhandler/session.ts` 的 `registerSessionHandlers` 负责 `SESSION.ADD_MESSAGE`/`SESSION.STOP_STREAM` → `runConversation`/`cancelConversation`、会话生命周期事件 → `cancelConversation`。**这意味着原审计中"`sidepanel/pages/chat/ChatEventHandler.ts` 孤儿文件"相关条目（§1.1 / §4 / Phase 1 / Phase 4）已过时**：事件处理概念已落地到 `kernel/eventhandler/session.ts`，sidepanel 侧的 `ChatEventHandler.ts` 也不再被引用。
+- **`CHAT` 消息组 → `SESSION`**：`KernelEvents.CHAT → SESSION`、`KernelChannels.CHAT → SESSION`，线协议 `chat:*` → `session:*`。Shell（ChatPage/HistoryPage）与 RPC facade 已同步更新。
+- **命令用时态区分（去 `cmd:` 中缀）**：`CMD.SEND`/`CMD.STOP` → `SESSION.ADD_MESSAGE`（`session:addMessage`）/`SESSION.STOP_STREAM`（`session:stopStream`）。祈使式命令与过去式事件（`messageAdded`）配对，`cmd:` 中缀移除，授权命令现并入 `KernelEvents.SESSION` 组。
+- **发送/停止消息统一走 RPC**：原 `USER_APPLY_SEND`/`USER_APPLY_STOP`（`sessionChannel.emit` 的意图层）已移除；`createSessionFacade` 新增 `send()`/`stop()` RPC 方法，由 facade 直接 `emit(SESSION.ADD_MESSAGE/STOP_STREAM)`，`eventhandler` 仍独占命令→编排接线。至此所有 Shell→Kernel 可执行命令（含发送/停止）统一经 RPC 入口，流式 `STREAM_*` 事件仍走 IPC 通道回灌。
+- **`ChatProgram._assistantMsgId` / `_currentRequest` 重复状态** → 收敛为 `orchestration/session.ts` 的 `TurnState`（`turns` Map），手动同步问题随之消除（见 §1.1 P2 修正）。
+- **`ToolExecutor.ts` 绝对别名 `kernel/...`**（原 P1）→ 路径现为 `orchestration/session-tools.ts`，别名问题按 Phase 3 收敛。
+- **`ToolsManager` / `CapabilityManager` 迁移 + 改注册**：先移入 `kernel/services/`，再从「构造器注入子系统」改为常规注册服务（Phase 2 `kernel.register('toolsManager'/'capabilities')`，经 `kernel.getToolsManager()`/`getCapabilities()` 访问）。Kernel 构造器仅注入 `ipc`/`storage`；shutdown 服务循环泛化为 `shutdown()` 优先、退化 `destroy()`，两 Manager 的 teardown 收敛进统一循环（原 `this.toolsManager?.destroy()` 显式调用移除）。
+- **`eventhandler/` 层已移除（会话命令接线内联进 RPC facade）**：原 `eventhandler/session.ts` 把 `SESSION.ADD_MESSAGE`/`STOP_STREAM` 在同进程内由 facade emit 出来再接住转调编排，属冗余绕弯。`createSessionFacade.send()` 现直接 `runConversation(kernel, data, { onEvent: emit })`、`stop()` 直接 `cancelConversation(kernel, emit)`；`create()`/`switch()`/`delete()` 内联 `cancelConversation`（覆盖原对 `CURRENT_SESSION_CHANGED`/`SESSION_DELETED` 的订阅反应）。`background/main.ts` 移除 `registerHandlers(kernel, ipc)` 调用，`kernel/eventhandler/` 目录删除。本审计中 §1.1/§4/Phase 1/Phase 4 关于 `ChatEventHandler.ts` 孤儿文件、`eventhandler/session.ts` 接线的条目现已过时。

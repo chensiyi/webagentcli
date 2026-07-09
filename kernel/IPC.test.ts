@@ -167,17 +167,17 @@ describe('IPC 事件总线', () => {
   describe('命名空间通道', () => {
     it('getOrCreateChannel 创建命名空间子 IPC', () => {
       const ipc = new IPC({ origin: 'root' });
-      const chat = ipc.getOrCreateChannel('chat');
+      const chat = ipc.getOrCreateChannel('session');
       expect(chat).toBeInstanceOf(IPC);
       // 验证 origin 命名空间
       const msg = chat.emit('test', {});
-      expect(msg.origin).toBe('root:chat');
+      expect(msg.origin).toBe('root:session');
     });
 
     it('同名通道返回同一个实例', () => {
       const ipc = new IPC();
-      const ch1 = ipc.getOrCreateChannel('chat');
-      const ch2 = ipc.getOrCreateChannel('chat');
+      const ch1 = ipc.getOrCreateChannel('session');
+      const ch2 = ipc.getOrCreateChannel('session');
       expect(ch1).toBe(ch2);
     });
 
@@ -257,7 +257,7 @@ describe('IPC 事件总线', () => {
       const ipc = new IPC();
       ipc.on('a', () => {});
       ipc.use(() => {});
-      ipc.getOrCreateChannel('chat');
+      ipc.getOrCreateChannel('session');
 
       ipc.destroy();
       expect(ipc.getListenerCount()).toBe(0);

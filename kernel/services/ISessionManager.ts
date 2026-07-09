@@ -10,11 +10,14 @@ export class BaseSessionManager {
     this.ipc = obj?.ipc ?? null;
     this.storage = obj?.storage ?? null;
   }
-  async initialize(): Promise<void> {}
+  /** 由 Kernel._initService 在 boot 阶段按 init(kernel) 契约自动调用 */
+  async init(_kernel?: unknown): Promise<void> {}
   getCurrentSession(): Session | null { return null; }
   setCurrentSession(_id: string): void {}
   getSession(_id: string): Session | null { return null; }
   getAllSessions(): Session[] { return []; }
+  /** 丢弃当前未发送即空的临时会话（切换/新建前清理）。 */
+  discardTransientCurrent(): void {}
   async createSession(_opts?: Record<string, unknown>): Promise<Session> { throw new Error('Not implemented'); }
   deleteSession(_id: string): void {}
   async addMessage(_message: unknown, _sessionId: string): Promise<void> {}

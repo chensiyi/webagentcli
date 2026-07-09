@@ -10,7 +10,7 @@
  * 零浏览器依赖，可在任何 JS 环境运行。
  */
 
-import { MessageStructure } from '../../models/MessageContent.js';
+import { MessageStructure } from '../models/MessageContent.js';
 
 /** ContextBuilder 配置 */
 export interface ContextBuilderOptions {
@@ -51,12 +51,12 @@ export class ContextBuilder {
    * @param tools    已注册工具的 OpenAI function definitions
    * @returns 可直接发给 LLM API 的消息数组
    */
-  async buildMessages(
+  buildMessages(
     session: SessionLike,
     settings: SettingsLike,
     tools: unknown[]
-  ): Promise<Record<string, unknown>[]> {
-    const systemMsg = await this._buildSystemPrompt(tools);
+  ): Record<string, unknown>[] {
+    const systemMsg = this._buildSystemPrompt(tools);
     const sessionMessages = this._prepSessionMessages(session, settings);
 
     const allMessages = [systemMsg, ...sessionMessages];
@@ -68,7 +68,7 @@ export class ContextBuilder {
 
   // ─── System Prompt ──────────────────────────────────────────
 
-  private async _buildSystemPrompt(tools: unknown[]): Promise<Record<string, unknown>> {
+  private _buildSystemPrompt(tools: unknown[]): Record<string, unknown> {
     const parts: string[] = [];
 
     parts.push(this.systemRole);

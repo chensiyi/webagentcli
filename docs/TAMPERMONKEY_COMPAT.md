@@ -30,8 +30,7 @@ webagentcli/
 ├── kernel/                   ← 保持不变（核心框架，对上下文无感知）
 │   ├── IPC.ts
 │   ├── IPCTransport.ts       ← NEW: IPC 远程传输层
-│   ├── ToolsManager.ts
-│   └── services/
+│   └── services/             ← ToolsManager / CapabilityManager / SessionManager 等
 │
 ├── manifest.json             ← service_worker 指向 dist/background.bundle.js
 ├── vite.config.ts            ← 新增 background 构建入口
@@ -75,7 +74,7 @@ webagentcli/
 │  │  └─ ManageUserScriptsTool                  │
 │  ├─ ScriptsManager                            │
 │  ├─ SessionManager                            │
-│  ├─ ChatProgram                               │
+│  ├─ orchestration/                            │
 │  └─ chromeStorage.ts (createChromeStorage)    │
 │                                               │
 │  工具直接调用 Chrome API                       │
@@ -91,7 +90,7 @@ webagentcli/
 ## 三、IPCTransport 通信流程
 
 ```
-sidepanel IPC.emit('chat:sendMessage', { text: "hello" })
+sidepanel IPC.emit('session:addMessage', { text: "hello" })
     │
     │ IPCTransport 中间件拦截
     │ → 序列化: { ipc: true, event, data, id }
@@ -100,11 +99,11 @@ sidepanel IPC.emit('chat:sendMessage', { text: "hello" })
     ▼
 background chrome.runtime.onMessage 收到
     │ IPCTransport onMessage 监听器
-    │ → IPC.emit('chat:sendMessage', data, { origin: 'remote' })
+    │ → IPC.emit('session:addMessage', data, { origin: 'remote' })
     │ → Kernel 处理
     │
     │ Kernel 执行完毕
-    │ → IPC.emit('chat:response', result)
+    │ → IPC.emit('session:streamComplete', result)
     │
     │ IPCTransport 中间件拦截
     │ → chrome.runtime.sendMessage(payload)

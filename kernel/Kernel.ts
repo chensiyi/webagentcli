@@ -3,9 +3,13 @@
  * 
  * 职责：
  * - 服务注册表：管理所有服务的注册、懒加载、生命周期
- * - 承载内核子系统引用（IPC / ToolRegistry / CapabilityManager）
+ * - 承载内核基础设施引用（IPC / storage）
  * - 提供统一的 boot() / shutdown() 生命周期
  * - 零外部依赖，可在任何 JS 环境运行
+ *
+ * 注：ToolsManager / CapabilityManager 与其余 Manager 一样走常规注册路径
+ * （kernel.register('toolsManager'/'capabilities')），经 getToolsManager()/getCapabilities()
+ * 或 get() 访问，不再由构造器注入。
  * 
  * 设计原则：
  * - 内核最小化：只做服务注册、消息路由、生命周期
@@ -15,8 +19,8 @@
 import { IStorageManager } from './services/IStorageManager.js';
 import { IPC } from './IPC.js';
 import { Log } from './services/Log.js';
-import { ToolsManager } from './ToolsManager.js';
-import { CapabilityManager } from './CapabilityManager.js';
+import { ToolsManager } from './services/ToolsManager.js';
+import { CapabilityManager } from './services/CapabilityManager.js';
 import { ProviderFactory } from './services/ProviderFactory.js';
 import { ProcessManager } from './services/ProcessManager.js';
 import { ScriptsManager } from './services/ScriptsManager.js';
@@ -33,20 +37,16 @@ export class Kernel {
   origin: string;
   ipc: IPC | null;
   storage: IStorageManager | null;
-  toolsManager: ToolsManager | null;
-  capabilities: CapabilityManager | null;
   private _services: Map<string, { factory: unknown; instance: any; options: Record<string, unknown> }>;
   private _hooks: { beforeBoot: HookFn[]; afterBoot: HookFn[]; beforeShutdown: HookFn[]; afterShutdown: HookFn[] };
   private _bootOrder: string[];
 
-  constructor(options: { name?: string; origin?: string; ipc?: IPC | null; storage?: IStorageManager | null; toolsManager?: ToolsManager | null; capabilities?: CapabilityManager | null } = {}) {
+  constructor(options: { name?: string; origin?: string; ipc?: IPC | null; storage?: IStorageManager | null } = {}) {
     this.name = options.name || 'kernel';
     this.state = Kernel.STATE.CREATED;
     this.origin = options.origin || 'kernel';
     this.ipc = options.ipc || null;
     this.storage = options.storage || null;
-    this.toolsManager = options.toolsManager || null;
-    this.capabilities = options.capabilities || null;
     this._services = new Map();
     this._hooks = { beforeBoot: [], afterBoot: [], beforeShutdown: [], afterShutdown: [] };
     this._bootOrder = [];
@@ -83,14 +83,19 @@ export class Kernel {
       await this._runHooks('beforeShutdown');
       const initialized = Array.from(this._services.entries()).filter(([, e]) => e.instance !== null);
       for (const [name, entry] of initialized.reverse()) {
-        if (entry.instance && typeof entry.instance.shutdown === 'function') {
+        // 服务 teardown：优先 shutdown()，退化到 destroy()（如 ToolsManager / CapabilityManager）
+        const teardown = entry.instance && (
+          typeof entry.instance.shutdown === 'function' ? entry.instance.shutdown :
+          typeof entry.instance.destroy === 'function' ? entry.instance.destroy : null
+        );
+        if (teardown) {
           Log.debug('KERNEL', `Shutting down service: ${name}`);
-          try { await entry.instance.shutdown(); } catch (e) { Log.warn('KERNEL', `Service "${name}" shutdown error`, e); }
+          try { await teardown.call(entry.instance); } catch (e) { Log.warn('KERNEL', `Service "${name}" shutdown error`, e); }
         }
         entry.instance = null;
       }
       await this._runHooks('afterShutdown');
-      this.toolsManager?.destroy(); this.capabilities?.destroy(); this.ipc?.destroy(); Log.getLogger()?.destroy();
+      this.ipc?.destroy(); Log.getLogger()?.destroy();
       this.state = Kernel.STATE.SHUTDOWN;
       Log.info('KERNEL', 'Kernel shutdown complete');
     } catch (error) {
@@ -146,10 +151,12 @@ export class Kernel {
     return {
       state: this.state, origin: this.origin,
       services: { total: this._services.size, initialized: Array.from(this._services.values()).filter(e => e.instance !== null).length, names: this.getServiceNames(), bootOrder: [...this._bootOrder] },
-      subsystems: { hasIPC: this.ipc !== null, hasLog: true, hasToolsManager: this.toolsManager !== null, hasCapabilities: this.capabilities !== null }
+      subsystems: { hasIPC: this.ipc !== null, hasLog: true, hasToolsManager: this.has('toolsManager'), hasCapabilities: this.has('capabilities') }
     };
   }
 
+  getToolsManager() : ToolsManager { return this.get('toolsManager') as ToolsManager; }
+  getCapabilities() : CapabilityManager { return this.get('capabilities') as CapabilityManager; }
   getSessionManager() : SessionManager { return this.get('sessionManager') as SessionManager; }
   getSettingsManager() : SettingsManager { return this.get('settingsManager') as SettingsManager; }
   getStorageManager() : IStorageManager { return this.get('storageManager') as IStorageManager; }

@@ -10,7 +10,7 @@
  * 纯逻辑测试，零浏览器依赖，可在任何 JS 环境运行。
  */
 import { describe, it, expect } from 'vitest';
-import { ContextBuilder } from './ContextBuilder.js';
+import { ContextBuilder } from './session-context.js';
 
 describe('ContextBuilder', () => {
 

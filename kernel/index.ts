@@ -7,8 +7,8 @@
 // ==================== 内核核心 ====================
 import { IPC } from './IPC.js';
 import { KernelEvents } from './Events.js';
-import { ToolsManager } from './ToolsManager.js';
-import { CapabilityManager, CapabilityError } from './CapabilityManager.js';
+import { ToolsManager } from './services/ToolsManager.js';
+import { CapabilityManager, CapabilityError } from './services/CapabilityManager.js';
 import { Kernel } from './Kernel.js';
 import { Bootloader } from './Bootloader.js';
 export { IPC, KernelEvents, ToolsManager, CapabilityManager, CapabilityError, Kernel, Bootloader };
@@ -50,9 +50,10 @@ import { ConsoleLogger } from './services/ConsoleLogger.js';
 import { Log } from './services/Log.js';
 export { SessionManager, SettingsManager, ScriptsManager, ProcessManager, ProviderFactory, ConsoleLogger, Log };
 
-// ==================== 内核程序 ====================
-import { ChatProgram } from './programs/ChatProgram.js';
-export { ChatProgram };
+// ==================== 编排层 ====================
+// 会话编排（每轮调用的纯函数，无单例）；SESSION 组授权命令见 KernelEvents.SESSION
+import { runConversation, cancelConversation } from './orchestration/session.js';
+export { runConversation, cancelConversation };
 
 // ==================== 版本信息 ====================
 // __VERSION__ 由 vite.config.ts 从 package.json 注入（唯一版本源）

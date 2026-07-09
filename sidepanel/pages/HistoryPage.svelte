@@ -11,7 +11,7 @@
   import { Log } from 'kernel/services/Log.js';
 
   const ipc: any = getContext('ipc');
-  const chatChannel = ipc?.getOrCreateChannel?.(KernelChannels.CHAT) || ipc;
+  const sessionChannel = ipc?.getOrCreateChannel?.(KernelChannels.SESSION) || ipc;
   const api = getContext('api') as KernelAPIContract;
   const navigateTo = getContext<any>('navigate');
 
@@ -29,7 +29,7 @@
 
   onMount(() => {
     // 订阅会话更新广播；组件销毁时必须退订（{#key activePage} 会重挂载，否则叠加幽灵监听器）
-    unsubSessionUpdated = chatChannel?.on(KernelEvents.CHAT.SESSION_UPDATED, refreshList);
+    unsubSessionUpdated = sessionChannel?.on(KernelEvents.SESSION.SESSION_UPDATED, refreshList);
     // 内核就绪后再加载（等待 bootComplete 消息，时序门控）
     waitKernelReady(ipc).then(() => {
       refreshList().finally(() => { isLoaded = true; });

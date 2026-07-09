@@ -1,6 +1,6 @@
 import { BaseSessionManager } from './ISessionManager.js';
 import { Session } from '../models/Session.js';
-import { Message } from '../models/Message.js';
+import { Message, Role } from '../models/Message.js';
 import { Log } from './Log.js';
 import { KernelEvents, KernelChannels } from '../Events.js';
 import {
@@ -18,6 +18,8 @@ export class SessionManager extends BaseSessionManager {
   private _msgFlushTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** 存储错误上报冷却截止时间（避免流式期间配额超限刷屏）。 */
   private _storageErrorCooldownUntil = 0;
+  /** 未发送即空的临时会话 id 集合（仅在首条消息落盘时转为正式会话）。 */
+  private _transientIds = new Set<string>();
 
   constructor(obj: any = null) {
     super(obj);
@@ -40,35 +42,59 @@ export class SessionManager extends BaseSessionManager {
     return this.sessions.find(s => s.id === id) || null;
   }
 
-  getAllSessions(): Session[] { return [...this.sessions].filter((s) => s && s.id); }
+  getAllSessions(): Session[] {
+    // 排除临时（未发送即空）会话，避免空对话泄漏到历史列表
+    return [...this.sessions].filter((s) => s && s.id && !this._transientIds.has(s.id));
+  }
 
   async createSession(opts: Record<string, unknown> = {}): Promise<Session> {
+    const { persist = true, ...rest } = opts as Record<string, unknown> & { persist?: boolean };
+    // 丢弃上一个「未发送即空」的临时会话，避免内存里堆积空对话
+    if (this.currentSessionId && this._transientIds.has(this.currentSessionId)) {
+      const i = this.sessions.findIndex((s) => s.id === this.currentSessionId);
+      if (i !== -1) this.sessions.splice(i, 1);
+      this._transientIds.delete(this.currentSessionId);
+    }
     const s = new Session({
-      title: (opts.title as string) || '新对话',
-      reasoningEffort: (opts.reasoningEffort as string) || 'medium',
-      model: opts.model || null,
+      title: (rest.title as string) || '新对话',
+      reasoningEffort: (rest.reasoningEffort as string) || 'medium',
+      model: rest.model || null,
       createdAt: Date.now(),
       updatedAt: Date.now()
     });
     this.sessions.push(s);
     this.currentSessionId = s.id;
-    await this._persistMessages(s.id);
-    await this._persistIndex();
-    await this._persistCurrentSessionId();
+    if (persist) {
+      await this._persistMessages(s.id);
+      await this._persistIndex();
+      await this._persistCurrentSessionId();
+    } else {
+      this._transientIds.add(s.id);
+    }
     return s;
+  }
+
+  /** 丢弃当前未发送即空的临时会话（切换/新建前清理，避免内存堆积空对话）。 */
+  discardTransientCurrent(): void {
+    if (this.currentSessionId && this._transientIds.has(this.currentSessionId)) {
+      const i = this.sessions.findIndex((s) => s.id === this.currentSessionId);
+      if (i !== -1) this.sessions.splice(i, 1);
+      this._transientIds.delete(this.currentSessionId);
+    }
   }
 
   async deleteSession(id: string): Promise<void> {
     const i = this.sessions.findIndex(s => s.id === id);
     if (i !== -1) {
       this.sessions.splice(i, 1);
+      this._transientIds.delete(id);
       if (this.currentSessionId === id) this.currentSessionId = null;
       await this._persistIndex();
       if (this.storage) {
         try { await this.storage.remove(sessionMessagesKey(id)); } catch (e) { /* ignore */ }
       }
-      // 广播会话删除事件，让 shell 层（ChatEventHandler）决定是否取消进行中的请求
-      this.ipc?.getOrCreateChannel(KernelChannels.CHAT)?.emit(KernelEvents.CHAT.SESSION_DELETED, { sessionId: id });
+      // 广播会话删除事件，让 session RPC facade 取消该会话进行中的轮次
+      this.ipc?.getOrCreateChannel(KernelChannels.SESSION)?.emit(KernelEvents.SESSION.SESSION_DELETED, { sessionId: id });
     }
   }
 
@@ -78,10 +104,12 @@ export class SessionManager extends BaseSessionManager {
       if (typeof updater === 'function') updater(s);
       else Object.assign(s, updater);
       s.updatedAt = Date.now();
-      // 仅索引变更（标题等），消息体未动 → 只更新轻量索引
-      await this._persistIndex();
+      // 临时（未发送）会话仅更新内存、不落盘；发送首条消息时由 addMessage 落盘
+      if (!this._transientIds.has(id)) {
+        await this._persistIndex();
+      }
       // 广播会话更新事件，让 UI 刷新标题等
-      this.ipc?.getOrCreateChannel(KernelChannels.CHAT)?.emit(KernelEvents.CHAT.SESSION_UPDATED, { sessionId: id });
+      this.ipc?.getOrCreateChannel(KernelChannels.SESSION)?.emit(KernelEvents.SESSION.SESSION_UPDATED, { sessionId: id });
     }
   }
 
@@ -100,11 +128,15 @@ export class SessionManager extends BaseSessionManager {
   async addMessage(message: Message, sessionId: string): Promise<void> {
     const s = this.getSession(sessionId);
     if (s) {
+      // 首条消息落盘时，把「未发送即空」的临时会话正式化为持久会话
+      const wasTransient = this._transientIds.has(sessionId);
+      if (wasTransient) this._transientIds.delete(sessionId);
       s.messages.push(message);
       s.updatedAt = Date.now();
       // 新增消息是低频操作（每条一次，非 per-token）：直接落盘
       await this._persistMessages(sessionId);
       await this._persistIndex();
+      if (wasTransient) await this._persistCurrentSessionId();
     }
   }
 
@@ -165,7 +197,32 @@ export class SessionManager extends BaseSessionManager {
     }, sessionId); // 默认非 immediate → 批量落盘
   }
 
-  async initialize(): Promise<void> {
+  /** 从首条用户消息派生会话自动标题（纯函数，无副作用，不落盘）。 */
+  deriveAutoTitle(content: string): string {
+    const text = (content || '').trim().replace(/\n/g, ' ');
+    return text.length > 24 ? text.slice(0, 24) + '…' : text;
+  }
+
+  /** 在当前会话末尾追加一条空白 assistant 占位消息（已落盘），返回该消息。 */
+  async createAssistantPlaceholder(sessionId: string): Promise<Message> {
+    const msg = new Message({ role: Role.ASSISTANT, content: '' });
+    await this.addMessage(msg, sessionId);
+    return msg;
+  }
+
+  /** 追加一条 tool 角色结果消息（成功/失败回写，已落盘），返回该消息。 */
+  async appendToolResult(sessionId: string, toolCallId: string, content: string, isError = false): Promise<Message> {
+    const msg = new Message({
+      role: Role.TOOL,
+      toolCallId,
+      content: isError ? `⚠️ 执行失败: ${content}` : content,
+    });
+    await this.addMessage(msg, sessionId);
+    return msg;
+  }
+
+  /** 由 Kernel._initService 在 boot 阶段自动调用（init(kernel) 契约） */
+  async init(_kernel?: unknown): Promise<void> {
     if (!this.storage) {
       Log.warn('SESSION', 'No storage, skipping init');
       return;
@@ -220,8 +277,16 @@ export class SessionManager extends BaseSessionManager {
         Log.warn('SESSION', `currentSessionId restore error: ${(e as any)?.message}`);
       }
     } catch (e) {
-      Log.warn('SESSION', `initialize error: ${(e as any)?.message}`);
+      Log.warn('SESSION', `init error: ${(e as any)?.message}`);
     }
+  }
+
+  /** 清理：取消所有待执行的批量落盘定时器，避免 shutdown 后定时器空触发写入已置空的状态 */
+  destroy(): void {
+    for (const timer of this._msgFlushTimers.values()) {
+      clearTimeout(timer);
+    }
+    this._msgFlushTimers.clear();
   }
 
   // ── 持久化（拆分存储：索引 + 按 sessionId 独立消息键）──
@@ -240,13 +305,13 @@ export class SessionManager extends BaseSessionManager {
     }
   }
 
-  /** 写入会话索引（轻量数组，不含消息体）。 */
+  /** 写入会话索引（轻量数组，不含消息体；临时会话不写入）。 */
   async _persistIndex(): Promise<void> {
     if (!this.storage) return;
     try {
       await this.storage.set(
         StorageKeys.SESSIONS,
-        this.sessions.filter(s => s && s.id).map(s => s.toIndexJSON())
+        this.sessions.filter(s => s && s.id && !this._transientIds.has(s.id)).map(s => s.toIndexJSON())
       );
     } catch (e) {
       this._emitStorageError(e);

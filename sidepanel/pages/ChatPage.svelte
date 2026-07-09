@@ -20,7 +20,7 @@
 
   // 通过 IPC 通道与 Kernel 通信，不直接访问 kernel 模块
   const ipc: any = getContext('ipc');
-  const chatChannel = ipc?.getOrCreateChannel?.(KernelChannels.CHAT) || ipc;
+  const sessionChannel = ipc?.getOrCreateChannel?.(KernelChannels.SESSION) || ipc;
   const toolChannel = ipc?.getOrCreateChannel?.(KernelChannels.TOOL) || ipc;
   const navigate = getContext('navigate');
   const api = getContext('api') as KernelAPIContract;
@@ -110,14 +110,14 @@
     if (!content) return;
 
     inputText = '';
-    chatChannel?.emit(KernelEvents.CHAT.USER_APPLY_SEND, {
+    api.session.send({
       content,
       reasoningEffort: session?.reasoningEffort || reasoningEffort,
-    });
+    }).catch((e) => Log.error('ChatPage', 'send failed', e));
   }
 
   function handleStop() {
-    chatChannel?.emit(KernelEvents.CHAT.USER_APPLY_STOP);
+    api.session.stop().catch((e) => Log.error('ChatPage', 'stop failed', e));
   }
 
   function handleNewChat() {
@@ -208,16 +208,16 @@
 
   // ==================== IPC 事件监听 ====================
   onMount(() => {
-    if (!chatChannel) return;
+    if (!sessionChannel) return;
 
-    if (chatChannel) {
+    if (sessionChannel) {
       cleanups.push(
         // 流式生命周期
-        chatChannel.on(KernelEvents.CHAT.STREAM_START, () => {
+        sessionChannel.on(KernelEvents.SESSION.STREAM_START, () => {
           isStreaming = true;
         }),
 
-        chatChannel.on(KernelEvents.CHAT.STREAM_COMPLETE, (data: any) => {
+        sessionChannel.on(KernelEvents.SESSION.STREAM_COMPLETE, (data: any) => {
           isStreaming = false;
           if (data?.messageId) {
             const newMap = { ...streamingMap };
@@ -228,39 +228,39 @@
           if (messagesContainer) autoScrollToBottom(messagesContainer, true);
         }),
 
-        chatChannel.on(KernelEvents.CHAT.STREAM_STOP, () => {
+        sessionChannel.on(KernelEvents.SESSION.STREAM_STOP, () => {
           isStreaming = false;
           refreshMessages();
         }),
 
-        chatChannel.on(KernelEvents.CHAT.STREAM_ERROR, (data: any) => {
+        sessionChannel.on(KernelEvents.SESSION.STREAM_ERROR, (data: any) => {
           isStreaming = false;
           toast.error(data?.message || '发送失败');
           refreshMessages();
         }),
 
         // 消息变更 → 全量刷新
-        chatChannel.on(KernelEvents.CHAT.MESSAGE_ADDED, () => {
+        sessionChannel.on(KernelEvents.SESSION.MESSAGE_ADDED, () => {
           refreshMessages();
         }),
 
-        chatChannel.on(KernelEvents.CHAT.MESSAGE_DELETED, () => {
+        sessionChannel.on(KernelEvents.SESSION.MESSAGE_DELETED, () => {
           refreshMessages();
         }),
 
-        chatChannel.on(KernelEvents.CHAT.CURRENT_SESSION_CHANGED, () => {
+        sessionChannel.on(KernelEvents.SESSION.CURRENT_SESSION_CHANGED, () => {
           streamingMap = {};
           isEditingTitle = false;
           refreshMessages();
         }),
 
         // 会话更新（标题等）
-        chatChannel.on(KernelEvents.CHAT.SESSION_UPDATED, () => {
+        sessionChannel.on(KernelEvents.SESSION.SESSION_UPDATED, () => {
           refreshMessages();
         }),
 
         // 流式分片追加
-        chatChannel.on(KernelEvents.CHAT.STREAM_CHUNK_APPEND, (data: any) => {
+        sessionChannel.on(KernelEvents.SESSION.STREAM_CHUNK_APPEND, (data: any) => {
           const { messageId, content, reasoning_content } = data;
           if (!messageId) return;
 
@@ -271,7 +271,7 @@
         }),
 
         // 消息更新（全文替换）
-        chatChannel.on(KernelEvents.CHAT.MESSAGE_UPDATED, (data: any) => {
+        sessionChannel.on(KernelEvents.SESSION.MESSAGE_UPDATED, (data: any) => {
           if (!data?.message) return;
           const idx = messages.findIndex((m) => m.id === data.message.id);
           if (idx >= 0) {
@@ -280,12 +280,12 @@
         }),
 
         // 工具事件
-        chatChannel.on(KernelEvents.TOOL.EXECUTING, (data: any) => {
+        sessionChannel.on(KernelEvents.TOOL.EXECUTING, (data: any) => {
           toolExecuting = true;
           toolExecutingName = data?.toolName || '工具';
         }),
 
-        chatChannel.on(KernelEvents.TOOL.COMPLETED, (data: any) => {
+        sessionChannel.on(KernelEvents.TOOL.COMPLETED, (data: any) => {
           toolExecuting = false;
           toolExecutingName = '';
         })

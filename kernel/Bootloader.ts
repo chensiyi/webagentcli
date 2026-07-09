@@ -6,13 +6,19 @@
  * - 每个阶段可注册钩子（hook），由 Shell 层注入具体逻辑
  * - 阶段计时与结果追踪
  *
- * 启动阶段（8→4 精简后）：
+ * 启动阶段：
  *   INIT → REGISTER → START → READY
  *
- * - INIT:      创建 IPC、Log、ToolRegistry、CapabilityManager（基础设施就绪）
- * - REGISTER:  注册所有服务工厂到 Kernel
- * - START:     初始化服务 + 加载配置 + 注册工具 + 创建 Programs
- * - READY:     启动完成
+ * 注：各阶段的具体逻辑由 background/main.ts 通过 bootloader.on(phase, ...) 注入，
+ * Bootloader 本身不创建任何服务/基础设施（IPC 在 main.ts 模块作用域创建一次）。
+ * 当前实际分工：
+ * - INIT:      基础设施（IPC/Log）已就绪，仅标记
+ * - REGISTER:  在 Kernel 上 register() 所有服务工厂（storageManager / toolsManager /
+ *              capabilities / sessionManager / settingsManager / scriptsManager /
+ *              processManager / providerFactory）；ToolsManager、CapabilityManager 也走此常规注册
+ * - START:     kernel.boot() 按依赖序初始化各服务（自动调用服务的 init(kernel)），
+ *              再注册内置工具、加载配置
+ * - READY:     RPC 暴露 + 用户脚本注入（会话命令接线已内联进 session RPC facade，无独立 eventhandler 层）
  *
  * 使用方式：
  *   const bl = new Bootloader(kernel);

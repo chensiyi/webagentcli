@@ -2,12 +2,12 @@
  * KernelEvents - 内核事件常量定义
  * 
  * 纯常量定义，零外部依赖
- * 包含：Chat / Settings / Service / UI / Storage / Scripts / Tool 事件
+ * 包含：Session / Settings / Service / UI / Storage / Scripts / Tool 事件
  * 以及 Kernel 系统事件
  * 
  * 事件命名规范：
  * - 格式：{domain}:{action}
- * - 示例：chat:messageAdded, settings:loaded
+ * - 示例：session:messageAdded, settings:loaded
  * - 使用小写字母和冒号分隔
  */
 
@@ -26,32 +26,32 @@ export const KernelEvents = {
     SERVICE_STATE_CHANGED: 'kernel:serviceStateChanged',
     SERVICE_ERROR: 'kernel:serviceError',
   },
-  CHAT: {
-    MESSAGE_ADDED: 'chat:messageAdded',
-    MESSAGE_UPDATED: 'chat:messageUpdated',
-    MESSAGE_DELETED: 'chat:messageDeleted',
-    MESSAGES_ADDED: 'chat:messagesAdded',
-    USER_MESSAGE_SENT: 'chat:userMessageSent',
-    STREAM_START: 'chat:streamStart',
-    STREAM_CHUNK_APPEND: 'chat:streamChunkAppend',
-    STREAM_UPDATE: 'chat:streamUpdate',
-    STREAM_COMPLETE: 'chat:streamComplete',
-    STREAM_ERROR: 'chat:streamError',
-    STREAM_STOP: 'chat:streamStop',
-    ACTIVITY_STATE_CHANGED: 'chat:activityStateChanged',
-    SESSION_CREATED: 'chat:sessionCreated',
-    SESSION_SWITCHED: 'chat:sessionSwitched',
-    SESSION_CLEARED: 'chat:sessionCleared',
-    SESSION_DELETED: 'chat:sessionDeleted',
-    SESSION_CLEAR_REQUEST: 'chat:sessionClearRequest',
-    SESSION_LOADED: 'chat:sessionLoaded',
-    SESSION_UPDATED: 'chat:sessionUpdated',
-    CURRENT_SESSION_CHANGED: 'chat:currentSessionChanged',
-    ALL_SESSIONS_CLEARED: 'chat:allSessionsCleared',
-    // Shell → ChatEventHandler 用户操作事件
-    USER_APPLY_SEND: 'chat:userApplySend',
-    USER_APPLY_STOP: 'chat:userApplyStop',
-    USER_APPLY_DELETE_MESSAGE: 'chat:userApplyDeleteMessage',
+  SESSION: {
+    MESSAGE_ADDED: 'session:messageAdded',
+    MESSAGE_UPDATED: 'session:messageUpdated',
+    MESSAGE_DELETED: 'session:messageDeleted',
+    MESSAGES_ADDED: 'session:messagesAdded',
+    USER_MESSAGE_SENT: 'session:userMessageSent',
+    STREAM_START: 'session:streamStart',
+    STREAM_CHUNK_APPEND: 'session:streamChunkAppend',
+    STREAM_UPDATE: 'session:streamUpdate',
+    STREAM_COMPLETE: 'session:streamComplete',
+    STREAM_ERROR: 'session:streamError',
+    STREAM_STOP: 'session:streamStop',
+    ACTIVITY_STATE_CHANGED: 'session:activityStateChanged',
+    SESSION_CREATED: 'session:sessionCreated',
+    SESSION_SWITCHED: 'session:sessionSwitched',
+    SESSION_CLEARED: 'session:sessionCleared',
+    SESSION_DELETED: 'session:sessionDeleted',
+    SESSION_CLEAR_REQUEST: 'session:sessionClearRequest',
+    SESSION_LOADED: 'session:sessionLoaded',
+    SESSION_UPDATED: 'session:sessionUpdated',
+    CURRENT_SESSION_CHANGED: 'session:currentSessionChanged',
+    ALL_SESSIONS_CLEARED: 'session:allSessionsCleared',
+    // 内核授权命令（由 session RPC facade 经 createSessionFacade 直接 emit 并驱动编排，不再经 eventhandler 转译）
+    // 祈使式，与上方过去式事件（如 MESSAGE_ADDED）配对：addMessage ↔ messageAdded，时态区分命令与事件
+    ADD_MESSAGE: 'session:addMessage',
+    STOP_STREAM: 'session:stopStream',
   },
   SETTINGS: {
     LOADED: 'settings:loaded',
@@ -132,13 +132,20 @@ export const KernelEvents = {
 
 /**
  * IPC 命名空间通道名（getOrCreateChannel 参数）。
- * 集中定义，避免各 Manager / Shell 页面里裸字符串 'chat' / 'settings' / ... 漂移。
+ * 集中定义，避免各 Manager / Shell 页面里裸字符串 'session' / 'settings' / ... 漂移。
  */
 export const KernelChannels = {
-  CHAT: 'chat',
+  SESSION: 'session',
   SETTINGS: 'settings',
   SCRIPTS: 'scripts',
   TASK: 'task',
   TOOL: 'tool',
   STORAGE: 'storage',
 } as const;
+
+/**
+ * 内核授权命令（addMessage / stopStream）已并入 KernelEvents.SESSION 组，
+ * 与 USER_APPLY_*（用户意图）及过去式事件（MESSAGE_ADDED 等）同处一个命名空间，
+ * 采用「时态区分」：祈使式命令 ↔ 过去式事件，cmd: 中缀冗余已移除。
+ * 引用方式：KernelEvents.SESSION.ADD_MESSAGE / KernelEvents.SESSION.STOP_STREAM。
+ */

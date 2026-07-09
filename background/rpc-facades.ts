@@ -16,36 +16,48 @@
 import type { Kernel } from 'kernel/Kernel.js';
 import { KernelEvents } from 'kernel/Events.js';
 import { syncRegisteredScripts } from './tools/ManageUserScriptsTool.js';
+import { runConversation, cancelConversation } from 'kernel/orchestration/session.js';
+import { Log } from 'kernel/services/Log.js';
 
 export interface RpcChannel {
   emit(event: string, payload?: unknown): void;
 }
 
-function sessionView(sm: any): { session: any; messages: any[]; reasoningEffort: string } {
+function sessionView(kernel: any, sm: any): { session: any; messages: any[]; reasoningEffort: string } {
   const s = sm.getCurrentSession();
+  const settingsEffort = kernel?.getSettingsManager?.()?.getSettings?.()?.reasoningEffort;
   return {
     session: s,
     messages: s?.messages || [],
-    reasoningEffort: s?.reasoningEffort || 'medium',
+    // 无当前会话时回退到全局默认档位，保证空态也显示正确默认（如“关”）
+    reasoningEffort: s?.reasoningEffort || settingsEffort || 'medium',
   };
 }
 
-export function createSessionFacade(kernel: Kernel, chatChannel: RpcChannel) {
+export function createSessionFacade(kernel: Kernel, sessionChannel: RpcChannel) {
+  // SESSION 通道事件发射器：编排层 runConversation / cancelConversation 通过 onEvent / emit
+  // 把流式与生命周期事件回灌到通道，Shell 侧监听。命令（send/stop）直接驱动编排，不再经 eventhandler 绕弯。
+  const emit = (event: string, payload?: unknown) => sessionChannel.emit(event, payload);
+
   return {
     getCurrent() {
-      return sessionView(kernel.getSessionManager());
+      return sessionView(kernel, kernel.getSessionManager());
     },
 
     async create() {
+      // 离开旧会话前取消其进行中的轮次（原 eventhandler 通过 CURRENT_SESSION_CHANGED 实现，现内联）
+      cancelConversation(kernel, emit);
       const sm = kernel.getSessionManager();
       const settings = kernel.getSettingsManager().getSettings() as any;
-      await sm.createSession();
+      // 新建会话沿用全局默认思考强度，但先不落盘——未发送前只是临时会话，
+      // 避免留下空对话（首条消息发送时由 addMessage 正式落盘）
+      await sm.createSession({ reasoningEffort: settings?.reasoningEffort || 'medium', persist: false });
       const s = sm.getCurrentSession();
-      chatChannel.emit(KernelEvents.CHAT.CURRENT_SESSION_CHANGED, { sessionId: s?.id });
+      sessionChannel.emit(KernelEvents.SESSION.CURRENT_SESSION_CHANGED, { sessionId: s?.id });
       return {
         session: s,
         messages: [],
-        reasoningEffort: settings?.reasoningEffort || 'medium',
+        reasoningEffort: s?.reasoningEffort || 'medium',
       };
     },
 
@@ -53,7 +65,7 @@ export function createSessionFacade(kernel: Kernel, chatChannel: RpcChannel) {
       if (!data?.sessionId) return null;
       const sm = kernel.getSessionManager();
       await sm.updateSession(data.sessionId, data.data);
-      chatChannel.emit(KernelEvents.CHAT.SESSION_UPDATED, { sessionId: data.sessionId });
+      sessionChannel.emit(KernelEvents.SESSION.SESSION_UPDATED, { sessionId: data.sessionId });
       return null;
     },
 
@@ -62,7 +74,7 @@ export function createSessionFacade(kernel: Kernel, chatChannel: RpcChannel) {
       const sm = kernel.getSessionManager();
       const ok = await sm.deleteMessage(data.messageId, data.sessionId);
       if (ok) {
-        chatChannel.emit(KernelEvents.CHAT.MESSAGE_DELETED, {
+        sessionChannel.emit(KernelEvents.SESSION.MESSAGE_DELETED, {
           messageId: data.messageId,
           sessionId: data.sessionId,
         });
@@ -77,15 +89,21 @@ export function createSessionFacade(kernel: Kernel, chatChannel: RpcChannel) {
 
     async switch(data: { sessionId: string }) {
       if (!data?.sessionId) return null;
+      // 离开旧会话前取消其进行中的轮次（原 eventhandler 通过 CURRENT_SESSION_CHANGED 实现，现内联）
+      cancelConversation(kernel, emit);
       const sm = kernel.getSessionManager();
+      // 切走前丢弃当前未发送即空的临时会话，避免内存堆积空对话
+      sm.discardTransientCurrent();
       await sm.setCurrentSession(data.sessionId);
       const s = sm.getCurrentSession();
-      chatChannel.emit(KernelEvents.CHAT.CURRENT_SESSION_CHANGED, { sessionId: s?.id });
-      return sessionView(sm);
+      sessionChannel.emit(KernelEvents.SESSION.CURRENT_SESSION_CHANGED, { sessionId: s?.id });
+      return sessionView(kernel, sm);
     },
 
     async delete(data: { sessionId: string }) {
       if (!data?.sessionId) return null;
+      // 删除会话前取消其进行中的轮次（原 eventhandler 订阅 SessionManager 的 SESSION_DELETED 实现，现内联）
+      cancelConversation(kernel, emit, data.sessionId);
       const sm = kernel.getSessionManager();
       await sm.deleteSession(data.sessionId);
       return { sessions: sm.getAllSessions() };
@@ -95,7 +113,24 @@ export function createSessionFacade(kernel: Kernel, chatChannel: RpcChannel) {
       if (!data?.sessionId) return null;
       const sm = kernel.getSessionManager();
       await sm.clearMessages(data.sessionId);
-      chatChannel.emit(KernelEvents.CHAT.SESSION_UPDATED, { sessionId: data.sessionId });
+      sessionChannel.emit(KernelEvents.SESSION.SESSION_UPDATED, { sessionId: data.sessionId });
+      return null;
+    },
+
+    // 发送消息：Shell→Kernel 经 RPC 统一入口，直接驱动编排（fire-and-forget）。
+    // 流式 STREAM_* / MESSAGE_* 事件由 runConversation 通过 onEvent 经 sessionChannel 回灌到 Shell。
+    send(data: { content: string; reasoningEffort?: string }) {
+      if (!data?.content) return null;
+      void runConversation(kernel, data as any, { onEvent: emit }).catch((err: any) => {
+        Log.error('SESSION_FACADE', 'runConversation error', err);
+        emit(KernelEvents.SESSION.STREAM_ERROR, { error: err, message: err?.message || String(err) });
+      });
+      return null;
+    },
+
+    // 停止当前流式：直接取消进行中的轮次（fire-and-forget）
+    stop() {
+      cancelConversation(kernel, emit);
       return null;
     },
   };
@@ -104,13 +139,13 @@ export function createSessionFacade(kernel: Kernel, chatChannel: RpcChannel) {
 export function createToolsFacade(kernel: Kernel) {
   return {
     list() {
-      const tools = (kernel.toolsManager?.getAll() || []).map((t: any) => t.toJSON());
+      const tools = (kernel.getToolsManager()?.getAll() || []).map((t: any) => t.toJSON());
       return { tools };
     },
 
     toggle(data: { name: string; enabled: boolean }) {
       if (!data?.name) return null;
-      const tm = kernel.toolsManager;
+      const tm = kernel.getToolsManager();
       if (data.enabled) tm?.enable(data.name);
       else tm?.disable(data.name);
       return null;

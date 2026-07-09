@@ -14,8 +14,22 @@ export default class OpenAIService extends BaseProviderAPIService {
     // 委托父类构建基础头 + 合并 request.headers
     return super.buildHeaders(request);
   }
+  /**
+   * 仅对推理模型发送 reasoning_effort，避免对 gpt-4o 等非推理模型误发导致 400 报错。
+   * 模型名可能带 provider 前缀（如 OpenRouter 的 openai/o3-mini），取末段再匹配；
+   * 覆盖 OpenAI 原生推理模型（o1/o3/o4、gpt-5 系列）及常见第三方推理模型
+   * （deepseek-r1、qwq、qwen3、glm-z1 等经 OpenRouter 等代理支持 reasoning 参数的）。
+   */
+  static isReasoningModel(model: string): boolean {
+    const m = (model || '').toLowerCase();
+    const name = m.includes('/') ? m.split('/').pop()! : m;
+    if (/^(o[1-9]|gpt-5)/.test(name)) return true;       // OpenAI 原生推理模型
+    if (/(deepseek-r1|qwq|qwen3|glm-z1)/.test(name)) return true; // 常见第三方推理模型
+    return false;
+  }
+
   buildRequestBody(request: Record<string, any>): Record<string, any> {
-    return {
+    const body: Record<string, any> = {
       model: request.model || this.config.model,
       messages: request.messages,
       stream: !!request.stream,
@@ -23,6 +37,11 @@ export default class OpenAIService extends BaseProviderAPIService {
       max_tokens: request.maxTokens,
       tools: request.tools || undefined,
     };
+    const effort = request.thinking?.effort;
+    if (effort && effort !== 'off' && OpenAIService.isReasoningModel(body.model)) {
+      body.reasoning_effort = effort;
+    }
+    return body;
   }
   _buildStandardResponse(choice: any, data: any) {
     const msg = choice.message || {};

@@ -17,7 +17,7 @@
  * 预留能力管理接口，后续可在此落地 declare/require 鉴权；TS 严格检查未全仓强制覆盖，
  * 因此调用方在传参（capabilities）时填写，用以辅助类型与属性检查。
  */
-import { genId } from './utils/id.js';
+import { genId } from 'kernel/utils/id.js';
 
 export type Capability = 'network' | 'storage:read' | 'storage:write' | 'execute' | 'filesystem' | 'user_script' | 'provider' | 'settings' | 'tool' | 'ipc';
 export type CapabilityDenyHandler = (key: string, capability: Capability, ctx: Record<string, unknown>) => boolean | void;

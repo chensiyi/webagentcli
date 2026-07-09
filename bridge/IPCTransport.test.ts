@@ -21,14 +21,14 @@ describe('IPCTransport kernel<->shell 链路（Port 版）', () => {
     const bgIpc = new IPC({ origin: 'bg' });
     const bg = new IPCTransport(bgIpc, 'kernel');
     bg.init();
-    const bgChat = bgIpc.getOrCreateChannel('chat');
+    const bgChat = bgIpc.getOrCreateChannel('session');
     bgChat.on('rpc:echo', (d: any) => bgChat.emit('rpc:echo:res', { got: d.v }));
 
     // ---- shell 侧 ----
     const shIpc = new IPC({ origin: 'sh' });
     const sh = new IPCTransport(shIpc, 'shell');
     sh.init();
-    const shChat = shIpc.getOrCreateChannel('chat');
+    const shChat = shIpc.getOrCreateChannel('session');
 
     const result = await new Promise((resolve) => {
       shChat.on('rpc:echo:res', (d: any) => resolve(d));
