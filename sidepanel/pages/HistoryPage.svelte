@@ -8,11 +8,13 @@
   import EmptyState from '../components/layout/EmptyState.svelte';
   import { KernelEvents, KernelChannels } from 'kernel/Events.js';
   import type { KernelAPIContract } from '../api-contract.js';
+  import { ShellDataCache } from '../cache/shell-cache.js';
   import { Log } from 'kernel/services/Log.js';
 
   const ipc: any = getContext('ipc');
   const sessionChannel = ipc?.getOrCreateChannel?.(KernelChannels.SESSION) || ipc;
   const api = getContext('api') as KernelAPIContract;
+  const cache = new ShellDataCache(api);
   const navigateTo = getContext<any>('navigate');
 
   // ---------- Reactive State ----------
@@ -29,10 +31,10 @@
 
   onMount(() => {
     // 订阅会话更新广播；组件销毁时必须退订（{#key activePage} 会重挂载，否则叠加幽灵监听器）
-    unsubSessionUpdated = sessionChannel?.on(KernelEvents.SESSION.SESSION_UPDATED, refreshList);
+    unsubSessionUpdated = sessionChannel?.on(KernelEvents.SESSION.SESSION_UPDATED, handleSessionUpdated);
     // 内核就绪后再加载（等待 bootComplete 消息，时序门控）
     waitKernelReady(ipc).then(() => {
-      refreshList().finally(() => { isLoaded = true; });
+      refreshList(true).finally(() => { isLoaded = true; }); // 页面（重）加载：强制全量获取并刷新缓存
     });
   });
 
@@ -50,12 +52,28 @@
       );
   }
 
-  async function refreshList() {
+  async function refreshList(force = false) {
     try {
-      const data = await api.session.list();
-      sessions = sortSessions(data?.sessions || []);
+      // 页面（重）加载入口传 force=true：全量获取并把结果写回缓存；删除后走 invalidate+refreshList()（标脏自动重拉）
+      const list = await cache.getSessionList(force);
+      sessions = sortSessions(list.sessions);
     } catch (e) {
       Log.error('HistoryPage', 'load sessions failed', e);
+    }
+  }
+
+  /**
+   * SESSION_UPDATED 事件处理：优先用 Kernel 携带的 index 视图做差量 patch（零 RPC）；
+   * 旧版 Kernel 不带 session 字段时降级为全量刷新。
+   */
+  function handleSessionUpdated(payload: any) {
+    const id = payload?.sessionId;
+    if (id && payload?.session) {
+      const updated = cache.patchSessionList(id, payload.session as Record<string, unknown>);
+      sessions = sortSessions(updated.sessions);
+    } else {
+      cache.invalidateSessionList();
+      refreshList();
     }
   }
 
@@ -80,7 +98,7 @@
 
   /** 优先用 session.title，旧会话无标题时兜底 */
   function getSessionTitle(session: any): string {
-    return session?.title || generateTitle(session?.messages);
+    return session?.title || session?.preview || generateTitle(session?.messages);
   }
 
   function formatTime(ts: number): string {
@@ -125,8 +143,9 @@
     return result;
   }
 
-  function getMessageCount(messages: any[]): number {
-    return messages?.filter((m: any) => m?.role === 'user').length || 0;
+  function getMessageCount(session: any): number {
+    if (typeof session?.messageCount === 'number') return session.messageCount;
+    return session?.messages?.filter((m: any) => m?.role === 'user').length || 0;
   }
 
   function getProviderLabel(session: any): string {
@@ -158,8 +177,9 @@
   async function executeDelete() {
     if (!deleteTargetId) return;
     try {
-      const data = await api.session.delete({ sessionId: deleteTargetId });
-      sessions = sortSessions(data?.sessions || []);
+      await api.session.delete({ sessionId: deleteTargetId });
+      cache.invalidateSessionList();
+      await refreshList();
     } catch (e) {
       Log.error('HistoryPage', 'delete session failed', e);
     } finally {
@@ -212,7 +232,7 @@
                 <div class="list-item-title">{getSessionTitle(session)}</div>
                 <div class="list-item-meta">
                   <span class="list-item-time">{formatTime(session.updated_at || session.updatedAt || 0)}</span>
-                  <Badge>{getMessageCount(session.messages)} 消息</Badge>
+                  <Badge>{getMessageCount(session)} 消息</Badge>
                   {#if getProviderLabel(session)}
                     <Badge variant="primary">{getProviderLabel(session)}</Badge>
                   {/if}

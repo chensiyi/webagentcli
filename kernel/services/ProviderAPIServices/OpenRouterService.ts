@@ -40,9 +40,15 @@ export default class OpenRouterService extends OpenAIService {
     // OpenRouter 官方用 reasoning 对象控制推理强度（非顶层 reasoning_effort）。
     // 清掉父类可能为推理模型加上的顶层 reasoning_effort，避免参数冲突。
     delete body.reasoning_effort;
+    // 思考强度是数据，必须忠实透传：off 不是「无值」，而是用户的显式关闭选择，
+    // 翻译成官方 effort:'none'（Disables reasoning entirely）；其它档位按原值下发。
     const effort = request.thinking?.effort;
-    if (effort && effort !== 'off') {
-      body.reasoning = { effort, exclude: false };
+    if (effort) {
+      if (effort === 'off') {
+        body.reasoning = { effort: 'none' };
+      } else {
+        body.reasoning = { effort, exclude: false };
+      }
     }
     // 不记录完整请求体（含 API Key），仅记录关键元数据
     Log.debug('OpenRouterService', `Request: model=${body.model}, messages=${body.messages?.length}, reasoning=${body.reasoning ? JSON.stringify(body.reasoning) : 'none'}`);

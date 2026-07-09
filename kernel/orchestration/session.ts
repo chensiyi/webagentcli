@@ -125,7 +125,8 @@ async function runTurn(
 
       const userMsg = new Message({ role: 'user', content: (content as string).trim() });
       await sm.addMessage(userMsg, sid);
-      emit(KernelEvents.SESSION.MESSAGE_ADDED, { messageId: userMsg.id, sessionId: sid });
+      // 携带完整 message 对象，供 Shell 侧零 RPC 差量 upsert 进列表（否则需全量重拉才能显示）
+      emit(KernelEvents.SESSION.MESSAGE_ADDED, { message: userMsg, messageId: userMsg.id, sessionId: sid });
 
       // 会话中仅此一条消息 → 首次发送，自动生成标题（纯数据派生，下沉 SessionManager）
       const session = sm.getSession(sid);
@@ -164,7 +165,7 @@ async function runTurn(
     const assistantMsg = await sm.createAssistantPlaceholder(sid);
     const turn = turns.get(sid)!;
     turn.assistantMessageId = assistantMsg.id;
-    emit(KernelEvents.SESSION.MESSAGE_ADDED, { messageId: assistantMsg.id, sessionId: sid });
+    emit(KernelEvents.SESSION.MESSAGE_ADDED, { message: assistantMsg, messageId: assistantMsg.id, sessionId: sid });
     emit(KernelEvents.SESSION.STREAM_START, { sessionId: sid, messageId: assistantMsg.id });
 
     // ── 流式响应 ──
@@ -196,6 +197,9 @@ async function runTurn(
       }, sid, { immediate: true });
 
       const duration = Date.now() - turns.get(sid)!.startedAt;
+      // 流式结束：把最终完整消息（含累积 content / reasoning / toolCalls）推给 Shell，
+      // 让 Shell 的 messages 列表与内核权威态对齐，再由其删除流式累积缓冲（streamingMap）。
+      emit(KernelEvents.SESSION.MESSAGE_UPDATED, { message: assistantMsg, messageId: assistantMsg.id, sessionId: sid });
       emit(KernelEvents.SESSION.STREAM_COMPLETE, { sessionId: sid, messageId: assistantMsg.id, duration });
 
       const toolExecutor = new ToolExecutor(kernel, emit);
@@ -206,6 +210,8 @@ async function runTurn(
     }
 
     const duration = Date.now() - turns.get(sid)!.startedAt;
+    // 流式结束：把最终完整消息推给 Shell，与内核权威态对齐（见上方同款注释）。
+    emit(KernelEvents.SESSION.MESSAGE_UPDATED, { message: assistantMsg, messageId: assistantMsg.id, sessionId: sid });
     emit(KernelEvents.SESSION.STREAM_COMPLETE, { sessionId: sid, messageId: assistantMsg.id, duration });
   } catch (error: any) {
     const turn = turns.get(sid);

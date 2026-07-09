@@ -134,7 +134,8 @@ export class ToolExecutor {
         ? (typeof toolResult.output === 'string' ? toolResult.output : JSON.stringify(toolResult.output, null, 2))
         : String(toolResult.error || 'unknown error');
       const toolMsg = await sm.appendToolResult(sessionId, tc.id, out, isError);
-      this.emit(KernelEvents.SESSION.MESSAGE_ADDED, { messageId: toolMsg.id, sessionId });
+      // 携带完整 message 对象，供 Shell 侧零 RPC 差量 upsert 进列表
+      this.emit(KernelEvents.SESSION.MESSAGE_ADDED, { message: toolMsg, messageId: toolMsg.id, sessionId });
     }
 
     this.emit(KernelEvents.TOOL.ALL_COMPLETED, { toolResults, sessionId });

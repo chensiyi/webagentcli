@@ -65,8 +65,8 @@ export function createSessionFacade(kernel: Kernel, sessionChannel: RpcChannel) 
       if (!data?.sessionId) return null;
       const sm = kernel.getSessionManager();
       await sm.updateSession(data.sessionId, data.data);
-      sessionChannel.emit(KernelEvents.SESSION.SESSION_UPDATED, { sessionId: data.sessionId });
-      return null;
+      // 返回更新后的权威会话视图，供 Shell 侧「根据结果更新」缓存与 UI（差量，零额外 RPC）
+      return sessionView(kernel, sm);
     },
 
     async deleteMessage(data: { messageId: string; sessionId: string }) {
@@ -113,7 +113,8 @@ export function createSessionFacade(kernel: Kernel, sessionChannel: RpcChannel) 
       if (!data?.sessionId) return null;
       const sm = kernel.getSessionManager();
       await sm.clearMessages(data.sessionId);
-      sessionChannel.emit(KernelEvents.SESSION.SESSION_UPDATED, { sessionId: data.sessionId });
+      const idx = sm.getSession(data.sessionId)?.toIndexJSON();
+      sessionChannel.emit(KernelEvents.SESSION.SESSION_UPDATED, { sessionId: data.sessionId, session: idx });
       return null;
     },
 

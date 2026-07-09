@@ -11,10 +11,12 @@ import { KernelChannels } from 'kernel/Events.js';
   import Card from '../components/layout/Card.svelte';
   import { useToast } from '../components/overlays/toast-store.svelte';
   import { Log } from 'kernel/services/Log.js';
+  import { ShellDataCache } from '../cache/shell-cache.js';
 
   const ipc: any = getContext('ipc');
   const settingsChannel = ipc?.getOrCreateChannel?.(KernelChannels.SETTINGS) || ipc;
   const api: any = getContext('api');
+  const cache = new ShellDataCache(api);
   const toast = useToast();
 
   // ---------- Reactive State ----------
@@ -76,16 +78,17 @@ import { KernelChannels } from 'kernel/Events.js';
   onMount(() => {
     // 内核就绪后再加载（等待 bootComplete 消息，时序门控）
     waitKernelReady(ipc).then(() => {
-      loadSettings().finally(() => { isLoaded = true; });
+      loadSettings(true).finally(() => { isLoaded = true; }); // 页面（重）加载：强制全量获取并刷新缓存
     });
   });
 
   onDestroy(() => {
   });
 
-  async function loadSettings() {
+  async function loadSettings(force = false) {
     try {
-      const raw = await api.settings.getSettings();
+      // 页面（重）加载入口传 force=true：全量获取并把结果写回缓存
+      const raw = await cache.getSettings(force);
       currentSettings = { ...(raw || {}) };
       applyTheme(currentSettings.theme);
       Log.info('SettingsPage', 'Settings loaded via API contract');
@@ -138,6 +141,7 @@ import { KernelChannels } from 'kernel/Events.js';
     currentSettings.theme = theme;
     applyTheme(theme);
     api.settings.saveSettings({ theme })
+      .then(() => cache.invalidateSettings())
       .catch((e) => toast.error('保存失败: ' + (e as Error).message));
   }
 
@@ -208,6 +212,7 @@ import { KernelChannels } from 'kernel/Events.js';
 
       // 通过 API 契约持久化模型列表
       await api.settings.saveSettings({ models });
+      cache.invalidateSettings();
 
       toast.success(`已加载 ${models.length} 个模型`);
     } catch (e) {
@@ -224,6 +229,7 @@ import { KernelChannels } from 'kernel/Events.js';
       // 关键：currentSettings 是 Svelte $state Proxy，必须剥离为纯 JS 对象再传给 Kernel
       const plainSettings = JSON.parse(JSON.stringify(currentSettings));
       await api.settings.saveSettings(plainSettings);
+      cache.invalidateSettings();
       Log.info('SettingsPage', `Saved settings, models count: ${Array.isArray(plainSettings.models) ? plainSettings.models.length : 'N/A'}`);
       toast.success('设置已保存');
     } catch (e) {

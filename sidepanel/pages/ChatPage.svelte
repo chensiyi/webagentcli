@@ -3,6 +3,7 @@
   import { waitKernelReady } from '../utils/kernel-ready.js';
   import { KernelEvents, KernelChannels } from 'kernel/Events.js';
   import type { KernelAPIContract } from '../api-contract.js';
+  import { ShellDataCache } from '../cache/shell-cache.js';
   import { extractText, renderMarkdown } from '../utils/text.js';
   import { autoScrollToBottom } from '../utils/dom.js';
   import { useToast } from '../components/overlays/toast-store.svelte';
@@ -24,6 +25,7 @@
   const toolChannel = ipc?.getOrCreateChannel?.(KernelChannels.TOOL) || ipc;
   const navigate = getContext('navigate');
   const api = getContext('api') as KernelAPIContract;
+  const cache = new ShellDataCache(api);
   const toast = useToast();
 
   // ==================== 响应式状态 ====================
@@ -95,12 +97,16 @@
 
   // ==================== 消息刷新 ====================
 
+  /** 失效当前会话缓存并强制重拉（切会话 / 错误恢复等需要最新全量时调用）。 */
   function refreshMessages() {
-    api.session.getCurrent().then(applyCurrentSession).catch((e) => Log.error('ChatPage', 'load session failed', e));
+    cache.invalidateSession();
+    cache.getCurrentSession(true).then(applyCurrentSession).catch((e) => Log.error('ChatPage', 'load session failed', e));
   }
 
-  function refreshTools() {
-    api.tools.list().then(applyToolList).catch((e) => Log.error('ChatPage', 'load tools failed', e));
+  function refreshTools(force = false) {
+    // 页面（重）加载入口传 force=true：全量获取并把结果写回缓存；页内再次打开工具面板不传 force，用缓存（必要时 invalidate 重拉）。
+    // cache.getTools() 已透传 facade 形态 { tools }，与 applyToolList 契约天然对齐，直接消费。
+    cache.getTools(force).then(applyToolList).catch((e) => Log.error('ChatPage', 'load tools failed', e));
   }
 
   // ==================== 业务逻辑 ====================
@@ -144,9 +150,17 @@
   }
 
   function handleReasoningEffortChange(val: string) {
-    reasoningEffort = val;
+    reasoningEffort = val; // 乐观即时反馈
     if (session) {
       api.session.update({ sessionId: session.id, data: { reasoningEffort: val } })
+        .then((view: any) => {
+          if (view) {
+            // 根据写操作返回的结果差量更新缓存与 UI（零额外 RPC）
+            cache.patchCurrentSession({ session: view.session, reasoningEffort: view.reasoningEffort });
+            session = view.session;
+            reasoningEffort = view.reasoningEffort;
+          }
+        })
         .catch((e) => Log.error('ChatPage', 'update session failed', e));
     }
   }
@@ -167,9 +181,16 @@
     const newTitle = editingTitle.trim() || '新对话';
     isEditingTitle = false;
     if (session.title !== newTitle) {
+      session.title = newTitle; // 乐观即时反馈
       api.session.update({ sessionId: session.id, data: { title: newTitle } })
+        .then((view: any) => {
+          if (view) {
+            // 根据写操作返回的结果差量更新缓存与 UI（零额外 RPC）
+            cache.patchCurrentSession({ session: view.session });
+            session = view.session;
+          }
+        })
         .catch((e) => Log.error('ChatPage', 'update title failed', e));
-      session.title = newTitle;
     }
   }
 
@@ -224,13 +245,13 @@
             delete newMap[data.messageId];
             streamingMap = newMap;
           }
-          refreshMessages();
+          cache.invalidateSession();
           if (messagesContainer) autoScrollToBottom(messagesContainer, true);
         }),
 
         sessionChannel.on(KernelEvents.SESSION.STREAM_STOP, () => {
           isStreaming = false;
-          refreshMessages();
+          cache.invalidateSession();
         }),
 
         sessionChannel.on(KernelEvents.SESSION.STREAM_ERROR, (data: any) => {
@@ -239,9 +260,19 @@
           refreshMessages();
         }),
 
-        // 消息变更 → 全量刷新
-        sessionChannel.on(KernelEvents.SESSION.MESSAGE_ADDED, () => {
-          refreshMessages();
+        // 消息新增：根据事件携带的结果差量 upsert 进列表（零 RPC），结果立即显示
+        sessionChannel.on(KernelEvents.SESSION.MESSAGE_ADDED, (data: any) => {
+          if (data?.message) {
+            const msg = data.message;
+            const idx = messages.findIndex((m: any) => m.id === msg.id);
+            if (idx >= 0) {
+              messages = [...messages.slice(0, idx), { ...msg }, ...messages.slice(idx + 1)];
+            } else {
+              messages = [...messages, { ...msg }];
+            }
+          }
+          // 标脏缓存，保持与内核最终一致（不触发重拉，UI 已用本地列表刷新）
+          cache.invalidateSession();
         }),
 
         sessionChannel.on(KernelEvents.SESSION.MESSAGE_DELETED, () => {
@@ -254,9 +285,18 @@
           refreshMessages();
         }),
 
-        // 会话更新（标题等）
-        sessionChannel.on(KernelEvents.SESSION.SESSION_UPDATED, () => {
-          refreshMessages();
+        // 会话更新（标题等）：根据事件携带的结果差量 patch 元数据，零 RPC，不碰流式累积的 messages
+        sessionChannel.on(KernelEvents.SESSION.SESSION_UPDATED, (data: any) => {
+          const idx = data?.session;
+          if (idx && session && idx.id === session.id) {
+            const merged = { ...session, ...idx };
+            cache.patchCurrentSession({ session: merged });
+            session = merged;
+            // 若会话被清空（如 clearMessages），同步清空本地消息列表
+            if (typeof idx.messageCount === 'number' && idx.messageCount === 0 && messages.length > 0) {
+              messages = [];
+            }
+          }
         }),
 
         // 流式分片追加
@@ -298,7 +338,7 @@
     // 内核就绪后再请求当前会话和工具列表（等待 bootComplete 消息，时序门控）
     waitKernelReady(ipc).then(() => {
       refreshMessages();
-      refreshTools();
+      refreshTools(true); // 页面（重）加载：强制全量获取并刷新缓存
     });
   });
 

@@ -108,8 +108,8 @@ export class SessionManager extends BaseSessionManager {
       if (!this._transientIds.has(id)) {
         await this._persistIndex();
       }
-      // 广播会话更新事件，让 UI 刷新标题等
-      this.ipc?.getOrCreateChannel(KernelChannels.SESSION)?.emit(KernelEvents.SESSION.SESSION_UPDATED, { sessionId: id });
+      // 广播会话更新事件（携带 index 视图，供 Shell 侧差量 patch，零 RPC 刷新列表）
+      this.ipc?.getOrCreateChannel(KernelChannels.SESSION)?.emit(KernelEvents.SESSION.SESSION_UPDATED, { sessionId: id, session: s.toIndexJSON() });
     }
   }
 
