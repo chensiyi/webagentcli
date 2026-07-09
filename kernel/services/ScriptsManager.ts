@@ -13,8 +13,6 @@ interface KernelRef {
   getStorageManager(): IStorageManager | null;
 }
 
-const STORAGE_KEY = StorageKeys.USER_SCRIPTS;
-
 export class ScriptsManager extends BaseScriptsManager {
   kernel: KernelRef;
   ipc: IPC | null;
@@ -35,7 +33,7 @@ export class ScriptsManager extends BaseScriptsManager {
   async loadAll(): Promise<UserScript[]> {
     try {
       if (this.storage) {
-        const stored = await this.storage.get(STORAGE_KEY);
+        const stored = await this.storage.get(StorageKeys.USER_SCRIPTS);
         this.scripts = Array.isArray(stored) ? stored as UserScript[] : [];
       }
     } catch (e) {
@@ -50,7 +48,7 @@ export class ScriptsManager extends BaseScriptsManager {
   private async _save(): Promise<void> {
     try {
       if (this.storage) {
-        await this.storage.set(STORAGE_KEY, this.scripts);
+        await this.storage.set(StorageKeys.USER_SCRIPTS, this.scripts);
       }
     } catch (e) {
       Log.error('ScriptsManager', 'Failed to save scripts to storage:', e);

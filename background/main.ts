@@ -30,7 +30,7 @@ import { ScriptsManager } from 'kernel/services/ScriptsManager.js';
 import { ProcessManager } from 'kernel/services/ProcessManager.js';
 import { ProviderFactory } from 'kernel/services/ProviderFactory.js';
 import { ChatProgram, CMD } from 'kernel/programs/ChatProgram.js';
-import { ChromeStorageAdapter } from './services/ChromeStorageAdapter.js';
+import { createChromeStorage } from './services/chromeStorage.js';
 import { RunUserScriptTool } from './tools/RunUserScriptTool.js';
 import { ManageUserScriptsTool, syncRegisteredScripts } from './tools/ManageUserScriptsTool.js';
 import { KernelEvents, KernelChannels } from 'kernel/Events.js';
@@ -144,20 +144,21 @@ async function bootKernel() {
 
     // ─── Phase 2: REGISTER ───
     bootloader.on(Bootloader.PHASES.REGISTER, async () => {
-        const chromeStorageAdapter = new ChromeStorageAdapter(kernel);
+        // 组装根统一创建**唯一**存储实例并注入内核：内核只依赖 IStorageManager 接口，
+        // 不直接触碰 chrome，也不存在中转/代理类（原 ChromeStorageAdapter 已移除）。
+        const storage = createChromeStorage();
 
-        kernel.register('storageAdapter', async () => chromeStorageAdapter);
-        kernel.register('storageManager', async () => chromeStorageAdapter);
+        kernel.register('storageManager', async () => storage);
 
         kernel.register('sessionManager', async () => {
-            const sm = new SessionManager({ ipc, storage: chromeStorageAdapter, log });
+            const sm = new SessionManager({ ipc, storage, log });
             await sm.initialize();
             return sm;
-        }, { dependsOn: ['storageAdapter'] });
+        }, { dependsOn: ['storageManager'] });
 
         kernel.register('settingsManager', async () => {
-            return new SettingsManager({ ipc, storage: chromeStorageAdapter, log });
-        }, { dependsOn: ['storageAdapter'] });
+            return new SettingsManager({ ipc, storage, log });
+        }, { dependsOn: ['storageManager'] });
 
         kernel.register('scriptsManager', async () => {
             return new ScriptsManager(kernel);

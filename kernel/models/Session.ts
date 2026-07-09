@@ -42,5 +42,23 @@ export class Session extends BaseModel {
     };
   }
 
+  /** 轻量索引条目（存于 StorageKeys.SESSIONS），不含消息体，供会话列表快速渲染。 */
+  toIndexJSON(): Record<string, unknown> {
+    const last = this.messages[this.messages.length - 1];
+    let preview = '';
+    if (last) {
+      const c = last.content;
+      preview = (typeof c === 'string' ? c : JSON.stringify(c)).slice(0, 120);
+    }
+    return {
+      id: this.id,
+      title: this.title,
+      createdAt: this.createdAt,
+      updatedAt: this.updatedAt,
+      messageCount: this.messages.length,
+      preview,
+    };
+  }
+
   static fromJSON(data: Record<string, unknown>): Session { return new Session(data); }
 }

@@ -1,8 +1,19 @@
-export class IStorageManager {
-  async get(_key: string): Promise<unknown> { throw new Error('Not implemented'); }
-  async set(_key: string, _value: unknown): Promise<void> { throw new Error('Not implemented'); }
-  async remove(_key: string): Promise<void> { throw new Error('Not implemented'); }
-  async clear(): Promise<void> { throw new Error('Not implemented'); }
-  async keys(): Promise<string[]> { throw new Error('Not implemented'); }
-  async getAll(): Promise<Array<[string, unknown]>> { throw new Error('Not implemented'); }
+/**
+ * IStorageManager — 内核存储抽象接口
+ *
+ * 内核服务层只依赖此接口，不直接触碰 chrome.*。
+ * 具体实现由组装根（background 启动）通过 createChromeStorage() 提供并注入，
+ * 做到「shell 提供存储实例、内核不中转」。
+ */
+export interface IStorageManager {
+  /** 读取单个键的值（不存在返回 undefined）。 */
+  get(key: string): Promise<unknown>;
+  /** 写入单个键值。 */
+  set(key: string, value: unknown): Promise<void>;
+  /** 删除单个键。 */
+  remove(key: string): Promise<void>;
+  /** 清空全部存储。 */
+  clear(): Promise<void>;
+  /** 读取全部键值对（Record）。 */
+  getAll(): Promise<Record<string, unknown>>;
 }

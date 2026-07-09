@@ -17,7 +17,7 @@ webagentcli/
 │   │   ├── RunUserScriptTool.js
 │   │   └── ManageUserScriptsTool.js
 │   └── services/
-│       └── ChromeStorageAdapter.js
+│       └── chromeStorage.ts
 │
 ├── sidepanel/                ← 纯 UI Shell
 │   ├── main.ts               ← IPC Client + Svelte 挂载（大幅精简）
@@ -76,7 +76,7 @@ webagentcli/
 │  ├─ ScriptsManager                            │
 │  ├─ SessionManager                            │
 │  ├─ ChatProgram                               │
-│  └─ ChromeStorageAdapter                      │
+│  └─ chromeStorage.ts (createChromeStorage)    │
 │                                               │
 │  工具直接调用 Chrome API                       │
 │  chrome.userScripts.register()                │
@@ -134,7 +134,7 @@ sidepanel 收到
 | `background/main.ts` | **新建** | Vite 入口，启动完整 Kernel |
 | `background/tools/RunUserScriptTool.js` | **移入** | 从 sidepanel/tools 移入 |
 | `background/tools/ManageUserScriptsTool.js` | **移入** | 从 sidepanel/tools 移入 |
-| `background/services/ChromeStorageAdapter.js` | **移入** | 从 sidepanel/services 移入 |
+| `background/services/chromeStorage.ts` | **新建** | 工厂 `createChromeStorage()`，替代已删除的适配器类 |
 
 ### Step 3: 精简 sidepanel
 
@@ -142,7 +142,7 @@ sidepanel 收到
 |------|------|------|
 | `sidepanel/main.ts` | **精简** | 去掉 Kernel 启动，只做 IPC Client + UI |
 | `sidepanel/tools/` | **删除** | 已移到 background/tools |
-| `sidepanel/services/ChromeStorageAdapter.js` | **删除** | 已移到 background/services |
+| `sidepanel/services/ChromeStorageAdapter.js` | **删除** | 已由 background/services/chromeStorage.ts 工厂取代 |
 
 ### Step 4: 构建配置
 

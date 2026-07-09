@@ -25,7 +25,6 @@ import { KernelChannels } from 'kernel/Events.js';
 
   // Dialogs
   let deleteTarget = $state<string | null>(null);
-  let deleteTargetIsAll = $state(false);
   let editTarget = $state<string | null>(null);
   let editValue = $state('');
 
@@ -83,37 +82,24 @@ import { KernelChannels } from 'kernel/Events.js';
 
   function confirmDelete(key: string) {
     deleteTarget = key;
-    deleteTargetIsAll = false;
-  }
-
-  function confirmClearAll() {
-    deleteTarget = null;
-    deleteTargetIsAll = true;
   }
 
   async function executeDelete() {
+    if (!deleteTarget) return;
     try {
-      if (deleteTargetIsAll) {
-        const data = await api.storage.clear();
-        storageItems = data?.items || [];
-        toast.success('已清空');
-      } else if (deleteTarget) {
-        const data = await api.storage.remove({ key: deleteTarget });
-        storageItems = data?.items || [];
-        toast.success('已删除');
-      }
+      const data = await api.storage.remove({ key: deleteTarget });
+      storageItems = data?.items || [];
+      toast.success('已删除');
     } catch (e) {
       console.error('[StoragePage] delete failed:', e);
       toast.error(`操作失败: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       deleteTarget = null;
-      deleteTargetIsAll = false;
     }
   }
 
   function cancelDelete() {
     deleteTarget = null;
-    deleteTargetIsAll = false;
   }
 
   function openEdit(key: string, value: any) {
@@ -162,7 +148,6 @@ import { KernelChannels } from 'kernel/Events.js';
   <Card>
     <div class="list-page-stats-row">
       <span class="list-page-stats-text">共 {filteredItems.length} 项 · 总计 {totalSizeKB} KB</span>
-      <Button variant="danger" size="sm" onclick={confirmClearAll}>清除所有</Button>
     </div>
   </Card>
 
@@ -213,14 +198,14 @@ import { KernelChannels } from 'kernel/Events.js';
 
 <!-- Delete Dialog -->
 <Dialog
-  open={!!deleteTarget || deleteTargetIsAll}
-  title={deleteTargetIsAll ? '清除所有存储' : '删除存储项'}
-  confirmLabel={deleteTargetIsAll ? '确定清除' : '删除'}
+  open={!!deleteTarget}
+  title="删除存储项"
+  confirmLabel="删除"
   danger
   onclose={cancelDelete}
   onconfirm={executeDelete}
 >
-  {deleteTargetIsAll ? '确定要清除所有存储数据吗？此操作不可撤销。' : `确定删除 "${deleteTarget}"？`}
+  {`确定删除 "${deleteTarget}"？`}
 </Dialog>
 
 <!-- Edit Dialog -->

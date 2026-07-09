@@ -44,7 +44,7 @@ export class SettingsManager extends BaseSettings {
     const plainValue = clonePlain(value);
     this._settings[key] = plainValue;
       if (this.storage) {
-      try { await this.storage.set('app_settings', { ...this._settings }); } catch (e) {
+      try { await this.storage.set(StorageKeys.APP_SETTINGS, { ...this._settings }); } catch (e) {
         Log.warn('SETTINGS', `saveSetting error: ${(e)?.message}`);
       }
     }

@@ -2,6 +2,8 @@
   import { setContext } from 'svelte';
   import Sidebar from './components/layout/Sidebar.svelte';
   import ToastContainer from './components/overlays/ToastContainer.svelte';
+  import { useToast } from './components/overlays/toast-store.svelte';
+  import { KernelEvents } from 'kernel/Events.js';
   //避免在页面中硬编码css样式，使用style中定义的语义性质的风格，便于统一风格与切换样式。
 
   type PageId = 'chat' | 'history' | 'storage' | 'scripts' | 'settings';
@@ -39,6 +41,12 @@
   // api.settings.getSettings() 等价于 rpc.call('settings.getSettings', [])，类型与 kernel 侧一致。
   setContext('api', createApiClient<KernelAPIContract>(rpc));
   setContext('navigate', navigateTo);
+
+  // 存储写入失败（如配额超限）由内核经 STORAGE.ERROR 上报，全局弹 toast 提示
+  const toast = useToast();
+  (ipc as any).on(KernelEvents.STORAGE.ERROR, (d: any) => {
+    toast.error(`存储写入失败：${d?.message || '空间可能已满'}`);
+  });
 
   let activePage = $state<PageId>('chat');
 

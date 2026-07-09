@@ -90,7 +90,7 @@ webagentcli/
 │   │       ├── ChatEventHandler.ts
 │   │       └── ...
 │   ├── services/                   # 壳层服务
-│   │   └── ChromeStorageAdapter.js
+│   │   └── chromeStorage.ts
 │   ├── tools/                      # 内置工具实现
 │   │   ├── RunUserScriptTool.js
 │   │   └── ManageUserScriptsTool.js

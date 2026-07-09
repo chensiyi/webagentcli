@@ -221,12 +221,15 @@ export class ChatProgram {
         return;
       }
 
+      // 流式结束：立即把累积的 token 强制落盘（不依赖批处理定时器窗口）
+      await sm.flushSession(sid);
+
       // ── 工具调用（委托 ToolExecutor 做执行循环） ──
       if (result.toolCalls && result.toolCalls.length > 0) {
         await sm.updateMessage(assistantMsgId, (msg: any) => {
           result.toolCalls.forEach((tc: any) => msg.addToolCall(tc));
           return msg;
-        }, sid);
+        }, sid, { immediate: true });
 
         const duration = Date.now() - this._currentRequest!.startedAt;
         this.chatChannel?.emit(KernelEvents.CHAT.STREAM_COMPLETE, { sessionId: sid, messageId: assistantMsgId, duration });
@@ -245,7 +248,7 @@ export class ChatProgram {
         sm.updateMessage(assistantMsgId, (msg: any) => {
           msg.content = `❌ 发送失败: ${error.message}`;
           return msg;
-        }, session.id);
+        }, session.id, { immediate: true });
       }
       this.chatChannel?.emit(KernelEvents.CHAT.STREAM_ERROR, {
         error, message: error.message,
