@@ -93,9 +93,12 @@ function onUncaughtError(e: ErrorEvent) {
 (self as unknown as WorkerGlobalScope).addEventListener('unhandledrejection', onUnhandledRejection as EventListener);
 (self as unknown as WorkerGlobalScope).addEventListener('error', onUncaughtError as EventListener);
 
-// ── 兼容旧握手：Shell 初始 ping 仍回 bootComplete（无需健康校验，避免误伤正常状态）──
+// ── 兼容旧握手：Shell 初始 ping 回 bootComplete，但必须等内核完全启动（RPC 已暴露）后，
+//    否则 Shell 收到"就绪"却调不动 RPC，导致 session.getCurrent / tools.list 超时 ──
 ipc.on('kernel:ping', () => {
-    ipc.emit('kernel:bootComplete', { ts: Date.now() });
+    ensureBoot()
+        .then(() => ipc.emit('kernel:bootComplete', { ts: Date.now() }))
+        .catch(() => { /* 启动失败已通过 kernel:bootError 暴露 */ });
 });
 
 function ensureBoot(): Promise<any> {
@@ -198,9 +201,8 @@ async function bootKernel() {
         const settingsManager = kernel.getSettingsManager();
         await settingsManager.loadSettings();
         log.info('BACKGROUND', 'Settings loaded');
-
-        // 通知 sidepanel Kernel 已就绪
-        ipc.emit('kernel:bootComplete', { timestamp: Date.now() });
+        // 注意：kernel:bootComplete 统一在 bootKernel() resolve 后由 onShellConnect 的 .then 发出，
+        // 此时 Phase 4(READY) 已完成、RPC 服务已暴露，Shell 收到后即可安全调用 RPC，避免竞态超时。
     });
 
     // ─── Phase 4: Shell 事件转义 + RPC ───
