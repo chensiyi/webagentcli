@@ -9,6 +9,8 @@ import { BaseProviderAPIService } from '../IProviderAPIService.js';
 import { Settings } from '../../models/Settings.js';
 import * as MessageContent from '../../models/MessageContent.js';
 import { Log } from '../Log.js';
+import { joinUrl } from '../../utils/url.js';
+import { forEachSSEData, makeStreamResult } from './sse.js';
 
 class LMStudioService extends BaseProviderAPIService {
   constructor() {
@@ -23,7 +25,7 @@ class LMStudioService extends BaseProviderAPIService {
   }
 
   buildUrl(path: string): string {
-    const cleanBase = this.config.endpoint.replace(/\/$/, '');
+    const cleanBase = joinUrl(this.config.endpoint || 'http://localhost:1234');
     const cleanPath = path.startsWith('/') ? path : `/${path}`;
     if (path === '/chat') return `${cleanBase}/v1/chat/completions`;
     if (cleanBase.includes('/api/v1')) return `${cleanBase}${cleanPath}`;
@@ -202,75 +204,39 @@ class LMStudioService extends BaseProviderAPIService {
           throw new Error(`LM Studio API error: ${response.status} - ${t}`);
         });
 
-        const body = response.body;
-        if (!body) { resolve(null); return; }
-        const reader = body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
+        const reader = response.body?.getReader();
+        if (!reader) { resolve(null); return; }
+        return forEachSSEData(reader, (parsed) => {
+          const raw = this._parseStreamChunkRaw(parsed);
+          if (!raw) return;
 
-        const processStream = (): Promise<void> => {
-          return reader.read().then(
-            ({ done, value }: { done: boolean; value: Uint8Array | undefined }): Promise<void> => {
-              if (done) {
-                const { MessageStructure } = MessageContent;
-                Log.info('LMStudioService', `Stream completed: content=${pendingContent.length}chars, finishReason=${pendingFinishReason || 'stop'}`);
-                resolve({
-                  content: pendingContent,
-                  reasoning_content: pendingReasoning,
-                  toolCalls: MessageStructure.parseToolCallsFromOpenAI(Object.values(pendingToolCalls)),
-                  finishReason: pendingFinishReason || 'stop',
-                  usage: null,
-                  model: null
-                });
-                return Promise.resolve();
+          if (raw.finishReason) pendingFinishReason = raw.finishReason;
+
+          // 累计 tool_call（按 index 合并）
+          if (raw.rawToolCall) {
+            const idx = Object.keys(pendingToolCalls).length;
+            pendingToolCalls[idx] = {
+              id: raw.rawToolCall.tool || raw.rawToolCall.id,
+              index: idx,
+              function: {
+                name: raw.rawToolCall.tool,
+                arguments: typeof raw.rawToolCall.arguments === 'string'
+                  ? raw.rawToolCall.arguments
+                  : JSON.stringify(raw.rawToolCall.arguments || {})
               }
+            };
+          }
 
-              buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split('\n');
-              buffer = lines.pop() || '';
+          if (raw.contentChunk) pendingContent += raw.contentChunk;
+          if (raw.reasoningChunk) pendingReasoning += raw.reasoningChunk;
 
-              for (const line of lines) {
-                const trimmed = line.trim();
-                if (!trimmed || trimmed === 'data: [DONE]') continue;
-                if (!trimmed.startsWith('data: ')) continue;
-
-                try {
-                  const json = JSON.parse(trimmed.slice(6));
-                  const raw = this._parseStreamChunkRaw(json);
-                  if (!raw) continue;
-
-                  if (raw.finishReason) pendingFinishReason = raw.finishReason;
-
-                  // 累计 tool_call（按 index 合并）
-                  if (raw.rawToolCall) {
-                    const idx = Object.keys(pendingToolCalls).length;
-                    pendingToolCalls[idx] = {
-                      id: raw.rawToolCall.tool || raw.rawToolCall.id,
-                      index: idx,
-                      function: {
-                        name: raw.rawToolCall.tool,
-                        arguments: typeof raw.rawToolCall.arguments === 'string'
-                          ? raw.rawToolCall.arguments
-                          : JSON.stringify(raw.rawToolCall.arguments || {})
-                      }
-                    };
-                  }
-
-                  if (raw.contentChunk) pendingContent += raw.contentChunk;
-                  if (raw.reasoningChunk) pendingReasoning += raw.reasoningChunk;
-
-                  if (onChunk && (raw.contentChunk || raw.reasoningChunk)) {
-                    onChunk({ content: raw.contentChunk || '', reasoning_content: raw.reasoningChunk || '' });
-                  }
-                } catch (e) {
-                  Log.warn('LMStudioService', 'Failed to parse chunk:', e);
-                }
-              }
-              return processStream();
-            }
-          );
-        };
-        return processStream();
+          if (onChunk && (raw.contentChunk || raw.reasoningChunk)) {
+            onChunk({ content: raw.contentChunk || '', reasoning_content: raw.reasoningChunk || '' });
+          }
+        }, 'LMStudioService').then(() => {
+          Log.info('LMStudioService', `Stream completed: content=${pendingContent.length}chars, finishReason=${pendingFinishReason || 'stop'}`);
+          resolve(makeStreamResult(pendingContent, pendingReasoning, MessageContent.MessageStructure.parseToolCallsFromOpenAI(Object.values(pendingToolCalls)), pendingFinishReason));
+        });
       })
       .catch(error => {
         if (error.name === 'AbortError') {
@@ -291,8 +257,8 @@ class LMStudioService extends BaseProviderAPIService {
 
   listModels() {
     const endpoints = [
-      this.config.endpoint.replace(/\/$/, '') + '/api/v1/models',
-      this.config.endpoint.replace(/\/$/, '') + '/v1/models'
+      joinUrl(this.config.endpoint, '/api/v1/models'),
+      joinUrl(this.config.endpoint, '/v1/models')
     ];
 
     const tryEndpoint = (index: number): Promise<any> => {

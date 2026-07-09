@@ -12,8 +12,8 @@
  * 但 Svelte 版不直接操作 DOM（由 Svelte 组件负责渲染）。
  */
 
-import { Log } from '../../kernel/services/Log.js';
-import { KernelEvents } from '../../kernel/Events.js';
+import { Log } from 'kernel/services/Log.js';
+import { KernelEvents } from 'kernel/Events.js';
 
 export class ChatEventHandler {
   private kernel: any;

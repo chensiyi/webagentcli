@@ -8,7 +8,7 @@
   import Badge from '../components/atoms/Badge.svelte';
   import Card from '../components/layout/Card.svelte';
   import { useToast } from '../components/overlays/toast-store.svelte';
-  import { Log } from '../kernel/services/Log.js';
+  import { Log } from 'kernel/services/Log.js';
 
   const ipc: any = getContext('ipc');
   const settingsChannel = ipc?.getOrCreateChannel?.('settings') || ipc;

@@ -8,6 +8,8 @@
 
 // ─── ToolCall（工具调用记录） ──────────────────────────
 
+import { genId } from '../utils/id.js';
+
 export class ToolCall {
   id: string;
   toolName: string;
@@ -19,7 +21,7 @@ export class ToolCall {
   completedAt: number | null;
 
   constructor(id: string | null = null, toolName: string = '', input: unknown = {}) {
-    this.id = id || `tool_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    this.id = id || genId('tool');
     this.toolName = toolName;
     this.input = input;
     this.status = 'pending';

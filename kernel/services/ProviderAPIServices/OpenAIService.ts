@@ -1,13 +1,14 @@
 import { BaseProviderAPIService } from '../IProviderAPIService.js';
 import { Log } from '../Log.js';
 import { MessageStructure } from '../../models/MessageContent.js';
+import { joinUrl } from '../../utils/url.js';
+import { forEachSSEData, accumulateOpenAIToolCall, makeStreamResult } from './sse.js';
 
 export default class OpenAIService extends BaseProviderAPIService {
   constructor() { super(); this.name = 'openai'; }
 
   buildUrl(path: string) {
-    const base = (this.config.endpoint || 'https://api.openai.com/v1').replace(/\/$/, '');
-    return `${base}${path}`;
+    return joinUrl(this.config.endpoint || 'https://api.openai.com/v1', path);
   }
   buildHeaders(request?: any): Record<string, string> {
     // 委托父类构建基础头 + 合并 request.headers
@@ -87,62 +88,30 @@ export default class OpenAIService extends BaseProviderAPIService {
         return null;
       }
       const reader = res.body.getReader();
-      const decoder = new TextDecoder();
       this.abortController = new AbortController();
       let totalChunkCount = 0;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const text = decoder.decode(value);
-        const lines = text.split('\n').filter(l => l.startsWith('data: '));
-        for (const line of lines) {
-          const json = line.slice(6).trim();
-          if (json === '[DONE]') continue;
-          try {
-            const parsed = JSON.parse(json);
-            const choice = parsed.choices && parsed.choices[0];
-            if (!choice) continue;
-            const delta = choice.delta || {};
-            if (choice.finish_reason) pendingFinishReason = choice.finish_reason;
+      await forEachSSEData(reader, (parsed) => {
+        const choice = parsed.choices && parsed.choices[0];
+        if (!choice) return;
+        const delta = choice.delta || {};
+        if (choice.finish_reason) pendingFinishReason = choice.finish_reason;
 
-            // 累积 tool_calls（流式分片合并）
-            if (delta.tool_calls) {
-              for (const tc of delta.tool_calls) {
-                if (!pendingToolCalls[tc.index]) {
-                  pendingToolCalls[tc.index] = tc;
-                } else {
-                  const existing = pendingToolCalls[tc.index];
-                  if (tc.function) {
-                    existing.function = existing.function || { name: '', arguments: '' };
-                    existing.function.name = existing.function.name || tc.function.name || '';
-                    existing.function.arguments = (existing.function.arguments || '') + (tc.function.arguments || '');
-                  }
-                }
-              }
-            }
-
-            totalChunkCount++;
-            const contentChunk = delta.content || '';
-            const reasoningChunk = delta.reasoning_content || delta.reasoning || '';
-            if (contentChunk) pendingContent += contentChunk;
-            if (reasoningChunk) pendingReasoning += reasoningChunk;
-            if (onChunk) onChunk({ content: contentChunk, reasoning_content: reasoningChunk });
-          } catch (e) {
-            Log.warn('OpenAIService', 'Failed to parse SSE chunk:', e);
-          }
+        // 累积 tool_calls（流式分片合并，OpenAI 格式）
+        if (delta.tool_calls) {
+          for (const tc of delta.tool_calls) accumulateOpenAIToolCall(pendingToolCalls, tc);
         }
-      }
+
+        totalChunkCount++;
+        const contentChunk = delta.content || '';
+        const reasoningChunk = delta.reasoning_content || delta.reasoning || '';
+        if (contentChunk) pendingContent += contentChunk;
+        if (reasoningChunk) pendingReasoning += reasoningChunk;
+        if (onChunk) onChunk({ content: contentChunk, reasoning_content: reasoningChunk });
+      }, 'OpenAIService');
 
       Log.info('OpenAIService', `Stream completed: ${totalChunkCount} chunks, toolCalls=${Object.keys(pendingToolCalls).length}`);
-      return {
-        content: pendingContent,
-        reasoning_content: pendingReasoning,
-        toolCalls: MessageStructure.parseToolCallsFromOpenAI(Object.values(pendingToolCalls)),
-        finishReason: pendingFinishReason || 'stop',
-        usage: null,
-        model: null
-      };
+      return makeStreamResult(pendingContent, pendingReasoning, MessageStructure.parseToolCallsFromOpenAI(Object.values(pendingToolCalls)), pendingFinishReason);
     } catch (error) {
       if ((error).name === 'AbortError') {
         Log.info('OpenAIService', 'Stream cancelled');

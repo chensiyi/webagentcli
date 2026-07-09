@@ -1,9 +1,10 @@
 import { BaseScriptsManager } from './IScriptsManager.js';
-import { KernelEvents } from '../Events.js';
+import { KernelEvents, KernelChannels } from '../Events.js';
 import { IPC } from '../IPC.js';
 import { IStorageManager } from './IStorageManager.js';
 import { UserScript } from '../models/Scripts.js';
 import { Log } from './Log.js';
+import { genId } from '../utils/id.js';
 
 /** 最小 Kernel 接口，避免与 Kernel.ts 产生循环引用 */
 interface KernelRef {
@@ -24,7 +25,7 @@ export class ScriptsManager extends BaseScriptsManager {
     super();
     this.kernel = kernel;
     this.ipc = kernel?.getIPC();
-    this.scriptsChannel = this.ipc?.getOrCreateChannel('scripts') || null;
+    this.scriptsChannel = this.ipc?.getOrCreateChannel(KernelChannels.SCRIPTS) || null;
     this.storage = kernel?.getStorageManager?.() || null;
     this.scripts = [];
   }
@@ -99,7 +100,7 @@ export class ScriptsManager extends BaseScriptsManager {
   async install(code: string): Promise<UserScript> {
     const meta = this.parseMetadata(code);
     const script: UserScript = {
-      id: `script_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: genId('script'),
       code,
       enabled: true,
       createdAt: Date.now(),

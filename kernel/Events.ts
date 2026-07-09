@@ -17,6 +17,7 @@ export const KernelEvents = {
     BOOT_PHASE: 'kernel:bootPhase',
     BOOT_COMPLETE: 'kernel:bootComplete',
     BOOT_ERROR: 'kernel:bootError',
+    PING: 'kernel:ping',
     SHUTDOWN: 'kernel:shutdown',
     STATE_CHANGED: 'kernel:stateChanged',
     SERVICE_REGISTERED: 'kernel:serviceRegistered',
@@ -127,3 +128,16 @@ export const KernelEvents = {
     REVOKED: 'capability:revoked',
   }
 };
+
+/**
+ * IPC 命名空间通道名（getOrCreateChannel 参数）。
+ * 集中定义，避免各 Manager / Shell 页面里裸字符串 'chat' / 'settings' / ... 漂移。
+ */
+export const KernelChannels = {
+  CHAT: 'chat',
+  SETTINGS: 'settings',
+  SCRIPTS: 'scripts',
+  TASK: 'task',
+  TOOL: 'tool',
+  STORAGE: 'storage',
+} as const;

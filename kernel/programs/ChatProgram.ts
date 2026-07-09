@@ -10,7 +10,7 @@
  * 公共 API：sendMessage / cancel / deleteMessage
  */
 
-import { KernelEvents } from '../Events.js';
+import { KernelEvents, KernelChannels } from '../Events.js';
 import { Log } from '../services/Log.js';
 import { MessagesRequest, ThinkingConfig } from '../models/MessageContent.js';
 import { Message } from '../models/Message.js';
@@ -58,7 +58,7 @@ export class ChatProgram {
     this.name = options.name || 'ChatProgram';
     this.kernel = options.kernel;
     this.ipc = this.kernel.getIPC();
-    this.chatChannel = this.ipc?.getOrCreateChannel('chat');
+    this.chatChannel = this.ipc?.getOrCreateChannel(KernelChannels.CHAT);
 
     this._context = new ContextBuilder();
     this._toolExecutor = new ToolExecutor(this.kernel, (event, data) => this.chatChannel?.emit(event, data));

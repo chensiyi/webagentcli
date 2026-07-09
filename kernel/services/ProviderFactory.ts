@@ -8,7 +8,7 @@
  */
 
 import { BaseProviderAPIService } from './IProviderAPIService.js';
-import { KernelEvents } from '../Events.js';
+import { KernelEvents, KernelChannels } from '../Events.js';
 import { Settings } from '../models/Settings.js';
 import { Log } from './Log.js';
 import { IPC } from '../IPC.js';
@@ -30,7 +30,7 @@ export class ProviderFactory {
   constructor(kernel: KernelRef) {
     this.kernel = kernel;
     this.ipc = kernel?.getIPC() ?? null;
-    this.settingsChannel = this.ipc?.getOrCreateChannel('settings') ?? null;
+    this.settingsChannel = this.ipc?.getOrCreateChannel(KernelChannels.SETTINGS) ?? null;
     this._listening = false;
     this._listenerRefs = [];
     this.currentProvider = null;

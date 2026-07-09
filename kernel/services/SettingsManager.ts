@@ -1,8 +1,9 @@
 import { BaseSettings } from './ISettings.js';
 import { IPC } from '../IPC.js';
-import { KernelEvents } from '../Events.js';
+import { KernelEvents, KernelChannels } from '../Events.js';
 import { Log } from './Log.js';
 import { IStorageManager } from './IStorageManager.js';
+import { clonePlain } from '../utils/clone.js';
 
 export class SettingsManager extends BaseSettings {
   storage: IStorageManager | null;
@@ -30,7 +31,7 @@ export class SettingsManager extends BaseSettings {
     }
     // 通过 IPC 通知 settingsChannel 设置已加载
     try {
-      const channel = this.ipc?.getOrCreateChannel('settings');
+      const channel = this.ipc?.getOrCreateChannel(KernelChannels.SETTINGS);
       channel?.emit(KernelEvents.SETTINGS.LOADED, { settings: this._settings });
     } catch (e) {
       Log.warn('SETTINGS', `emit LOADED error: ${(e)?.message}`);
@@ -39,10 +40,10 @@ export class SettingsManager extends BaseSettings {
   }
   async saveSetting(key: string, value: unknown) {
     // 防御：剥离 Svelte $state Proxy
-    const plainValue = JSON.parse(JSON.stringify(value));
+    const plainValue = clonePlain(value);
     this._settings[key] = plainValue;
-    if (this.storage) {
-      try { await this.storage.set('app_settings', JSON.parse(JSON.stringify(this._settings))); } catch (e) {
+      if (this.storage) {
+      try { await this.storage.set('app_settings', { ...this._settings }); } catch (e) {
         Log.warn('SETTINGS', `saveSetting error: ${(e)?.message}`);
       }
     }
@@ -57,17 +58,17 @@ export class SettingsManager extends BaseSettings {
     // 防御：剥离 Svelte $state Proxy（JSON round-trip 确保纯 JS 对象）
     // 原因：前端传入的 settings 可能是 Svelte $state 代理对象，
     // Object.assign 会将代理内部属性（$$ 等）注入 _settings，导致 Chrome Storage 序列化异常
-    const plainSettings: Record<string, any> = JSON.parse(JSON.stringify(settings));
+    const plainSettings: Record<string, any> = clonePlain(settings);
     Object.assign(this._settings, plainSettings);
     if (this.storage) {
       try {
-        await this.storage.set('app_settings', JSON.parse(JSON.stringify(this._settings)));
+        await this.storage.set('app_settings', { ...this._settings });
       } catch (e) {
         Log.warn('SETTINGS', `saveSettings error: ${(e)?.message}`);
       }
     }
     try {
-      const channel = this.ipc?.getOrCreateChannel('settings');
+      const channel = this.ipc?.getOrCreateChannel(KernelChannels.SETTINGS);
       channel?.emit(KernelEvents.SETTINGS.SAVED, { settings: { ...this._settings } });
     } catch (e) {
       Log.warn('SETTINGS', `emit SAVED error: ${(e)?.message}`);

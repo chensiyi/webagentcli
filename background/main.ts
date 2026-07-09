@@ -5,6 +5,14 @@
  *
  * 构建：Vite + rollup → dist/background.bundle.js
  * manifest.json 中 service_worker 指向此构建产物
+ *
+ * 稳健性（最小必要）：
+ * - 全局异常兜底：任何逃逸的 unhandledrejection / error 都标记内核崩溃并触发一次
+ *   chrome.runtime.reload()，避免「未知崩溃后服务静默死掉」。
+ * - 健康门控 ensureBoot：内核已启动但被标记崩溃时，下次调用直接触发一次性 reload，
+ *   而不是把死内核返回给调用方。
+ * - 所有 chrome 级监听器（onConnect / 全局异常）只在模块加载时安装一次，杜绝重启动
+ *   导致的监听器累积泄漏。
  */
 
 import { IPC } from 'kernel/IPC.js';
@@ -25,7 +33,7 @@ import { ChatProgram, CMD } from 'kernel/programs/ChatProgram.js';
 import { ChromeStorageAdapter } from './services/ChromeStorageAdapter.js';
 import { RunUserScriptTool } from './tools/RunUserScriptTool.js';
 import { ManageUserScriptsTool } from './tools/ManageUserScriptsTool.js';
-import {KernelEvents} from 'kernel/Events.js';
+import { KernelEvents } from 'kernel/Events.js';
 import { Log } from 'kernel/services/Log.js';
 
 /**
@@ -34,39 +42,88 @@ import { Log } from 'kernel/services/Log.js';
  * 异步启动期间保持 Service Worker 存活（MV3 关键）。
  */
 let bootPromise: Promise<any> | null = null;
-let activeIpc: IPC | null = null;
+
+/** 内核是否已因未知异常崩溃（全局兜底置位）。 */
+let kernelCrashed = false;
+/** 一次性重启守卫：避免崩溃风暴下反复 reload。 */
+let reloading = false;
+
+/** 模块级 IPC：SW 加载时创建一次，确保 chrome 监听器只安装一次。 */
+const ipc: IPC = new IPC({ origin: 'background-kernel' });
+/** 供全局兜底与 boot 失败回传使用。 */
+let activeIpc: IPC = ipc;
+
+const transport = new IPCTransport(ipc, 'kernel', {
+    // 每当 Shell 通过端口连接（含重连）时：确保内核已启动（保持 SW 存活），
+    // 并主动推送就绪信号，使 Shell 无需依赖竞态/超时即可可靠拿到 bootComplete。
+    onShellConnect: () => {
+        ensureBoot()
+            .then(() => ipc.emit('kernel:bootComplete', { timestamp: Date.now() }))
+            .catch(() => { /* 启动失败已通过 kernel:bootError 暴露 */ });
+    },
+});
+transport.init(); // 仅此处安装 chrome.runtime.onConnect，生命周期内只一次
+
+function triggerReload(reason: string): void {
+    if (reloading) return;
+    reloading = true;
+    Log.error('BACKGROUND', `Triggering SW reload (reason: ${reason})`);
+    try {
+        chrome.runtime.reload();
+    } catch {
+        /* 极端情况下 reload 不可用，放弃 */
+    }
+}
+
+// ── 全局异常兜底（模块加载时安装一次）──
+function onUnhandledRejection(e: PromiseRejectionEvent) {
+    const detail = e?.reason?.message || String(e?.reason) || 'unknown';
+    Log.error('BACKGROUND', 'Unhandled promise rejection', e?.reason);
+    kernelCrashed = true;
+    activeIpc?.emit('kernel:crashed', { reason: 'unhandledrejection: ' + detail, ts: Date.now() });
+    triggerReload('unhandledrejection: ' + detail);
+}
+function onUncaughtError(e: ErrorEvent) {
+    const detail = e?.message || 'unknown';
+    Log.error('BACKGROUND', 'Uncaught error', e);
+    kernelCrashed = true;
+    activeIpc?.emit('kernel:crashed', { reason: 'error: ' + detail, ts: Date.now() });
+    triggerReload('error: ' + detail);
+}
+(self as unknown as WorkerGlobalScope).addEventListener('unhandledrejection', onUnhandledRejection as EventListener);
+(self as unknown as WorkerGlobalScope).addEventListener('error', onUncaughtError as EventListener);
+
+// ── 兼容旧握手：Shell 初始 ping 仍回 bootComplete（无需健康校验，避免误伤正常状态）──
+ipc.on('kernel:ping', () => {
+    ipc.emit('kernel:bootComplete', { ts: Date.now() });
+});
 
 function ensureBoot(): Promise<any> {
     if (!bootPromise) {
         bootPromise = bootKernel()
+            .then((k: any) => k)
             .catch((err) => {
                 bootPromise = null; // 允许下次唤醒时重试
                 Log.error('BACKGROUND', 'Kernel boot failed', err);
                 activeIpc?.emit('kernel:bootError', { message: String((err as Error)?.message || err) });
                 throw err;
             });
+        return bootPromise;
+    }
+    if (kernelCrashed) {
+        // 内核已崩溃但 SW 仍存活（端口仍开着）：触发一次性安全重启，强制干净状态。
+        // 返回永不 resolve 的 Promise 挂起调用方，等待 SW 被 chrome.runtime.reload() 回收。
+        Log.warn('BACKGROUND', 'ensureBoot: kernel crashed while SW alive, forcing reload');
+        triggerReload('ensureBoot: kernelCrashed');
+        return new Promise(() => {});
     }
     return bootPromise;
 }
 
 async function bootKernel() {
     const log = new ConsoleLogger();
-    const ipc = new IPC({ origin: 'background-kernel' });
-    activeIpc = ipc;
     const toolsManager = new ToolsManager();
     const capabilities = new CapabilityManager();
-
-    // IPC 远程传输：连接 sidepanel Shell（Port 长连接，SW 保活）
-    const transport = new IPCTransport(ipc, 'kernel', {
-        // 每当 Shell 通过端口连接（含重连）时：确保内核已启动（保持 SW 存活），
-        // 并主动推送就绪信号，使 Shell 无需依赖竞态/超时即可可靠拿到 bootComplete。
-        onShellConnect: () => {
-            ensureBoot()
-                .then(() => activeIpc?.emit('kernel:bootComplete', { timestamp: Date.now() }))
-                .catch(() => { /* 启动失败已通过 kernel:bootError 暴露 */ });
-        },
-    });
-    transport.init();
 
     const kernel = new Kernel({
         ipc,
@@ -144,11 +201,6 @@ async function bootKernel() {
 
         // 通知 sidepanel Kernel 已就绪
         ipc.emit('kernel:bootComplete', { timestamp: Date.now() });
-
-        // 响应 Shell 的 ping：SW 唤醒后 Shell 可能错过 bootComplete，ping 一下立即回包
-        ipc.on('kernel:ping', () => {
-            ipc.emit('kernel:bootComplete', { timestamp: Date.now() });
-        });
     });
 
     // ─── Phase 4: Shell 事件转义 + RPC ───
@@ -167,15 +219,9 @@ async function bootKernel() {
             chatChannel.emit(CMD.DELETE_MESSAGE, data);
         });
 
-        // ── RPC 分发（重设计：统一请求 ID 关联，错误回传，边界 sanitize） ──
+        // ── RPC 分发（统一请求 ID 关联，错误回传，边界 sanitize） ──
         const rpcServer = new RPCServer(ipc);
 
-        // ── 标准外部访问接口：session / tools / settings / storage / scripts 统一用 expose 注册 ──
-        // expose 把 Manager（或其 facade）的公共方法注册为 `<service>.<method>` 形式的远程方法，
-        // 客户端通过 createApiClient 出的代理 api.<service>.<method>(...) 调用，类型与 kernel 侧一致。
-        // 复合返回形状（如 {session, messages, reasoningEffort}）、事件广播与入参校验由 facade 负责。
-        // 每个调用接入 capabilities.audit 能力监测钩子（CapabilityManager 待开发，仅作预留能力管理接口；
-        //   此处传参用以辅助类型与属性检查，TS 严格检查未全仓强制覆盖）。
         rpcServer.expose('session', createSessionFacade(kernel, chatChannel), {
             methods: ['getCurrent', 'create', 'update', 'deleteMessage', 'list', 'switch', 'delete', 'clearMessages'],
             capabilities: kernel.capabilities as any,
@@ -209,15 +255,6 @@ chrome.runtime.onInstalled.addListener(() => {
     ensureBoot();
     // 点击工具栏图标即打开侧边栏（MV3 默认行为兜底）
     chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => {});
-});
-
-// 当 Sidepanel 通过 IPC 唤醒 Service Worker 时，确保 Kernel 已启动。
-// 返回 boot promise 以在异步启动期间保持 SW 存活（否则 SW 可能在 boot 中途被回收）。
-chrome.runtime.onMessage.addListener((message, _sender, _sendResponse) => {
-    if (message && message._ipc) {
-        return ensureBoot();
-    }
-    return false;
 });
 
 console.log('[Background] Service worker loaded');

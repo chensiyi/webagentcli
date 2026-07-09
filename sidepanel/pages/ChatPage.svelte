@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onMount, onDestroy, getContext } from 'svelte';
-  import { KernelEvents } from '../kernel/Events.js';
+  import { KernelEvents } from 'kernel/Events.js';
   import type { KernelAPIContract } from '../api-contract.js';
   import { extractText, renderMarkdown } from '../utils/text.js';
   import { autoScrollToBottom } from '../utils/dom.js';
   import { useToast } from '../components/overlays/toast-store.svelte';
-  import { Log } from '../kernel/services/Log.js';
+  import { Log } from 'kernel/services/Log.js';
   import Button from '../components/atoms/Button.svelte';
   import Dialog from '../components/overlays/Dialog.svelte';
   import EmptyState from '../components/layout/EmptyState.svelte';
@@ -330,6 +330,9 @@
   }
 
   onDestroy(() => {
+    // 退订 onMount 中注册的全部 IPC 监听（否则随 {#key activePage} 重挂载叠加幽灵监听器）
+    for (const off of cleanups) off();
+    cleanups = [];
     document.removeEventListener('keydown', handleKeydown);
   });
 

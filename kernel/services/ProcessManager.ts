@@ -23,7 +23,7 @@
  */
 
 import { Process, TerminateFn } from '../models/Process.js';
-import { KernelEvents } from '../Events.js';
+import { KernelEvents, KernelChannels } from '../Events.js';
 import { IPC } from '../IPC.js';
 import { Log } from './Log.js';
 
@@ -49,7 +49,7 @@ export class ProcessManager {
   constructor(kernel: KernelRef) {
     this.kernel = kernel;
     this.ipc = kernel?.getIPC() || null;
-    this.taskChannel = this.ipc?.getOrCreateChannel('task') || null;
+    this.taskChannel = this.ipc?.getOrCreateChannel(KernelChannels.TASK) || null;
     this.processes = new Map();
     this.defaultTimeout = 10000; // 默认看门狗超时 10 秒
   }

@@ -20,6 +20,7 @@
  */
 
 import { Log } from './services/Log.js';
+import { genId } from './utils/id.js';
 
 /** IPC 消息结构 */
 export interface IPCMessage {
@@ -115,7 +116,7 @@ export class IPC {
     this.subChannels.clear();
   }
 
-  private _generateId(): string { return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`; }
+  private _generateId(): string { return genId('msg'); }
 
   private _runMiddleware(message: IPCMessage): boolean {
     if (this.middlewares.length === 0) return true;

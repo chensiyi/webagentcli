@@ -2,7 +2,7 @@ import { BaseSessionManager } from './ISessionManager.js';
 import { Session } from '../models/Session.js';
 import { Message } from '../models/Message.js';
 import { Log } from './Log.js';
-import { KernelEvents } from '../Events.js';
+import { KernelEvents, KernelChannels } from '../Events.js';
 
 export class SessionManager extends BaseSessionManager {
   currentSessionId: string | null;
@@ -54,7 +54,7 @@ export class SessionManager extends BaseSessionManager {
       await this._persistSessions();
       await this._persistCurrentSessionId();
       // 广播会话删除事件，让 shell 层（ChatEventHandler）决定是否取消进行中的请求
-      this.ipc?.getOrCreateChannel('chat')?.emit(KernelEvents.CHAT.SESSION_DELETED, { sessionId: id });
+      this.ipc?.getOrCreateChannel(KernelChannels.CHAT)?.emit(KernelEvents.CHAT.SESSION_DELETED, { sessionId: id });
     }
   }
 
@@ -66,7 +66,7 @@ export class SessionManager extends BaseSessionManager {
       s.updatedAt = Date.now();
       await this._persistSessions();
       // 广播会话更新事件，让 UI 刷新标题等
-      this.ipc?.getOrCreateChannel('chat')?.emit(KernelEvents.CHAT.SESSION_UPDATED, { sessionId: id });
+      this.ipc?.getOrCreateChannel(KernelChannels.CHAT)?.emit(KernelEvents.CHAT.SESSION_UPDATED, { sessionId: id });
     }
   }
 

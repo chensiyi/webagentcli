@@ -17,6 +17,8 @@
  * 预留能力管理接口，后续可在此落地 declare/require 鉴权；TS 严格检查未全仓强制覆盖，
  * 因此调用方在传参（capabilities）时填写，用以辅助类型与属性检查。
  */
+import { genId } from './utils/id.js';
+
 export type Capability = 'network' | 'storage:read' | 'storage:write' | 'execute' | 'filesystem' | 'user_script' | 'provider' | 'settings' | 'tool' | 'ipc';
 export type CapabilityDenyHandler = (key: string, capability: Capability, ctx: Record<string, unknown>) => boolean | void;
 export interface AuditEntry { action: string; key: string; capabilities: string[]; result: boolean; context: Record<string, unknown>; timestamp: number; id: string; }
@@ -68,7 +70,7 @@ export class CapabilityManager {
   reset(): this { this._grants.clear(); this._auditLog = []; return this; }
   destroy(): void { this._grants.clear(); this._auditLog = []; this._onDeny = null; }
   _audit(action: string, key: string, capabilities: Capability[], result: boolean, context: Record<string, unknown> = {}): void {
-    this._auditLog.push({ action, key, capabilities, result, context, timestamp: Date.now(), id: `audit_${Date.now()}_${Math.random().toString(36).substr(2, 6)}` });
+    this._auditLog.push({ action, key, capabilities, result, context, timestamp: Date.now(), id: genId('audit', 6) });
     if (this._auditLog.length > this._maxAuditSize) this._auditLog.shift();
   }
 }

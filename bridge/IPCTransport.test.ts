@@ -7,69 +7,9 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { IPC } from 'kernel/IPC.js';
-import { IPCTransport, IPC_PORT_NAME } from './IPCTransport.js';
+import { IPCTransport } from './IPCTransport.js';
+import { installChromeStub } from './__testUtils__/chromeStub.js';
 
-function installChromeStub() {
-  const onConnectListeners: Array<(port: any) => void> = [];
-  let lastError: any = undefined;
-
-  // 创建一对互联的端口：postMessage 投递到对端 onMessage；对端监听器未挂好时缓冲，挂好后 flush
-  function makePort(): any {
-    const self: any = {
-      name: IPC_PORT_NAME,
-      _peer: null as any,
-      _msgListeners: [] as Array<(m: any) => void>,
-      _incoming: [] as any[],
-      _discListeners: [] as Array<() => void>,
-      onMessage: {
-        addListener: (l: any) => {
-          self._msgListeners.push(l);
-          // 监听器挂上后，flush 之前缓冲的消息（模拟 Chrome 端口消息缓冲）
-          if (self._incoming.length) {
-            const q = self._incoming;
-            self._incoming = [];
-            for (const m of q) for (const l2 of self._msgListeners) { try { l2(m); } catch { /* ignore */ } }
-          }
-        },
-      },
-      onDisconnect: { addListener: (l: any) => self._discListeners.push(l) },
-      postMessage: (m: any) => {
-        const peer = self._peer;
-        if (!peer) return;
-        if (peer._msgListeners.length > 0) {
-          for (const l of peer._msgListeners) { try { l(m); } catch { /* ignore */ } }
-        } else {
-          peer._incoming.push(m); // 对端尚未 attach，缓冲
-        }
-      },
-      disconnect: () => {
-        for (const l of self._discListeners) { try { l(); } catch { /* ignore */ } }
-      },
-    };
-    return self;
-  }
-
-  (globalThis as any).chrome = {
-    runtime: {
-      get lastError() { return lastError; },
-      set lastError(v: any) { lastError = v; },
-      onConnect: { addListener: (l: any) => onConnectListeners.push(l) },
-      connect: (_opts?: any) => {
-        const kernelPort = makePort();
-        const shellPort = makePort();
-        kernelPort._peer = shellPort;
-        shellPort._peer = kernelPort;
-        // 模拟 Chrome：onConnect 异步触发（SW 侧 listener 在侧边栏 connect 返回后才触发）
-        setTimeout(() => {
-          for (const l of onConnectListeners) { try { l(kernelPort); } catch { /* ignore */ } }
-        }, 0);
-        return shellPort;
-      },
-    },
-  };
-
-  return { onConnectListeners };
-}
 
 describe('IPCTransport kernel<->shell 链路（Port 版）', () => {
   beforeEach(() => {

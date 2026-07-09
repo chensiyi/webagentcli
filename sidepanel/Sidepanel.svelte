@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { setContext, getContext } from 'svelte';
+  import { setContext } from 'svelte';
   import Sidebar from './components/layout/Sidebar.svelte';
   import ToastContainer from './components/overlays/ToastContainer.svelte';
   //避免在页面中硬编码css样式，使用style中定义的语义性质的风格，便于统一风格与切换样式。
-  
+
   type PageId = 'chat' | 'history' | 'storage' | 'scripts' | 'settings';
 
   interface PageDef {

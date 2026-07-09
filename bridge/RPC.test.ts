@@ -13,63 +13,8 @@ import { IPCTransport } from './IPCTransport.js';
 import { RPCClient, RPCServer, createApiClient } from './RPC.js';
 import { sanitizeForClone } from './serialize.js';
 import { Tool } from 'kernel/models/Tool.js';
+import { installChromeStub } from './__testUtils__/chromeStub.js';
 
-function installChromeStub() {
-  const onConnectListeners: Array<(port: any) => void> = [];
-  let lastError: any = undefined;
-
-  function makePort(): any {
-    const self: any = {
-      name: 'webagent-ipc',
-      _peer: null as any,
-      _msgListeners: [] as Array<(m: any) => void>,
-      _incoming: [] as any[],
-      _discListeners: [] as Array<() => void>,
-      onMessage: {
-        addListener: (l: any) => {
-          self._msgListeners.push(l);
-          if (self._incoming.length) {
-            const q = self._incoming;
-            self._incoming = [];
-            for (const m of q) for (const l2 of self._msgListeners) { try { l2(m); } catch { /* ignore */ } }
-          }
-        },
-      },
-      onDisconnect: { addListener: (l: any) => self._discListeners.push(l) },
-      postMessage: (m: any) => {
-        const peer = self._peer;
-        if (!peer) return;
-        if (peer._msgListeners.length > 0) {
-          for (const l of peer._msgListeners) { try { l(m); } catch { /* ignore */ } }
-        } else {
-          peer._incoming.push(m);
-        }
-      },
-      disconnect: () => {
-        for (const l of self._discListeners) { try { l(); } catch { /* ignore */ } }
-      },
-    };
-    return self;
-  }
-
-  (globalThis as any).chrome = {
-    runtime: {
-      get lastError() { return lastError; },
-      set lastError(v: any) { lastError = v; },
-      onConnect: { addListener: (l: any) => onConnectListeners.push(l) },
-      connect: (_opts?: any) => {
-        const kernelPort = makePort();
-        const shellPort = makePort();
-        kernelPort._peer = shellPort;
-        shellPort._peer = kernelPort;
-        setTimeout(() => {
-          for (const l of onConnectListeners) { try { l(kernelPort); } catch { /* ignore */ } }
-        }, 0);
-        return shellPort;
-      },
-    },
-  };
-}
 
 describe('sanitizeForClone', () => {
   it('永不抛异常，循环引用降级为 [Circular]', () => {

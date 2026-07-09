@@ -1,13 +1,13 @@
 <script lang="ts">
-  import { getContext } from 'svelte';
+  import { getContext, onMount, onDestroy } from 'svelte';
   import Button from '../components/atoms/Button.svelte';
   import Input from '../components/forms/Input.svelte';
   import Badge from '../components/atoms/Badge.svelte';
   import Dialog from '../components/overlays/Dialog.svelte';
   import EmptyState from '../components/layout/EmptyState.svelte';
-  import { KernelEvents } from '../kernel/Events.js';
+  import { KernelEvents } from 'kernel/Events.js';
   import type { KernelAPIContract } from '../api-contract.js';
-  import { Log } from '../kernel/services/Log.js';
+  import { Log } from 'kernel/services/Log.js';
 
   const ipc: any = getContext('ipc');
   const chatChannel = ipc?.getOrCreateChannel?.('chat') || ipc;
@@ -24,11 +24,16 @@
   const groupedSessions = $derived(groupAndFilter(sessions, searchKeyword));
 
   // ---------- Init ----------
-  $effect(() => {
-    if (isLoaded) return;
-    isLoaded = true;
-    chatChannel?.on(KernelEvents.CHAT.SESSION_UPDATED, refreshList);
-    refreshList();
+  let unsubSessionUpdated: (() => void) | undefined;
+
+  onMount(() => {
+    // 订阅会话更新广播；组件销毁时必须退订（{#key activePage} 会重挂载，否则叠加幽灵监听器）
+    unsubSessionUpdated = chatChannel?.on(KernelEvents.CHAT.SESSION_UPDATED, refreshList);
+    refreshList().finally(() => { isLoaded = true; });
+  });
+
+  onDestroy(() => {
+    unsubSessionUpdated?.();
   });
 
   function sortSessions(all: any[]): any[] {

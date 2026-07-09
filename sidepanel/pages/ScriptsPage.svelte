@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, getContext } from 'svelte';
+  import { onMount, onDestroy, getContext } from 'svelte';
   import Button from '../components/atoms/Button.svelte';
   import Card from '../components/layout/Card.svelte';
   import CodeEditor from '../components/forms/CodeEditor.svelte';
@@ -7,7 +7,7 @@
   import Dialog from '../components/overlays/Dialog.svelte';
   import EmptyState from '../components/layout/EmptyState.svelte';
   import { useToast } from '../components/overlays/toast-store.svelte';
-  import { KernelEvents } from '../kernel/Events.js';
+  import { KernelEvents } from 'kernel/Events.js';
   import type { KernelAPIContract } from '../api-contract.js';
 
   const ipc: any = getContext('ipc');
@@ -42,14 +42,20 @@
   });
 
   // ---------- IPC 事件监听 ----------
+  let unsubScriptError: (() => void) | undefined;
+
   onMount(() => {
     if (!scriptsChannel) return;
 
-    // 脚本错误（Kernel 广播，非 RPC 响应）
-    scriptsChannel.on(KernelEvents.SCRIPTS.ERROR, (data: any) => {
+    // 脚本错误（Kernel 广播，非 RPC 响应）；组件销毁时必须退订
+    unsubScriptError = scriptsChannel.on(KernelEvents.SCRIPTS.ERROR, (data: any) => {
       toast.error(data?.error || '脚本操作失败');
       isLoading = false;
     });
+  });
+
+  onDestroy(() => {
+    unsubScriptError?.();
   });
 
   async function refreshList() {
