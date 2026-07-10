@@ -92,8 +92,8 @@ function onUncaughtError(e: ErrorEvent) {
     activeIpc?.emit(KernelEvents.KERNEL.CRASHED, { reason: 'error: ' + detail, ts: Date.now() });
     triggerReload('error: ' + detail);
 }
-(self as unknown as WorkerGlobalScope).addEventListener('unhandledrejection', onUnhandledRejection as EventListener);
-(self as unknown as WorkerGlobalScope).addEventListener('error', onUncaughtError as EventListener);
+(self as unknown as EventTarget).addEventListener('unhandledrejection', onUnhandledRejection as EventListener);
+(self as unknown as EventTarget).addEventListener('error', onUncaughtError as EventListener);
 
 // ── 兼容旧握手：Shell 初始 ping 回 bootComplete，但必须等内核完全启动（RPC 已暴露）后，
 //    否则 Shell 收到"就绪"却调不动 RPC，导致 session.getCurrent / tools.list 超时 ──
@@ -158,7 +158,7 @@ async function bootKernel() {
         }, { dependsOn: ['storageManager'] });
 
         kernel.register('settingsManager', async () => {
-            return new SettingsManager({ ipc, storage, log });
+            return new SettingsManager({ ipc, storage });
         }, { dependsOn: ['storageManager'] });
 
         kernel.register('scriptsManager', async () => {

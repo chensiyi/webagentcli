@@ -162,7 +162,7 @@ export class RemoteMediaStore implements MediaStoreLike {
    * 上传到资源服务器，返回 mediaId（remote_ 前缀）。
    * 失败（配置缺失 / 网络错误 / 非 2xx / 响应无 URL）**直接抛错**，不静默回退本地。
    */
-  async put(input: Blob | string, mimeType: string, filename: string | undefined, cfg: ResourceServerConfig): Promise<string> {
+  async put(input: Blob | string, mimeType: string, filename?: string, cfg?: ResourceServerConfig): Promise<string> {
     if (!cfg?.enabled) throw new Error('资源服务器未启用');
     const provider = cfg.provider || 'generic';
 
