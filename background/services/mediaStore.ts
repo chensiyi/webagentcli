@@ -14,6 +14,8 @@
  * 且即使设置中途切换，旧消息的 mediaId 仍能正确解析。
  */
 
+import { Log } from 'kernel/services/Log.js';
+
 export interface ResourceServerConfig {
   enabled?: boolean;
   /** 上传端点，例如 https://my-bucket.example.com/upload */
@@ -168,14 +170,17 @@ export class RemoteMediaStore implements MediaStoreLike {
     if (cfg.authHeader && cfg.authToken) headers[cfg.authHeader] = cfg.authToken;
 
     const resp = await fetch(uploadUrl, { method: cfg.method || 'POST', body: form, headers });
+    Log.info('MEDIASTORE', 'remote put: fetch done', { status: resp.status, ok: resp.ok, uploadUrl });
     if (!resp.ok) {
       const txt = await resp.text().catch(() => '');
       throw new Error(`资源服务器上传失败 HTTP ${resp.status}: ${txt.slice(0, 200)}`);
     }
     const json = await resp.json().catch(() => ({} as Record<string, unknown>));
+    Log.info('MEDIASTORE', 'remote put: response json', { json });
     // 优先用用户配置的字段（支持点路径），取不到则自动探测 url/link/src/data.url 等常见返回格式，
     // 用户通常无需精确填写字段名即可兼容绝大多数图床 / 对象存储。
     const url = extractUrlFromResponse(json, cfg.responseUrlField);
+    Log.info('MEDIASTORE', 'remote put: extracted url', { url, configuredField: cfg.responseUrlField });
     if (!url) {
       const keys = json && typeof json === 'object' ? Object.keys(json as Record<string, unknown>).join(', ') : '(非 JSON 响应)';
       throw new Error(`资源服务器响应未包含可识别的 URL（已尝试 url/link/src/data.url 等）。响应字段：${keys}`);
@@ -185,6 +190,7 @@ export class RemoteMediaStore implements MediaStoreLike {
     const id = REMOTE_PREFIX + `media_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
     const store = await this.tx('readwrite');
     await this.reqAsync(store.put({ id, url: finalUrl, createdAt: Date.now() }));
+    Log.info('MEDIASTORE', 'remote put: stored + returning id', { id, finalUrl });
     return id;
   }
 

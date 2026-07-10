@@ -78,16 +78,20 @@
         uploading: true,
       };
       pendingAttachments = [...pendingAttachments, att];
+      Log.info('ChatPage', 'addFiles: start upload', { filename: att.filename, mimeType: att.mimeType });
       try {
         att.dataUrl = await readFileAsDataUrl(file);
+        Log.info('ChatPage', 'addFiles: dataUrl read, calling api.media.put');
         const res = await withTimeout(
           api.media.put({ dataUrl: att.dataUrl, mimeType: att.mimeType, filename: att.filename }),
           30000,
           '附件上传',
         );
+        Log.info('ChatPage', 'addFiles: api.media.put resolved', { res });
         att.mediaId = res?.id;
         att.uploading = false;
         pendingAttachments = [...pendingAttachments];
+        Log.info('ChatPage', 'addFiles: done', { mediaId: att.mediaId, uploading: att.uploading });
       } catch (e) {
         Log.error('ChatPage', 'upload attachment failed', e);
         att.uploading = false;

@@ -241,8 +241,13 @@ export function createScriptsFacade(kernel: Kernel) {
 export function createMediaFacade(mediaStore: any) {
   return {
     async put(data: { dataUrl?: string; mimeType: string; filename?: string }) {
-      if (!data?.mimeType || !data.dataUrl) return null;
+      if (!data?.mimeType || !data.dataUrl) {
+        Log.warn('MEDIA_FACADE', 'put rejected: missing mimeType/dataUrl');
+        return null;
+      }
+      Log.info('MEDIA_FACADE', 'put: calling mediaStore.put', { mimeType: data.mimeType, filename: data.filename });
       const id = await mediaStore.put(data.dataUrl, data.mimeType, data.filename);
+      Log.info('MEDIA_FACADE', 'put: returning id', { id });
       return { id };
     },
 
