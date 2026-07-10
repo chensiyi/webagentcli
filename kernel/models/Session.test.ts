@@ -46,4 +46,22 @@ describe('Session 模型', () => {
     (s as any).messages.push({ id: 'bad', role: 'user', content: 'no toJSON' });
     expect(() => s.toJSON()).not.toThrow();
   });
+
+  it('toIndexJSON 必须持久化 reasoningEffort（回归：重启后思考强度回退 medium）', () => {
+    const s = new Session({ id: 'session_4', title: '高推理', reasoningEffort: 'high', messages: [] });
+    const idx = s.toIndexJSON() as any;
+    expect(idx.reasoningEffort).toBe('high');
+  });
+
+  it('从索引重建会话时保留 reasoningEffort，不回退默认 medium（模拟重启 init）', () => {
+    // 模拟 SessionManager.init：先 toIndexJSON 落盘索引，再从索引重建 Session
+    const original = new Session({ id: 'session_5', title: '高推理', reasoningEffort: 'high', messages: [
+      { id: 'm1', role: 'user', content: 'hi' }
+    ] });
+    const indexEntry = original.toIndexJSON();
+    // init() 把索引条目 {...entry} + 独立消息体 拼成 raw 再 new Session(raw)
+    const raw = { ...indexEntry, messages: original.messages.map(m => (m as any).toJSON()) };
+    const restored = new Session(raw);
+    expect(restored.reasoningEffort).toBe('high');
+  });
 });
