@@ -30,6 +30,7 @@
  */
 
 import type { KernelAPIContract } from '../api-contract.js';
+import { Log } from 'kernel/services/Log.js';
 
 export type CacheScope = 'session' | 'sessionList' | 'settings' | 'tools';
 
@@ -46,9 +47,35 @@ export class ShellDataCache {
     settings: undefined,
     tools: undefined,
   };
+  /**
+   * 订阅者集合：UI（如 ChatPage）订阅「单例缓存自身的变更」，而非直接耦合其它页面 / IPC 消息。
+   * - 广播全局最新值（saveSettings 写穿透）→ 缓存整体替换为最新值后通知，订阅者直接消费最新值；
+   * - 差量更新（patchSettings）→ 缓存内先差量合并，再通知，订阅者拿到合并后的最新值。
+   * 两种模式下订阅者都只「读取权威缓存」，不关心更新是广播还是差量。
+   */
+  private subscribers: Record<CacheScope, Set<(value: any) => void>> = {
+    session: new Set(),
+    sessionList: new Set(),
+    settings: new Set(),
+    tools: new Set(),
+  };
 
   constructor(api: KernelAPIContract) {
     this.api = api;
+  }
+
+  /**
+   * 订阅某作用域的缓存变更。返回退订函数（ChatPage 在 onDestroy 时调用，避免 {#key activePage} 重挂载叠加幽灵监听器）。
+   */
+  subscribe(scope: CacheScope, cb: (value: any) => void): () => void {
+    this.subscribers[scope].add(cb);
+    return () => { this.subscribers[scope].delete(cb); };
+  }
+
+  private _notify(scope: CacheScope, value?: any) {
+    this.subscribers[scope].forEach((cb) => {
+      try { cb(value); } catch (e) { Log.warn('ShellDataCache', 'subscriber error', { scope, err: (e as Error)?.message }); }
+    });
   }
 
   private _entry<T>(scope: CacheScope): Entry<T> | undefined {
@@ -117,23 +144,26 @@ export class ShellDataCache {
     const e = this.store.settings;
     if (e) e.dirty = true;
   }
-  /** 差量合并设置缓存（如本地已知的新值）。 */
+  /** 差量合并设置缓存（如本地已知的新值）。合并完成后通知订阅者（拿到差量合并后的最新值）。 */
   patchSettings(patch: Record<string, unknown>) {
     const e = this.store.settings;
     if (e && e.value) {
       e.value = { ...(e.value as object), ...patch };
       e.dirty = false;
+      this._notify('settings', e.value);
     }
   }
   /**
    * 写穿透：先把设置写入主库（kernel），再回读主库权威结果并回填缓存。
    * 这是「更新必须击穿缓存」原则的实现——绝不只 invalidate 等下次重拉。
+   * 回填后广播全局最新值给订阅者（UI 直接替换为最新值，无需回源 RPC）。
    * 返回回读的权威 settings（裸对象），供调用方同步 UI。
    */
   async saveSettings(settings: Record<string, unknown>): Promise<Record<string, unknown>> {
     await this.api.settings.saveSettings(settings);
     const fresh: any = await this.api.settings.getSettings();
     this.store.settings = { value: fresh, dirty: false };
+    this._notify('settings', fresh);
     return fresh || {};
   }
 

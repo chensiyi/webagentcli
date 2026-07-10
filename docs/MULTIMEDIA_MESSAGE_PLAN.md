@@ -147,7 +147,7 @@
 | P1 渲染层（MediaBlock + Lightbox，气泡渲染图/音视频/文件） | ✅ 完成 | `95fd380` |
 | P2 输入层（附件托盘/粘贴/拖拽 + 内核 send 支持 block 数组） | ✅ 完成 | `938624c` |
 | P2 模型截图工具（capture_visible_tab，模型自调） | ❌ 已移除（2026-07-10：用户确认真机不可用、增加复杂度） | — |
-| P3 OpenAI 家族真机联调 | 🔶 链路就绪，待真机 key 实测 | — |
+| P3 OpenAI 家族真机联调 | 🔶 链路就绪；内核侧已用端到端集成测试覆盖（`media-flow.integration.test.ts`：上传→存储→resolver→序列化为 image_url/input_audio），待真机 key 实测 | — |
 | 媒体回收（删会话/清消息/删单条连带清 mediaId） | ✅ 完成 | 本轮未提交 |
 | manifest `tabs` 权限（captureVisibleTab 前提） | ❌ 已移除（截图工具已删，权限无意义） | — |
 | P4 视频/语音 | ⏳ 延后 | — |
@@ -158,4 +158,6 @@
 
 **联调就绪**：媒体发送链路（media 块 → `ContextBuilder.buildMessages` 经 `mediaResolver` 换内容 → `toAPIFormat` 输出 `image_url`/`input_audio`/`file` parts）已用 node 集成测试覆盖（dataURL 本地媒体路径 + 混合图文音）。真机联调步骤：加载 unpacked 扩展 → 设置里填 OpenAI key（及可选资源服务器）→ 输入框粘贴/拖拽一张图发送 → 观察请求体含 `image_url`、模型能「看到」并回应。
 
-**待办**：① P3 真机发图验证（需用户 API key 实测）；② P4 视频/语音延后。
+**新增端到端集成测试**（`background/services/media-flow.integration.test.ts`，2026-07-10）：用真实组件串起 `RPCClient → RPCServer → createMediaFacade → createMediaStore(LocalMediaStore 内存假 IndexedDB) → ContextBuilder.buildMessages(真实 mediaResolver)` ，覆盖① 上传图片→存本地→resolver 取回→序列化为 OpenAI `image_url`（url 为原始 dataURL）；② 混合文本+图片+音频全部内联 base64 parts；③ 孤儿 mediaId→告警+降级占位不发残缺请求；④ RPC 代理路由正确。与既有 `session-context.test.ts`（stub resolver）互补，证明"Shell→Kernel"全链路在 Node 可自动验证。
+
+**待办**：① P3 真机发图验证（需用户 API key 实测）；② P4 视频/语音延后；③ 模型能力归一化重构（下个版本 TODO，本版本不做开发）：`ModelInfo.input_modalities` 已定为单一权威字段（`inputModalities`/`modalities` 旧别名已移除，`supports_vision/audio/video` 由其派生），但各 Provider（OpenRouter/LMStudio）、`SettingsPage.normalizeModalities`/`handleLoadModels`/`getModelDetails` 仍各自内联归一化逻辑，未抽取跨 Provider 共享的 `modelCapabilities.ts` util；序列化层（`session-context.ts` → `image_url`/`input_audio`）与 Provider `buildRequestBody` 须继续严格符合 OpenAI/ImgBB 官方 API 标准。预留设计见 `SettingsPage.ModelInfo.input_modalities` 注释。

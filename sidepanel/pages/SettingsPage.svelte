@@ -61,16 +61,48 @@ import { KernelChannels } from 'kernel/Events.js';
     contextLength?: number;
     context_length?: number;
     pricing?: { prompt?: string; completion?: string };
+    /**
+     * 预留设计（reserved design）：模型输入模态的单一权威字段（如 ['text','image','audio','video']）。
+     * 各 Provider（OpenRouter / LMStudio）与 handleLoadModels 统一写入此字段；supports_vision/audio/video 由其派生。
+     * 更完整的「模型能力归一化」（跨 Provider 共享 util、统一序列化 / 请求）列为下个版本 TODO，本版本不做进一步开发。
+     * 注：inputModalities / modalities 旧别名已移除，统一以 input_modalities 为准。
+     */
     input_modalities?: string[];
-    inputModalities?: string[];
     description?: string;
     supports_reasoning?: boolean;
     supports_tools?: boolean;
     supports_function_calling?: boolean;
     supports_json_mode?: boolean;
+    /** 由 input_modalities 派生的能力标志 */
+    supports_vision?: boolean;
+    supports_audio?: boolean;
+    supports_video?: boolean;
     links?: { details?: string };
     capabilities?: Record<string, boolean>;
     metadata?: { description?: string };
+  }
+
+  /**
+   * 从不同 Provider 的模型结构里归一化出输入模态数组。
+   * 覆盖：OpenRouter(architecture.input_modalities)、OpenAI 兼容(input_modalities/modalities)、
+   * 以及 modality 字符串(如 "text+image->text")两种写法。
+   */
+  function normalizeModalities(m: any): string[] {
+    const arch = m?.architecture || {};
+    const raw = arch.input_modalities || m?.input_modalities || m?.modalities || [];
+    if (Array.isArray(raw) && raw.length) {
+      return raw.map((x: any) => String(x).toLowerCase());
+    }
+    // 兜底：解析 modality 字符串，如 "text+image->text"
+    const mod: string = arch.modality || m?.modality || '';
+    if (typeof mod === 'string' && mod.includes('->')) {
+      return mod
+        .split('->')[0]
+        .split('+')
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+    }
+    return [];
   }
 
   // ---------- Init: Load Settings via RPC ----------
@@ -194,21 +226,27 @@ import { KernelChannels } from 'kernel/Events.js';
       }
 
       const result = await response.json();
-      const models = (result.data || []).map((m: any) => ({
-        id: m.id,
-        name: m.name || m.id,
-        created: m.created,
-        owned_by: m.owned_by || m.owner || apiStandard,
-        context_length: m.context_length || null,
-        max_output_tokens: m.max_output_tokens || null,
-        modality: m.architecture?.modality || 'text->text',
-        modalities: m.architectures || [],
-        pricing: m.pricing || null,
-        supports_reasoning: (m.supported_parameters || []).includes('reasoning'),
-        supports_tools: (m.supported_parameters || []).includes('tools'),
-        description: m.description || null,
-        ...m
-      }));
+      const models = (result.data || []).map((m: any) => {
+        const inputModalities = normalizeModalities(m);
+        return {
+          id: m.id,
+          name: m.name || m.id,
+          created: m.created,
+          owned_by: m.owned_by || m.owner || apiStandard,
+          context_length: m.context_length || null,
+          max_output_tokens: m.max_output_tokens || null,
+          modality: m.architecture?.modality || 'text->text',
+          input_modalities: inputModalities,
+          pricing: m.pricing || null,
+          supports_reasoning: (m.supported_parameters || []).includes('reasoning'),
+          supports_tools: (m.supported_parameters || []).includes('tools'),
+          supports_vision: inputModalities.includes('image') || inputModalities.includes('vision'),
+          supports_audio: inputModalities.includes('audio'),
+          supports_video: inputModalities.includes('video'),
+          description: m.description || null,
+          ...m
+        };
+      });
 
       currentSettings.models = models;
 
@@ -266,16 +304,20 @@ import { KernelChannels } from 'kernel/Events.js';
     if (typeof model === 'string') {
       return { id: model, name: model };
     }
+    const inputModalities: string[] = model.input_modalities ?? [];
     return {
       id: model.id || '',
       name: model.name || model.id || '',
       context_length: model.contextLength ?? model.context_length ?? undefined,
       pricing: model.pricing ?? undefined,
-      input_modalities: model.inputModalities ?? model.input_modalities ?? [],
+      input_modalities: inputModalities,
       description: model.description ?? model.metadata?.description ?? '',
       supports_reasoning: model.capabilities?.reasoning ?? model.supports_reasoning ?? false,
       supports_tools: model.capabilities?.toolUse ?? model.supports_tools ?? model.supports_function_calling ?? false,
       supports_json_mode: model.capabilities?.jsonMode ?? model.supports_json_mode ?? false,
+      supports_vision: model.supports_vision ?? inputModalities.includes('image'),
+      supports_audio: model.supports_audio ?? inputModalities.includes('audio'),
+      supports_video: model.supports_video ?? inputModalities.includes('video'),
       links: model.links ?? {},
     };
   }
@@ -704,6 +746,15 @@ import { KernelChannels } from 'kernel/Events.js';
                   {#if hoveredModel.supports_json_mode}
                     <span class="search-tooltip-cap">📄 JSON 模式</span>
                   {/if}
+                  {#if hoveredModel.supports_vision}
+                    <span class="search-tooltip-cap">👁 视觉</span>
+                  {/if}
+                  {#if hoveredModel.supports_audio}
+                    <span class="search-tooltip-cap">🎵 音频</span>
+                  {/if}
+                  {#if hoveredModel.supports_video}
+                    <span class="search-tooltip-cap">🎬 视频</span>
+                  {/if}
                 </div>
               </div>
             {/if}
@@ -777,31 +828,61 @@ import { KernelChannels } from 'kernel/Events.js';
             checked={currentSettings.resourceServer.enabled === true}
             onchange={(v) => currentSettings.resourceServer.enabled = v}
           />
-          <Input
-            label="上传链接 (Upload URL)"
-            placeholder="https://your-server.example.com/upload"
-            value={currentSettings.resourceServer.uploadUrl ?? ''}
-            oninput={(e) => currentSettings.resourceServer.uploadUrl = (e.target as HTMLInputElement).value}
-          />
           <Select
-            label="HTTP 方法"
-            options={[{ value: 'POST', label: 'POST' }, { value: 'PUT', label: 'PUT' }]}
-            value={currentSettings.resourceServer.method ?? 'POST'}
-            onchange={(v) => currentSettings.resourceServer.method = v}
+            label="图床类型"
+            options={[
+              { value: 'generic', label: '通用（自托管 / 对象存储）' },
+              { value: 'imgbb', label: 'ImgBB (api.imgbb.com)' },
+            ]}
+            value={currentSettings.resourceServer.provider || 'generic'}
+            onchange={(v) => {
+              currentSettings.resourceServer.provider = v;
+              if (v === 'imgbb') {
+                // 选 ImgBB 时自动填充标准端点与字段，用户只需填 API Key
+                currentSettings.resourceServer.uploadUrl = 'https://api.imgbb.com/1/upload';
+                currentSettings.resourceServer.fieldName = 'image';
+                currentSettings.resourceServer.responseUrlField = 'data.url';
+                currentSettings.resourceServer.method = 'POST';
+                currentSettings.resourceServer.authHeader = '';
+                currentSettings.resourceServer.authToken = '';
+              }
+            }}
           />
-          <Input
-            label="鉴权请求头名（可选，如 Authorization）"
-            placeholder="Authorization"
-            value={currentSettings.resourceServer.authHeader ?? ''}
-            oninput={(e) => currentSettings.resourceServer.authHeader = (e.target as HTMLInputElement).value}
-          />
-          <Input
-            label="鉴权令牌（可选）"
-            type="password"
-            placeholder="Bearer xxx / Token xxx"
-            value={currentSettings.resourceServer.authToken ?? ''}
-            oninput={(e) => currentSettings.resourceServer.authToken = (e.target as HTMLInputElement).value}
-          />
+          {#if currentSettings.resourceServer.provider === 'imgbb'}
+            <Input
+              label="ImgBB API Key"
+              type="password"
+              placeholder="在 https://api.imgbb.com/ 注册获取的 API Key"
+              value={currentSettings.resourceServer.apiKey ?? ''}
+              oninput={(e) => currentSettings.resourceServer.apiKey = (e.target as HTMLInputElement).value}
+            />
+          {:else}
+            <Input
+              label="上传链接 (Upload URL)"
+              placeholder="https://your-server.example.com/upload"
+              value={currentSettings.resourceServer.uploadUrl ?? ''}
+              oninput={(e) => currentSettings.resourceServer.uploadUrl = (e.target as HTMLInputElement).value}
+            />
+            <Select
+              label="HTTP 方法"
+              options={[{ value: 'POST', label: 'POST' }, { value: 'PUT', label: 'PUT' }]}
+              value={currentSettings.resourceServer.method ?? 'POST'}
+              onchange={(v) => currentSettings.resourceServer.method = v}
+            />
+            <Input
+              label="鉴权请求头名（可选，如 Authorization）"
+              placeholder="Authorization"
+              value={currentSettings.resourceServer.authHeader ?? ''}
+              oninput={(e) => currentSettings.resourceServer.authHeader = (e.target as HTMLInputElement).value}
+            />
+            <Input
+              label="鉴权令牌（可选）"
+              type="password"
+              placeholder="Bearer xxx / Token xxx"
+              value={currentSettings.resourceServer.authToken ?? ''}
+              oninput={(e) => currentSettings.resourceServer.authToken = (e.target as HTMLInputElement).value}
+            />
+          {/if}
           <Input
             label="响应取 URL 的字段名（默认自动识别 url/link 等，可留空；支持点路径如 data.url）"
             placeholder="自动识别"
@@ -815,7 +896,11 @@ import { KernelChannels } from 'kernel/Events.js';
             oninput={(e) => currentSettings.resourceServer.urlPrefix = (e.target as HTMLInputElement).value}
           />
           <p class="settings-hint">
-            启用后，上传的媒体会发送到你的服务器并返回公网 URL 存入消息（图片以直链发送，更省请求体积）。上传失败将直接报错，不会静默回退本地。
+            {#if currentSettings.resourceServer.provider === 'imgbb'}
+              启用后图片上传到 ImgBB，返回 <code>i.ibb.co</code> 公网直链。ImgBB 直链公开可访问，通常对 OpenRouter / 模型服务端可见，可解决免费图床（如 hd-r.cn）反盗链导致模型看不到图的问题。免费版有上传频率与流量限制，请自行评估。
+            {:else}
+              启用后，上传的媒体会发送到你的服务器并返回公网 URL 存入消息（图片以直链发送，更省请求体积）。上传失败将直接报错，不会静默回退本地。<strong>注意：</strong>公网直链必须能被模型服务端访问；部分免费图床（如 hd-r.cn）有反盗链，会导致模型看不到图片，建议用可公开访问的存储或关闭此选项走本地 base64 内联。
+            {/if}
           </p>
         </div>
       </Card>

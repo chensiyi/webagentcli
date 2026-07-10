@@ -136,4 +136,40 @@ describe('RemoteMediaStore（资源服务器上传）', () => {
     await expect(store.put(DATA_URL, 'image/png', 'a.png', { enabled: true }))
       .rejects.toThrow(/未配置/);
   });
+
+  it('imgbb 模式：以 key + image 字段上传，解析 data.url 直链', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResp({
+      data: { url: 'https://i.ibb.co/abc/def.png', display_url: 'https://ibb.co/abc/def' },
+      success: true, status: 200,
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const appendSpy = vi.spyOn(FormData.prototype, 'append');
+
+    const { store } = makeStoreWithSpy();
+    const cfg: ResourceServerConfig = { enabled: true, provider: 'imgbb', apiKey: 'MY_KEY' };
+    const id = await store.put(DATA_URL, 'image/png', 'a.png', cfg);
+
+    expect(id.startsWith('remote_')).toBe(true);
+    expect(await store.get(id)).toBe('https://i.ibb.co/abc/def.png');
+
+    // 上传请求应打到 imgbb 标准端点
+    const uploadCall = fetchMock.mock.calls.find((c) => String(c[0]).includes('api.imgbb.com'));
+    expect(uploadCall).toBeTruthy();
+    const init = uploadCall![1] as any;
+    expect(init.method).toBe('POST');
+    // FormData 必须含 ImgBB 标准的 key 与 image 字段
+    const appended = appendSpy.mock.calls.map((c) => c[0]);
+    expect(appended).toContain('key');
+    expect(appended).toContain('image');
+    const keyCall = appendSpy.mock.calls.find((c) => c[0] === 'key');
+    expect(keyCall?.[1]).toBe('MY_KEY');
+
+    appendSpy.mockRestore();
+  });
+
+  it('imgbb 模式缺 API Key 直接抛错', async () => {
+    const { store } = makeStoreWithSpy();
+    await expect(store.put(DATA_URL, 'image/png', 'a.png', { enabled: true, provider: 'imgbb' }))
+      .rejects.toThrow(/API Key/);
+  });
 });

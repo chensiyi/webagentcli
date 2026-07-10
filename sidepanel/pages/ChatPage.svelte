@@ -39,6 +39,16 @@
   let fileInputEl: HTMLInputElement | null = $state(null);
   let isDragging = $state(false);
 
+  // ---- 当前模型能力（驱动上传按钮联动，避免给不支持多模态的模型发送媒体）----
+  // known=false 表示设置里没有模态信息，此时一律放行，避免误伤本支持多模态的模型。
+  let modelCaps = $state<{ known: boolean; image: boolean; audio: boolean; video: boolean }>({
+    known: false, image: true, audio: true, video: true,
+  });
+  const canAttachMedia = $derived(!modelCaps.known || modelCaps.image || modelCaps.audio || modelCaps.video);
+  const attachTitle = $derived(
+    !canAttachMedia ? '当前模型不支持图片/音频/视频输入' : '添加附件',
+  );
+
   function mediaKindFromMime(mime: string): 'image' | 'audio' | 'video' | 'file' {
     if (mime.startsWith('image/')) return 'image';
     if (mime.startsWith('audio/')) return 'audio';
@@ -63,6 +73,36 @@
     });
   }
 
+  /** 从设置读取当前选中模型的输入模态，驱动上传按钮的能力联动。
+   *  未知（无模态信息）时一律放行，避免误伤本支持多模态的模型。 */
+  function refreshModelCaps() {
+    cache.getSettings().then((raw: any) => {
+      const models: any[] = raw?.models || [];
+      const modelId: string = raw?.model;
+      if (!modelId) { modelCaps = { known: false, image: true, audio: true, video: true }; return; }
+      const model = models.find((m: any) => m && (m.id === modelId || m.name === modelId));
+      if (!model) { modelCaps = { known: false, image: true, audio: true, video: true }; return; }
+      const mods: string[] = model.input_modalities || [];
+      if (!mods.length) { modelCaps = { known: false, image: true, audio: true, video: true }; return; }
+      const lower = mods.map((x) => String(x).toLowerCase());
+      modelCaps = {
+        known: true,
+        image: lower.includes('image'),
+        audio: lower.includes('audio'),
+        video: lower.includes('video'),
+      };
+    }).catch(() => { modelCaps = { known: false, image: true, audio: true, video: true }; });
+  }
+
+  /** 该媒体类型是否被当前模型支持（未知能力时放行）。 */
+  function kindSupported(kind: string): boolean {
+    if (!modelCaps.known) return true;
+    if (kind === 'image') return modelCaps.image;
+    if (kind === 'audio') return modelCaps.audio;
+    if (kind === 'video') return modelCaps.video;
+    return true; // 文件类（pdf/文本）按内容处理，默认放行
+  }
+
   /** 按 id 局部更新某个附件（Svelte 5 关键：必须用新对象替换 + 重赋值数组，
    *  直接改原始对象不会触发代理的 set 通知，UI 不刷新 —— 这正是之前芯片永远卡在⏳的根因）。 */
   function patchAttachment(id: string, patch: Record<string, any>) {
@@ -75,6 +115,11 @@
     for (const file of list) {
       const id = `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const kind = mediaKindFromMime(file.type || '');
+      // 能力已知且不支持该类型时直接拦截（粘贴/拖拽/选择均生效），避免塞进待发送队列
+      if (modelCaps.known && !kindSupported(kind)) {
+        toast.error(`当前模型不支持 ${kind} 类型输入，已忽略该文件`);
+        continue;
+      }
       const att = {
         id,
         file,
@@ -228,6 +273,13 @@
     const text = inputText.trim();
     const attachments = pendingAttachments.filter((a) => a.mediaId && !a.error);
     if (!text && attachments.length === 0) return;
+
+    // 发送前再校验一次模型能力：拦截不支持的媒体类型（粘贴/拖拽被 addFiles 拦过，此处为兜底）
+    const blocked = attachments.filter((a) => !kindSupported(a.kind));
+    if (blocked.length) {
+      toast.error(`当前模型不支持 ${blocked.map((b: any) => b.kind).join('、')} 类型输入，请移除后再发送`);
+      return;
+    }
 
     // 组装 content：文本块 + 媒体块（mediaId 引用，发送时由内核经 mediaStore 解析）
     const blocks: any[] = [];
@@ -469,6 +521,11 @@
       );
     }
 
+    // 模型能力联动：订阅「单例缓存自身的 settings 变更」，而非直接耦合 SettingsPage 的 IPC 消息。
+    // 缓存写穿透（saveSettings）广播全局最新值、差量合并（patchSettings）后都会通知，
+    // 这里只消费权威缓存（refreshModelCaps 读 cache.getSettings 即最新值，零回源 RPC）。
+    cleanups.push(cache.subscribe('settings', () => refreshModelCaps()));
+
     // 键盘导航
     document.addEventListener('keydown', handleKeydown);
 
@@ -476,6 +533,7 @@
     waitKernelReady(ipc).then(() => {
       refreshMessages();
       refreshTools(true); // 页面（重）加载：强制全量获取并刷新缓存
+      refreshModelCaps(); // 读取当前模型能力，联动上传按钮
     });
   });
 
@@ -645,7 +703,7 @@
         🔧 工具
       </Button>
 
-      <button class="attach-btn" title="添加附件" disabled={isStreaming}
+      <button class="attach-btn" title={attachTitle} disabled={isStreaming || !canAttachMedia}
         onclick={() => fileInputEl?.click()}>
         📎
       </button>

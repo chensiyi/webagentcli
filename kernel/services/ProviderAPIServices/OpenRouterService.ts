@@ -181,16 +181,23 @@ export default class OpenRouterService extends OpenAIService {
       return r.json();
     })
     .then((result: any) => {
-      const models = (result.data || []).map((m: any) => ({
-      id: m.id, name: m.name || m.id, created: m.created,
-      owned_by: m.owned_by || m.owner || 'openrouter',
-      context_length: m.context_length || null, max_output_tokens: m.max_output_tokens || null,
-      modality: m.architecture?.modality || 'text->text',
-      pricing: { prompt: m.pricing?.prompt ? parseFloat(m.pricing.prompt) : null, completion: m.pricing?.completion ? parseFloat(m.pricing.completion) : null },
-      supports_reasoning: (m.supported_parameters || []).includes('reasoning'),
-      supports_tools: (m.supported_parameters || []).includes('tools'),
-      description: m.description || null, ...m
-    }));
+      const models = (result.data || []).map((m: any) => {
+        const inputModalities: string[] = (m.architecture?.input_modalities || []).map((x: any) => String(x).toLowerCase());
+        return {
+          id: m.id, name: m.name || m.id, created: m.created,
+          owned_by: m.owned_by || m.owner || 'openrouter',
+          context_length: m.context_length || null, max_output_tokens: m.max_output_tokens || null,
+          modality: m.architecture?.modality || 'text->text',
+          input_modalities: inputModalities,
+          pricing: { prompt: m.pricing?.prompt ? parseFloat(m.pricing.prompt) : null, completion: m.pricing?.completion ? parseFloat(m.pricing.completion) : null },
+          supports_reasoning: (m.supported_parameters || []).includes('reasoning'),
+          supports_tools: (m.supported_parameters || []).includes('tools'),
+          supports_vision: inputModalities.includes('image'),
+          supports_audio: inputModalities.includes('audio'),
+          supports_video: inputModalities.includes('video'),
+          description: m.description || null, ...m
+        };
+      });
     Log.info('OpenRouterService', `Model list fetched: ${models.length} models`);
     return models;
     });

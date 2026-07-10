@@ -18,15 +18,21 @@ import { Log } from 'kernel/services/Log.js';
 
 export interface ResourceServerConfig {
   enabled?: boolean;
-  /** 上传端点，例如 https://my-bucket.example.com/upload */
+  /** 图床/后端类型：generic（自托管通用）/ imgbb（api.imgbb.com 标准）。默认 generic。 */
+  provider?: 'generic' | 'imgbb';
+  /** 上传端点。generic 模式必填；imgbb 模式缺省自动用 https://api.imgbb.com/1/upload。 */
   uploadUrl?: string;
+  /** 上传字段名（multipart form field）。默认 'file'；imgbb 用 'image'。 */
+  fieldName?: string;
   /** HTTP 方法，默认 POST */
   method?: 'POST' | 'PUT';
-  /** 鉴权请求头名（可选），例如 Authorization */
+  /** 鉴权请求头名（可选），例如 Authorization。imgbb 模式不使用（改用 apiKey 表单字段）。 */
   authHeader?: string;
   /** 鉴权令牌（可选） */
   authToken?: string;
-  /** 响应 JSON 中取出 URL 的字段名（支持点路径），默认 'url' */
+  /** ImgBB 等图床的 API Key（作为表单字段 key 发送）。imgbb 模式必填。 */
+  apiKey?: string;
+  /** 响应 JSON 中取出 URL 的字段名（支持点路径）。imgbb 用 data.url；generic 缺省自动探测 url/link/src 等。 */
   responseUrlField?: string;
   /** 拼到返回 URL 前的固定前缀（可选） */
   urlPrefix?: string;
@@ -158,19 +164,33 @@ export class RemoteMediaStore implements MediaStoreLike {
    */
   async put(input: Blob | string, mimeType: string, filename: string | undefined, cfg: ResourceServerConfig): Promise<string> {
     if (!cfg?.enabled) throw new Error('资源服务器未启用');
-    const uploadUrl = (cfg.uploadUrl || '').trim();
-    if (!uploadUrl) throw new Error('资源服务器上传链接未配置');
+    const provider = cfg.provider || 'generic';
 
+    // 两种后端都先把输入规整成 Blob（dataURL 走 fetch 转 blob，避免二次 base64）
     const blob: Blob = typeof input === 'string' ? await dataUrlToBlob(input) : input;
     const form = new FormData();
-    form.append('file', blob, filename || `media.${mimeType?.split('/')[1] || 'bin'}`);
-    form.append('mimeType', mimeType || '');
-
     const headers: Record<string, string> = {};
-    if (cfg.authHeader && cfg.authToken) headers[cfg.authHeader] = cfg.authToken;
+
+    let uploadUrl: string;
+    if (provider === 'imgbb') {
+      // ImgBB v1 标准：POST https://api.imgbb.com/1/upload ，表单字段 key + image
+      // image 可为二进制文件 / base64 / 图片 URL；直链在 data.url（或 data.image.url）。
+      if (!cfg.apiKey) throw new Error('ImgBB API Key 未配置（请在设置页「资源服务器 → ImgBB API Key」填写）');
+      uploadUrl = (cfg.uploadUrl || 'https://api.imgbb.com/1/upload').trim();
+      form.append('key', cfg.apiKey);
+      form.append('image', blob, filename || `media.${mimeType?.split('/')[1] || 'bin'}`);
+      if (filename) form.append('name', filename);
+    } else {
+      // 通用后端：字段名可配（默认 file），支持自定义鉴权头
+      uploadUrl = (cfg.uploadUrl || '').trim();
+      if (!uploadUrl) throw new Error('资源服务器上传链接未配置');
+      form.append(cfg.fieldName || 'file', blob, filename || `media.${mimeType?.split('/')[1] || 'bin'}`);
+      form.append('mimeType', mimeType || '');
+      if (cfg.authHeader && cfg.authToken) headers[cfg.authHeader] = cfg.authToken;
+    }
 
     const resp = await fetch(uploadUrl, { method: cfg.method || 'POST', body: form, headers });
-    Log.info('MEDIASTORE', 'remote put: fetch done', { status: resp.status, ok: resp.ok, uploadUrl });
+    Log.info('MEDIASTORE', 'remote put: fetch done', { status: resp.status, ok: resp.ok, uploadUrl, provider });
     if (!resp.ok) {
       const txt = await resp.text().catch(() => '');
       throw new Error(`资源服务器上传失败 HTTP ${resp.status}: ${txt.slice(0, 200)}`);
@@ -180,7 +200,7 @@ export class RemoteMediaStore implements MediaStoreLike {
     // 优先用用户配置的字段（支持点路径），取不到则自动探测 url/link/src/data.url 等常见返回格式，
     // 用户通常无需精确填写字段名即可兼容绝大多数图床 / 对象存储。
     const url = extractUrlFromResponse(json, cfg.responseUrlField);
-    Log.info('MEDIASTORE', 'remote put: extracted url', { url, configuredField: cfg.responseUrlField });
+    Log.info('MEDIASTORE', 'remote put: extracted url', { url, configuredField: cfg.responseUrlField, provider });
     if (!url) {
       const keys = json && typeof json === 'object' ? Object.keys(json as Record<string, unknown>).join(', ') : '(非 JSON 响应)';
       throw new Error(`资源服务器响应未包含可识别的 URL（已尝试 url/link/src/data.url 等）。响应字段：${keys}`);
@@ -190,7 +210,7 @@ export class RemoteMediaStore implements MediaStoreLike {
     const id = REMOTE_PREFIX + `media_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
     const store = await this.tx('readwrite');
     await this.reqAsync(store.put({ id, url: finalUrl, createdAt: Date.now() }));
-    Log.info('MEDIASTORE', 'remote put: stored + returning id', { id, finalUrl });
+    Log.info('MEDIASTORE', 'remote put: stored + returning id', { id, finalUrl, provider });
     return id;
   }
 
@@ -230,7 +250,8 @@ export function createMediaStore(
 
   return {
     async put(input, mimeType, filename) {
-      if (cfg()?.enabled) return remote.put(input, mimeType, filename, cfg()!);
+      const conf = cfg();
+      if (conf?.enabled) return remote.put(input, mimeType, filename, conf);
       return local.put(input, mimeType, filename);
     },
     async get(id) {
@@ -289,7 +310,7 @@ function isUrlLike(v: unknown): v is string {
 const URL_CANDIDATE_PATHS = [
   'url', 'link', 'src', 'href',
   'fileUrl', 'file_url', 'imageUrl', 'image_url', 'fileURL',
-  'data.url', 'data.link', 'result.url', 'result.link', 'data.data.url',
+  'data.url', 'data.image.url', 'data.link', 'result.url', 'result.link', 'data.data.url',
 ];
 
 /**

@@ -275,18 +275,25 @@ class LMStudioService extends BaseProviderAPIService {
         if (result.data?.length) modelsArray = result.data;
         else if (result.models?.length) modelsArray = result.models;
         if (modelsArray.length === 0) return tryEndpoint(index + 1);
-        const mappedModels = modelsArray.map((m: any) => ({
-          id: m.key || m.id, name: m.name || m.key || m.id,
-          context_length: m.max_context_length || m.context_length || null,
-          max_output_tokens: m.max_output_tokens || null,
-          owned_by: m.publisher || m.owner || 'local',
-          created: m.created || Math.floor(Date.now() / 1000),
-          modality: m.input_modalities?.includes('image') ? 'text+image->text' : 'text->text',
-          supports_reasoning: !!(m.capabilities?.reasoning),
-          supports_tools: !!(m.capabilities?.toolUse),
-          pricing: { prompt: 0, completion: 0 },
-          ...m
-        }));
+        const mappedModels = modelsArray.map((m: any) => {
+          const inputModalities: string[] = (m.input_modalities || []).map((x: any) => String(x).toLowerCase());
+          return {
+            id: m.key || m.id, name: m.name || m.key || m.id,
+            context_length: m.max_context_length || m.context_length || null,
+            max_output_tokens: m.max_output_tokens || null,
+            owned_by: m.publisher || m.owner || 'local',
+            created: m.created || Math.floor(Date.now() / 1000),
+            modality: m.input_modalities?.includes('image') ? 'text+image->text' : 'text->text',
+            input_modalities: inputModalities,
+            supports_reasoning: !!(m.capabilities?.reasoning),
+            supports_tools: !!(m.capabilities?.toolUse),
+            supports_vision: inputModalities.includes('image'),
+            supports_audio: inputModalities.includes('audio'),
+            supports_video: inputModalities.includes('video'),
+            pricing: { prompt: 0, completion: 0 },
+            ...m
+          };
+        });
         Log.info('LMStudioService', `Model list fetched: ${mappedModels.length} models from ${url}`);
         return mappedModels;
       })
