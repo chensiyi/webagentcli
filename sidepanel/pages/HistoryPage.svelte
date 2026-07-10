@@ -8,13 +8,13 @@
   import EmptyState from '../components/layout/EmptyState.svelte';
   import { KernelEvents, KernelChannels } from 'kernel/Events.js';
   import type { KernelAPIContract } from '../api-contract.js';
-  import { ShellDataCache } from '../cache/shell-cache.js';
+  import { getShellCache } from '../cache/shell-cache.js';
   import { Log } from 'kernel/services/Log.js';
 
   const ipc: any = getContext('ipc');
   const sessionChannel = ipc?.getOrCreateChannel?.(KernelChannels.SESSION) || ipc;
   const api = getContext('api') as KernelAPIContract;
-  const cache = new ShellDataCache(api);
+  const cache = getShellCache(api);
   const navigateTo = getContext<any>('navigate');
 
   // ---------- Reactive State ----------

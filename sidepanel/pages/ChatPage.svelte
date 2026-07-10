@@ -1,16 +1,16 @@
 <script lang="ts">
   import { onMount, onDestroy, getContext } from 'svelte';
-  import { waitKernelReady } from '../utils/kernel-ready.js';
+  import { waitKernelReady } from 'sidepanel/utils/kernel-ready.js';
   import { KernelEvents, KernelChannels } from 'kernel/Events.js';
-  import type { KernelAPIContract } from '../api-contract.js';
-  import { ShellDataCache } from '../cache/shell-cache.js';
-  import { extractText, renderMarkdown, extractMediaBlocks } from '../utils/text.js';
-  import { autoScrollToBottom } from '../utils/dom.js';
-  import { useToast } from '../components/overlays/toast-store.svelte';
+  import type { KernelAPIContract } from 'sidepanel/api-contract.js';
+  import { getShellCache } from 'sidepanel/cache/shell-cache.js';
+  import { extractText, renderMarkdown, extractMediaBlocks } from 'sidepanel/utils/text.js';
+  import { autoScrollToBottom } from 'sidepanel/utils/dom.js';
+  import { useToast } from 'sidepanel/components/overlays/toast-store.svelte';
   import { Log } from 'kernel/services/Log.js';
-  import Button from '../components/atoms/Button.svelte';
-  import Dialog from '../components/overlays/Dialog.svelte';
-  import EmptyState from '../components/layout/EmptyState.svelte';
+  import Button from 'sidepanel/components/atoms/Button.svelte';
+  import Dialog from 'sidepanel/components/overlays/Dialog.svelte';
+  import EmptyState from 'sidepanel/components/layout/EmptyState.svelte';
 
   // Sub-components
   import EffortControl from './chat/EffortControl.svelte';
@@ -25,7 +25,7 @@
   const toolChannel = ipc?.getOrCreateChannel?.(KernelChannels.TOOL) || ipc;
   const navigate = getContext('navigate');
   const api = getContext('api') as KernelAPIContract;
-  const cache = new ShellDataCache(api);
+  const cache = getShellCache(api);
   const toast = useToast();
 
   // ==================== 响应式状态 ====================
@@ -331,9 +331,10 @@
   function toggleTool(tool: any) {
     const name = tool.name;
     if (!name) return;
-    api.tools.toggle({ name, enabled: !tool.enabled })
-      .catch((e) => Log.error('ChatPage', 'toggle tool failed', e));
-    toolEnabledMap = { ...toolEnabledMap, [name]: !tool.enabled };
+    const next = !tool.enabled;
+    toolEnabledMap = { ...toolEnabledMap, [name]: next }; // 乐观即时反馈
+    // 写穿透：先写主库（api.tools.toggle），缓存由 toggleTool 写主库后标脏，下次读取自动从主库重拉
+    cache.toggleTool(name, next).catch((e) => Log.error('ChatPage', 'toggle tool failed', e));
   }
 
   // ==================== 自动滚动 ====================

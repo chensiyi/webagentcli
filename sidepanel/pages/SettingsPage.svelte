@@ -2,21 +2,21 @@
 import { getContext, onMount, onDestroy } from 'svelte';
 import { waitKernelReady } from '../utils/kernel-ready.js';
 import { KernelChannels } from 'kernel/Events.js';
-  import Button from '../components/atoms/Button.svelte';
-  import Input from '../components/forms/Input.svelte';
-  import Select from '../components/forms/Select.svelte';
-  import Switch from '../components/forms/Switch.svelte';
-  import Slider from '../components/forms/Slider.svelte';
-  import Badge from '../components/atoms/Badge.svelte';
-  import Card from '../components/layout/Card.svelte';
-  import { useToast } from '../components/overlays/toast-store.svelte';
+  import Button from 'sidepanel/components/atoms/Button.svelte';
+  import Input from 'sidepanel/components/forms/Input.svelte';
+  import Select from 'sidepanel/components/forms/Select.svelte';
+  import Switch from 'sidepanel/components/forms/Switch.svelte';
+  import Slider from 'sidepanel/components/forms/Slider.svelte';
+  import Badge from 'sidepanel/components/atoms/Badge.svelte';
+  import Card from 'sidepanel/components/layout/Card.svelte';
+  import { useToast } from 'sidepanel/components/overlays/toast-store.svelte';
   import { Log } from 'kernel/services/Log.js';
-  import { ShellDataCache } from '../cache/shell-cache.js';
+  import { getShellCache } from 'sidepanel/cache/shell-cache.js';
 
   const ipc: any = getContext('ipc');
   const settingsChannel = ipc?.getOrCreateChannel?.(KernelChannels.SETTINGS) || ipc;
   const api: any = getContext('api');
-  const cache = new ShellDataCache(api);
+  const cache = getShellCache(api);
   const toast = useToast();
 
   // ---------- Reactive State ----------
@@ -141,8 +141,9 @@ import { KernelChannels } from 'kernel/Events.js';
   function handleThemeChange(theme: string) {
     currentSettings.theme = theme;
     applyTheme(theme);
-    api.settings.saveSettings({ theme })
-      .then(() => cache.invalidateSettings())
+    // 写穿透：先写主库，再回读权威结果同步缓存与 UI（不再只 invalidate 等下次重拉）
+    cache.saveSettings({ theme })
+      .then((fresh: any) => { if (fresh) currentSettings = { ...fresh }; })
       .catch((e) => toast.error('保存失败: ' + (e as Error).message));
   }
 
@@ -211,9 +212,8 @@ import { KernelChannels } from 'kernel/Events.js';
 
       currentSettings.models = models;
 
-      // 通过 API 契约持久化模型列表
-      await api.settings.saveSettings({ models });
-      cache.invalidateSettings();
+      // 写穿透：先写主库，再回读权威结果回填缓存
+      await cache.saveSettings({ models });
 
       toast.success(`已加载 ${models.length} 个模型`);
     } catch (e) {
@@ -229,8 +229,9 @@ import { KernelChannels } from 'kernel/Events.js';
     try {
       // 关键：currentSettings 是 Svelte $state Proxy，必须剥离为纯 JS 对象再传给 Kernel
       const plainSettings = JSON.parse(JSON.stringify(currentSettings));
-      await api.settings.saveSettings(plainSettings);
-      cache.invalidateSettings();
+      // 写穿透：先写主库，再回读权威结果同步缓存与 UI（不再只 invalidate 等下次重拉）
+      const fresh: any = await cache.saveSettings(plainSettings);
+      currentSettings = { ...(fresh || plainSettings) };
       Log.info('SettingsPage', `Saved settings, models count: ${Array.isArray(plainSettings.models) ? plainSettings.models.length : 'N/A'}`);
       toast.success('设置已保存');
     } catch (e) {

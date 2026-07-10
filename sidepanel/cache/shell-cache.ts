@@ -6,19 +6,22 @@
  * Kernel 事件，将不必要的 IO 降到最低。
  *
  * 设计要点：
- * - 按作用域（scope）分别缓存：session（当前会话视图）、sessionList、settings、tools、scripts。
+ * - 按作用域（scope）分别缓存：session（当前会话视图）、sessionList、settings、tools。
  * - 读方法在命中缓存且未失效时直接返回，零 RPC。
- * - 写操作后由调用方调用 invalidate(scope) 标记失效；需要立即反映的再 force 重拉。
- * - 加载约定：页面（重）加载入口一律 force=true 全量获取并把结果写回缓存（保证 reload 后是权威最新态）；
- *   页内再次拉取（如打开工具面板）不传 force，走缓存；标脏（invalidate）后下一次读取自动重拉。
+ * - 写穿透（核心原则）：任何更新都「先写主库（kernel/facade），再根据主库返回/回读的权威结果更新缓存」，
+ *   绝不只 invalidate 等下次重拉。settings 提供 saveSettings() 写穿透（写主库后回读 getSettings 回填）；
+ *   tools 的 toggle 写主库后标脏，下次读取自动从主库重拉；session 的 update 由调用方用返回结果 patch 缓存。
+ * - 加载约定：每个页面（重新）打开时一律 force=true 全量获取并写回缓存（保证打开即权威最新态）；
+ *   页内再次拉取（如打开工具面板）不传 force，走缓存。
+ * - 应用级单例：通过 getShellCache(api) 获取，跨页面共享同一份缓存（api 本身由 Sidepanel 顶层创建一次）。
+ *   页面重挂载（{#key activePage}）不会新建缓存实例，避免各页缓存态发散。
  * - 列表支持 patchSessionList(id, patch) 做差量更新（配合 Kernel SESSION_UPDATED 携带的
  *   index 视图），零 RPC。
  *
  * 统一契约（关键）：所有 get* 方法都「原样透传」对应 facade 的返回形态，不做任何拆包——
  *   - 单值类：getCurrentSession() 返回 sessionView { session, messages, reasoningEffort }；
  *             getSettings() 返回裸 settings 对象（facade 即返回裸对象）。
- *   - 列表类：getSessionList() 返回 { sessions }、getTools() 返回 { tools }、
- *             getScripts() 返回 { scripts }（与 facade 的 { sessions }/{ tools }/{ scripts } 一致）。
+ *   - 列表类：getSessionList() 返回 { sessions }、getTools() 返回 { tools }。
  *   这样消费端（applyCurrentSession/applyToolList/sortSessions 等）可直接消费，无需二次拆包/重包，
  *   patch* 差量方法也返回与对应 get* 完全相同的最终形态，全层只有一种契约。
  *
@@ -28,7 +31,7 @@
 
 import type { KernelAPIContract } from '../api-contract.js';
 
-export type CacheScope = 'session' | 'sessionList' | 'settings' | 'tools' | 'scripts';
+export type CacheScope = 'session' | 'sessionList' | 'settings' | 'tools';
 
 interface Entry<T> {
   value: T;
@@ -42,7 +45,6 @@ export class ShellDataCache {
     sessionList: undefined,
     settings: undefined,
     tools: undefined,
-    scripts: undefined,
   };
 
   constructor(api: KernelAPIContract) {
@@ -115,6 +117,25 @@ export class ShellDataCache {
     const e = this.store.settings;
     if (e) e.dirty = true;
   }
+  /** 差量合并设置缓存（如本地已知的新值）。 */
+  patchSettings(patch: Record<string, unknown>) {
+    const e = this.store.settings;
+    if (e && e.value) {
+      e.value = { ...(e.value as object), ...patch };
+      e.dirty = false;
+    }
+  }
+  /**
+   * 写穿透：先把设置写入主库（kernel），再回读主库权威结果并回填缓存。
+   * 这是「更新必须击穿缓存」原则的实现——绝不只 invalidate 等下次重拉。
+   * 返回回读的权威 settings（裸对象），供调用方同步 UI。
+   */
+  async saveSettings(settings: Record<string, unknown>): Promise<Record<string, unknown>> {
+    await this.api.settings.saveSettings(settings);
+    const fresh: any = await this.api.settings.getSettings();
+    this.store.settings = { value: fresh, dirty: false };
+    return fresh || {};
+  }
 
   // ---------- 工具 ----------
   /** 透传 facade 形态：返回 { tools }（与 applyToolList 期望一致，可直接消费）。 */
@@ -128,18 +149,13 @@ export class ShellDataCache {
     const e = this.store.tools;
     if (e) e.dirty = true;
   }
-
-  // ---------- 脚本 ----------
-  /** 透传 facade 形态：返回 { scripts }。 */
-  getScripts(force = false) {
-    return this._read('scripts', async () => {
-      const data: any = await this.api.scripts.list();
-      return { scripts: (data?.scripts as any[]) || [] };
-    }, force);
-  }
-  invalidateScripts() {
-    const e = this.store.scripts;
-    if (e) e.dirty = true;
+  /**
+   * 写穿透：切换工具启用状态。facade 不返回最新列表，故写主库后标脏，
+   * 下次 getTools 自动从主库重拉（缓存最终仍反映主库权威态）。
+   */
+  async toggleTool(name: string, enabled: boolean) {
+    await this.api.tools.toggle({ name, enabled });
+    this.invalidateTools();
   }
 
   /** 全部作用域失效（如内核重启 / 用户登出等场景）。 */
@@ -149,4 +165,12 @@ export class ShellDataCache {
       if (e) e.dirty = true;
     });
   }
+}
+
+// 应用级单例（跨页面共享）。api 由 Sidepanel 顶层创建一次并注入 context，所有页面复用同一实例；
+// 本 sidepanel 模块在扩展生命周期内只求值一次，故模块级变量天然持久，不随 {#key activePage} 重挂载而重置。
+let _instance: ShellDataCache | null = null;
+export function getShellCache(api: KernelAPIContract): ShellDataCache {
+  if (!_instance) _instance = new ShellDataCache(api);
+  return _instance;
 }
