@@ -223,7 +223,7 @@ webagentcli/
 
 ## 📦 版本
 
-- **扩展版本**：`0.6.7`（见 `manifest.json` / `package.json`）
+- **扩展版本**：（见 `package.json`，构建完成后 同步到`manifest.json`等 ）
 - **架构版本**：Microkernel（Kernel + Bootloader + ProviderFactory 解耦）
 - **构建系统**：TypeScript 6 + Vite 8 + Vitest 4 + Svelte 5
 - **Manifest**：V3
