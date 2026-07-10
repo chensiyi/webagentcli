@@ -146,10 +146,16 @@
 | 资源服务器可插拔存储（设置配置 + local/remote 后端 + 远端 URL 序列化） | ✅ 完成 | `1bfb029` |
 | P1 渲染层（MediaBlock + Lightbox，气泡渲染图/音视频/文件） | ✅ 完成 | `95fd380` |
 | P2 输入层（附件托盘/粘贴/拖拽 + 内核 send 支持 block 数组） | ✅ 完成 | `938624c` |
-| P2 模型截图工具（capture_visible_tab，模型自调） | ✅ 完成 | `938624c` |
-| P3 OpenAI 家族真机联调 | ⏳ 待做 | — |
+| P2 模型截图工具（capture_visible_tab，模型自调） | ❌ 已移除（2026-07-10：用户确认真机不可用、增加复杂度） | — |
+| P3 OpenAI 家族真机联调 | 🔶 链路就绪，待真机 key 实测 | — |
+| 媒体回收（删会话/清消息/删单条连带清 mediaId） | ✅ 完成 | 本轮未提交 |
+| manifest `tabs` 权限（captureVisibleTab 前提） | ❌ 已移除（截图工具已删，权限无意义） | — |
 | P4 视频/语音 | ⏳ 延后 | — |
 
 **关键修正**：实施中发现并修复 `ToolExecutor` 将 tool 结果 `JSON.stringify` 的隐患（图片块会被转义成文本、模型看不见），改为成功时保留 block 数组原样；`appendToolResult` 类型放宽 `string|any[]`。
 
-**待办**：① P3 端到端实发图验证；② 删会话时连带清理其消息引用的 mediaId（避免 IndexedDB/远端孤儿 blob，需经事件/RPC 让 background 在删会话时清媒体）；③ 上线前确认 manifest 含 `tabs` 权限（captureVisibleTab 调用前提）。
+**媒体回收实现**：`collectMediaIds`/`collectMediaIdsFromMessages`（`kernel/models/MessageContent.ts`）递归收集 content 里的 `mediaId`（仅 `local_`/`remote_` 前缀，覆盖嵌套在 `tool_result` 内的媒体块）；`Kernel` 新增 `mediaDeleter` 回调（与 `mediaResolver` 对称）；`background/main.ts` 接线为 `mediaStore.delete` 批量 best-effort 删除；`SessionManager.deleteSession`/`clearMessages`/`deleteMessage` 在删除前收集 mediaId 并触发回收，单条失败不影响删除主流程。
+
+**联调就绪**：媒体发送链路（media 块 → `ContextBuilder.buildMessages` 经 `mediaResolver` 换内容 → `toAPIFormat` 输出 `image_url`/`input_audio`/`file` parts）已用 node 集成测试覆盖（dataURL 本地媒体路径 + 混合图文音）。真机联调步骤：加载 unpacked 扩展 → 设置里填 OpenAI key（及可选资源服务器）→ 输入框粘贴/拖拽一张图发送 → 观察请求体含 `image_url`、模型能「看到」并回应。
+
+**待办**：① P3 真机发图验证（需用户 API key 实测）；② P4 视频/语音延后。

@@ -135,7 +135,9 @@ export class ToolExecutor {
       const out = toolResult.isSuccess()
         ? toolResult.output
         : String(toolResult.error || 'unknown error');
-      const toolMsg = await sm.appendToolResult(sessionId, tc.id, out, isError);
+      // toolResult.output 为 unknown（字符串或媒体 block 数组，见上方注释），
+      // appendToolResult 已放宽签名为 string | any[]；此处按既有契约断言类型。
+      const toolMsg = await sm.appendToolResult(sessionId, tc.id, out as string | any[], isError);
       // 携带完整 message 对象，供 Shell 侧零 RPC 差量 upsert 进列表
       this.emit(KernelEvents.SESSION.MESSAGE_ADDED, { message: toolMsg, messageId: toolMsg.id, sessionId });
     }

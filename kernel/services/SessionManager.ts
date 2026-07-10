@@ -1,6 +1,7 @@
 import { BaseSessionManager } from './ISessionManager.js';
 import { Session } from '../models/Session.js';
 import { Message, Role } from '../models/Message.js';
+import { collectMediaIdsFromMessages } from '../models/MessageContent.js';
 import { Log } from './Log.js';
 import { KernelEvents, KernelChannels } from '../Events.js';
 import {
@@ -20,6 +21,8 @@ export class SessionManager extends BaseSessionManager {
   private _storageErrorCooldownUntil = 0;
   /** 未发送即空的临时会话 id 集合（仅在首条消息落盘时转为正式会话）。 */
   private _transientIds = new Set<string>();
+  /** 内核引用（init 阶段注入）：用于取出 mediaDeleter 回调做媒体二进制回收。 */
+  private _kernel: any = null;
 
   constructor(obj: any = null) {
     super(obj);
@@ -86,6 +89,9 @@ export class SessionManager extends BaseSessionManager {
   async deleteSession(id: string): Promise<void> {
     const i = this.sessions.findIndex(s => s.id === id);
     if (i !== -1) {
+      const session = this.sessions[i];
+      // 删除会话前先收集其中所有媒体引用，会话删掉后连带清理二进制，避免 IndexedDB/远端孤儿 blob
+      const mediaIds = collectMediaIdsFromMessages(session.messages);
       this.sessions.splice(i, 1);
       this._transientIds.delete(id);
       if (this.currentSessionId === id) this.currentSessionId = null;
@@ -95,6 +101,8 @@ export class SessionManager extends BaseSessionManager {
       }
       // 广播会话删除事件，让 session RPC facade 取消该会话进行中的轮次
       this.ipc?.getOrCreateChannel(KernelChannels.SESSION)?.emit(KernelEvents.SESSION.SESSION_DELETED, { sessionId: id });
+      // 连带回收媒体二进制（best-effort，失败不影响删除主流程）
+      await this._cleanupMedia(mediaIds);
     }
   }
 
@@ -116,11 +124,14 @@ export class SessionManager extends BaseSessionManager {
   async clearMessages(sessionId: string): Promise<void> {
     const s = this.getSession(sessionId);
     if (s) {
+      // 清空前收集媒体引用，清空后连带回收，避免孤儿 blob
+      const mediaIds = collectMediaIdsFromMessages(s.messages);
       s.messages = [];
       s.title = '新对话'; // 清空消息时同步重置标题
       s.updatedAt = Date.now();
       await this._persistMessages(sessionId);
       await this._persistIndex();
+      await this._cleanupMedia(mediaIds);
     }
   }
 
@@ -145,9 +156,12 @@ export class SessionManager extends BaseSessionManager {
     if (!s) return false;
     const i = s.messages.findIndex((m: Message) => m.id === messageId);
     if (i !== -1) {
+      // 删除单条消息前收集其媒体引用，避免孤立 blob
+      const mediaIds = collectMediaIdsFromMessages([s.messages[i]]);
       s.messages.splice(i, 1);
       await this._persistMessages(sessionId);
       await this._persistIndex();
+      await this._cleanupMedia(mediaIds);
       return true;
     }
     return false;
@@ -223,6 +237,7 @@ export class SessionManager extends BaseSessionManager {
 
   /** 由 Kernel._initService 在 boot 阶段自动调用（init(kernel) 契约） */
   async init(_kernel?: unknown): Promise<void> {
+    this._kernel = _kernel ?? null;
     if (!this.storage) {
       Log.warn('SESSION', 'No storage, skipping init');
       return;
@@ -362,5 +377,21 @@ export class SessionManager extends BaseSessionManager {
         message: (e as any)?.message || String(e),
       });
     } catch { /* ignore */ }
+  }
+
+  /**
+   * 媒体二进制回收（best-effort）：删除会话/清空消息/删除单条消息时，
+   * 把其中引用的 mediaId 经内核 mediaDeleter 回调交给 background 的 mediaStore 删除。
+   * 失败仅告警、不影响删除主流程——保证用户删会话永远成功。
+   */
+  private async _cleanupMedia(ids: string[]): Promise<void> {
+    const unique = [...new Set((ids || []).filter(Boolean))];
+    if (unique.length === 0) return;
+    try {
+      const deleter = this._kernel?.getMediaDeleter?.();
+      if (typeof deleter === 'function') await deleter(unique);
+    } catch (e) {
+      Log.warn('SESSION', `media cleanup failed (best-effort, ignored): ${(e as any)?.message || e}`);
+    }
   }
 }

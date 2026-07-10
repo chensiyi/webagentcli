@@ -8,7 +8,7 @@
  * 验证这些方法是否存在于 MessageStructure 类上。
  */
 import { describe, it, expect } from 'vitest';
-import { MessageStructure, MediaBlock, dataUrlToBase64, dataUrlMime } from './MessageContent.js';
+import { MessageStructure, MediaBlock, dataUrlToBase64, dataUrlMime, collectMediaIds, collectMediaIdsFromMessages } from './MessageContent.js';
 
 const IMG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC';
 const AUDIO = 'data:audio/wav;base64,UklGRg==';
@@ -183,5 +183,48 @@ describe('toAPIFormat 多模态 content parts', () => {
       expect(file.content[0].type).toBe('text');
       expect(file.content[0].text).toContain('仅本地内容可内联');
     });
+  });
+});
+
+describe('collectMediaIds 媒体回收收集', () => {
+  it('纯文本 content 不收集任何 mediaId', () => {
+    expect(collectMediaIds('只是文本')).toEqual([]);
+    expect(collectMediaIds([{ type: 'text', text: 'hi' }])).toEqual([]);
+  });
+
+  it('media 块收集其 mediaId（local_ 前缀）', () => {
+    const content = [
+      { type: 'text', text: '看图' },
+      { type: 'media', kind: 'image', mediaId: 'local_abc123', mimeType: 'image/png' },
+    ];
+    expect(collectMediaIds(content)).toEqual(['local_abc123']);
+  });
+
+  it('嵌套在 tool_result 内的 media 块也能被递归收集（remote_ 前缀）', () => {
+    const content = [
+      { type: 'tool_result', toolUseId: 't1', content: [
+        { type: 'media', kind: 'image', mediaId: 'remote_xyz789', mimeType: 'image/png' },
+      ] },
+    ];
+    expect(collectMediaIds(content)).toEqual(['remote_xyz789']);
+  });
+
+  it('旧 ImageBlock（type:image + source URL）不持有二进制，不收集', () => {
+    const content = [{ type: 'image', source: 'https://x/y.png' }];
+    expect(collectMediaIds(content)).toEqual([]);
+  });
+
+  it('非前缀 mediaId 不收集（仅 local_/remote_ 计入回收）', () => {
+    const content = [{ type: 'media', kind: 'image', mediaId: 'm1', mimeType: 'image/png' }];
+    expect(collectMediaIds(content)).toEqual([]);
+  });
+
+  it('collectMediaIdsFromMessages 跨消息去重', () => {
+    const messages = [
+      { content: [{ type: 'media', mediaId: 'local_a', kind: 'image' }] },
+      { content: [{ type: 'media', mediaId: 'local_a', kind: 'image' }] },
+      { content: [{ type: 'media', mediaId: 'local_b', kind: 'video' }] },
+    ];
+    expect(collectMediaIdsFromMessages(messages).sort()).toEqual(['local_a', 'local_b']);
   });
 });

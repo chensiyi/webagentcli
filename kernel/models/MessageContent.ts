@@ -69,6 +69,49 @@ function audioFormat(mimeType: string): 'wav' | 'mp3' {
   return 'wav';
 }
 
+// =============================================================================
+// 媒体回收：从消息内容中收集 mediaId（用于删除会话/消息时连带清理二进制）
+// =============================================================================
+
+const MEDIA_ID_PREFIXES = ['local_', 'remote_'];
+
+/**
+ * 递归扫描任意内容结构，收集所有 mediaId 字符串（仅匹配 local_/remote_ 前缀，
+ * 避免误收普通文本）。媒体块可能嵌套在 tool_result 等结构里，故必须递归。
+ *
+ * 注意：仅收集 media 块（type:'media'），不收集旧 ImageBlock（type:'image' + source 是 URL，
+ * 不持有二进制引用）。
+ */
+function walkCollectMediaIds(node: unknown, out: Set<string>): void {
+  if (node == null || typeof node !== 'object') return;
+  if (Array.isArray(node)) {
+    for (const item of node) walkCollectMediaIds(item, out);
+    return;
+  }
+  const obj = node as Record<string, unknown>;
+  const m = obj.mediaId;
+  if (typeof m === 'string' && m && MEDIA_ID_PREFIXES.some((p) => m.startsWith(p))) {
+    out.add(m);
+  }
+  for (const key of Object.keys(obj)) walkCollectMediaIds(obj[key], out);
+}
+
+/** 从单条消息的 content 中收集所有 mediaId。 */
+export function collectMediaIds(content: unknown): string[] {
+  const out = new Set<string>();
+  walkCollectMediaIds(content, out);
+  return [...out];
+}
+
+/** 从一组消息中收集所有 mediaId（去重）。 */
+export function collectMediaIdsFromMessages(messages: { content?: unknown }[]): string[] {
+  const out = new Set<string>();
+  for (const m of messages || []) {
+    for (const id of collectMediaIds(m?.content)) out.add(id);
+  }
+  return [...out];
+}
+
 export class MessageStructure {
   role: string; content: string; reasoning_content: string; tool_calls: unknown[] | null;
   constructor(opts: Record<string, unknown> = {}) {

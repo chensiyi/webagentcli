@@ -33,7 +33,6 @@ import { ProviderFactory } from 'kernel/services/ProviderFactory.js';
 import { createChromeStorage } from './services/chromeStorage.js';
 import { RunUserScriptTool } from './tools/RunUserScriptTool.js';
 import { ManageUserScriptsTool, syncRegisteredScripts } from './tools/ManageUserScriptsTool.js';
-import { CaptureVisibleTabTool } from './tools/CaptureVisibleTabTool.js';
 import { KernelEvents, KernelChannels } from 'kernel/Events.js';
 import { Log } from 'kernel/services/Log.js';
 
@@ -239,16 +238,14 @@ async function bootKernel() {
             capabilities: kernel.getCapabilities() as any,
         });
 
-        // 截图工具：模型可经工具调用自助截图（基础设施），运行时截图经 mediaStore 持久化
-        const captureTool = new CaptureVisibleTabTool(kernel, mediaStore);
-        try {
-            kernel.getToolsManager().register(captureTool);
-            log.info('BACKGROUND', `Tool registered: ${captureTool.name}`);
-        } catch (e) {
-            log.warn('BACKGROUND', 'Failed to register capture_visible_tab tool', e);
-        }
         // 媒体解析回调：编排层发送前经此把 mediaId 换成实际内容（dataURL 或远端 URL）
         kernel.setMediaResolver((id: string) => mediaStore.get(id).catch(() => null));
+        // 媒体回收回调：删除会话/消息时经此连带清理二进制（best-effort，单条失败不影响整体删除）
+        kernel.setMediaDeleter(async (ids: string[]) => {
+          const list = (ids || []).filter(Boolean);
+          if (list.length === 0) return;
+          await Promise.all(list.map((id) => mediaStore.delete(id).catch(() => {})));
+        });
 
         // 首次（每次 SW 唤醒）内核启动完毕时，把已启用的用户脚本注册到 chrome.userScripts。
         // 注册是持久化的，SW/内核被回收后注入仍继续；此处保证「内核启动完毕」即完成注入初始化。

@@ -39,6 +39,8 @@ export class Kernel {
   storage: IStorageManager | null;
   /** 媒体解析回调：把 mediaId 解析为可发送内容（dataURL 或远端 URL）。由 background 注入。 */
   mediaResolver: ((id: string) => Promise<string | null>) | null;
+  /** 媒体回收回调：删除会话/消息时连带清理媒体二进制（按 mediaId 批量删除）。由 background 注入。 */
+  mediaDeleter: ((ids: string[]) => Promise<void>) | null;
   private _services: Map<string, { factory: unknown; instance: any; options: Record<string, unknown> }>;
   private _hooks: { beforeBoot: HookFn[]; afterBoot: HookFn[]; beforeShutdown: HookFn[]; afterShutdown: HookFn[] };
   private _bootOrder: string[];
@@ -50,6 +52,7 @@ export class Kernel {
     this.ipc = options.ipc || null;
     this.storage = options.storage || null;
     this.mediaResolver = null;
+    this.mediaDeleter = null;
     this._services = new Map();
     this._hooks = { beforeBoot: [], afterBoot: [], beforeShutdown: [], afterShutdown: [] };
     this._bootOrder = [];
@@ -169,4 +172,6 @@ export class Kernel {
   getIPC() { return this.ipc; }
   setMediaResolver(fn: (id: string) => Promise<string | null>) { this.mediaResolver = fn; }
   getMediaResolver() { return this.mediaResolver; }
+  setMediaDeleter(fn: (ids: string[]) => Promise<void>) { this.mediaDeleter = fn; }
+  getMediaDeleter() { return this.mediaDeleter; }
 }
