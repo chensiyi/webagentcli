@@ -66,6 +66,22 @@ export class CapabilityManager {
   audit(action: string, key: string, capabilities: string[], result: boolean, context: Record<string, unknown> = {}): void {
     this._audit(action, key, capabilities as Capability[], result, context);
   }
+  /**
+   * authorize — RPC 服务端鉴权决策入口（⚠️ 待开发）
+   *
+   * 当前鉴权尚未启用：无任何 capability 声明数据驱动，故恒返回 true（默认放行）。
+   * 审计日志由 RPC 层通过 audit 钩子统一记录，本方法保持纯决策（不重复审计）。
+   *
+   * 接入路径已就绪：RPCServer.expose 在每个远程方法分发前会调用本方法，
+   * 返回 false 即拒绝本次调用。未来当 `declare`/`grant` 注入了
+   * per-method 能力映射后，应在此改为调用 `require(key, capability)` 强制拦截。
+   *
+   * @returns true = 放行；false = 拒绝（待开发阶段恒为 true）
+   */
+  authorize(action: string, key: string, capabilities: string[]): boolean {
+    // TODO(鉴权): 接入 declare/grant 后，改为 `return this.check(key, capability)` 或 `this.require(...)`
+    return true;
+  }
   clearAuditLog(): void { this._auditLog = []; }
   reset(): this { this._grants.clear(); this._auditLog = []; return this; }
   destroy(): void { this._grants.clear(); this._auditLog = []; this._onDeny = null; }

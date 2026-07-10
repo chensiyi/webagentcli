@@ -16,15 +16,15 @@ export { IPC, KernelEvents, ToolsManager, CapabilityManager, CapabilityError, Ke
 // ==================== 数据模型 ====================
 import { BaseModel } from './models/BaseModel.js';
 import { Tool, ToolCall, ToolResult } from './models/Tool.js';
-import { TextBlock, ImageBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock, ThinkingConfig, MediaContent, MessageStructure, MessagesRequest } from './models/MessageContent.js';
+import { TextBlock, ImageBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock, ThinkingConfig, MediaContent, MediaBlock, MediaKind, MessageStructure, MessagesRequest } from './models/MessageContent.js';
 import { Message, Role } from './models/Message.js';
 import { Session } from './models/Session.js';
 import { Settings } from './models/Settings.js';
 import { Model } from './models/Model.js';
 import { UserScript } from './models/Scripts.js';
 import { Process } from './models/Process.js';
-export { BaseModel, Tool, ToolCall, ToolResult, TextBlock, ImageBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock, MediaContent, MessageStructure, Message, Role, Session, Settings, Model, Process };
-export type { UserScript, ThinkingConfig, MessagesRequest };
+export { BaseModel, Tool, ToolCall, ToolResult, TextBlock, ImageBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock, MediaContent, MediaBlock, MessageStructure, Message, Role, Session, Settings, Model, Process };
+export type { UserScript, ThinkingConfig, MessagesRequest, MediaKind };
 
 // ==================== 服务接口 ====================
 import { IStorageManager } from './services/IStorageManager.js';
@@ -32,7 +32,8 @@ import { BaseSettings } from './services/ISettings.js';
 import { BaseProviderAPIService } from './services/IProviderAPIService.js';
 import { BaseScriptsManager } from './services/IScriptsManager.js';
 import { BaseSessionManager } from './services/ISessionManager.js';
-export { IStorageManager, BaseSettings, BaseProviderAPIService, BaseScriptsManager, BaseSessionManager };
+export { BaseSettings, BaseProviderAPIService, BaseScriptsManager, BaseSessionManager };
+export type { IStorageManager };
 
 // ==================== Provider 实现 ====================
 import OpenAIService from './services/ProviderAPIServices/OpenAIService.js';

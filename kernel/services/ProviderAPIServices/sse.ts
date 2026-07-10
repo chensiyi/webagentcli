@@ -12,7 +12,7 @@ import { Log } from '../Log.js';
  * 统一处理：buffer 跨块拼接、跳过空行 / `data: [DONE]` / 非 data 行、JSON.parse 容错。
  */
 export async function forEachSSEData(
-  reader: ReadableStream<Uint8Array>,
+  reader: ReadableStreamDefaultReader<Uint8Array>,
   onData: (json: any) => void,
   logTag: string
 ): Promise<void> {

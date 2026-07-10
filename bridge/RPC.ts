@@ -54,22 +54,36 @@ export interface RpcResponse {
 // ─── 标准外部访问接口：按契约自动注册 / 自动代理 ───
 
 /**
- * expose 的能力监测钩子：仅要求一个 audit 方法（结构类型，避免 bridge 反向依赖 kernel）。
- * 后期结合 CapabilityManager：在每个远程调用处审计「谁调了什么方法」，per-method 能力映射作为数据填充。
+ * expose 的能力监测 / 鉴权钩子（结构类型，避免 bridge 反向依赖 kernel）。
+ * - audit(action, key, capabilities, result, ctx)：审计「谁调了什么方法」，仅记录。
+ * - authorize(action, key, capabilities)：鉴权决策（⚠️ 待开发：CapabilityManager.authorize
+ *   当前恒放行，仅记录审计；未来接入 declare/grant 后改为强制拦截，返回 false 即拒绝）。
  */
 export interface RpcCapabilityHook {
   audit(action: string, key: string, capabilities: string[], result: boolean, ctx?: Record<string, unknown>): void;
+  /**
+   * 鉴权决策（⚠️ 待开发）：返回 true 放行 / false 拒绝。
+   * CapabilityManager.authorize 当前恒返回 true（鉴权未启用），仅记录审计；
+   * 未来接入 declare/grant 后改为强制拦截。
+   */
+  authorize?(action: string, key: string, capabilities: string[]): boolean;
 }
 
 export interface ExposeOptions {
-  /** 只允许暴露的方法名白名单；省略则自动收集 impl 上所有函数属性（排除内部/基础设施方法） */
+  /** 只允许暴露的方法名白名单；省略则默认 fail-closed，拒绝自动暴露（见下） */
   methods?: string[];
   /**
-   * 能力监测钩子（CapabilityManager 实例即可），每次调用前触发 audit 审计。
-   * ⚠️ 待开发：CapabilityManager 暂未落地鉴权，仅作预留能力管理接口；
-   * TS 格式检查不强制全仓覆盖，故在传参时填写此钩子以辅助类型与属性检查。
+   * 能力监测 / 鉴权钩子（CapabilityManager 实例即可）。
+   * - 每次调用前先触发 authorize() 鉴权决策（⚠️ 待开发：当前恒放行，仅记录审计）；
+   * - audit() 用于审计日志记录。
    */
   capabilities?: RpcCapabilityHook | null;
+  /**
+   * 显式 opt-in：当省略 methods 时允许自动收集 impl 上所有函数属性（排除内部方法）。
+   * 默认（false）= fail-closed，省略 methods 时拒绝暴露任何方法，强制调用方显式声明白名单，
+   * 避免黑名单滞后导致意外暴露 shutdown/destroy 等危险方法。
+   */
+  autoCollect?: boolean;
 }
 
 /** expose 默认收集时排除的内部 / 基础设施方法（不应被远程调用） */
@@ -181,7 +195,24 @@ export class RPCServer {
    *   → 注册 'settings.getSettings' / 'settings.saveSettings'，shell 侧 api.settings.getSettings() 即可调用。
    */
   expose(service: string, impl: any, opts: ExposeOptions = {}): void {
+    // 默认 fail-closed：省略 methods 时拒绝自动暴露，强制显式声明白名单，
+    // 除非显式 opt-in autoCollect（内部/遗留场景）。
+    if (!opts.methods || !opts.methods.length) {
+      if (!opts.autoCollect) {
+        Log.error('RPCServer', `expose(${service}) 缺少 methods 白名单（fail-closed）：拒绝自动暴露任何方法。如需自动收集请显式传入 autoCollect: true。`);
+        return;
+      }
+      Log.warn('RPCServer', `expose(${service}) 使用 autoCollect 自动收集方法（不推荐用于跨进程边界）。`);
+    }
     const methods = opts.methods && opts.methods.length ? opts.methods : collectExposeMethods(impl);
+    // 钩子：audit 记录日志（保留契约），authorize 做鉴权决策（⚠️ 待开发：当前恒放行）
+    const capMgr = opts.capabilities || null;
+    const capAudit = capMgr && typeof (capMgr as any).audit === 'function'
+      ? (capMgr as any).audit.bind(capMgr)
+      : null;
+    const capAuth = capMgr && typeof (capMgr as any).authorize === 'function'
+      ? (capMgr as any).authorize.bind(capMgr)
+      : null;
     for (const m of methods) {
       if (typeof impl?.[m] !== 'function') {
         Log.warn('RPCServer', `expose skipped (not a function): ${service}.${m}`);
@@ -192,13 +223,24 @@ export class RPCServer {
         Log.warn('RPCServer', `expose overwrote existing handler: ${full}`);
       }
       const fn = impl[m].bind(impl);
-      const capHook = opts.capabilities && typeof (opts.capabilities as any).audit === 'function'
-        ? (opts.capabilities as any).audit.bind(opts.capabilities)
-        : null;
       this.register(full, async (params: any) => {
-        if (capHook) {
-          try { capHook('invoke', service, [m], true, {}); }
-          catch (e) { Log.debug('RPCServer', `capability audit hook failed: ${service}.${m}`, e); }
+        // 1) 审计日志（保留已有契约：每次调用记录 audit）
+        if (capAudit) {
+          try { capAudit('invoke', service, [m], true, {}); }
+          catch (e) { Log.debug('RPCServer', `capability audit hook failed: ${full}`, e); }
+        }
+        // 2) RPC 服务端鉴权（⚠️ 待开发）：authorize 返回 false 即拒绝本次调用
+        //    key 传 service（能力按服务粒度映射），capabilities 传 [method]
+        if (capAuth) {
+          let allowed = true;
+          try { allowed = capAuth('invoke', service, [m]); }
+          catch (e) {
+            Log.debug('RPCServer', `capability authorize hook failed: ${full}`, e);
+            allowed = true; // 钩子异常不阻断（待开发阶段），仅记录
+          }
+          if (allowed === false) {
+            throw new Error(`Capability denied: ${full}`);
+          }
         }
         const args = Array.isArray(params) ? params : (params == null ? [] : [params]);
         return fn.apply(impl, args);

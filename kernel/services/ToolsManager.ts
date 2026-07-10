@@ -119,7 +119,7 @@ export class ToolsManager {
     // 1. 查找工具
     const tool = toolName ? this._tools.get(toolName) : null;
     if (!tool) {
-      const result = new ToolResult({ toolCallId, status: 'failed', error: `Unknown tool: ${toolName || '(empty)'}` });
+      const result = new ToolResult({ toolCallId, toolName, status: 'failed', error: `Unknown tool: ${toolName || '(empty)'}` });
       this._recordInvocation(result);
       return result;
     }
@@ -127,7 +127,7 @@ export class ToolsManager {
     // 2. 参数类型校验（根据 inputSchema 校验参数类型）
     const validationError = this._validateArgs(toolCall.input, tool.inputSchema);
     if (validationError) {
-      const result = new ToolResult({ toolCallId, status: 'failed', error: `参数校验失败：${validationError}` });
+      const result = new ToolResult({ toolCallId, toolName, status: 'failed', error: `参数校验失败：${validationError}` });
       this._recordInvocation(result);
       return result;
     }
@@ -142,7 +142,7 @@ export class ToolsManager {
         proceed = false;
       }
       if (!proceed) {
-        const result = new ToolResult({ toolCallId, status: 'failed', error: 'Tool invocation rejected by beforeInvoke hook' });
+        const result = new ToolResult({ toolCallId, toolName, status: 'failed', error: 'Tool invocation rejected by beforeInvoke hook' });
         this._recordInvocation(result);
         return result;
       }
@@ -161,13 +161,13 @@ export class ToolsManager {
       } else {
         const duration = Date.now() - start;
         Log.info('ToolsManager', `Completed: ${toolName} in ${duration}ms`);
-        result = new ToolResult({ toolCallId, status: 'success', output, duration });
+        result = new ToolResult({ toolCallId, toolName, status: 'success', output, duration });
       }
     } catch (err) {
       const duration = Date.now() - start;
       const errMsg = (err)?.message || String(err);
       Log.error('ToolsManager', `Failed: ${toolName} — ${errMsg}`);
-      result = new ToolResult({ toolCallId, status: 'failed', error: errMsg, duration });
+      result = new ToolResult({ toolCallId, toolName, status: 'failed', error: errMsg, duration });
     }
 
     // 4. 后置钩子
@@ -261,13 +261,9 @@ export class ToolsManager {
 
   getInvocationHistory(filters: { toolName?: string; status?: string; since?: number; limit?: number } = {}): ToolResult[] {
     let r = [...this._invocationHistory];
-    if (filters.toolName) r = r.filter(e => {
-      const callId = e.toolCallId || '';
-      // 通过历史记录匹配 toolName
-      return callId.includes(filters.toolName!);
-    });
+    if (filters.toolName) r = r.filter(e => e.toolName === filters.toolName);
     if (filters.status) r = r.filter(e => e.status === filters.status);
-    if (filters.since) r = r.filter(e => e.toolCallId && (e as any).timestamp >= filters.since);
+    if (filters.since) r = r.filter(e => e.timestamp >= (filters.since as number));
     if (filters.limit && r.length > filters.limit) r = r.slice(-filters.limit);
     return r;
   }
