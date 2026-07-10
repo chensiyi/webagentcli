@@ -175,7 +175,7 @@ import { KernelChannels } from 'kernel/Events.js';
     applyTheme(theme);
     // 写穿透：先写主库，再回读权威结果同步缓存与 UI（不再只 invalidate 等下次重拉）
     cache.saveSettings({ theme })
-      .then((fresh: any) => { if (fresh) currentSettings = { ...fresh }; })
+      .then((fresh: any) => { if (fresh) currentSettings = { ...fresh }; toast.success('主题已切换'); })
       .catch((e) => toast.error('保存失败: ' + (e as Error).message));
   }
 

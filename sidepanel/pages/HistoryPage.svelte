@@ -9,7 +9,10 @@
   import { KernelEvents, KernelChannels } from 'kernel/Events.js';
   import type { KernelAPIContract } from '../api-contract.js';
   import { getShellCache } from '../cache/shell-cache.js';
+  import { useToast } from '../components/overlays/toast-store.svelte';
   import { Log } from 'kernel/services/Log.js';
+
+  const toast = useToast();
 
   const ipc: any = getContext('ipc');
   const sessionChannel = ipc?.getOrCreateChannel?.(KernelChannels.SESSION) || ipc;
@@ -166,7 +169,10 @@
   function loadConversation(id: string) {
     api.session.switch({ sessionId: id })
       .then(() => navigateTo('chat'))
-      .catch((e) => Log.error('HistoryPage', 'switch session failed', e));
+      .catch((e) => {
+        Log.error('HistoryPage', 'switch session failed', e);
+        toast.error('切换会话失败：' + ((e as Error)?.message || String(e)));
+      });
   }
 
   function confirmDelete(id: string, e: MouseEvent) {
@@ -180,8 +186,10 @@
       await api.session.delete({ sessionId: deleteTargetId });
       cache.invalidateSessionList();
       await refreshList();
+      toast.success('会话已删除');
     } catch (e) {
       Log.error('HistoryPage', 'delete session failed', e);
+      toast.error('删除会话失败：' + ((e as Error)?.message || String(e)));
     } finally {
       deleteTargetId = null;
     }

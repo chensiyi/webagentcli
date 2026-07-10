@@ -305,13 +305,19 @@
   }
 
   function handleStop() {
-    api.session.stop().catch((e) => Log.error('ChatPage', 'stop failed', e));
+    api.session.stop().catch((e) => {
+      Log.error('ChatPage', 'stop failed', e);
+      toast.error('停止生成失败：' + ((e as Error)?.message || String(e)));
+    });
   }
 
   function handleNewChat() {
     api.session.create()
       .then((data) => { applyCurrentSession(data); streamingMap = {}; })
-      .catch((e) => Log.error('ChatPage', 'new chat failed', e));
+      .catch((e) => {
+        Log.error('ChatPage', 'new chat failed', e);
+        toast.error('新建对话失败：' + ((e as Error)?.message || String(e)));
+      });
   }
 
   function confirmDelete(id: string) {
@@ -327,7 +333,11 @@
       toast.error('会话不存在');
       return;
     }
-    api.session.deleteMessage({ messageId: id, sessionId: sid }).catch((e) => Log.error('ChatPage', 'delete message failed', e));
+    api.session.deleteMessage({ messageId: id, sessionId: sid })
+      .catch((e) => {
+        Log.error('ChatPage', 'delete message failed', e);
+        toast.error('删除消息失败：' + ((e as Error)?.message || String(e)));
+      });
     deleteTargetId = null;
   }
 
@@ -343,7 +353,10 @@
             reasoningEffort = view.reasoningEffort;
           }
         })
-        .catch((e) => Log.error('ChatPage', 'update session failed', e));
+        .catch((e) => {
+          Log.error('ChatPage', 'update session failed', e);
+          toast.error('更新思考强度失败：' + ((e as Error)?.message || String(e)));
+        });
     }
   }
 
@@ -372,7 +385,10 @@
             session = view.session;
           }
         })
-        .catch((e) => Log.error('ChatPage', 'update title failed', e));
+        .catch((e) => {
+          Log.error('ChatPage', 'update title failed', e);
+          toast.error('更新标题失败：' + ((e as Error)?.message || String(e)));
+        });
     }
   }
 
@@ -386,7 +402,11 @@
     const next = !tool.enabled;
     toolEnabledMap = { ...toolEnabledMap, [name]: next }; // 乐观即时反馈
     // 写穿透：先写主库（api.tools.toggle），缓存由 toggleTool 写主库后标脏，下次读取自动从主库重拉
-    cache.toggleTool(name, next).catch((e) => Log.error('ChatPage', 'toggle tool failed', e));
+    cache.toggleTool(name, next)
+      .catch((e) => {
+        Log.error('ChatPage', 'toggle tool failed', e);
+        toast.error('切换工具失败：' + ((e as Error)?.message || String(e)));
+      });
   }
 
   // ==================== 自动滚动 ====================

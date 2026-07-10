@@ -306,7 +306,7 @@ function isUrlLike(v: unknown): v is string {
   return /^https?:\/\//i.test(s) || s.startsWith('//') || s.startsWith('/') || s.startsWith('data:');
 }
 
-/** 常见 URL 字段探测顺序（含点路径） */
+/** 常见 URL 字段探测顺序（含点路径）。data.image.url 对应 ImgBB 官方响应嵌套结构 { data: { image: { url } } }。 */
 const URL_CANDIDATE_PATHS = [
   'url', 'link', 'src', 'href',
   'fileUrl', 'file_url', 'imageUrl', 'image_url', 'fileURL',
