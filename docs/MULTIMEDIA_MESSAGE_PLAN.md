@@ -58,15 +58,17 @@
 - 保留 `TextBlock`；`ImageBlock` 标记为 deprecated 并向 `MediaBlock{kind:'image'}` 兼容转换（fromJSON 兼容旧数据）。
 - `Message.content` 仍为 `string | (TextBlock|MediaBlock|ToolUseBlock|ToolResultBlock|ThinkingBlock)[]`。
 
-### 3.2 媒体存储层 `MediaStore`（IndexedDB，解决配额）
+### 3.2 媒体存储层 `MediaStore`（可插拔后端：本地 IndexedDB / 远端资源服务器）
+
+> **已落地**：媒体存储改为**可插拔后端**，用户在 Settings 自建「资源服务器」配置（上传链接/端点），自己管理自己的基础设施；不硬编码任何第三方。
+
 - 位置：**background** 内（与 `createChromeStorage` 同源，符合「存储由 shell 提供、内核依赖接口」的既定架构）。
-- 实现：`background/services/mediaStore.ts`，封装 `indexedDB`（库 `webagent-media`，对象仓库 `blobs`，key=`mediaId`）。
-- RPC 接口（新增 `media` 服务，沿用 `expose` 范式）：
-  - `media.put({ dataUrl | blob, mimeType, filename? }) → mediaId`
-  - `media.get({ id }) → dataUrl`（侧栏展示时换取）
-  - `media.delete({ id })`
-  - `media.getMany({ ids }) → { id: dataUrl }`（批量换 URL，渲染列表时用）
-- 消息 JSON 只存 `mediaId`；用户发送前在侧栏把附件 blob 先 `media.put` 拿 id，再随消息发出。
+- 实现：`background/services/mediaStore.ts`，`createMediaStore(getSettings)` 返回门面，按 `settings.resourceServer.enabled` 选后端，按 id 前缀（`local_`/`remote_`）路由读取：
+  - **`LocalMediaStore`**（默认）：`indexedDB`（库 `webagent-media`，仓库 `blobs`，key=`mediaId`），存 dataURL。
+  - **`RemoteMediaStore`**：通用 HTTP 上传（multipart/form-data 到 `uploadUrl`，支持 method/authHeader/authToken/responseUrlField 点路径/urlPrefix），返回公网 URL；**上传失败直接抛错，不静默回退本地**（用户拍板）。
+- RPC 接口（`media` 服务，沿用 `expose` 范式）：`put → mediaId`（local/remote 前缀）、`get → dataUrl|url`、`delete`、`getMany → {id: dataUrl|url}`。
+- 消息 JSON 只存 `mediaId`；远端模式下 `media.get(id)` 返回的是服务器 URL 直链。
+- 设置项路径：`settings.resourceServer = { enabled, uploadUrl, method, authHeader, authToken, responseUrlField, urlPrefix }`，由 `SettingsPage` 的「资源服务器」区持久化。
 
 ### 3.3 序列化层（打通到 provider）
 扩展 `MessageStructure.toAPIFormat(msg, 'openai' | 'anthropic')`：

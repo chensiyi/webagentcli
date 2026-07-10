@@ -214,4 +214,46 @@ describe('ContextBuilder', () => {
       expect(msgs.length).toBe(21);
     });
   });
+
+  // ─── 媒体解析（mediaResolver） ───────────────
+
+  describe('mediaResolver 媒体解析', () => {
+    it('图片 mediaId 经 resolver 解析为 URL，序列化为 image_url', async () => {
+      const builder = new ContextBuilder();
+      const resolver = async (id: string) => (id === 'm1' ? 'https://img/x.png' : null);
+      const session = {
+        messages: [{
+          role: 'user',
+          content: [{ type: 'media', kind: 'image', mediaId: 'm1', mimeType: 'image/png' }],
+        }],
+      };
+      const msgs = await builder.buildMessages(session, { contextWindowSize: 20 }, [], resolver);
+      expect(msgs[1].content[0]).toEqual({ type: 'image_url', image_url: { url: 'https://img/x.png', detail: 'auto' } });
+    });
+
+    it('resolver 返回 null → 降级为未解析文本，不发出残缺请求', async () => {
+      const builder = new ContextBuilder();
+      const resolver = async () => null;
+      const session = {
+        messages: [{
+          role: 'user',
+          content: [{ type: 'media', kind: 'image', mediaId: 'mX', mimeType: 'image/png' }],
+        }],
+      };
+      const msgs = await builder.buildMessages(session, { contextWindowSize: 20 }, [], resolver);
+      expect(msgs[1].content[0]).toEqual({ type: 'text', text: '[媒体(image)未解析]' });
+    });
+
+    it('无 mediaResolver 时图片块（无 url）同样降级，不抛错', async () => {
+      const builder = new ContextBuilder();
+      const session = {
+        messages: [{
+          role: 'user',
+          content: [{ type: 'media', kind: 'image', mediaId: 'mX', mimeType: 'image/png' }],
+        }],
+      };
+      const msgs = await builder.buildMessages(session, { contextWindowSize: 20 }, []);
+      expect(msgs[1].content[0]).toEqual({ type: 'text', text: '[媒体(image)未解析]' });
+    });
+  });
 });

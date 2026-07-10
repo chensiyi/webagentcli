@@ -168,19 +168,28 @@ export class MessageStructure {
           parts.push({ type: 'text', text: `[媒体(${kind})未解析]` });
           continue;
         }
+        const isData = url.startsWith('data:');
         if (kind === 'image') {
           if (format === 'anthropic') {
-            parts.push({ type: 'image', source: { type: 'base64', media_type: dataUrlMime(url, b.mimeType), data: dataUrlToBase64(url) } });
+            // dataURL → base64；公网 URL → url source（远端资源服务器直链）
+            if (isData) {
+              parts.push({ type: 'image', source: { type: 'base64', media_type: dataUrlMime(url, b.mimeType), data: dataUrlToBase64(url) } });
+            } else {
+              parts.push({ type: 'image', source: { type: 'url', url } });
+            }
           } else {
+            // OpenAI image_url 同时接受 dataURL 与公网 URL（远端直链更省请求体积）
             parts.push({ type: 'image_url', image_url: { url, detail: 'auto' } });
           }
         } else if (kind === 'audio') {
-          // OpenAI: input_audio（仅 wav/mp3）；Anthropic 暂不支持音频输入 → 降级
+          // OpenAI: input_audio（仅 wav/mp3，需 base64）；Anthropic 暂不支持音频输入 → 降级
           if (format === 'anthropic') { parts.push({ type: 'text', text: '[音频暂不支持]' }); continue; }
+          if (!isData) { parts.push({ type: 'text', text: `[音频(${kind})仅本地内容可内联，远端链接无法发送]` }); continue; }
           parts.push({ type: 'input_audio', input_audio: { data: dataUrlToBase64(url), format: audioFormat(b.mimeType) } });
         } else {
-          // file / video：OpenAI 用 file part（内联 base64，适合 PDF 等）；Anthropic 暂不支持 → 降级
+          // file / video：OpenAI 用 file part（内联 base64）；Anthropic 暂不支持 → 降级
           if (format === 'anthropic') { parts.push({ type: 'text', text: `[文件(${kind})暂不支持]` }); continue; }
+          if (!isData) { parts.push({ type: 'text', text: `[文件(${kind})仅本地内容可内联，远端链接无法发送]` }); continue; }
           parts.push({ type: 'file', file: { file_data: dataUrlToBase64(url), filename: b.filename || `file.${kind}` } });
         }
         continue;

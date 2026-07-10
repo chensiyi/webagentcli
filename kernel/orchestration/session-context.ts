@@ -11,6 +11,7 @@
  */
 
 import { MessageStructure } from '../models/MessageContent.js';
+import type { MediaKind } from '../models/MessageContent.js';
 
 /** ContextBuilder 配置 */
 export interface ContextBuilderOptions {
@@ -54,16 +55,46 @@ export class ContextBuilder {
   buildMessages(
     session: SessionLike,
     settings: SettingsLike,
-    tools: unknown[]
-  ): Record<string, unknown>[] {
+    tools: unknown[],
+    mediaResolver?: (mediaId: string) => Promise<string | null>
+  ): Promise<Record<string, unknown>[]> {
     const systemMsg = this._buildSystemPrompt(tools);
     const sessionMessages = this._prepSessionMessages(session, settings);
 
     const allMessages = [systemMsg, ...sessionMessages];
-    return allMessages.map(m => {
+    return Promise.all(allMessages.map(async (m) => {
       const src = (m && typeof (m as any).toJSON === 'function') ? (m as any).toJSON() : m;
+      // 发送前把媒体块 mediaId 解析为可发送内容（dataURL 或远端 URL）
+      if (mediaResolver && Array.isArray((src as any)?.content)) {
+        await this._resolveMediaBlocks((src as any).content, mediaResolver);
+      }
       return MessageStructure.toAPIFormat(src);
-    });
+    }));
+  }
+
+  /**
+   * 解析消息内容里的媒体块：经 mediaResolver 把 mediaId 换成实际内容 url。
+   * - 本地媒体：resolver 返回 dataURL。
+   * - 远端资源服务器：resolver 返回公网 URL；图片可直发 URL，
+   *   但音频/文件需 base64，故非图片的远端 http 链接在此先 fetch 转 dataURL。
+   */
+  private async _resolveMediaBlocks(content: any[], mediaResolver: (id: string) => Promise<string | null>): Promise<void> {
+    await Promise.all((content || []).map(async (b) => {
+      if (!b) return;
+      const t = b.type;
+      if (t !== 'media' && t !== 'image') return;
+      if (b.url) return; // 已带内容（如历史消息已解析过）
+      const id: string | undefined = b.mediaId || (t === 'image' ? b.source : undefined);
+      if (!id) return;
+      let resolved = await mediaResolver(id).catch(() => null);
+      if (!resolved) return;
+      const kind: MediaKind = t === 'image' ? 'image' : (b.kind || 'file');
+      // 远端非图片链接需内联为 base64（OpenAI input_audio/file 不吃 URL）
+      if (kind !== 'image' && resolved.startsWith('http')) {
+        try { resolved = await fetchToDataUrl(resolved); } catch { /* 保留原 URL，序列化时降级提示 */ }
+      }
+      b.url = resolved;
+    }));
   }
 
   // ─── System Prompt ──────────────────────────────────────────
@@ -140,4 +171,17 @@ export class ContextBuilder {
       || (msg && typeof (msg as any).toJSON === 'function' ? (msg as any).toJSON().role : '')
       || '';
   }
+}
+
+/** 把公网 URL 拉取为 dataURL（远端非图片媒体需内联为 base64 才能发给模型） */
+async function fetchToDataUrl(url: string): Promise<string> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`fetch media failed HTTP ${res.status}`);
+  const blob = await res.blob();
+  return new Promise<string>((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result as string);
+    fr.onerror = () => reject(fr.error);
+    fr.readAsDataURL(blob);
+  });
 }

@@ -155,4 +155,33 @@ describe('toAPIFormat 多模态 content parts', () => {
     expect(r.tool_calls[0].function.name).toBe('screenshot');
     expect(r.content[0].text).toBe('分析完成');
   });
+
+  describe('远端资源服务器 URL 形态', () => {
+    const HTTP_IMG = 'https://cdn.example.com/x.png';
+    const HTTP_FILE = 'https://cdn.example.com/doc.pdf';
+
+    it('图片为 http(s) URL：OpenAI 走 image_url 直链', () => {
+      const r = MessageStructure.toAPIFormat({ role: 'user', content: [{ type: 'media', kind: 'image', mediaId: 'm1', mimeType: 'image/png', url: HTTP_IMG }] }, 'openai') as any;
+      expect(r.content[0]).toEqual({ type: 'image_url', image_url: { url: HTTP_IMG, detail: 'auto' } });
+    });
+
+    it('图片为 http(s) URL：Anthropic 走 source.type:url', () => {
+      const r = MessageStructure.toAPIFormat({ role: 'user', content: [{ type: 'media', kind: 'image', mediaId: 'm1', mimeType: 'image/png', url: HTTP_IMG }] }, 'anthropic') as any;
+      expect(r.content[0]).toEqual({ type: 'image', source: { type: 'url', url: HTTP_IMG } });
+    });
+
+    it('图片为 dataURL：Anthropic 仍走 base64', () => {
+      const r = MessageStructure.toAPIFormat({ role: 'user', content: [{ type: 'media', kind: 'image', mediaId: 'm1', mimeType: 'image/png', url: IMG }] }, 'anthropic') as any;
+      expect(r.content[0].source.type).toBe('base64');
+    });
+
+    it('非图片远端链接（音频/文件）无法内联 → 降级文本提示', () => {
+      const audio = MessageStructure.toAPIFormat({ role: 'user', content: [{ type: 'media', kind: 'audio', mediaId: 'm2', mimeType: 'audio/wav', url: HTTP_FILE }] }, 'openai') as any;
+      expect(audio.content[0].type).toBe('text');
+      expect(audio.content[0].text).toContain('仅本地内容可内联');
+      const file = MessageStructure.toAPIFormat({ role: 'user', content: [{ type: 'media', kind: 'file', mediaId: 'm3', mimeType: 'application/pdf', url: HTTP_FILE }] }, 'openai') as any;
+      expect(file.content[0].type).toBe('text');
+      expect(file.content[0].text).toContain('仅本地内容可内联');
+    });
+  });
 });

@@ -4,7 +4,7 @@ import { resolve } from 'path';
 export default defineConfig({
   test: {
     environment: 'node',
-    include: ['kernel/**/*.test.ts', 'bridge/**/*.test.ts'],
+    include: ['kernel/**/*.test.ts', 'bridge/**/*.test.ts', 'background/**/*.test.ts'],
     globals: true,
   },
   resolve: {

@@ -37,6 +37,8 @@ export class Kernel {
   origin: string;
   ipc: IPC | null;
   storage: IStorageManager | null;
+  /** 媒体解析回调：把 mediaId 解析为可发送内容（dataURL 或远端 URL）。由 background 注入。 */
+  mediaResolver: ((id: string) => Promise<string | null>) | null;
   private _services: Map<string, { factory: unknown; instance: any; options: Record<string, unknown> }>;
   private _hooks: { beforeBoot: HookFn[]; afterBoot: HookFn[]; beforeShutdown: HookFn[]; afterShutdown: HookFn[] };
   private _bootOrder: string[];
@@ -47,6 +49,7 @@ export class Kernel {
     this.origin = options.origin || 'kernel';
     this.ipc = options.ipc || null;
     this.storage = options.storage || null;
+    this.mediaResolver = null;
     this._services = new Map();
     this._hooks = { beforeBoot: [], afterBoot: [], beforeShutdown: [], afterShutdown: [] };
     this._bootOrder = [];
@@ -164,4 +167,6 @@ export class Kernel {
   getProcessManager() : ProcessManager { return this.get('processManager') as ProcessManager; }
   getProviderFactory() : ProviderFactory { return this.get('providerFactory') as ProviderFactory; }
   getIPC() { return this.ipc; }
+  setMediaResolver(fn: (id: string) => Promise<string | null>) { this.mediaResolver = fn; }
+  getMediaResolver() { return this.mediaResolver; }
 }

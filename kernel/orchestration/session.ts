@@ -142,7 +142,7 @@ async function runTurn(
     const freshSession = sm.getSession(sid);
     if (!freshSession) throw new Error(`Session not found: ${sid}`);
     const tools = kernel.getToolsManager().getDefinitionsForLLM();
-    const messagesForRequest = contextBuilder.buildMessages(freshSession, settings, tools);
+    const messagesForRequest = await contextBuilder.buildMessages(freshSession, settings, tools, kernel.getMediaResolver() || undefined);
 
     const modelId = model ? (model as any).id : (settings?.model || '');
     const thinkingEffort = freshSession.reasoningEffort || 'off';

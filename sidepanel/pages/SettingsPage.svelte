@@ -90,6 +90,7 @@ import { KernelChannels } from 'kernel/Events.js';
       // 页面（重）加载入口传 force=true：全量获取并把结果写回缓存
       const raw = await cache.getSettings(force);
       currentSettings = { ...(raw || {}) };
+      currentSettings.resourceServer = currentSettings.resourceServer || {};
       applyTheme(currentSettings.theme);
       Log.info('SettingsPage', 'Settings loaded via API contract');
     } catch (e) {
@@ -763,6 +764,60 @@ import { KernelChannels } from 'kernel/Events.js';
           <span class="theme-label">深色模式</span>
         </button>
       </div>
+    </div>
+
+    <!-- 资源服务器（媒体上传后端） -->
+    <div class="settings-section">
+      <h3 class="settings-section-title">资源服务器</h3>
+      <Card>
+        <div class="settings-form-grid">
+          <Switch
+            label="启用远端资源服务器（关闭则媒体存本地 IndexedDB）"
+            checked={currentSettings.resourceServer.enabled === true}
+            onchange={(v) => currentSettings.resourceServer.enabled = v}
+          />
+          <Input
+            label="上传链接 (Upload URL)"
+            placeholder="https://your-server.example.com/upload"
+            value={currentSettings.resourceServer.uploadUrl ?? ''}
+            oninput={(e) => currentSettings.resourceServer.uploadUrl = (e.target as HTMLInputElement).value}
+          />
+          <Select
+            label="HTTP 方法"
+            options={[{ value: 'POST', label: 'POST' }, { value: 'PUT', label: 'PUT' }]}
+            value={currentSettings.resourceServer.method ?? 'POST'}
+            onchange={(v) => currentSettings.resourceServer.method = v}
+          />
+          <Input
+            label="鉴权请求头名（可选，如 Authorization）"
+            placeholder="Authorization"
+            value={currentSettings.resourceServer.authHeader ?? ''}
+            oninput={(e) => currentSettings.resourceServer.authHeader = (e.target as HTMLInputElement).value}
+          />
+          <Input
+            label="鉴权令牌（可选）"
+            type="password"
+            placeholder="Bearer xxx / Token xxx"
+            value={currentSettings.resourceServer.authToken ?? ''}
+            oninput={(e) => currentSettings.resourceServer.authToken = (e.target as HTMLInputElement).value}
+          />
+          <Input
+            label="响应取 URL 的字段名（默认 url，支持点路径如 data.url）"
+            placeholder="url"
+            value={currentSettings.resourceServer.responseUrlField ?? 'url'}
+            oninput={(e) => currentSettings.resourceServer.responseUrlField = (e.target as HTMLInputElement).value}
+          />
+          <Input
+            label="URL 前缀（可选，拼到返回 URL 前）"
+            placeholder="https://cdn.example.com/"
+            value={currentSettings.resourceServer.urlPrefix ?? ''}
+            oninput={(e) => currentSettings.resourceServer.urlPrefix = (e.target as HTMLInputElement).value}
+          />
+          <p class="settings-hint">
+            启用后，上传的媒体会发送到你的服务器并返回公网 URL 存入消息（图片以直链发送，更省请求体积）。上传失败将直接报错，不会静默回退本地。
+          </p>
+        </div>
+      </Card>
     </div>
 
     <!-- 保存按钮 -->

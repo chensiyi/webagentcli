@@ -230,12 +230,15 @@ async function bootKernel() {
             capabilities: kernel.getCapabilities() as any,
         });
 
-        // 媒体二进制存储（IndexedDB）——消息只持 mediaId 引用，避免 chrome.storage 配额膨胀
-        const mediaStore = createMediaStore();
+        // 媒体二进制存储（可插拔后端：本地 IndexedDB / 远端资源服务器，按设置切换）
+        // 消息只持 mediaId 引用，避免 chrome.storage 配额膨胀
+        const mediaStore = createMediaStore(() => kernel.getSettingsManager().getSettings());
         rpcServer.expose('media', createMediaFacade(mediaStore), {
             methods: ['put', 'get', 'getMany', 'delete'],
             capabilities: kernel.getCapabilities() as any,
         });
+        // 媒体解析回调：编排层发送前经此把 mediaId 换成实际内容（dataURL 或远端 URL）
+        kernel.setMediaResolver((id: string) => mediaStore.get(id).catch(() => null));
 
         // 首次（每次 SW 唤醒）内核启动完毕时，把已启用的用户脚本注册到 chrome.userScripts。
         // 注册是持久化的，SW/内核被回收后注入仍继续；此处保证「内核启动完毕」即完成注入初始化。
