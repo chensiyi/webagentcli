@@ -57,10 +57,12 @@ export class Session extends BaseModel {
       updatedAt: this.updatedAt,
       messageCount: this.messages.length,
       preview,
-      // 会话级配置必须随索引持久化，否则重启后 init() 从索引重建会话时丢失
-      // reasoningEffort（toJSON 有，但索引过去漏存 → 重建回退成默认 'medium'）。
-      // 构造器保证 reasoningEffort 恒为字符串（默认 'medium'），此处不会是 null。
+      // 会话级配置必须随索引持久化，否则重启后 init() 从索引重建会话时丢失。
+      // 此前 toIndexJSON 只存了 id/title/时间戳/preview，漏掉 reasoningEffort 与 model，
+      // 导致重建时构造器回退默认（reasoningEffort→'medium'、model→null）。
+      // 构造器保证 reasoningEffort 恒为字符串；model 可能为 null（沿用全局默认）。
       reasoningEffort: this.reasoningEffort,
+      model: this.model,
     };
   }
 
