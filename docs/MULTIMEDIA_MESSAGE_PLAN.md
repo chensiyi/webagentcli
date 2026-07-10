@@ -135,3 +135,21 @@
 - 渲染：`sidepanel/pages/chat/MediaBlock.svelte`（新增）、`Lightbox.svelte`（新增）、`MessageBubble.svelte`、`ChatPage.svelte`
 - 接口：`kernel/orchestration/session.ts`（send 接 attachments）、`sidepanel` 侧 RPC 契约补 `media`
 - 测试：`MessageContent.test.ts`、新增 `mediaStore` / `toAPIFormat` 多模态单测
+
+---
+
+## 实施进度（截至 2026-07-10）
+
+| 阶段 | 状态 | 提交 |
+|------|------|------|
+| P0 基础（模型 + IndexedDB 媒体存储 + 多模态序列化） | ✅ 完成 | `7c20167` |
+| 资源服务器可插拔存储（设置配置 + local/remote 后端 + 远端 URL 序列化） | ✅ 完成 | `1bfb029` |
+| P1 渲染层（MediaBlock + Lightbox，气泡渲染图/音视频/文件） | ✅ 完成 | `95fd380` |
+| P2 输入层（附件托盘/粘贴/拖拽 + 内核 send 支持 block 数组） | ✅ 完成 | `938624c` |
+| P2 模型截图工具（capture_visible_tab，模型自调） | ✅ 完成 | `938624c` |
+| P3 OpenAI 家族真机联调 | ⏳ 待做 | — |
+| P4 视频/语音 | ⏳ 延后 | — |
+
+**关键修正**：实施中发现并修复 `ToolExecutor` 将 tool 结果 `JSON.stringify` 的隐患（图片块会被转义成文本、模型看不见），改为成功时保留 block 数组原样；`appendToolResult` 类型放宽 `string|any[]`。
+
+**待办**：① P3 端到端实发图验证；② 删会话时连带清理其消息引用的 mediaId（避免 IndexedDB/远端孤儿 blob，需经事件/RPC 让 background 在删会话时清媒体）；③ 上线前确认 manifest 含 `tabs` 权限（captureVisibleTab 调用前提）。
