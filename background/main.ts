@@ -33,6 +33,7 @@ import { ProviderFactory } from 'kernel/services/ProviderFactory.js';
 import { createChromeStorage } from './services/chromeStorage.js';
 import { RunUserScriptTool } from './tools/RunUserScriptTool.js';
 import { ManageUserScriptsTool, syncRegisteredScripts } from './tools/ManageUserScriptsTool.js';
+import { CaptureVisibleTabTool } from './tools/CaptureVisibleTabTool.js';
 import { KernelEvents, KernelChannels } from 'kernel/Events.js';
 import { Log } from 'kernel/services/Log.js';
 
@@ -237,6 +238,15 @@ async function bootKernel() {
             methods: ['put', 'get', 'getMany', 'delete'],
             capabilities: kernel.getCapabilities() as any,
         });
+
+        // 截图工具：模型可经工具调用自助截图（基础设施），运行时截图经 mediaStore 持久化
+        const captureTool = new CaptureVisibleTabTool(kernel, mediaStore);
+        try {
+            kernel.getToolsManager().register(captureTool);
+            log.info('BACKGROUND', `Tool registered: ${captureTool.name}`);
+        } catch (e) {
+            log.warn('BACKGROUND', 'Failed to register capture_visible_tab tool', e);
+        }
         // 媒体解析回调：编排层发送前经此把 mediaId 换成实际内容（dataURL 或远端 URL）
         kernel.setMediaResolver((id: string) => mediaStore.get(id).catch(() => null));
 

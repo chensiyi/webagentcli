@@ -29,7 +29,7 @@ export interface SessionAPI {
   switch(data: { sessionId: string }): Promise<SessionView>;
   delete(data: { sessionId: string }): Promise<{ sessions: any[] }>;
   clearMessages(data: { sessionId: string }): Promise<null>;
-  send(data: { content: string; reasoningEffort?: string }): Promise<null>;
+  send(data: { content: string | any[]; reasoningEffort?: string }): Promise<null>;
   stop(): Promise<null>;
 }
 

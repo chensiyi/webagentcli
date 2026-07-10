@@ -665,6 +665,97 @@
   cursor: not-allowed;
 }
 
+/* ---- 输入区容器 / 拖拽高亮 ---- */
+.chat-input-area {
+  position: relative;
+  border-top: 1px solid var(--color-border-light);
+  padding: 10px 12px;
+  background: var(--color-surface);
+  transition: background var(--transition-fast), box-shadow var(--transition-fast);
+}
+.chat-input-area.chat-input-dragging {
+  background: rgba(var(--color-primary-rgb, 80, 120, 255), 0.06);
+  box-shadow: inset 0 0 0 2px var(--color-primary);
+}
+.chat-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+/* ---- 附件按钮 ---- */
+.attach-btn {
+  flex: 0 0 auto;
+  height: 34px;
+  width: 34px;
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+}
+.attach-btn:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: rgba(var(--color-primary-rgb, 80, 120, 255), 0.06);
+}
+.attach-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ---- 附件预览托盘 ---- */
+.attachment-tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.attachment-chip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 22px 5px 6px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-hover);
+  max-width: 200px;
+}
+.attachment-chip.att-error { border-color: rgba(var(--color-danger-rgb), 0.6); }
+.att-thumb {
+  width: 34px;
+  height: 34px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex: 0 0 auto;
+}
+.att-icon { font-size: 20px; line-height: 1; }
+.att-name {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+.att-state { font-size: 12px; }
+.att-fail { color: var(--color-danger); }
+.att-remove {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  line-height: 1;
+}
+.att-remove:hover { color: var(--color-danger); }
+
+
 /* ---- 工具面板 ---- */
 .tool-panel {
   border-bottom: 1px solid var(--color-border-light);

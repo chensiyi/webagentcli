@@ -37,7 +37,7 @@ export interface TurnState {
 
 export interface ConversationInput {
   sessionId?: string | null;
-  content?: string;
+  content?: string | any[];
   reasoningEffort?: string;
   model?: unknown;
   isToolContinuation?: boolean;
@@ -107,7 +107,7 @@ export async function runConversation(
 async function runTurn(
   kernel: Kernel,
   sessionId: string,
-  opts: { content: string; model: unknown; isToolContinuation: boolean },
+  opts: { content: string | any[]; model: unknown; isToolContinuation: boolean },
   emit: (event: string, data: unknown) => void,
 ): Promise<void> {
   const { content, model, isToolContinuation } = opts;
@@ -118,12 +118,17 @@ async function runTurn(
   try {
     // ── 前置：用户消息 + 自动标题（仅非续轮） ──
     if (!isToolContinuation) {
-      if (!content || !(content as string).trim()) throw new Error('Message content is required');
+      const hasContent =
+        typeof content === 'string'
+          ? !!content.trim()
+          : Array.isArray(content) && content.length > 0;
+      if (!hasContent) throw new Error('Message content is required');
       if (turns.has(sid)) throw new Error('A message is already being generated for this session');
       // 按 session 预留 turn，防止同会话并发 SEND 叠加（不同会话互不互斥）
       turns.set(sid, { sessionId: sid, assistantMessageId: '', startedAt: Date.now(), lastActiveAt: Date.now() });
 
-      const userMsg = new Message({ role: 'user', content: (content as string).trim() });
+      const userContent = typeof content === 'string' ? content.trim() : content;
+      const userMsg = new Message({ role: 'user', content: userContent });
       await sm.addMessage(userMsg, sid);
       // 携带完整 message 对象，供 Shell 侧零 RPC 差量 upsert 进列表（否则需全量重拉才能显示）
       emit(KernelEvents.SESSION.MESSAGE_ADDED, { message: userMsg, messageId: userMsg.id, sessionId: sid });

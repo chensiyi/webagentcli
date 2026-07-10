@@ -129,9 +129,11 @@ export class ToolExecutor {
       });
 
       // 工具结果作为 tool 角色消息写入会话（数据操作下沉到 SessionManager）
+      // 成功时保留 output 原样：字符串或媒体 block 数组（图片/文件），不 JSON.stringify，
+      // 否则图片块会被转义成文本、模型无法「看见」
       const isError = !toolResult.isSuccess();
       const out = toolResult.isSuccess()
-        ? (typeof toolResult.output === 'string' ? toolResult.output : JSON.stringify(toolResult.output, null, 2))
+        ? toolResult.output
         : String(toolResult.error || 'unknown error');
       const toolMsg = await sm.appendToolResult(sessionId, tc.id, out, isError);
       // 携带完整 message 对象，供 Shell 侧零 RPC 差量 upsert 进列表

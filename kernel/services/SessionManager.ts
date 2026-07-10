@@ -211,7 +211,7 @@ export class SessionManager extends BaseSessionManager {
   }
 
   /** 追加一条 tool 角色结果消息（成功/失败回写，已落盘），返回该消息。 */
-  async appendToolResult(sessionId: string, toolCallId: string, content: string, isError = false): Promise<Message> {
+  async appendToolResult(sessionId: string, toolCallId: string, content: string | any[], isError = false): Promise<Message> {
     const msg = new Message({
       role: Role.TOOL,
       toolCallId,

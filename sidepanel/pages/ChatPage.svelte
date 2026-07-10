@@ -33,6 +33,95 @@
   let session = $state<any>(null);
   let isStreaming = $state(false);
   let inputText = $state('');
+
+  // ---- 附件（图片/音频/视频/文件）待发送队列 ----
+  let pendingAttachments = $state<any[]>([]);
+  let fileInputEl: HTMLInputElement | null = $state(null);
+  let isDragging = $state(false);
+
+  function mediaKindFromMime(mime: string): 'image' | 'audio' | 'video' | 'file' {
+    if (mime.startsWith('image/')) return 'image';
+    if (mime.startsWith('audio/')) return 'audio';
+    if (mime.startsWith('video/')) return 'video';
+    return 'file';
+  }
+
+  function readFileAsDataUrl(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function addFiles(files: FileList | File[]) {
+    const list = Array.from(files || []);
+    if (!list.length) return;
+    for (const file of list) {
+      const att = {
+        id: `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        file,
+        kind: mediaKindFromMime(file.type || ''),
+        filename: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        size: file.size,
+        dataUrl: '',
+        uploading: true,
+      };
+      pendingAttachments = [...pendingAttachments, att];
+      try {
+        att.dataUrl = await readFileAsDataUrl(file);
+        const res = await api.media.put({ dataUrl: att.dataUrl, mimeType: att.mimeType, filename: att.filename });
+        att.mediaId = res?.id;
+        att.uploading = false;
+        pendingAttachments = [...pendingAttachments];
+      } catch (e) {
+        Log.error('ChatPage', 'upload attachment failed', e);
+        att.uploading = false;
+        att.error = true;
+        pendingAttachments = [...pendingAttachments];
+        toast.error('附件上传失败：' + (file.name || ''));
+      }
+    }
+  }
+
+  function removeAttachment(id: string) {
+    pendingAttachments = pendingAttachments.filter((a) => a.id !== id);
+  }
+
+  async function handlePaste(e: ClipboardEvent) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const files: File[] = [];
+    for (const it of items) {
+      if (it.kind === 'file' && it.type.startsWith('image/')) {
+        const f = it.getAsFile();
+        if (f) files.push(f);
+      }
+    }
+    if (files.length) {
+      e.preventDefault();
+      await addFiles(files);
+    }
+  }
+
+  function handleDrop(e: DragEvent) {
+    e.preventDefault();
+    isDragging = false;
+    if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
+  }
+
+  function handleDragOver(e: DragEvent) {
+    e.preventDefault();
+    isDragging = true;
+  }
+
+  function handleDragLeave(e: DragEvent) {
+    e.preventDefault();
+    isDragging = false;
+  }
+
   let toolPanelVisible = $state(false);
   let allTools = $state<any[]>([]);
   let toolEnabledMap = $state<Record<string, boolean>>({});
@@ -112,10 +201,27 @@
   // ==================== 业务逻辑 ====================
 
   function handleSend() {
-    const content = inputText.trim();
-    if (!content) return;
+    const text = inputText.trim();
+    const attachments = pendingAttachments.filter((a) => a.mediaId && !a.error);
+    if (!text && attachments.length === 0) return;
+
+    // 组装 content：文本块 + 媒体块（mediaId 引用，发送时由内核经 mediaStore 解析）
+    const blocks: any[] = [];
+    if (text) blocks.push({ type: 'text', text });
+    for (const a of attachments) {
+      blocks.push({
+        type: 'media',
+        kind: a.kind,
+        mediaId: a.mediaId,
+        filename: a.filename,
+        mimeType: a.mimeType,
+        size: a.size,
+      });
+    }
 
     inputText = '';
+    pendingAttachments = [];
+    const content = blocks.length === 1 && blocks[0].type === 'text' ? text : blocks;
     api.session.send({
       content,
       reasoningEffort: session?.reasoningEffort || reasoningEffort,
@@ -469,9 +575,36 @@
   </div>
 
   <!-- ==================== 输入区域 ==================== -->
-  <footer class="chat-input-area">
+  <footer class="chat-input-area" class:chat-input-dragging={isDragging}
+    ondragover={handleDragOver} ondrop={handleDrop} ondragleave={handleDragLeave}>
     {#if toolPanelVisible}
       <ToolPanel {allTools} {toolEnabledMap} {toggleTool} />
+    {/if}
+
+    <!-- 附件预览区 -->
+    {#if pendingAttachments.length > 0}
+      <div class="attachment-tray">
+        {#each pendingAttachments as att (att.id)}
+          <div class="attachment-chip" class:att-error={att.error}>
+            {#if att.kind === 'image' && att.dataUrl}
+              <img class="att-thumb" src={att.dataUrl} alt={att.filename} />
+            {:else}
+              <span class="att-icon">
+                {att.kind === 'audio' ? '🎵' : att.kind === 'video' ? '🎬' : '📄'}
+              </span>
+            {/if}
+            <span class="att-name" title={att.filename}>{att.filename}</span>
+            {#if att.uploading}
+              <span class="att-state">⏳</span>
+            {:else if att.error}
+              <span class="att-state att-fail">⚠</span>
+            {/if}
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <span class="att-remove" onclick={() => removeAttachment(att.id)} title="移除">×</span>
+          </div>
+        {/each}
+      </div>
     {/if}
 
     <div class="chat-input-row">
@@ -479,11 +612,29 @@
         🔧 工具
       </Button>
 
+      <button class="attach-btn" title="添加附件" disabled={isStreaming}
+        onclick={() => fileInputEl?.click()}>
+        📎
+      </button>
+      <input
+        bind:this={fileInputEl}
+        type="file"
+        multiple
+        accept="image/*,audio/*,video/*,application/pdf,.txt,.md,.json,.csv,.log"
+        style="display:none"
+        onchange={(e) => {
+          const el = e.target as HTMLInputElement;
+          if (el.files?.length) addFiles(el.files);
+          el.value = '';
+        }}
+      />
+
       <textarea
         class="chat-textarea"
         bind:value={inputText}
-        placeholder="输入消息 (Ctrl+Enter 发送)"
+        placeholder="输入消息 (Ctrl+Enter 发送)，可粘贴/拖拽图片与文件"
         rows="1" disabled={isStreaming}
+        onpaste={handlePaste}
         oninput={(e) => {
           const el = e.target as HTMLTextAreaElement;
           el.style.height = 'auto';
@@ -497,7 +648,10 @@
       {#if isStreaming}
         <Button variant="danger" size="md" onclick={handleStop}>⏹ 停止</Button>
       {:else}
-        <Button variant="primary" size="md" onclick={handleSend} disabled={!inputText.trim()}>发送</Button>
+        <Button variant="primary" size="md" onclick={handleSend}
+          disabled={!inputText.trim() && pendingAttachments.filter((a: any) => a.mediaId && !a.error).length === 0}>
+          发送
+        </Button>
       {/if}
     </div>
   </footer>

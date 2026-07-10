@@ -120,7 +120,7 @@ export function createSessionFacade(kernel: Kernel, sessionChannel: RpcChannel) 
 
     // 发送消息：Shell→Kernel 经 RPC 统一入口，直接驱动编排（fire-and-forget）。
     // 流式 STREAM_* / MESSAGE_* 事件由 runConversation 通过 onEvent 经 sessionChannel 回灌到 Shell。
-    send(data: { content: string; reasoningEffort?: string }) {
+    send(data: { content: string | any[]; reasoningEffort?: string }) {
       if (!data?.content) return null;
       void runConversation(kernel, data as any, { onEvent: emit }).catch((err: any) => {
         Log.error('SESSION_FACADE', 'runConversation error', err);
