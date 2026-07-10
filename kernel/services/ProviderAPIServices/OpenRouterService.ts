@@ -10,7 +10,7 @@ import { Settings } from '../../models/Settings.js';
 import * as MessageContent from '../../models/MessageContent.js';
 import { Log } from '../Log.js';
 import { joinUrl } from '../../utils/url.js';
-import { forEachSSEData, accumulateOpenAIToolCall, makeStreamResult } from './sse.js';
+import { forEachSSEData, accumulateOpenAIToolCall, makeStreamResult, extractStreamError } from './sse.js';
 
 export default class OpenRouterService extends OpenAIService {
   constructor() {
@@ -91,6 +91,7 @@ export default class OpenRouterService extends OpenAIService {
     let pendingReasoning = '';
     const pendingToolCalls: Record<number, any> = {};
     let pendingFinishReason: string | null = null;
+    let streamError: Error | null = null;
 
     Log.info('OpenRouterService', `Stream request: model=${body.model}, messages=${body.messages?.length}`);
 
@@ -109,6 +110,9 @@ export default class OpenRouterService extends OpenAIService {
         const reader = response.body?.getReader();
         if (!reader) return Promise.resolve(null);
         return forEachSSEData(reader, (parsed) => {
+          // 上游在 chunk 内返回错误（choices 为空 + error 字段）→ 记录后由外层 reject 传播，不让交互静默停止
+          const errMsg = extractStreamError(parsed);
+          if (errMsg) { streamError = new Error(`上游返回错误: ${errMsg}`); return; }
           const choice = parsed.choices?.[0];
           if (!choice) return;
           const delta = choice.delta || {};
@@ -126,6 +130,11 @@ export default class OpenRouterService extends OpenAIService {
             onChunk({ content: contentChunk, reasoning_content: reasoningChunk });
           }
         }, 'OpenRouterService').then(() => {
+          if (streamError) {
+            Log.error('OpenRouterService', `Stream error from upstream: ${streamError.message}`);
+            reject(streamError);
+            return;
+          }
           Log.info('OpenRouterService', `Stream completed: content=${pendingContent.length}chars, finishReason=${pendingFinishReason || 'stop'}`);
           resolve(makeStreamResult(pendingContent, pendingReasoning, MessageContent.MessageStructure.parseToolCallsFromOpenAI(Object.values(pendingToolCalls)), pendingFinishReason));
         });

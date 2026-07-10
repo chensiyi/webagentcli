@@ -52,24 +52,26 @@ export class ContextBuilder {
    * @param tools    已注册工具的 OpenAI function definitions
    * @returns 可直接发给 LLM API 的消息数组
    */
-  buildMessages(
+  async buildMessages(
     session: SessionLike,
     settings: SettingsLike,
     tools: unknown[],
     mediaResolver?: (mediaId: string) => Promise<string | null>
-  ): Promise<Record<string, unknown>[]> {
+  ): Promise<{ messages: Record<string, unknown>[]; mediaWarnings: string[] }> {
+    const mediaWarnings: string[] = [];
     const systemMsg = this._buildSystemPrompt(tools);
     const sessionMessages = this._prepSessionMessages(session, settings);
 
     const allMessages = [systemMsg, ...sessionMessages];
-    return Promise.all(allMessages.map(async (m) => {
+    const messages = await Promise.all(allMessages.map(async (m) => {
       const src = (m && typeof (m as any).toJSON === 'function') ? (m as any).toJSON() : m;
       // 发送前把媒体块 mediaId 解析为可发送内容（dataURL 或远端 URL）
-      if (mediaResolver && Array.isArray((src as any)?.content)) {
-        await this._resolveMediaBlocks((src as any).content, mediaResolver);
+      if (Array.isArray((src as any)?.content)) {
+        await this._resolveMediaBlocks((src as any).content, mediaResolver, mediaWarnings);
       }
       return MessageStructure.toAPIFormat(src);
     }));
+    return { messages, mediaWarnings };
   }
 
   /**
@@ -78,20 +80,36 @@ export class ContextBuilder {
    * - 远端资源服务器：resolver 返回公网 URL；图片可直发 URL，
    *   但音频/文件需 base64，故非图片的远端 http 链接在此先 fetch 转 dataURL。
    */
-  private async _resolveMediaBlocks(content: any[], mediaResolver: (id: string) => Promise<string | null>): Promise<void> {
+  private async _resolveMediaBlocks(
+    content: any[],
+    mediaResolver?: (id: string) => Promise<string | null>,
+    warnings: string[] = [],
+  ): Promise<void> {
     await Promise.all((content || []).map(async (b) => {
       if (!b) return;
       const t = b.type;
       if (t !== 'media' && t !== 'image') return;
+      const kind: MediaKind = t === 'image' ? 'image' : (b.kind || 'file');
       if (b.url) return; // 已带内容（如历史消息已解析过）
       const id: string | undefined = b.mediaId || (t === 'image' ? b.source : undefined);
       if (!id) return;
+      if (!mediaResolver) {
+        warnings.push(`媒体(${kind})未解析：未配置媒体解析器`);
+        return;
+      }
       let resolved = await mediaResolver(id).catch(() => null);
-      if (!resolved) return;
-      const kind: MediaKind = t === 'image' ? 'image' : (b.kind || 'file');
+      if (!resolved) {
+        warnings.push(`媒体(${kind})无法解析（mediaId: ${id}），将跳过该内容`);
+        return;
+      }
       // 远端非图片链接需内联为 base64（OpenAI input_audio/file 不吃 URL）
       if (kind !== 'image' && resolved.startsWith('http')) {
-        try { resolved = await fetchToDataUrl(resolved); } catch { /* 保留原 URL，序列化时降级提示 */ }
+        try {
+          resolved = await fetchToDataUrl(resolved);
+        } catch {
+          warnings.push(`媒体(${kind})内联失败（mediaId: ${id}），模型可能无法读取`);
+          // 保留原 URL，序列化时降级为占位提示
+        }
       }
       b.url = resolved;
     }));

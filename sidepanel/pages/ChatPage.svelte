@@ -63,40 +63,48 @@
     });
   }
 
+  /** 按 id 局部更新某个附件（Svelte 5 关键：必须用新对象替换 + 重赋值数组，
+   *  直接改原始对象不会触发代理的 set 通知，UI 不刷新 —— 这正是之前芯片永远卡在⏳的根因）。 */
+  function patchAttachment(id: string, patch: Record<string, any>) {
+    pendingAttachments = pendingAttachments.map((a) => (a.id === id ? { ...a, ...patch } : a));
+  }
+
   async function addFiles(files: FileList | File[]) {
     const list = Array.from(files || []);
     if (!list.length) return;
     for (const file of list) {
+      const id = `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const kind = mediaKindFromMime(file.type || '');
       const att = {
-        id: `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        id,
         file,
-        kind: mediaKindFromMime(file.type || ''),
+        kind,
         filename: file.name,
         mimeType: file.type || 'application/octet-stream',
         size: file.size,
         dataUrl: '',
+        mediaId: null,
+        error: false,
         uploading: true,
       };
       pendingAttachments = [...pendingAttachments, att];
       Log.info('ChatPage', 'addFiles: start upload', { filename: att.filename, mimeType: att.mimeType });
       try {
-        att.dataUrl = await readFileAsDataUrl(file);
+        const dataUrl = await readFileAsDataUrl(file);
+        // 用 patchAttachment 更新：确保 Svelte 代理收到变更通知（缩略图即时显示）
+        patchAttachment(id, { dataUrl });
         Log.info('ChatPage', 'addFiles: dataUrl read, calling api.media.put');
         const res = await withTimeout(
-          api.media.put({ dataUrl: att.dataUrl, mimeType: att.mimeType, filename: att.filename }),
+          api.media.put({ dataUrl, mimeType: att.mimeType, filename: att.filename }),
           30000,
           '附件上传',
         );
         Log.info('ChatPage', 'addFiles: api.media.put resolved', { res });
-        att.mediaId = res?.id;
-        att.uploading = false;
-        pendingAttachments = [...pendingAttachments];
-        Log.info('ChatPage', 'addFiles: done', { mediaId: att.mediaId, uploading: att.uploading });
+        patchAttachment(id, { mediaId: res?.id, uploading: false });
+        Log.info('ChatPage', 'addFiles: done', { mediaId: res?.id });
       } catch (e) {
         Log.error('ChatPage', 'upload attachment failed', e);
-        att.uploading = false;
-        att.error = true;
-        pendingAttachments = [...pendingAttachments];
+        patchAttachment(id, { uploading: false, error: true });
         toast.error('附件上传失败：' + (file.name || ''));
       }
     }
@@ -241,7 +249,7 @@
     api.session.send({
       content,
       reasoningEffort: session?.reasoningEffort || reasoningEffort,
-    }).catch((e) => Log.error('ChatPage', 'send failed', e));
+    }).catch((e) => toast.error('发送失败：' + ((e as Error)?.message || String(e))));
   }
 
   function handleStop() {
@@ -380,6 +388,12 @@
           isStreaming = false;
           toast.error(data?.message || '发送失败');
           refreshMessages();
+        }),
+
+        // 媒体解析失败等非致命警告（如图发了但模型读不到），合并提示不打断流式
+        sessionChannel.on(KernelEvents.SESSION.WARNING, (data: any) => {
+          const warnings: string[] = data?.warnings || [];
+          if (warnings.length) toast.warning(warnings.join('；'));
         }),
 
         // 消息新增：根据事件携带的结果差量 upsert 进列表（零 RPC），结果立即显示
@@ -614,6 +628,8 @@
               <span class="att-state">⏳</span>
             {:else if att.error}
               <span class="att-state att-fail">⚠</span>
+            {:else}
+              <span class="att-state att-ready" title="已就绪，可发送">✓</span>
             {/if}
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->

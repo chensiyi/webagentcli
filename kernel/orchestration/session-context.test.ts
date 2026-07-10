@@ -45,7 +45,7 @@ describe('ContextBuilder', () => {
       };
       const settings = { contextWindowSize: 20 };
       const tools: unknown[] = [];
-      const msgs = await builder.buildMessages(session, settings, tools);
+      const { messages: msgs } = await builder.buildMessages(session, settings, tools);
       expect(msgs.length).toBe(2); // system + user
       expect(msgs[0].role).toBe('system');
       expect(msgs[0].content).toContain('Web Agent');
@@ -59,14 +59,14 @@ describe('ContextBuilder', () => {
         { function: { name: 'search', description: 'Search the web' } },
         { function: { name: 'calc', description: 'Calculate' } },
       ];
-      const msgs = await builder.buildMessages({ messages: [] }, { contextWindowSize: 20 }, tools);
+      const { messages: msgs } = await builder.buildMessages({ messages: [] }, { contextWindowSize: 20 }, tools);
       expect(msgs[0].content).toContain('search');
       expect(msgs[0].content).toContain('calc');
     });
 
     it('无工具时不包含工具列表', async () => {
       const builder = new ContextBuilder();
-      const msgs = await builder.buildMessages({ messages: [] }, { contextWindowSize: 20 }, []);
+      const { messages: msgs } = await builder.buildMessages({ messages: [] }, { contextWindowSize: 20 }, []);
       expect(msgs[0].content).not.toContain('可用工具');
     });
 
@@ -78,7 +78,7 @@ describe('ContextBuilder', () => {
           { role: 'assistant', content: 'Hello!', toolCallId: null },
         ],
       };
-      const msgs = await builder.buildMessages(session, { contextWindowSize: 20 }, []);
+      const { messages: msgs } = await builder.buildMessages(session, { contextWindowSize: 20 }, []);
       expect(msgs[1].role).toBe('user');
       expect(msgs[1].content).toBe('Hi');
       expect(msgs[2].role).toBe('assistant');
@@ -97,7 +97,7 @@ describe('ContextBuilder', () => {
       }));
       const session = { messages };
       const settings = { contextWindowSize: 10, autoContextTruncation: true };
-      const msgs = await builder.buildMessages(session, settings, []);
+      const { messages: msgs } = await builder.buildMessages(session, settings, []);
       // system(1) + user messages(5) = 6
       expect(msgs.length).toBe(6);
     });
@@ -110,7 +110,7 @@ describe('ContextBuilder', () => {
       }));
       const session = { messages };
       const settings = { contextWindowSize: 5, autoContextTruncation: false };
-      const msgs = await builder.buildMessages(session, settings, []);
+      const { messages: msgs } = await builder.buildMessages(session, settings, []);
       // system(1) + all 50 = 51
       expect(msgs.length).toBe(51);
     });
@@ -123,7 +123,7 @@ describe('ContextBuilder', () => {
       }));
       const session = { messages };
       const settings = { contextWindowSize: 10 };
-      const msgs = await builder.buildMessages(session, settings, []);
+      const { messages: msgs } = await builder.buildMessages(session, settings, []);
       // system(1) + truncated(10) = 11
       expect(msgs.length).toBe(11);
       // 应保留最后 10 条
@@ -146,7 +146,7 @@ describe('ContextBuilder', () => {
       const session = { messages };
       // windowSize 很小，截断点会落在 tool 或 assistant 消息上
       const settings = { contextWindowSize: 3 };
-      const msgs = await builder.buildMessages(session, settings, []);
+      const { messages: msgs } = await builder.buildMessages(session, settings, []);
       // 至少有 system + 配对的三条: user (末尾) + assistant(tool_call) + tool
       // 截断算法会保护配对，实际保留至少 1 + 若干条
       const msgRoles = msgs.slice(1).map((m: any) => m.role);
@@ -172,7 +172,7 @@ describe('ContextBuilder', () => {
 
       const session = { messages };
       const settings = { contextWindowSize: 5 };
-      const msgs = await builder.buildMessages(session, settings, []);
+      const { messages: msgs } = await builder.buildMessages(session, settings, []);
 
       // 验证：末尾没有孤悬的 tool 消息
       const roles = msgs.slice(1).map((m: any) => m.role);
@@ -186,7 +186,7 @@ describe('ContextBuilder', () => {
   describe('边界情况', () => {
     it('空 session 只返回 system prompt', async () => {
       const builder = new ContextBuilder();
-      const msgs = await builder.buildMessages(
+      const { messages: msgs } = await builder.buildMessages(
         { messages: [] },
         { contextWindowSize: 20 },
         [],
@@ -200,7 +200,7 @@ describe('ContextBuilder', () => {
       const session = {
         messages: [null, { role: 'user', content: 'only' }, null] as any[],
       };
-      const msgs = await builder.buildMessages(session, { contextWindowSize: 20 }, []);
+      const { messages: msgs } = await builder.buildMessages(session, { contextWindowSize: 20 }, []);
       // system + 1 real message = 2
       expect(msgs.length).toBe(2);
       expect(msgs[1].content).toBe('only');
@@ -209,7 +209,7 @@ describe('ContextBuilder', () => {
     it('contextWindowSize 默认 20', async () => {
       const builder = new ContextBuilder();
       const session = { messages: Array.from({ length: 30 }, (_, i) => ({ role: 'user', content: `msg${i}` })) };
-      const msgs = await builder.buildMessages(session, {}, []);
+      const { messages: msgs } = await builder.buildMessages(session, {}, []);
       // system + 20 = 21
       expect(msgs.length).toBe(21);
     });
@@ -227,7 +227,7 @@ describe('ContextBuilder', () => {
           content: [{ type: 'media', kind: 'image', mediaId: 'm1', mimeType: 'image/png' }],
         }],
       };
-      const msgs = await builder.buildMessages(session, { contextWindowSize: 20 }, [], resolver);
+      const { messages: msgs } = await builder.buildMessages(session, { contextWindowSize: 20 }, [], resolver);
       expect(msgs[1].content[0]).toEqual({ type: 'image_url', image_url: { url: 'https://img/x.png', detail: 'auto' } });
     });
 
@@ -240,8 +240,11 @@ describe('ContextBuilder', () => {
           content: [{ type: 'media', kind: 'image', mediaId: 'mX', mimeType: 'image/png' }],
         }],
       };
-      const msgs = await builder.buildMessages(session, { contextWindowSize: 20 }, [], resolver);
+      const { messages: msgs, mediaWarnings } = await builder.buildMessages(session, { contextWindowSize: 20 }, [], resolver);
       expect(msgs[1].content[0]).toEqual({ type: 'text', text: '[媒体(image)未解析]' });
+      // mediaId 解析失败应收集 warning，供 Shell 弹 toast 提示用户（不再静默降级）
+      expect(mediaWarnings.length).toBeGreaterThan(0);
+      expect(mediaWarnings[0]).toContain('mX');
     });
 
     it('无 mediaResolver 时图片块（无 url）同样降级，不抛错', async () => {
@@ -252,8 +255,10 @@ describe('ContextBuilder', () => {
           content: [{ type: 'media', kind: 'image', mediaId: 'mX', mimeType: 'image/png' }],
         }],
       };
-      const msgs = await builder.buildMessages(session, { contextWindowSize: 20 }, []);
+      const { messages: msgs, mediaWarnings } = await builder.buildMessages(session, { contextWindowSize: 20 }, []);
       expect(msgs[1].content[0]).toEqual({ type: 'text', text: '[媒体(image)未解析]' });
+      expect(mediaWarnings.length).toBeGreaterThan(0);
+      expect(mediaWarnings[0]).toContain('未配置媒体解析器');
     });
 
     it('本地媒体 resolver 返回 dataURL → 序列化为 image_url（含 base64 dataURL）', async () => {
@@ -269,7 +274,7 @@ describe('ContextBuilder', () => {
           ],
         }],
       };
-      const msgs = await builder.buildMessages(session, { contextWindowSize: 20 }, [], resolver);
+      const { messages: msgs } = await builder.buildMessages(session, { contextWindowSize: 20 }, [], resolver);
       expect(msgs[1].content[0]).toEqual({ type: 'text', text: '看这张本地截图' });
       expect(msgs[1].content[1]).toEqual({ type: 'image_url', image_url: { url: dataUrl, detail: 'auto' } });
     });
@@ -293,7 +298,7 @@ describe('ContextBuilder', () => {
           ],
         }],
       };
-      const msgs = await builder.buildMessages(session, { contextWindowSize: 20 }, [], resolver);
+      const { messages: msgs } = await builder.buildMessages(session, { contextWindowSize: 20 }, [], resolver);
       const parts = msgs[1].content;
       expect(parts[0]).toEqual({ type: 'text', text: '图文音混合' });
       expect(parts[1]).toEqual({ type: 'image_url', image_url: { url: imgUrl, detail: 'auto' } });

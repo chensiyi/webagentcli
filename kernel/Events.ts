@@ -38,6 +38,7 @@ export const KernelEvents = {
     STREAM_COMPLETE: 'session:streamComplete',
     STREAM_ERROR: 'session:streamError',
     STREAM_STOP: 'session:streamStop',
+    WARNING: 'session:warning',
     ACTIVITY_STATE_CHANGED: 'session:activityStateChanged',
     SESSION_CREATED: 'session:sessionCreated',
     SESSION_SWITCHED: 'session:sessionSwitched',

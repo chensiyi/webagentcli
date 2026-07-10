@@ -147,7 +147,25 @@ async function runTurn(
     const freshSession = sm.getSession(sid);
     if (!freshSession) throw new Error(`Session not found: ${sid}`);
     const tools = kernel.getToolsManager().getDefinitionsForLLM();
-    const messagesForRequest = await contextBuilder.buildMessages(freshSession, settings, tools, kernel.getMediaResolver() || undefined);
+    const { messages: messagesForRequest, mediaWarnings } = await contextBuilder.buildMessages(freshSession, settings, tools, kernel.getMediaResolver() || undefined);
+
+    // 媒体解析失败（如 mediaId 孤儿、IndexedDB 异常）上报 warning，由 Shell 弹 toast 提示用户
+    if (mediaWarnings.length) {
+      emit(KernelEvents.SESSION.WARNING, { warnings: mediaWarnings });
+    }
+
+    // 调试：打印每条消息的 content 形态，确认图片块是否进入请求体（image_url）
+    try {
+      Log.info('SESSION', '[media-debug] request messages summary', {
+        count: messagesForRequest.length,
+        perMessage: messagesForRequest.map((m: any, i: number) => ({
+          i,
+          role: m.role,
+          contentKind: Array.isArray(m.content) ? 'parts[]' : typeof m.content,
+          partTypes: Array.isArray(m.content) ? m.content.map((p: any) => p?.type) : undefined,
+        })),
+      });
+    } catch { /* ignore */ }
 
     const modelId = model ? (model as any).id : (settings?.model || '');
     const thinkingEffort = freshSession.reasoningEffort || 'off';

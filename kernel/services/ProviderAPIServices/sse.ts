@@ -38,6 +38,22 @@ export async function forEachSSEData(
 }
 
 /**
+ * 从 SSE chunk 中提取上游返回的错误。
+ * OpenAI / OpenRouter 等兼容服务可能把错误放在 chunk 顶层 `error` 字段
+ * （如 `{"choices":[],"error":{"code":500,"message":"Internal Server Error"}}`），
+ * 也可能放在 `choices[0].error`。若不提取，这类错误会被 `if (!choice) return` 静默吞掉，
+ * 流式静默结束、交互直接停止、用户无感知。
+ * @returns 错误描述字符串，或 null（该 chunk 非错误）
+ */
+export function extractStreamError(parsed: any): string | null {
+  const e = parsed?.error ?? parsed?.choices?.[0]?.error;
+  if (!e) return null;
+  if (typeof e === 'string') return e;
+  if (e.message) return `${e.code ? `[${e.code}] ` : ''}${e.message}`;
+  try { return JSON.stringify(e); } catch { return '未知流式错误'; }
+}
+
+/**
  * 累积 OpenAI 格式 tool_calls 分片（按 index 合并 function.name / function.arguments）。
  * OpenAIService 与 OpenRouterService 共用。
  */

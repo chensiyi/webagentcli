@@ -743,6 +743,7 @@
 }
 .att-state { font-size: 12px; }
 .att-fail { color: var(--color-danger); }
+.att-ready { color: var(--color-success, #22c55e); font-weight: 700; }
 .att-remove {
   position: absolute;
   top: 2px;

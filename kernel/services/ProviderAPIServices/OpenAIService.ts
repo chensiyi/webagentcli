@@ -2,7 +2,7 @@ import { BaseProviderAPIService } from '../IProviderAPIService.js';
 import { Log } from '../Log.js';
 import { MessageStructure } from '../../models/MessageContent.js';
 import { joinUrl } from '../../utils/url.js';
-import { forEachSSEData, accumulateOpenAIToolCall, makeStreamResult } from './sse.js';
+import { forEachSSEData, accumulateOpenAIToolCall, makeStreamResult, extractStreamError } from './sse.js';
 
 export default class OpenAIService extends BaseProviderAPIService {
   constructor() { super(); this.name = 'openai'; }
@@ -92,6 +92,7 @@ export default class OpenAIService extends BaseProviderAPIService {
     let pendingContent = '';
     let pendingReasoning = '';
     let pendingFinishReason: string | null = null;
+    let streamError: Error | null = null;
 
     try {
       const res = await fetch(url, {
@@ -111,6 +112,9 @@ export default class OpenAIService extends BaseProviderAPIService {
       let totalChunkCount = 0;
 
       await forEachSSEData(reader, (parsed) => {
+        // 上游在 chunk 内返回错误（choices 为空 + error 字段）→ 记录后由外层 reject 传播，不让交互静默停止
+        const errMsg = extractStreamError(parsed);
+        if (errMsg) { streamError = new Error(`上游返回错误: ${errMsg}`); return; }
         const choice = parsed.choices && parsed.choices[0];
         if (!choice) return;
         const delta = choice.delta || {};
@@ -129,6 +133,10 @@ export default class OpenAIService extends BaseProviderAPIService {
         if (onChunk) onChunk({ content: contentChunk, reasoning_content: reasoningChunk });
       }, 'OpenAIService');
 
+      if (streamError) {
+        Log.error('OpenAIService', `Stream error from upstream: ${streamError.message}`);
+        throw streamError;
+      }
       Log.info('OpenAIService', `Stream completed: ${totalChunkCount} chunks, toolCalls=${Object.keys(pendingToolCalls).length}`);
       return makeStreamResult(pendingContent, pendingReasoning, MessageStructure.parseToolCallsFromOpenAI(Object.values(pendingToolCalls)), pendingFinishReason);
     } catch (error) {
