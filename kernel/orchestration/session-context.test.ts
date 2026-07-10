@@ -255,5 +255,49 @@ describe('ContextBuilder', () => {
       const msgs = await builder.buildMessages(session, { contextWindowSize: 20 }, []);
       expect(msgs[1].content[0]).toEqual({ type: 'text', text: '[媒体(image)未解析]' });
     });
+
+    it('本地媒体 resolver 返回 dataURL → 序列化为 image_url（含 base64 dataURL）', async () => {
+      const builder = new ContextBuilder();
+      const dataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC';
+      const resolver = async (id: string) => (id === 'local_img1' ? dataUrl : null);
+      const session = {
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: '看这张本地截图' },
+            { type: 'media', kind: 'image', mediaId: 'local_img1', mimeType: 'image/png' },
+          ],
+        }],
+      };
+      const msgs = await builder.buildMessages(session, { contextWindowSize: 20 }, [], resolver);
+      expect(msgs[1].content[0]).toEqual({ type: 'text', text: '看这张本地截图' });
+      expect(msgs[1].content[1]).toEqual({ type: 'image_url', image_url: { url: dataUrl, detail: 'auto' } });
+    });
+
+    it('文本 + 图片 + 音频混合内容经 resolver 解析后各部分正确序列化', async () => {
+      const builder = new ContextBuilder();
+      const imgUrl = 'data:image/png;base64,AAA';
+      const audioData = 'UklGRg==';
+      const resolver = async (id: string) => {
+        if (id === 'local_pic') return imgUrl;
+        if (id === 'local_snd') return `data:audio/wav;base64,${audioData}`;
+        return null;
+      };
+      const session = {
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: '图文音混合' },
+            { type: 'media', kind: 'image', mediaId: 'local_pic', mimeType: 'image/png' },
+            { type: 'media', kind: 'audio', mediaId: 'local_snd', mimeType: 'audio/wav' },
+          ],
+        }],
+      };
+      const msgs = await builder.buildMessages(session, { contextWindowSize: 20 }, [], resolver);
+      const parts = msgs[1].content;
+      expect(parts[0]).toEqual({ type: 'text', text: '图文音混合' });
+      expect(parts[1]).toEqual({ type: 'image_url', image_url: { url: imgUrl, detail: 'auto' } });
+      expect(parts[2]).toEqual({ type: 'input_audio', input_audio: { data: audioData, format: 'wav' } });
+    });
   });
 });
