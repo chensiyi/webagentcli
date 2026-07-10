@@ -802,9 +802,9 @@ import { KernelChannels } from 'kernel/Events.js';
             oninput={(e) => currentSettings.resourceServer.authToken = (e.target as HTMLInputElement).value}
           />
           <Input
-            label="响应取 URL 的字段名（默认 url，支持点路径如 data.url）"
-            placeholder="url"
-            value={currentSettings.resourceServer.responseUrlField ?? 'url'}
+            label="响应取 URL 的字段名（默认自动识别 url/link 等，可留空；支持点路径如 data.url）"
+            placeholder="自动识别"
+            value={currentSettings.resourceServer.responseUrlField ?? ''}
             oninput={(e) => currentSettings.resourceServer.responseUrlField = (e.target as HTMLInputElement).value}
           />
           <Input

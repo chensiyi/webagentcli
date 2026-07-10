@@ -93,11 +93,40 @@ describe('RemoteMediaStore（资源服务器上传）', () => {
       .rejects.toThrow(/上传失败/);
   });
 
-  it('put 响应缺少 URL 字段直接抛错', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResp({})));
+  it('put 响应缺少可识别 URL 字段直接抛错（报错含真实响应字段名）', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResp({ code: 200, msg: 'ok' })));
     const { store } = makeStoreWithSpy();
     await expect(store.put(DATA_URL, 'image/png', 'a.png', { enabled: true, uploadUrl: 'https://up' }))
-      .rejects.toThrow(/缺少 URL/);
+      .rejects.toThrow(/可识别的 URL/);
+  });
+
+  it('put 自动识别 link 字段（用户未配置 responseUrlField）', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResp({ code: 200, msg: 'success', link: 'https://i.hd-r.cn/x.jpg' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { store } = makeStoreWithSpy();
+    // 关键场景：用户服务器返回 { link }，而 responseUrlField 留空 → 自动探测命中 link
+    const cfg: ResourceServerConfig = { enabled: true, uploadUrl: 'https://up.example.com' };
+    const id = await store.put(DATA_URL, 'image/png', 'a.png', cfg);
+    expect(id.startsWith('remote_')).toBe(true);
+    expect(await store.get(id)).toBe('https://i.hd-r.cn/x.jpg');
+  });
+
+  it('put 用户误配 responseUrlField=url 但服务器返回 link 时降级自动探测成功', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResp({ link: 'https://i.hd-r.cn/y.jpg' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { store } = makeStoreWithSpy();
+    const cfg: ResourceServerConfig = { enabled: true, uploadUrl: 'https://up', responseUrlField: 'url' };
+    const id = await store.put(DATA_URL, 'image/png', 'a.png', cfg);
+    expect(await store.get(id)).toBe('https://i.hd-r.cn/y.jpg');
+  });
+
+  it('put 服务器直接返回字符串 URL 也能识别', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResp('https://cdn.z.com/d.png')));
+    const { store } = makeStoreWithSpy();
+    const id = await store.put(DATA_URL, 'image/png', 'a.png', { enabled: true, uploadUrl: 'https://up' });
+    expect(await store.get(id)).toBe('https://cdn.z.com/d.png');
   });
 
   it('put 未启用/缺上传链接直接抛错', async () => {

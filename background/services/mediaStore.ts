@@ -173,10 +173,12 @@ export class RemoteMediaStore implements MediaStoreLike {
       throw new Error(`资源服务器上传失败 HTTP ${resp.status}: ${txt.slice(0, 200)}`);
     }
     const json = await resp.json().catch(() => ({} as Record<string, unknown>));
-    const field = cfg.responseUrlField || 'url';
-    const url = readPath(json, field);
-    if (!url || typeof url !== 'string') {
-      throw new Error(`资源服务器响应缺少 URL 字段 "${field}"`);
+    // 优先用用户配置的字段（支持点路径），取不到则自动探测 url/link/src/data.url 等常见返回格式，
+    // 用户通常无需精确填写字段名即可兼容绝大多数图床 / 对象存储。
+    const url = extractUrlFromResponse(json, cfg.responseUrlField);
+    if (!url) {
+      const keys = json && typeof json === 'object' ? Object.keys(json as Record<string, unknown>).join(', ') : '(非 JSON 响应)';
+      throw new Error(`资源服务器响应未包含可识别的 URL（已尝试 url/link/src/data.url 等）。响应字段：${keys}`);
     }
     const finalUrl = (cfg.urlPrefix || '') + url;
 
@@ -268,4 +270,47 @@ async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
 function readPath(obj: Record<string, unknown>, path: string): unknown {
   if (!obj || !path) return undefined;
   return path.split('.').reduce((acc: any, key) => (acc == null ? acc : acc[key]), obj);
+}
+
+/** 判断一个值是否像 URL（http(s)/协议相对/绝对路径/dataURL） */
+function isUrlLike(v: unknown): v is string {
+  if (typeof v !== 'string') return false;
+  const s = v.trim();
+  return /^https?:\/\//i.test(s) || s.startsWith('//') || s.startsWith('/') || s.startsWith('data:');
+}
+
+/** 常见 URL 字段探测顺序（含点路径） */
+const URL_CANDIDATE_PATHS = [
+  'url', 'link', 'src', 'href',
+  'fileUrl', 'file_url', 'imageUrl', 'image_url', 'fileURL',
+  'data.url', 'data.link', 'result.url', 'result.link', 'data.data.url',
+];
+
+/**
+ * 从资源服务器响应里提取公网 URL。
+ * 1) 服务器直接返回字符串 URL → 直接用；
+ * 2) 用户显式配置的字段优先（支持点路径），便于兼容非标准返回；
+ * 3) 自动探测 URL_CANDIDATE_PATHS 常见字段；
+ * 4) 退路：扫描顶层其余字符串字段里第一个像 URL 的。
+ * 这样即便用户没填 responseUrlField，也能兼容 { link } / { data:{url} } 等常见格式。
+ */
+export function extractUrlFromResponse(json: any, configuredField?: string): string | null {
+  if (typeof json === 'string') return isUrlLike(json) ? json : null;
+  if (!json || typeof json !== 'object') return null;
+
+  if (configuredField && configuredField.trim()) {
+    const v = readPath(json, configuredField.trim());
+    if (isUrlLike(v)) return v;
+  }
+  for (const p of URL_CANDIDATE_PATHS) {
+    const v = readPath(json, p);
+    if (isUrlLike(v)) return v;
+  }
+  // 退路：顶层其余字符串字段里挑第一个像 URL 的
+  for (const key of Object.keys(json)) {
+    if (URL_CANDIDATE_PATHS.includes(key)) continue;
+    const v = (json as Record<string, unknown>)[key];
+    if (isUrlLike(v)) return v;
+  }
+  return null;
 }

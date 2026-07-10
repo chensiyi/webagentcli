@@ -46,6 +46,14 @@
     return 'file';
   }
 
+  /** 给 Promise 加一个超时兜底，避免任何异常下附件芯片永远停在"处理中"。 */
+  function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error(`${label}超时（${Math.round(ms / 1000)}s），请检查网络或资源服务器`)), ms);
+      p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+    });
+  }
+
   function readFileAsDataUrl(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -72,7 +80,11 @@
       pendingAttachments = [...pendingAttachments, att];
       try {
         att.dataUrl = await readFileAsDataUrl(file);
-        const res = await api.media.put({ dataUrl: att.dataUrl, mimeType: att.mimeType, filename: att.filename });
+        const res = await withTimeout(
+          api.media.put({ dataUrl: att.dataUrl, mimeType: att.mimeType, filename: att.filename }),
+          30000,
+          '附件上传',
+        );
         att.mediaId = res?.id;
         att.uploading = false;
         pendingAttachments = [...pendingAttachments];
