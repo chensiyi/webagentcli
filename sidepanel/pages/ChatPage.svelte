@@ -4,7 +4,7 @@
   import { KernelEvents, KernelChannels } from 'kernel/Events.js';
   import type { KernelAPIContract } from '../api-contract.js';
   import { ShellDataCache } from '../cache/shell-cache.js';
-  import { extractText, renderMarkdown } from '../utils/text.js';
+  import { extractText, renderMarkdown, extractMediaBlocks } from '../utils/text.js';
   import { autoScrollToBottom } from '../utils/dom.js';
   import { useToast } from '../components/overlays/toast-store.svelte';
   import { Log } from 'kernel/services/Log.js';
@@ -447,13 +447,14 @@
         {@const hasReasoning = !!displayReasoning}
         {@const hasContent = displayContent.trim().length > 0}
         {@const hasToolCalls = isAssistant && Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0}
+        {@const mediaBlocks = extractMediaBlocks(msg.content)}
 
         {#if isTool}
           <ToolMessageCard {msg} collapsed={collapsedMessages[msg.id] || false} {toggleMsg} {confirmDelete} {findToolNameByCallId} />
         {:else}
           <MessageBubble
             {msg} {isUser} {isAssistant} {displayContent} {displayReasoning}
-            {hasReasoning} {hasContent} {hasToolCalls}
+            {hasReasoning} {hasContent} {hasToolCalls} {mediaBlocks}
             {expandedReasoning} {collapsedToolCalls}
             {toggleReasoning} {toggleToolCall} {confirmDelete}
             {findToolResult} {findToolNameByCallId} {messages}
