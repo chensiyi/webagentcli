@@ -18,7 +18,8 @@
 import { IPC } from 'kernel/IPC.js';
 import { IPCTransport } from 'bridge/IPCTransport.js';
 import { RPCServer } from 'bridge/RPC.js';
-import { createSessionFacade, createToolsFacade, createStorageFacade, createScriptsFacade } from './rpc-facades.js';
+import { createSessionFacade, createToolsFacade, createStorageFacade, createScriptsFacade, createMediaFacade } from './rpc-facades.js';
+import { createMediaStore } from './services/mediaStore.js';
 import { Kernel } from 'kernel/Kernel.js';
 import { Bootloader } from 'kernel/Bootloader.js';
 import { ToolsManager } from 'kernel/services/ToolsManager.js';
@@ -226,6 +227,13 @@ async function bootKernel() {
         });
         rpcServer.expose('scripts', createScriptsFacade(kernel), {
             methods: ['list', 'install', 'edit', 'toggle', 'uninstall'],
+            capabilities: kernel.getCapabilities() as any,
+        });
+
+        // 媒体二进制存储（IndexedDB）——消息只持 mediaId 引用，避免 chrome.storage 配额膨胀
+        const mediaStore = createMediaStore();
+        rpcServer.expose('media', createMediaFacade(mediaStore), {
+            methods: ['put', 'get', 'getMany', 'delete'],
             capabilities: kernel.getCapabilities() as any,
         });
 

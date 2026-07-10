@@ -6,6 +6,69 @@ export class ToolResultBlock { type: string; toolUseId: string; content: unknown
 export class ThinkingBlock { type: string; thinking: string; signature: string | null; constructor(thinking: string, signature: string | null = null) { this.type = 'thinking'; this.thinking = thinking; this.signature = signature; } toJSON(): { type: string; thinking: string; signature?: string } { const o: { type: string; thinking: string; signature?: string } = { type: 'thinking', thinking: this.thinking }; if (this.signature) o.signature = this.signature; return o; } static fromJSON(d: { thinking: string; signature?: string }): ThinkingBlock { return new ThinkingBlock(d.thinking, d.signature ?? null); } }
 export class ThinkingConfig { effort: string; constructor(effort: string = 'off') { this.effort = effort; } toJSON(): { effort: string } { return { effort: this.effort }; } static fromJSON(d: { effort?: string }): ThinkingConfig { return new ThinkingConfig(d?.effort || 'off'); } }
 export class MediaContent { type: string; text: string; dataUrl: string; url: string; filename: string; mimeType: string; size: number; metadata: Record<string, unknown>; constructor(opts: Record<string, unknown> = {}) { this.type = opts.type as string; this.text = opts.text as string; this.dataUrl = opts.dataUrl as string; this.url = opts.url as string; this.filename = opts.filename as string; this.mimeType = opts.mimeType as string; this.size = opts.size as number; this.metadata = (opts.metadata as Record<string, unknown>) || {}; } }
+
+// =============================================================================
+// 多媒体内容块（统一媒体模型）
+// =============================================================================
+export type MediaKind = 'image' | 'audio' | 'video' | 'file';
+
+/**
+ * 多媒体消息块。
+ *
+ * - `mediaId`：IndexedDB 中的 blob 引用，是唯一持久化字段（消息 JSON 只存它，
+ *   不存 base64，避免 chrome.storage.local 配额被图片撑爆）。
+ * - `url`：会话内临时展示/请求用的 dataURL 或 objectURL，**不持久化**（toJSON 故意排除）。
+ * - 兼容旧 `ImageBlock`（`type:'image'` + `source`）：序列化时按 media 块处理，source 视为 url。
+ */
+export class MediaBlock {
+  type: string = 'media';
+  kind: MediaKind;
+  mediaId: string;
+  mimeType: string;
+  filename?: string;
+  size?: number;
+  url?: string;
+  text?: string;
+  constructor(opts: Record<string, unknown> = {}) {
+    this.kind = (opts.kind as MediaKind) || 'file';
+    this.mediaId = opts.mediaId as string;
+    this.mimeType = opts.mimeType as string;
+    this.filename = opts.filename as string | undefined;
+    this.size = opts.size as number | undefined;
+    this.url = opts.url as string | undefined;
+    this.text = opts.text as string | undefined;
+  }
+  toJSON(): Record<string, unknown> {
+    const o: Record<string, unknown> = { type: 'media', kind: this.kind, mediaId: this.mediaId, mimeType: this.mimeType };
+    if (this.filename) o.filename = this.filename;
+    if (this.size) o.size = this.size;
+    if (this.text) o.text = this.text;
+    // 注意：url 故意不持久化（避免配额膨胀），展示时由 media.get 现取
+    return o;
+  }
+  static fromJSON(d: Record<string, unknown>): MediaBlock {
+    return new MediaBlock({ kind: d.kind, mediaId: d.mediaId, mimeType: d.mimeType, filename: d.filename, size: d.size, url: d.url, text: d.text });
+  }
+}
+
+/** dataURL → base64 主体（剥离 `data:<mime>;base64,` 前缀） */
+export function dataUrlToBase64(dataUrl: string): string {
+  const comma = dataUrl.indexOf(',');
+  return comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+}
+/** 从 dataURL 提取 MIME（无则回退传入 mimeType 或 image/png） */
+export function dataUrlMime(dataUrl: string, fallback = 'image/png'): string {
+  const m = /^data:([^;,]*)/.exec(dataUrl);
+  return m ? m[1] : fallback;
+}
+
+/** 音频 MIME → OpenAI input_audio format（仅支持 wav/mp3） */
+function audioFormat(mimeType: string): 'wav' | 'mp3' {
+  const m = (mimeType || '').toLowerCase();
+  if (m.includes('mp3') || m.includes('mpeg')) return 'mp3';
+  return 'wav';
+}
+
 export class MessageStructure {
   role: string; content: string; reasoning_content: string; tool_calls: unknown[] | null;
   constructor(opts: Record<string, unknown> = {}) {
@@ -58,9 +121,16 @@ export class MessageStructure {
    */
   static toAPIFormat(msg: any, format: string = 'openai'): Record<string, unknown> {
     if (!msg) return {};
-    if (format === 'openai') {
-      const result: Record<string, unknown> = { role: msg.role || 'user', content: msg.content || '' };
-      // toolCalls (驼峰) 或 tool_calls (下划线) → OpenAI 格式
+    const role = msg.role || 'user';
+    // 多模态 provider（OpenAI 家族 / Anthropic）走统一 content-parts 序列化
+    if (format === 'openai' || format === 'anthropic') {
+      const result: Record<string, unknown> = { role };
+      const content = msg.content;
+      // content 为 block 数组 → 拼成 provider 的 content parts；否则按原样（字符串）
+      result.content = Array.isArray(content)
+        ? MessageStructure.serializeContentParts(content, format)
+        : (content || '');
+      // toolCalls (驼峰) 或 tool_calls (下划线) → OpenAI 格式（Anthropic 亦兼容此形状）
       const rawToolCalls = msg.toolCalls || msg.tool_calls;
       if (Array.isArray(rawToolCalls) && rawToolCalls.length > 0) {
         result.tool_calls = MessageStructure.toOpenAIToolCalls(rawToolCalls);
@@ -72,7 +142,52 @@ export class MessageStructure {
       if (msg.reasoning_content) result.reasoning_content = msg.reasoning_content;
       return result;
     }
-    return { role: msg.role, content: msg.content };
+    return { role, content: msg.content };
+  }
+
+  /**
+   * 把内部内容块数组转换为 provider 的 content parts。
+   * 目前仅处理文本与媒体块（图片/音频/文件/视频）；工具类块经 tool_calls 单独传递，此处跳过。
+   * 媒体块发送前需已解析出 `url`（dataURL）——由编排层在发送时经 media.get 注入。
+   */
+  static serializeContentParts(blocks: any[], format: string): any[] {
+    const parts: any[] = [];
+    for (const b of blocks || []) {
+      if (!b) continue;
+      const t = b.type;
+      if (t === 'text') {
+        parts.push({ type: 'text', text: b.text || '' });
+        continue;
+      }
+      // 兼容旧 ImageBlock（type:'image' + source）与新 MediaBlock（type:'media'）
+      if (t === 'media' || t === 'image') {
+        const kind: MediaKind = t === 'image' ? 'image' : (b.kind || 'file');
+        const url: string | undefined = b.url || (t === 'image' ? b.source : undefined);
+        if (!url) {
+          // 未解析（理论上不会发生在正常发送流）：降级为文本提示，避免发出残缺请求
+          parts.push({ type: 'text', text: `[媒体(${kind})未解析]` });
+          continue;
+        }
+        if (kind === 'image') {
+          if (format === 'anthropic') {
+            parts.push({ type: 'image', source: { type: 'base64', media_type: dataUrlMime(url, b.mimeType), data: dataUrlToBase64(url) } });
+          } else {
+            parts.push({ type: 'image_url', image_url: { url, detail: 'auto' } });
+          }
+        } else if (kind === 'audio') {
+          // OpenAI: input_audio（仅 wav/mp3）；Anthropic 暂不支持音频输入 → 降级
+          if (format === 'anthropic') { parts.push({ type: 'text', text: '[音频暂不支持]' }); continue; }
+          parts.push({ type: 'input_audio', input_audio: { data: dataUrlToBase64(url), format: audioFormat(b.mimeType) } });
+        } else {
+          // file / video：OpenAI 用 file part（内联 base64，适合 PDF 等）；Anthropic 暂不支持 → 降级
+          if (format === 'anthropic') { parts.push({ type: 'text', text: `[文件(${kind})暂不支持]` }); continue; }
+          parts.push({ type: 'file', file: { file_data: dataUrlToBase64(url), filename: b.filename || `file.${kind}` } });
+        }
+        continue;
+      }
+      // ToolUseBlock / ToolResultBlock / ThinkingBlock 等非 content-part 块：跳过
+    }
+    return parts;
   }
 }
 export class MessagesRequest { model: string; messages: unknown[]; stream: boolean; temperature: number; max_tokens: number; thinking: unknown; tools: unknown; /** 自定义 HTTP 头部（由 Shell 层传入浏览器相关头，如 Referer） */ headers: Record<string, string>; constructor(opts: Record<string, unknown> = {}) { this.model = opts.model as string; this.messages = (opts.messages as unknown[]) || []; this.stream = (opts.stream as boolean) || false; this.temperature = opts.temperature as number; this.max_tokens = opts.max_tokens as number; this.thinking = opts.thinking as ThinkingConfig | null; this.tools = opts.tools as unknown[] | null; this.headers = (opts.headers as Record<string, string>) || {}; } }

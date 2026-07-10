@@ -53,10 +53,18 @@ export interface ScriptsAPI {
   uninstall(data: { id: string }): Promise<{ scripts: any[] }>;
 }
 
+export interface MediaAPI {
+  put(data: { dataUrl: string; mimeType: string; filename?: string }): Promise<{ id: string } | null>;
+  get(data: { id: string }): Promise<{ url: string | null } | null>;
+  getMany(data: { ids: string[] }): Promise<{ items: Record<string, string> }>;
+  delete(data: { id: string }): Promise<null>;
+}
+
 export interface KernelAPIContract {
   settings: SettingsAPI;
   session: SessionAPI;
   tools: ToolsAPI;
   storage: StorageAPI;
   scripts: ScriptsAPI;
+  media: MediaAPI;
 }

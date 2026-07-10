@@ -232,3 +232,36 @@ export function createScriptsFacade(kernel: Kernel) {
     },
   };
 }
+
+/**
+ * media facade — 媒体二进制存取的远程入口。
+ * 媒体 blob 存于 background 的 IndexedDB（MediaStore），消息只持 mediaId 引用。
+ * put 入参 dataUrl 直接存；blob 由 Shell 侧转 dataURL 后传入（保持 facade 简单、无浏览器依赖）。
+ */
+export function createMediaFacade(mediaStore: any) {
+  return {
+    async put(data: { dataUrl?: string; mimeType: string; filename?: string }) {
+      if (!data?.mimeType || !data.dataUrl) return null;
+      const id = await mediaStore.put(data.dataUrl, data.mimeType, data.filename);
+      return { id };
+    },
+
+    async get(data: { id: string }) {
+      if (!data?.id) return null;
+      const url = await mediaStore.get(data.id);
+      return { url: url || null };
+    },
+
+    async getMany(data: { ids: string[] }) {
+      if (!Array.isArray(data?.ids)) return { items: {} };
+      const items = await mediaStore.getMany(data.ids);
+      return { items };
+    },
+
+    async delete(data: { id: string }) {
+      if (!data?.id) return null;
+      await mediaStore.delete(data.id);
+      return null;
+    },
+  };
+}
