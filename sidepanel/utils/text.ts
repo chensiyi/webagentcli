@@ -1,4 +1,5 @@
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 
 /**
  * 文本处理工具函数
@@ -44,11 +45,16 @@ export function escapeHtml(str: string): string {
     .replace(/"/g, '&quot;');
 }
 
-/** Markdown 渲染 */
+/**
+ * Markdown 渲染：先 parse 再净化。
+ * LLM 输出经 {@html} 直接注入 DOM，必须净化以阻断 <script> / onerror 等注入（XSS P0）。
+ * marked 默认透传原始 HTML，故统一在出口用 DOMPurify 兜底。
+ */
 export function renderMarkdown(md: string): string {
   if (!md) return '';
   try {
-    return marked.parse(md, { async: false }) as string;
+    const rawHtml = marked.parse(md, { async: false }) as string;
+    return DOMPurify.sanitize(rawHtml);
   } catch {
     return md;
   }
