@@ -193,7 +193,6 @@
 
   let toolPanelVisible = $state(false);
   let allTools = $state<any[]>([]);
-  let toolEnabledMap = $state<Record<string, boolean>>({});
 
   // 流式内容累积 Map: messageId → { content, reasoning }
   let streamingMap = $state<Record<string, { content: string; reasoning: string }>>({});
@@ -243,13 +242,10 @@
   }
 
   function applyToolList(data: any) {
+    // 仅缓存全局工具列表（含各工具 global enabled）。会话级开关走 session.toolEnabled，
+    // 由 ToolPanel 合并全局与会话两层显示，不在此处合成。
     if (data?.tools) {
       allTools = [...data.tools];
-      const map: Record<string, boolean> = {};
-      for (const t of data.tools) {
-        if (t.name) map[t.name] = t.enabled;
-      }
-      toolEnabledMap = map;
     }
   }
 
@@ -396,16 +392,36 @@
     isEditingTitle = false;
   }
 
-  function toggleTool(tool: any) {
-    const name = tool.name;
-    if (!name) return;
-    const next = !tool.enabled;
-    toolEnabledMap = { ...toolEnabledMap, [name]: next }; // 乐观即时反馈
-    // 写穿透：先写主库（api.tools.toggle），缓存由 toggleTool 写主库后标脏，下次读取自动从主库重拉
-    cache.toggleTool(name, next)
+  /**
+   * 会话级工具开关（与全局 tool.toggle 不是同一渠道）。
+   * 仅修改本会话的 toolEnabled 覆盖表，不动全局——全局是天花板，全局已禁用无法在此开启。
+   * 写穿透：乐观更新本地 session 视图 → api.session.update 写主库 → 用返回权威视图刷新缓存与本地状态。
+   */
+  async function toggleSessionTool(tool: any) {
+    const sid = session?.id;
+    if (!sid || !tool?.name) return;
+    // 全局已禁用：会话层天花板之下，无法开启
+    if (!tool.enabled) {
+      toast.warning(`工具「${tool.name}」已被全局禁用，无法在本会话启用`);
+      return;
+    }
+    const base: Record<string, boolean> = (session?.toolEnabled as Record<string, boolean>) || {};
+    const effective = base[tool.name] !== false; // 全局开，故只看本会话是否显式 false
+    const next = !effective;
+    const newMap: Record<string, boolean> = { ...base, [tool.name]: next };
+    // 乐观即时反馈：直接刷新本地会话视图，ToolPanel 依赖 session.toolEnabled 重渲染
+    session = { ...session, toolEnabled: newMap };
+    api.session.update({ sessionId: sid, data: { toolEnabled: newMap } })
+      .then((view: any) => {
+        if (view?.session) {
+          // 写穿透：用返回权威视图更新缓存与本地状态（零额外 RPC）
+          cache.patchCurrentSession({ session: view.session });
+          session = view.session;
+        }
+      })
       .catch((e) => {
-        Log.error('ChatPage', 'toggle tool failed', e);
-        toast.error('切换工具失败：' + ((e as Error)?.message || String(e)));
+        Log.error('ChatPage', 'toggle session tool failed', e);
+        toast.error('切换会话工具失败：' + ((e as Error)?.message || String(e)));
       });
   }
 
@@ -687,7 +703,7 @@
   <footer class="chat-input-area" class:chat-input-dragging={isDragging}
     ondragover={handleDragOver} ondrop={handleDrop} ondragleave={handleDragLeave}>
     {#if toolPanelVisible}
-      <ToolPanel {allTools} {toolEnabledMap} {toggleTool} />
+      <ToolPanel {allTools} sessionToolEnabled={session?.toolEnabled || null} toggleTool={toggleSessionTool} />
     {/if}
 
     <!-- 附件预览区 -->

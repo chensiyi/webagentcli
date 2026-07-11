@@ -144,11 +144,11 @@ export function createToolsFacade(kernel: Kernel) {
       return { tools };
     },
 
-    toggle(data: { name: string; enabled: boolean }) {
+    async toggle(data: { name: string; enabled: boolean }) {
       if (!data?.name) return null;
       const tm = kernel.getToolsManager();
-      if (data.enabled) tm?.enable(data.name);
-      else tm?.disable(data.name);
+      if (data.enabled) await tm?.enable(data.name);
+      else await tm?.disable(data.name);
       return null;
     },
   };

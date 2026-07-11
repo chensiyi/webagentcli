@@ -13,6 +13,8 @@ export class Session extends BaseModel {
   messages: Message[];
   reasoningEffort: string | null;
   model: unknown;
+  /** 会话级工具开关（第 2 层，优先级低于全局）：完整布尔表 { [toolName]: boolean }；null = 继承全局。全局关的工具，本层 true 无效（天花板）。 */
+  toolEnabled: Record<string, boolean> | null;
 
   constructor(options: Record<string, unknown> = {}) {
     super(options);
@@ -20,6 +22,7 @@ export class Session extends BaseModel {
     this.messages = [];
     this.reasoningEffort = (options.reasoningEffort as string) || 'medium';
     this.model = options.model || null;
+    this.toolEnabled = (options.toolEnabled as Record<string, boolean>) || null;
     this.createdAt = (options.createdAt as number) || Date.now();
     this.updatedAt = (options.updatedAt as number) || this.createdAt;
     if (Array.isArray(options.messages)) {
@@ -37,6 +40,7 @@ export class Session extends BaseModel {
       messages: this.messages.filter(m => m != null).map(m => (typeof (m as any).toJSON === 'function' ? (m as any).toJSON() : m)),
       reasoningEffort: this.reasoningEffort,
       model: this.model,
+      toolEnabled: this.toolEnabled,
       createdAt: this.createdAt,
       updatedAt: this.updatedAt
     };
@@ -63,6 +67,7 @@ export class Session extends BaseModel {
       // 构造器保证 reasoningEffort 恒为字符串；model 可能为 null（沿用全局默认）。
       reasoningEffort: this.reasoningEffort,
       model: this.model,
+      toolEnabled: this.toolEnabled,
     };
   }
 

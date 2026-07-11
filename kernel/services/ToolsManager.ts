@@ -15,6 +15,8 @@
 import { Log } from './Log.js';
 import { Tool, ToolCall, ToolResult } from '../models/Tool.js';
 import { KernelEvents, KernelChannels } from '../Events.js';
+import { StorageKeys } from '../Keys.js';
+import { IStorageManager } from './IStorageManager.js';
 import { IPC } from '../IPC.js';
 
 /** 最小 IPC 引用，避免与 Kernel.ts 循环依赖 */
@@ -31,12 +33,18 @@ export class ToolsManager {
   /** 可选 IPC：用于注册表变更时广播 TOOL.* 事件，使 UI / LLM 工具集可实时反映 */
   private _ipc: IPCLike | null;
   private _channel: { emit(event: string, payload?: unknown): void } | null;
+  /** 可选存储：持久化工具启用/禁用状态，使 SW 重启后恢复用户选择 */
+  private _storage: IStorageManager | null;
+  /** 启动期从存储加载的启用覆盖表（name → enabled），register 时应用到对应工具 */
+  private _overrides: Map<string, boolean>;
+  private _storageKey: string;
 
   constructor(options: {
     maxHistory?: number;
     beforeInvoke?: (toolCall: ToolCall, context: Record<string, unknown>) => boolean | Promise<boolean>;
     afterInvoke?: (result: ToolResult, context: Record<string, unknown>) => void;
     ipc?: IPCLike;
+    storage?: IStorageManager | null;
   } = {}) {
     this._tools = new Map();
     this._invocationHistory = [];
@@ -45,6 +53,30 @@ export class ToolsManager {
     this._afterInvoke = options.afterInvoke ?? null;
     this._ipc = options.ipc ?? null;
     this._channel = null;
+    this._storage = options.storage ?? null;
+    this._overrides = new Map();
+    this._storageKey = StorageKeys.TOOLS_ENABLED;
+  }
+
+  /**
+   * 启动初始化：从存储加载各工具启用覆盖表。
+   * 必须在工具注册（register）之前 await 完成，使 register 时能直接应用已保存的启用/禁用状态。
+   * 无 storage 时静默跳过（内存态，测试/无存储环境）。
+   */
+  async init(): Promise<this> {
+    if (!this._storage) return this;
+    try {
+      const stored = await this._storage.get(this._storageKey);
+      if (stored && typeof stored === 'object') {
+        for (const [name, enabled] of Object.entries(stored as Record<string, unknown>)) {
+          this._overrides.set(name, enabled === true);
+        }
+        Log.info('ToolsManager', `Restored enabled state for ${this._overrides.size} tool(s)`);
+      }
+    } catch (e) {
+      Log.warn('ToolsManager', `init load error: ${(e as any)?.message}`);
+    }
+    return this;
   }
 
   /** 懒初始化工具通道（仅在注入 ipc 时） */
@@ -68,6 +100,10 @@ export class ToolsManager {
     if (!tool || !tool.name) throw new Error('[ToolsManager] Invalid tool: missing name');
     if (this._tools.has(tool.name)) throw new Error(`[ToolsManager] Tool "${tool.name}" already registered`);
     this._tools.set(tool.name, tool);
+    // 启动期恢复的启用覆盖：仅当存储中存在该工具的记录时才覆盖默认 enabled
+    if (this._overrides.has(tool.name)) {
+      tool.enabled = this._overrides.get(tool.name) === true;
+    }
     this._emitChange(KernelEvents.TOOL.REGISTERED, { name: tool.name, source: tool.source });
     return this;
   }
@@ -99,6 +135,7 @@ export class ToolsManager {
       if (key in patch) (tool as any)[key] = patch[key];
     }
     this._emitChange(KernelEvents.TOOL.CHANGED, { name, reason: 'update' });
+    if ('enabled' in patch) void this._persist();
     return this;
   }
 
@@ -155,19 +192,41 @@ export class ToolsManager {
 
   // ─── 启用/禁用 ────────────────────────────────────
 
-  enable(name: string): void {
+  /**
+   * 启用工具并持久化（覆盖表 + 存储）。SW 重启后由 init() 读回、register() 应用。
+   */
+  async enable(name: string): Promise<void> {
     const t = this._tools.get(name);
     if (t && !t.enabled) {
       t.enabled = true;
+      this._overrides.set(name, true);
       this._emitChange(KernelEvents.TOOL.CHANGED, { name, enabled: true, reason: 'toggle' });
+      await this._persist();
     }
   }
 
-  disable(name: string): void {
+  /**
+   * 禁用工具并持久化（覆盖表 + 存储）。SW 重启后保持禁用，直至用户再次启用。
+   */
+  async disable(name: string): Promise<void> {
     const t = this._tools.get(name);
     if (t && t.enabled) {
       t.enabled = false;
+      this._overrides.set(name, false);
       this._emitChange(KernelEvents.TOOL.CHANGED, { name, enabled: false, reason: 'toggle' });
+      await this._persist();
+    }
+  }
+
+  /** 持久化全部工具的启用状态到存储（key = StorageKeys.TOOLS_ENABLED，值 { [name]: boolean }）。 */
+  private async _persist(): Promise<void> {
+    if (!this._storage) return;
+    const map: Record<string, boolean> = {};
+    for (const t of this._tools.values()) map[t.name] = t.enabled !== false;
+    try {
+      await this._storage.set(this._storageKey, map);
+    } catch (e) {
+      Log.warn('ToolsManager', `persist error: ${(e as any)?.message}`);
     }
   }
 

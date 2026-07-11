@@ -24,6 +24,22 @@ import { ThinkingConfig } from '../models/MessageContent.js';
 import { Session } from '../models/Session.js';
 import { Kernel } from '../Kernel.js';
 import { ContextBuilder } from './session-context.js';
+
+/**
+ * 解析某会话的有效工具定义集（openai 格式）。
+ * 两层开关合并（依据用户设计：全局优先级最高，会话级低于全局）：
+ *  1. 全局开关（ToolsManager）——全局关的工具根本不进入结果；
+ *  2. 会话级局部开关（session.toolEnabled）——全局开时，若本会话该工具为 false，
+ *     则在本会话内剔除；其余继承全局开启态。
+ * 全局是天花板：会话级 true 无法「重新开启」一个全局已关的工具。
+ */
+export function resolveSessionToolDefs(kernel: Kernel, session: Session): unknown[] {
+  const tm = kernel.getToolsManager();
+  const overrides = session?.toolEnabled || null;
+  return tm.getEnabled()
+    .filter((t) => !(overrides && overrides[t.name] === false))
+    .map((t) => t.toOpenAIFunction());
+}
 import { ToolExecutor } from './session-tools.js';
 import { buildTurnRequest, applySessionCache } from './request.js';
 
@@ -146,7 +162,8 @@ async function runTurn(
     // ── 上下文构建（委托 ContextBuilder） ──
     const freshSession = sm.getSession(sid);
     if (!freshSession) throw new Error(`Session not found: ${sid}`);
-    const tools = kernel.getToolsManager().getDefinitionsForLLM();
+    // 两层开关合并：全局（ToolsManager）为天花板，本会话 toolEnabled 仅能收窄
+    const tools = resolveSessionToolDefs(kernel, freshSession);
     const { messages: messagesForRequest, mediaWarnings } = await contextBuilder.buildMessages(freshSession, settings, tools, kernel.getMediaResolver() || undefined);
 
     // 媒体解析失败（如 mediaId 孤儿、IndexedDB 异常）上报 warning，由 Shell 弹 toast 提示用户

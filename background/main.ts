@@ -149,7 +149,11 @@ async function bootKernel() {
         // 工具管理 / 能力门控：与其余 Manager 一样走常规注册路径（不再构造器注入）
         // ToolsManager 注入 ipc：注册/注销/启用/禁用时经 TOOL 通道广播 CHANGED，
         // 供 UI（ToolsPage）与后续 P1/P2 动态注册实时反映。
-        kernel.register('toolsManager', async () => new ToolsManager({ ipc }));
+        kernel.register('toolsManager', async () => {
+            const mgr = new ToolsManager({ ipc, storage });
+            await mgr.init();
+            return mgr;
+        }, { dependsOn: ['storageManager'] });
         kernel.register('capabilities', async () => new CapabilityManager());
 
         kernel.register('storageManager', async () => storage);
