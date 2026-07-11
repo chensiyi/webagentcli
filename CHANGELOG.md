@@ -22,3 +22,8 @@
 - **模型能力归一化重构（已完成）**：`BaseProviderAPIService.normalizeModel` + 可覆写 extractor（`extractInputModalities` / `extractSupportsReasoning` / `extractSupportsTools` / `extractModality` / `extractPricing`）；`OpenRouterService` 覆写 3 个字段布局差异的 extractor（`architecture.input_modalities`、`supported_parameters.includes`、`architecture.modality`），`LMStudioService` 复用基类默认；**废弃原「抽独立 `modelCapabilities.ts` + source 分发 util」方案**（该用覆写消解的反模式）。
 - **XSS P0 修复**：`renderMarkdown` 接入 `DOMPurify` 净化（新增依赖 `dompurify`），阻断 LLM 输出经 `{@html}` 注入 `<script>` / 事件处理器；`MessageBubble` 与 `ToolMessageCard` 均经此函数，一处修复全覆盖。
 - P3 真机发图验证**已完成**（用户以 ImgBB key 实测通过，0.7 才升版）；P4 视频/语音输入延后。
+
+### 发布工程化
+- 新增 `.github/workflows/ci.yml`（**Layer 1 持续集成**）：`pull_request` + `push` 到 `main` 时跑 `typecheck → test → build`，作为合入闸口；job 名 `verify` 即分支保护所需的必需状态检查。
+- 重构 `.github/workflows/release.yml`（**Layer 2 发布**）：原版只建 Release 不构建/不打包/不上传产物（用户反馈“发布了但找不到构建物”）→ 现拆 `verify`(release 闸：`typecheck+test`+`package.json version` 与 tag 一致性校验) + `release`(`needs: verify` 引擎级硬关卡：`build` → 打包 `manifest.json+dist+assets` 为 `webagentcli-<ver>.zip` → 创建 GitHub Release 并附 zip)。
+- 触发方式：推送 `v*` tag 即自动构建并发布完整压缩包；版本号单一来源仍是 `package.json`（构建期同步到 `manifest.json`）。
