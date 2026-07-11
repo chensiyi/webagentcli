@@ -15,7 +15,7 @@
   }
 
   let {
-    open = $bindable(false),
+    open = false,
     title = '',
     confirmLabel = '确认',
     cancelLabel = '取消',
@@ -27,14 +27,15 @@
     onconfirm,
   }: Props = $props();
 
+  // open 为纯单向受控 prop：关闭完全由父组件的 onclose/onconfirm 回调驱动
+  // （各调用方均会在回调中将源状态重置为 null）。若此处写入 open，在 Svelte 5 中
+  // 子组件会"劫持" bindable prop，导致父组件后续 open 更新失效、弹窗无法再次打开。
   function close() {
-    open = false;
     onclose?.();
   }
 
   function confirm() {
     onconfirm?.();
-    open = false;
   }
 
   function handleBackdropClick(e: MouseEvent) {

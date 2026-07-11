@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy, getContext } from 'svelte';
+  import { waitKernelReady } from '../utils/kernel-ready.js';
   import Button from '../components/atoms/Button.svelte';
   import Card from '../components/layout/Card.svelte';
   import CodeEditor from '../components/forms/CodeEditor.svelte';
@@ -7,17 +8,16 @@
   import Dialog from '../components/overlays/Dialog.svelte';
   import EmptyState from '../components/layout/EmptyState.svelte';
   import { useToast } from '../components/overlays/toast-store.svelte';
-  import { KernelEvents } from '../../kernel/Events.js';
+  import { KernelEvents, KernelChannels } from 'kernel/Events.js';
+  import type { KernelAPIContract } from '../api-contract.js';
 
-  const kernel = getContext<any>('kernel');
+  const ipc: any = getContext('ipc');
+  const scriptsChannel = ipc?.getOrCreateChannel?.(KernelChannels.SCRIPTS) || ipc;
+  const api = getContext('api') as KernelAPIContract;
   const toast = useToast();
-
-  const ipc: any = kernel?.getIPC?.();
-  const scriptsChannel = ipc?.getOrCreateChannel?.('scripts') || ipc;
 
   // ---------- State ----------
   let scripts = $state<any[]>([]);
-  let isLoaded = $state(false);
   let isLoading = $state(false);
   let showInstallForm = $state(false);
   let editingScriptId = $state<string | null>(null);
@@ -35,43 +35,32 @@
 })();`;
 
   // ---------- Init ----------
-  $effect(() => {
-    if (isLoaded) return;
-    isLoaded = true;
-    refreshList();
-  });
 
   // ---------- IPC 事件监听 ----------
+  let unsubScriptError: (() => void) | undefined;
+
   onMount(() => {
+    // 内核就绪后再加载列表（等待 bootComplete 消息，时序门控）
+    waitKernelReady(ipc).then(() => refreshList());
+
     if (!scriptsChannel) return;
 
-    // 脚本列表更新（来自 ScriptsManager 的 loadAll 事件，或 ManageUserScriptsTool 操作后）
-    scriptsChannel.on(KernelEvents.SCRIPTS.LOADED, (data: any) => {
-      const newScripts = data?.scripts;
-      if (Array.isArray(newScripts)) {
-        scripts = newScripts;
-        isLoading = false;
-      }
-    });
-
-    // 脚本错误
-    scriptsChannel.on(KernelEvents.SCRIPTS.ERROR, (data: any) => {
+    // 脚本错误（Kernel 广播，非 RPC 响应）；组件销毁时必须退订
+    unsubScriptError = scriptsChannel.on(KernelEvents.SCRIPTS.ERROR, (data: any) => {
       toast.error(data?.error || '脚本操作失败');
       isLoading = false;
     });
   });
 
   onDestroy(() => {
-    // IPC 监听器清理交由 kernel 管理（随页面卸载自然销毁）
+    unsubScriptError?.();
   });
 
   async function refreshList() {
     isLoading = true;
     try {
-      const sm = kernel?.getScriptsManager?.();
-      if (sm?.loadAll) {
-        scripts = await sm.loadAll() || [];
-      }
+      const data = await api.scripts.list();
+      scripts = data?.scripts || [];
     } catch {
       scripts = [];
     } finally {
@@ -92,12 +81,11 @@
       return;
     }
     try {
-      const sm = kernel?.getScriptsManager?.();
-      await sm?.install?.(editCode);
+      const data = await api.scripts.install({ code: editCode });
+      scripts = data?.scripts || [];
       toast.success('脚本已安装');
       showInstallForm = false;
       editCode = '';
-      refreshList();
     } catch (e) {
       toast.error('安装失败');
     }
@@ -122,12 +110,11 @@
       return;
     }
     try {
-      const sm = kernel?.getScriptsManager?.();
-      await sm?.edit?.(editingScriptId, editCode);
+      const data = await api.scripts.edit({ id: editingScriptId, code: editCode });
+      scripts = data?.scripts || [];
       toast.success('已保存');
       editingScriptId = null;
       editCode = '';
-      refreshList();
     } catch (e) {
       toast.error('保存失败');
     }
@@ -135,9 +122,8 @@
 
   async function toggleScript(id: string, enabled: boolean) {
     try {
-      const sm = kernel?.getScriptsManager?.();
-      await sm?.toggle?.(id, enabled);
-      scripts = scripts.map((s: any) => s.id === id ? { ...s, enabled } : s);
+      const data = await api.scripts.toggle({ id, enabled });
+      scripts = data?.scripts || [];
       toast.success(enabled ? '已启用' : '已禁用');
     } catch {
       toast.error('操作失败');
@@ -151,13 +137,13 @@
   async function executeDelete() {
     if (!deleteTargetId) return;
     try {
-      const sm = kernel?.getScriptsManager?.();
-      await sm?.uninstall?.(deleteTargetId);
+      const data = await api.scripts.uninstall({ id: deleteTargetId });
+      scripts = data?.scripts || [];
       toast.success('已删除');
-      deleteTargetId = null;
-      refreshList();
     } catch {
       toast.error('删除失败');
+    } finally {
+      deleteTargetId = null;
     }
   }
 

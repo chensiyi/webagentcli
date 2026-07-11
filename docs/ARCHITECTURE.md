@@ -1,6 +1,6 @@
 # Web Agent Client 架构文档
 
-> 架构版本：Microkernel v0.6.6 · 与当前代码库保持同步
+> 架构版本：Microkernel v0.6.7 · 与当前代码库保持同步
 
 ## 核心理念
 
@@ -13,7 +13,7 @@
 | **系统调用** | `ToolsManager.ts` | 工具注册表、调用审计 |
 | **权限门控** | `CapabilityManager.ts` | 声明式权限、动态授权 |
 | **进程管理** | `ProcessManager` + `Process` | 进程 CRUD、生命周期、状态机 |
-| **用户程序** | `ChatProgram` | 聊天指令（内核级程序） |
+| **用户程序** | `orchestration/session.ts` | 会话编排（每轮纯函数 runConversation/cancelConversation），由 session RPC facade 直接驱动 |
 | **设备驱动** | `IProviderAPIService` | AI Provider 热插拔 |
 | **文件系统** | `IStorageManager` | chrome.storage 封装 |
 | **内核日志** | `Log.ts` / `ConsoleLogger.ts` | 控制台日志输出 |
@@ -27,8 +27,6 @@ webagentcli/
 ├── kernel/                          # 核心内核（TypeScript · 零外部依赖）
 │   ├── Kernel.ts                   # 核心内核：服务注册、生命周期、状态机
 │   ├── IPC.ts                      # 消息总线（优先级、来源追踪、中间件）
-│   ├── ToolsManager.ts             # 工具管理器（替代 ToolRegistry + IToolService）
-│   ├── CapabilityManager.ts        # 权限门控
 │   ├── Bootloader.ts               # 启动序列（4 阶段）
 │   ├── Events.ts                   # 内核事件常量
 │   ├── index.ts                    # 统一导出
@@ -44,11 +42,15 @@ webagentcli/
 │   │   ├── Process.ts
 │   │   └── Scripts.ts
 │   │
-│   ├── programs/                   # 内核程序（事件驱动的业务编排）
-│   │   ├── ChatProgram.ts          # 聊天程序（发送/流式/工具循环/会话切换）
-│   │   └── chat/                   # 聊天子模块
+│   ├── orchestration/              # 会话编排（每轮纯函数，无单例）
+│   │   ├── session.ts              # runConversation / cancelConversation
+│   │   ├── session-context.ts      # ContextBuilder — System Prompt + 截断 + API 格式
+│   │   ├── session-tools.ts        # ToolExecutor — 工具调用循环
+│   │   └── request.ts              # buildTurnRequest / applySessionCache（纯函数）
 │   │
-│   ├── services/                   # 核心服务实现
+│   ├── services/                   # 核心服务实现（全部走 kernel.register 常规注册）
+│   │   ├── ToolsManager.ts         # 工具管理器（注册/查询/执行/审计）
+│   │   ├── CapabilityManager.ts    # 权限门控（声明式权限/动态授权）
 │   │   ├── SessionManager.ts       # 会话/消息持久化
 │   │   ├── SettingsManager.ts      # 设置管理
 │   │   ├── ScriptsManager.ts       # 脚本管理
@@ -87,10 +89,9 @@ webagentcli/
 │   │   ├── SettingsPage.svelte     # 设置页面
 │   │   └── chat/
 │   │       ├── MessageBubble.svelte
-│   │       ├── ChatEventHandler.ts
 │   │       └── ...
 │   ├── services/                   # 壳层服务
-│   │   └── ChromeStorageAdapter.js
+│   │   └── chromeStorage.ts
 │   ├── tools/                      # 内置工具实现
 │   │   ├── RunUserScriptTool.js
 │   │   └── ManageUserScriptsTool.js
@@ -152,7 +153,7 @@ Service Worker (background.js)              Sidepanel (Svelte 5)
     │  持续运行，不依赖 Kernel                     │  按需打开，Kernel 自举
     │  监听 tabs.onActivated                      │  IPC EventBus
     │  监听 storage.onChanged                     │  5 个 UI 页面
-    │  脚本自动注入                                │  ChatProgram
+    │  脚本自动注入                                │  ChatPage + session RPC facade
     │                                              │
     └────────────── chrome.storage ────────────────┘
                   共享数据层
@@ -162,25 +163,25 @@ Service Worker (background.js)              Sidepanel (Svelte 5)
 应用层与内核层通过三层事件通信：
 
 ```
-UI 层 (ChatPage)           应用层 (ChatEventHandler)           内核层 (ChatProgram)
-    │                              │                              │
-    │  USER_APPLY_*                │                              │
-    │  (用户请求意图)               │                              │
-    ├──────→  鉴权 + 参数校验       │                              │
-    │                              │  ChatProgram.CMD.*           │
-    │                              │  (精确指令)                   │
-    │                              ├──────→  执行指令              │
-    │                              │                              │  STREAM_*
-    │  STREAM_*                    │                              │  TOOL.*
-    │  (真实事件驱动 UI)            │  (已有处理)                    │
-    │◄──────────────────────────  │                              │
+UI 层 (ChatPage)                      内核层 (orchestration/session.ts)
+    │                                      │
+    │  api.session.send()                 │
+    │  / api.session.stop()               │
+    │  (Shell→Kernel RPC 入口)             │
+    ├──────→  facade 直接驱动编排           │
+    │         runConversation /            │
+    │         cancelConversation           │
+    │                                      │  SESSION.STREAM_*
+    │  SESSION.STREAM_*  / TOOL.*           │  TOOL.*
+    │  (真实事件驱动 UI，经 sessionChannel 回灌)  │
+    │◄──────────────────────────────────────│
 ```
 
-| 层 | 事件 | 职责 |
+| 层 | 入口 | 职责 |
 |---|---|---|
-| **UI 层** | `USER_APPLY_SEND`, `USER_APPLY_STOP`, `USER_APPLY_DELETE_MESSAGE` | 发射用户操作意图 |
-| **应用层** | `ChatProgram.CMD.SEND`, `CMD.STOP`, `CMD.DELETE_MESSAGE` | 鉴权、参数校验、转译为精确指令 |
-| **内核层** | `STREAM_START`, `STREAM_COMPLETE`, `TOOL.EXECUTING` 等 | 发射真实业务事件驱动 UI |
+| **UI 层** | `api.session.send()`, `api.session.stop()` | Shell→Kernel 的 RPC 统一入口（发送/停止消息） |
+| **RPC 服务层** | `createSessionFacade.send()` / `stop()` | 直接调用 `runConversation` / `cancelConversation`，经 `onEvent`/`emit` 把流式与生命周期事件回灌 SESSION 通道（命令祈使式，与过去式事件区分） |
+| **内核层** | `SESSION.STREAM_START`, `SESSION.STREAM_COMPLETE`, `TOOL.EXECUTING` 等 | 发射真实业务事件驱动 UI |
 
 ## Kernel 子系统详解
 
@@ -205,12 +206,14 @@ CREATED ──(boot())──► BOOTING ──► RUNNING
 | `register(name, factory, options)` | 注册服务工厂（支持 `dependsOn` / `autoInit` / `singleton`） |
 | `get(name)` | 获取已初始化的服务实例 |
 | `boot()` | 按依赖顺序初始化所有服务 |
-| `shutdown()` | 反向顺序关闭所有服务 |
+| `shutdown()` | 反向顺序关闭所有服务（teardown 优先 `shutdown()`，退化到 `destroy()`） |
 | `on(phase, hook)` | 注册生命周期钩子 |
 | `getInfo()` | 返回当前状态、服务列表、子系统信息 |
 
 **便捷方法**：
 ```typescript
+kernel.getToolsManager()        // → ToolsManager（常规注册服务）
+kernel.getCapabilities()        // → CapabilityManager（常规注册服务）
 kernel.getSessionManager()      // → SessionManager
 kernel.getSettingsManager()     // → SettingsManager
 kernel.getStorageManager()      // → IStorageManager
@@ -219,6 +222,9 @@ kernel.getProcessManager()      // → ProcessManager
 kernel.getProviderFactory()     // → ProviderFactory
 kernel.getIPC()                 // → IPC
 ```
+
+> 所有 Manager（含 ToolsManager / CapabilityManager）均经 `kernel.register()` 注册、boot 时初始化，
+> 经 `get()` / `getXxx()` 访问。Kernel 构造器仅注入基础设施 `ipc` / `storage`。
 
 ### 2. IPC.ts（消息总线）
 
@@ -293,46 +299,36 @@ await bootloader.boot();
 
 ## 核心模块详解
 
-### 1. ChatProgram（聊天程序 — 内核级）
+### 1. 会话编排（orchestration/session.ts — 每轮纯函数）
 
-**位置**：`kernel/programs/ChatProgram.ts`
+**位置**：`kernel/orchestration/session.ts`
 
-ChatProgram 是内核级的聊天编排程序，由 Shell 层在 START 阶段初始化一次，永久复用。
+会话编排层（对标 OpenAI Runner / LangGraph / Vercel streamText 的会话管理范式）：
+- 每轮被调用一次、对会话无状态；turn 状态存于模块级 `Map<sessionId, TurnState>`，按 session 作用域——不同会话并发互不互斥，同会话二次 SEND 拦截。
+- 不订阅任何 IPC 通道；事件一律通过 `onEvent` 回调外发，由调用方（session RPC facade）注入 emit 接到 SESSION 通道。
 
-**指令接口**（ChatEventHandler 鉴权后转发）：
+**公共入口**：
 ```typescript
-ChatProgram.CMD.SEND            // 发送消息 { content, sessionId?, model?, reasoningEffort? }
-ChatProgram.CMD.STOP            // 停止生成
-ChatProgram.CMD.DELETE_MESSAGE  // 删除消息 { messageId }
+runConversation(kernel, input, { onEvent })   // 解析/创建会话 → 构建上下文 → 流式 → 工具循环（ReAct 递归续轮）→ 写回
+cancelConversation(kernel, emit, sessionId?)  // 按 session 精确取消或全部取消
 ```
 
-**输出事件**（通过 IPC emit）：
-```typescript
-kernel.ipc.emit('chat:streamStart', { sessionId })
-kernel.ipc.emit('chat:streamChunkAppend', { content, reasoningContent })
-kernel.ipc.emit('chat:streamComplete', { sessionId, messageId })
-kernel.ipc.emit('chat:streamError', { sessionId, error })
-kernel.ipc.emit('chat:streamStop', { sessionId })
-kernel.ipc.emit('chat:tool:executing', { toolCallId, toolName })
-kernel.ipc.emit('chat:tool:completed', { toolCallId, result })
-kernel.ipc.emit('chat:tool:allCompleted', { sessionId })
-kernel.ipc.emit('chat:messageDeleted', { messageId })
-```
+**发射的 SESSION 事件**（经 onEvent 外发）：`SESSION.STREAM_START` / `SESSION.STREAM_CHUNK_APPEND` / `SESSION.STREAM_COMPLETE` / `SESSION.STREAM_ERROR` / `SESSION.STREAM_STOP` / `SESSION.MESSAGE_ADDED` / `SESSION.CURRENT_SESSION_CHANGED`。
 
-**生命周期**：
-- 由 Shell 层在 START 阶段创建
-- 会话切换时：如果正在交互（`_active`），自动取消当前流式请求
-- 可通过 `destroy()` 方法销毁（移除所有事件监听）
+**模块拆分**：
+- `session-context.ts` — `ContextBuilder`：System Prompt + 历史截断（保护 tool_call/tool_result 配对）+ API 格式转换。
+- `session-tools.ts` — `ToolExecutor`：工具调用循环（执行/重试/结果写入/事件发射）。
+- `request.ts` — `buildTurnRequest` / `applySessionCache` 纯函数。
 
-### 2. ChatEventHandler（聊天事件处理 — 应用层转译）
+### 2. session RPC facade 直接驱动编排（命令接线已内联）
 
-**位置**：`sidepanel/pages/chat/ChatEventHandler.ts`
+`background/rpc-facades.ts` 的 `createSessionFacade` 是会话命令的统一入口（由 main.ts Phase 4 经 `RPCServer.expose('session', ...)` 暴露为 `api.session.*`）：
+- `send()` → 直接 `runConversation(kernel, data, { onEvent: emit })`，流式事件经 `onEvent` 回灌 SESSION 通道。
+- `stop()` → 直接 `cancelConversation(kernel, emit)`。
+- `create()` / `switch()` → 切换会话前先 `cancelConversation(kernel, emit)` 取消旧会话进行中的轮次。
+- `delete()` → 调用 `cancelConversation(kernel, emit, sessionId)` 取消待删会话的轮次（`SessionManager.deleteSession()` 自身会 emit `SESSION_DELETED`）。
 
-应用层的鉴权转译层，职责：
-1. 监听 UI 层的 `USER_APPLY_*` 事件
-2. 鉴权、参数校验
-3. 转译为 `ChatProgram.CMD.*` 指令转发
-4. 监听 ChatProgram 输出事件（`chat:streamChunkAppend` 等）更新 Svelte 状态
+不再有独立的 `eventhandler/` 层：`USER_APPLY_*` 意图层早已移除，命令由 RPC facade 直接驱动编排，命令与事件均走 SESSION 通道但职责清晰（命令=RPC 入口、事件=流式回灌）。
 
 ### 3. SessionManager（会话管理器）
 
@@ -407,7 +403,7 @@ class Tool {
 
 同文件中还包含 `ToolCall`（调用记录）和 `ToolResult`（执行结果）。
 
-**工具管理器**：`kernel/ToolsManager.ts`
+**工具管理器**：`kernel/services/ToolsManager.ts`
 
 ```typescript
 class ToolsManager {
@@ -477,20 +473,19 @@ LLM 收到结果后继续（ReAct 循环）
 | | `kernel:serviceInitialized` | 服务初始化 |
 | | `kernel:serviceStateChanged` | 服务状态变更 |
 | | `kernel:serviceError` | 服务错误 |
-| **CHAT** | `chat:messageAdded` | 消息已添加 |
-| | `chat:streamStart` | 流式开始 |
-| | `chat:streamChunkAppend` | 流式分片追加 |
-| | `chat:streamComplete` | 流式完成 |
-| | `chat:streamError` | 流式错误 |
-| | `chat:streamStop` | 流式停止（用户主动） |
-| | `chat:sessionCreated` | 会话已创建 |
-| | `chat:sessionSwitched` | 会话已切换 |
-| | `chat:sessionDeleted` | 会话已删除 |
-| | `chat:sessionLoaded` | 会话已加载 |
-| | `chat:sessionUpdated` | 会话已更新 |
-| | `chat:userApplySend` | 用户发送操作（Shell→Handler） |
-| | `chat:userApplyStop` | 用户停止操作（Shell→Handler） |
-| | `chat:userApplyDeleteMessage` | 用户删除消息操作（Shell→Handler） |
+| **SESSION** | `session:messageAdded` | 消息已添加 |
+| | `session:streamStart` | 流式开始 |
+| | `session:streamChunkAppend` | 流式分片追加 |
+| | `session:streamComplete` | 流式完成 |
+| | `session:streamError` | 流式错误 |
+| | `session:streamStop` | 流式停止（用户主动） |
+| | `session:sessionCreated` | 会话已创建 |
+| | `session:sessionSwitched` | 会话已切换 |
+| | `session:sessionDeleted` | 会话已删除 |
+| | `session:sessionLoaded` | 会话已加载 |
+| | `session:sessionUpdated` | 会话已更新 |
+| | `session:userApplySend` | 用户发送操作（Shell→Handler） |
+| | `session:userApplyStop` | 用户停止操作（Shell→Handler） |
 | **SETTINGS** | `settings:loaded` | 设置已加载 |
 | | `settings:updated` | 设置已更新 |
 | | `settings:saved` | 设置已保存 |
@@ -512,14 +507,13 @@ LLM 收到结果后继续（ReAct 循环）
 ### 入口启动流程（`sidepanel/main.ts`）
 
 ```
-1. 创建 ConsoleLogger → IPC → ToolsManager → CapabilityManager
-2. 创建 Kernel 实例，注入子系统
+1. 创建 ConsoleLogger → IPC
+2. 创建 Kernel 实例，仅注入基础设施（ipc / storage）
 3. 创建 Bootloader，注册启动钩子
 4. INIT 阶段  → IPC ready（基础设施就绪）
-5. REGISTER 阶段 → 注册所有 Service 工厂
+5. REGISTER 阶段 → 注册所有 Service 工厂（含 toolsManager / capabilities）
 6. START 阶段 → kernel.boot() 初始化服务
              → 注册内置工具
-             → 创建 ChatProgram + ChatEventHandler
              → settingsManager.loadSettings()
 7. bootloader.boot() 完成
 8. mount(Sidepanel, target) 挂载 Svelte 根组件
@@ -540,7 +534,7 @@ const sessionManager = kernel.getSessionManager();
 ## 向后兼容保证
 
 1. **IPC API** 不变：`emit` / `on` / `off` / `once` / `getHistory` 全部保留
-2. **Events 常量** 兼容：`KernelEvents.CHAT.*` 保留全部旧常量
+2. **Events 常量**：`KernelEvents.SESSION.*` 为会话消息组常量（原 `chat:*` 已更名为 `session:*`）
 3. **服务访问** 统一通过 `kernel.get('serviceName')` 或 `kernel.getXxxManager()` 便捷方法
 4. **Shell 交换**：更换 Shell 时，kernel 无需改动一行代码
 
@@ -578,18 +572,19 @@ class MyNewTool extends Tool {
 }
 ```
 
-### 添加新的内核程序
+### 添加新的会话命令（建议在 RPC facade 中直接驱动编排）
 
-1. 在 `kernel/programs/` 创建 `XxxProgram.ts`
-2. 声明 `static CMD = Object.freeze({...})` 指令接口
-3. 构造器中订阅自己的 `CMD.*` 指令
-4. 在 Shell 层的 START 阶段创建实例
+1. 若命令属于会话域，直接在 `background/rpc-facades.ts` 的 `createSessionFacade` 中新增方法，方法体直接调用 `orchestration/session.ts` 的 `runConversation` / `cancelConversation`（或新增编排函数），并通过 `emit` 把事件回灌 SESSION 通道。
+2. 需要内核命令常量时引用 `KernelEvents.SESSION.ADD_MESSAGE` / `KernelEvents.SESSION.STOP_STREAM`（定义于 `kernel/Events.ts` 的 SESSION 组，祈使式命令、与过去式事件配对）。
+3. 在 `BACKGROUND.md` 的 `RPCServer.expose('session', ...)` 的 `methods` 列表里登记新方法名，Shell 侧 `api-contract.ts` 同步补充。
+
+> 历史说明：早期曾设独立的 `kernel/eventhandler/` 层按「消息组」接线，但会话命令本就是 RPC 入口、由 facade 直接驱动编排更贴切，已于 v0.6.7 移除该层，命令接线内联进 session RPC facade。
 
 ### 添加新的事件
 
 1. 在 `kernel/Events.ts` 中对应的命名空间下添加常量
 2. 事件名格式：`{domain}:{action}`（小写 + 冒号）
-3. 示例：`chat:streamStart`, `settings:loaded`
+3. 示例：`session:streamStart`, `settings:loaded`
 
 ### 添加新页面
 
@@ -599,8 +594,8 @@ class MyNewTool extends Tool {
 
 ## 版本信息
 
-- **扩展版本**：0.6.6（见 `manifest.json` / `package.json`）
-- **架构版本**：Microkernel v0.6.6
+- **扩展版本**：0.6.7（见 `manifest.json` / `package.json`）
+- **架构版本**：Microkernel v0.6.7
 - **Manifest 版本**：3
 
 ### 主要变更（v0.6.5 → v0.6.6）
@@ -611,11 +606,29 @@ class MyNewTool extends Tool {
 - ✅ **废弃文件清理**：删除 `ToolDefinition.ts`、`IToolService.ts`、`ToolRegistry.ts` 等 9 个废弃文件
 - ✅ **RunUserScriptTool 修复**：正确继承 `Tool`，handler 正常注册
 
+### 主要变更（v0.6.7 续：会话命令接线收敛）
+
+- ✅ **移除 `kernel/eventhandler/` 层**：原 `eventhandler/session.ts` 把 `SESSION.ADD_MESSAGE`/`STOP_STREAM` 命令从同进程 RPC facade emit 出来再接住、转调 `runConversation`/`cancelConversation`，属于「自己跟自己走 IPC 一圈」的冗余绕弯。命令本就是 RPC 入口，由 `createSessionFacade` 直接驱动编排更贴切
+- ✅ **命令接线内联进 session RPC facade**：`send()` 直接 `runConversation(kernel, data, { onEvent: emit })`，`stop()` 直接 `cancelConversation(kernel, emit)`；`create()`/`switch()` 在切换会话前、`delete()` 在删除会话前内联 `cancelConversation`（原 eventhandler 订阅 `CURRENT_SESSION_CHANGED`/`SESSION_DELETED` 的取消逻辑，现由 facade 直接承担）
+- ✅ **删除 `registerHandlers` 调用**：`background/main.ts` Phase 4 不再 `registerHandlers(kernel, ipc)`，仅保留 `sessionChannel` 供 facade 回灌事件
+
+### 主要变更（v0.6.6 → v0.6.7）
+
+- ✅ **kernel 扁平化**：`kernel/programs/chat/` → `kernel/orchestration/`（session.ts / session-context.ts / session-tools.ts / request.ts）
+- ✅ **eventhandler 接管接线**：新增 `kernel/eventhandler/`（按消息组管理），`main.ts` Phase 4 内联的 chat 接线迁此，集中 `registerHandlers(kernel, ipc)`
+- ✅ **CHAT 消息组更名为 SESSION**：`KernelEvents.CHAT` → `SESSION`、`KernelChannels.CHAT` → `SESSION`，线协议 `chat:*` → `session:*`（CMD.SEND/STOP 同步更名），Shell（ChatPage/HistoryPage）与 RPC facade 同步更新
+- ✅ **CMD 集中**：线协议常量上移至 `kernel/Events.ts`，与 `USER_APPLY_*` 同处
+- ✅ **命令用时态区分（去 `cmd:` 中缀）**：`CMD.SEND`（`session:cmd:send`）→ `CMD.ADD_MESSAGE`（`session:addMessage`）、`CMD.STOP`（`session:cmd:stop`）→ `CMD.STOP_STREAM`（`session:stopStream`）。命令用祈使式、事件用过去式（`addMessage` ↔ `messageAdded`），时态本身区分命令与事件，`cmd:` 中缀冗余移除
+- ✅ **授权命令并入 SESSION 组**：`CMD.ADD_MESSAGE`/`CMD.STOP_STREAM` 从独立 `CMD` 常量并入 `KernelEvents.SESSION.ADD_MESSAGE`/`STOP_STREAM`（与过去式事件同一命名空间），删除独立 `export const CMD`
+- ✅ **ToolsManager / CapabilityManager 移入 `services/`**：两者本是构造器注入子系统，现与其余 Manager 同处 `kernel/services/`；`kernel/` 根只留纯内核原语（Kernel / Bootloader / IPC / Events / Keys）
+- ✅ **发送/停止消息统一走 RPC**：移除 `USER_APPLY_SEND`/`USER_APPLY_STOP` 意图层，`session` RPC facade 新增 `send()`/`stop()`，由 facade 直接 `emit(SESSION.ADD_MESSAGE/STOP_STREAM)`，`eventhandler` 仍独占命令→编排接线。至此所有 Shell→Kernel 可执行命令统一经 RPC 入口，流式 `STREAM_*` 事件仍走 IPC 通道回灌
+- ✅ **ToolsManager / CapabilityManager 改走常规注册**：不再由 Kernel 构造器注入（移除 `toolsManager`/`capabilities` 字段与构造器 options），改为 Phase 2 `kernel.register('toolsManager'/'capabilities')`，经 `kernel.getToolsManager()`/`getCapabilities()` 访问；Kernel 构造器仅注入基础设施 `ipc`/`storage`。shutdown 服务循环泛化为 `shutdown()` 优先、退化 `destroy()`，两者 teardown 收敛进统一循环
+
 ### 主要变更（v0.4.0 → v0.6.5）
 
 - ✅ **Kernel TypeScript 化**：所有 `kernel/*.js` 迁移到 `.ts`
 - ✅ **ChatProgram**：引入内核级聊天程序，移除 ChatController
-- ✅ **三层事件体系**：USER_APPLY_* → ChatEventHandler → ChatProgram.CMD.*
+- ✅ **三层事件体系**：USER_APPLY_* → ChatEventHandler → CMD.SEND / CMD.STOP
 - ✅ **Bootloader 精简**：8 阶段 → 4 阶段（INIT/REGISTER/START/READY）
 - ✅ **ProviderFactory 独立**：Provider 不再耦合在 Kernel 上
 - ✅ **Svelte 5 UI 统一**：移除旧 JS 架构，全部使用 Svelte 5 + TypeScript

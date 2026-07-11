@@ -7,6 +7,8 @@
  * 3. 规范构造函数模式（接收 options 对象）
  */
 
+import { genId } from '../utils/id.js';
+
 export class BaseModel {
   id: string;
   createdAt: number;
@@ -20,8 +22,7 @@ export class BaseModel {
   }
 
   generateId(): string {
-    const prefix = this.constructor.name.toLowerCase();
-    return `${prefix}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return genId(this.constructor.name.toLowerCase());
   }
 
   touch(): void { this.updatedAt = Date.now(); }
@@ -34,5 +35,5 @@ export class BaseModel {
     };
   }
 
-  static fromJSON(data: Record<string, unknown>): unknown { throw new Error('static fromJSON() must be implemented by subclass'); }
+  static fromJSON(_data: Record<string, unknown>): unknown { throw new Error('static fromJSON() must be implemented by subclass'); }
 }

@@ -9,6 +9,8 @@ import { OpenAIService } from './OpenAIService.js';
 import { Settings } from '../../models/Settings.js';
 import * as MessageContent from '../../models/MessageContent.js';
 import { Log } from '../Log.js';
+import { joinUrl } from '../../utils/url.js';
+import { forEachSSEData, accumulateOpenAIToolCall, makeStreamResult, extractStreamError } from './sse.js';
 
 export default class OpenRouterService extends OpenAIService {
   constructor() {
@@ -22,12 +24,26 @@ export default class OpenRouterService extends OpenAIService {
     if (!this.config.apiKey) throw new Error('OpenRouter: apiKey is required');
   }
 
-  buildHeaders() {
-    const headers = super.buildHeaders();
-    // FIXME: window 依赖 — 已知浏览器环境耦合（参见 MEMORY.md）
-    headers['HTTP-Referer'] = window.location.href || 'http://localhost';
+  buildHeaders(request?: any):  Record<string, string>{
+    const headers = super.buildHeaders(request);
+    // referer 由 Shell 层通过 request.headers 传入（kernel 不引用 window）
+    headers['HTTP-Referer'] = request?.headers?.['HTTP-Referer'] || 'http://localhost';
     headers['X-Title'] = 'Web Agent Client';
     return headers;
+  }
+
+  // ---- 模型能力归一化：覆写基类 extractor，消解 OpenRouter 字段布局差异 ----
+  protected extractInputModalities(m: any): string[] {
+    return (m.architecture?.input_modalities || []).map((x: any) => String(x).toLowerCase());
+  }
+  protected extractSupportsReasoning(m: any): boolean {
+    return (m.supported_parameters || []).includes('reasoning');
+  }
+  protected extractSupportsTools(m: any): boolean {
+    return (m.supported_parameters || []).includes('tools');
+  }
+  protected extractModality(_m: any, _inputModalities: string[]): string {
+    return _m.architecture?.modality || 'text->text';
   }
 
   buildRequestBody(request: any) {
@@ -35,12 +51,21 @@ export default class OpenRouterService extends OpenAIService {
     if (request.metadata?.transforms) body.transforms = request.metadata.transforms;
     if (request.metadata?.provider) body.provider = request.metadata.provider;
     if (request.metadata?.route) body.route = request.metadata.route;
-    const thinking = request.thinking;
-    if (thinking && thinking.effort) {
-      body.reasoning_effort = thinking.effort === 'off' ? 'none' : thinking.effort;
+    // OpenRouter 官方用 reasoning 对象控制推理强度（非顶层 reasoning_effort）。
+    // 清掉父类可能为推理模型加上的顶层 reasoning_effort，避免参数冲突。
+    delete body.reasoning_effort;
+    // 思考强度是数据，必须忠实透传：off 不是「无值」，而是用户的显式关闭选择，
+    // 翻译成官方 effort:'none'（Disables reasoning entirely）；其它档位按原值下发。
+    const effort = request.thinking?.effort;
+    if (effort) {
+      if (effort === 'off') {
+        body.reasoning = { effort: 'none' };
+      } else {
+        body.reasoning = { effort, exclude: false };
+      }
     }
     // 不记录完整请求体（含 API Key），仅记录关键元数据
-    Log.debug('OpenRouterService', `Request: model=${body.model}, messages=${body.messages?.length}, reasoning_effort=${body.reasoning_effort || 'none'}`);
+    Log.debug('OpenRouterService', `Request: model=${body.model}, messages=${body.messages?.length}, reasoning=${body.reasoning ? JSON.stringify(body.reasoning) : 'none'}`);
     if (this.shouldApplyCache(request)) {
       this._applyCacheControl(body);
     }
@@ -68,24 +93,26 @@ export default class OpenRouterService extends OpenAIService {
     }
   }
 
-  chatStream(request: any, onChunk: any) {
+  chatStream(request: any, onChunk: any): Promise<any> {
     const url = this.buildUrl('/chat/completions');
-    const headers = this.buildHeaders();
+    const headers = this.buildHeaders(request);
     request.stream = true;
     const body = this.buildRequestBody(request);
     this.abortController = new AbortController();
+    const ac = this.abortController;
 
     let pendingContent = '';
     let pendingReasoning = '';
-    const pendingToolCalls: any = {};
+    const pendingToolCalls: Record<number, any> = {};
     let pendingFinishReason: string | null = null;
+    let streamError: Error | null = null;
 
     Log.info('OpenRouterService', `Stream request: model=${body.model}, messages=${body.messages?.length}`);
 
     return new Promise((resolve, reject) => {
       fetch(url, {
         method: 'POST', headers, body: JSON.stringify(body),
-        signal: this.abortController.signal
+        signal: ac.signal
       })
       .then(response => {
         if (!response.ok) {
@@ -96,71 +123,35 @@ export default class OpenRouterService extends OpenAIService {
         }
         const reader = response.body?.getReader();
         if (!reader) return Promise.resolve(null);
-        const decoder = new TextDecoder();
-        let buffer = '';
+        return forEachSSEData(reader, (parsed) => {
+          // 上游在 chunk 内返回错误（choices 为空 + error 字段）→ 记录后由外层 reject 传播，不让交互静默停止
+          const errMsg = extractStreamError(parsed);
+          if (errMsg) { streamError = new Error(`上游返回错误: ${errMsg}`); return; }
+          const choice = parsed.choices?.[0];
+          if (!choice) return;
+          const delta = choice.delta || {};
+          if (choice.finish_reason) pendingFinishReason = choice.finish_reason;
 
-        const processStream = () => {
-          return reader.read().then(({ done, value }) => {
-            if (done) {
-              const { MessageStructure } = MessageContent;
-              Log.info('OpenRouterService', `Stream completed: content=${pendingContent.length}chars, finishReason=${pendingFinishReason || 'stop'}`);
-              resolve({
-                content: pendingContent,
-                reasoning_content: pendingReasoning,
-                toolCalls: MessageStructure.parseToolCallsFromOpenAI(Object.values(pendingToolCalls)),
-                finishReason: pendingFinishReason || 'stop',
-                usage: null,
-                model: null
-              });
-              return;
-            }
+          if (delta.tool_calls) {
+            for (const tc of delta.tool_calls) accumulateOpenAIToolCall(pendingToolCalls, tc);
+          }
 
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop();
-
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (!trimmed || trimmed === 'data: [DONE]') continue;
-              if (!trimmed.startsWith('data: ')) continue;
-
-              try {
-                const json = JSON.parse(trimmed.slice(6));
-                const choice = json.choices?.[0];
-                if (!choice) continue;
-                const delta = choice.delta || {};
-                const finish = choice.finish_reason;
-                if (finish) pendingFinishReason = finish;
-
-                if (delta.tool_calls) {
-                  for (const tc of delta.tool_calls) {
-                    if (!pendingToolCalls[tc.index]) {
-                      pendingToolCalls[tc.index] = tc;
-                    } else {
-                      const existing = pendingToolCalls[tc.index];
-                      if (tc.function) {
-                        existing.function = existing.function || { arguments: '' };
-                        existing.function.arguments = (existing.function.arguments || '') + (tc.function.arguments || '');
-                      }
-                    }
-                  }
-                }
-
-                const contentChunk = delta.content || '';
-                const reasoningChunk = delta.reasoning || delta.reasoning_content || '';
-                if (contentChunk) pendingContent += contentChunk;
-                if (reasoningChunk) pendingReasoning += reasoningChunk;
-                if (onChunk && (contentChunk || reasoningChunk)) {
-                  onChunk({ content: contentChunk, reasoning_content: reasoningChunk });
-                }
-              } catch (e) {
-                Log.warn('OpenRouterService', 'Failed to parse chunk:', e);
-              }
-            }
-            return processStream();
-          });
-        };
-        return processStream();
+          const contentChunk = delta.content || '';
+          const reasoningChunk = delta.reasoning || delta.reasoning_content || '';
+          if (contentChunk) pendingContent += contentChunk;
+          if (reasoningChunk) pendingReasoning += reasoningChunk;
+          if (onChunk && (contentChunk || reasoningChunk)) {
+            onChunk({ content: contentChunk, reasoning_content: reasoningChunk });
+          }
+        }, 'OpenRouterService').then(() => {
+          if (streamError) {
+            Log.error('OpenRouterService', `Stream error from upstream: ${streamError.message}`);
+            reject(streamError);
+            return;
+          }
+          Log.info('OpenRouterService', `Stream completed: content=${pendingContent.length}chars, finishReason=${pendingFinishReason || 'stop'}`);
+          resolve(makeStreamResult(pendingContent, pendingReasoning, MessageContent.MessageStructure.parseToolCallsFromOpenAI(Object.values(pendingToolCalls)), pendingFinishReason));
+        });
       })
       .catch(error => {
         if (error.name === 'AbortError') {
@@ -190,7 +181,7 @@ export default class OpenRouterService extends OpenAIService {
   }
 
   listModels() {
-    const modelsEndpoint = this.config.endpoint.replace(/\/$/, '') + '/models';
+    const modelsEndpoint = joinUrl(this.config.endpoint, '/models');
     Log.info('OpenRouterService', 'Fetching model list');
     return fetch(modelsEndpoint, {
       method: 'GET',
@@ -204,23 +195,14 @@ export default class OpenRouterService extends OpenAIService {
       return r.json();
     })
     .then((result: any) => {
-      const models = (result.data || []).map((m: any) => ({
-      id: m.id, name: m.name || m.id, created: m.created,
-      owned_by: m.owned_by || m.owner || 'openrouter',
-      context_length: m.context_length || null, max_output_tokens: m.max_output_tokens || null,
-      modality: m.architecture?.modality || 'text->text',
-      pricing: { prompt: m.pricing?.prompt ? parseFloat(m.pricing.prompt) : null, completion: m.pricing?.completion ? parseFloat(m.pricing.completion) : null },
-      supports_reasoning: (m.supported_parameters || []).includes('reasoning'),
-      supports_tools: (m.supported_parameters || []).includes('tools'),
-      description: m.description || null, ...m
-    }));
+      const models = (result.data || []).map((m: any) => this.normalizeModel(m));
     Log.info('OpenRouterService', `Model list fetched: ${models.length} models`);
     return models;
     });
   }
 
   getModelDetails(modelId: string) {
-    return this.listModels().then((models: any[]) => models.find(m => m.id === modelId) || null);
+    return this.listModels().then((models: any[]) => models.find((m: any) => m.id === modelId) || null);
   }
 }
 export { OpenRouterService };

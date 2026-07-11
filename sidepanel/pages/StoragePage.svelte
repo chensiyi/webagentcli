@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { getContext } from 'svelte';
+import { getContext, onMount, onDestroy } from 'svelte';
+import { waitKernelReady } from '../utils/kernel-ready.js';
+import { KernelChannels } from 'kernel/Events.js';
   import Button from '../components/atoms/Button.svelte';
   import Input from '../components/forms/Input.svelte';
   import Card from '../components/layout/Card.svelte';
@@ -7,8 +9,11 @@
   import Dialog from '../components/overlays/Dialog.svelte';
   import EmptyState from '../components/layout/EmptyState.svelte';
   import { useToast } from '../components/overlays/toast-store.svelte';
+  import type { KernelAPIContract } from '../api-contract.js';
 
-  const kernel = getContext<any>('kernel');
+  const ipc: any = getContext('ipc');
+  const storageChannel = ipc?.getOrCreateChannel?.(KernelChannels.STORAGE) || ipc;
+  const api = getContext('api') as KernelAPIContract;
   const toast = useToast();
 
   // ---------- State ----------
@@ -20,7 +25,6 @@
 
   // Dialogs
   let deleteTarget = $state<string | null>(null);
-  let deleteTargetIsAll = $state(false);
   let editTarget = $state<string | null>(null);
   let editValue = $state('');
 
@@ -43,20 +47,22 @@
   );
 
   // ---------- Init ----------
-  $effect(() => {
-    if (isLoaded) return;
-    isLoaded = true;
-    refreshList();
+
+  onMount(() => {
+    // 内核就绪后再加载（等待 bootComplete 消息，时序门控）
+    waitKernelReady(ipc).then(() => {
+      refreshList().finally(() => { isLoaded = true; });
+    });
+  });
+
+  onDestroy(() => {
   });
 
   async function refreshList() {
     isLoading = true;
     try {
-      const sm = kernel?.getStorageManager?.() || kernel?.get?.('storageManager');
-      if (sm?.getAll) {
-        const items = await sm.getAll();
-        storageItems = items;
-      }
+      const data = await api.storage.getAll();
+      storageItems = data?.items || [];
     } catch (e) {
       toast.error('加载失败');
     } finally {
@@ -76,36 +82,24 @@
 
   function confirmDelete(key: string) {
     deleteTarget = key;
-    deleteTargetIsAll = false;
-  }
-
-  function confirmClearAll() {
-    deleteTarget = null;
-    deleteTargetIsAll = true;
   }
 
   async function executeDelete() {
+    if (!deleteTarget) return;
     try {
-      const sm = kernel?.getStorageManager?.() || kernel?.get?.('storageManager');
-      if (deleteTargetIsAll) {
-        await sm?.clear?.();
-        toast.success('已清空');
-      } else if (deleteTarget) {
-        await sm?.remove?.(deleteTarget);
-        toast.success('已删除');
-      }
-      deleteTarget = null;
-      deleteTargetIsAll = false;
-      refreshList();
+      const data = await api.storage.remove({ key: deleteTarget });
+      storageItems = data?.items || [];
+      toast.success('已删除');
     } catch (e) {
       console.error('[StoragePage] delete failed:', e);
       toast.error(`操作失败: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      deleteTarget = null;
     }
   }
 
   function cancelDelete() {
     deleteTarget = null;
-    deleteTargetIsAll = false;
   }
 
   function openEdit(key: string, value: any) {
@@ -122,12 +116,11 @@
     if (!editTarget) return;
     try {
       const parsed = JSON.parse(editValue);
-      const sm = kernel?.getStorageManager?.() || kernel?.get?.('storageManager');
-      await sm?.set?.(editTarget, parsed);
+      const data = await api.storage.set({ key: editTarget, value: parsed });
+      storageItems = data?.items || [];
       toast.success('已更新');
       editTarget = null;
       editValue = '';
-      refreshList();
     } catch (e) {
       console.error('[StoragePage] edit failed:', e);
       toast.error(e instanceof SyntaxError ? 'JSON 格式错误' : `操作失败: ${e instanceof Error ? e.message : String(e)}`);
@@ -155,7 +148,6 @@
   <Card>
     <div class="list-page-stats-row">
       <span class="list-page-stats-text">共 {filteredItems.length} 项 · 总计 {totalSizeKB} KB</span>
-      <Button variant="danger" size="sm" onclick={confirmClearAll}>清除所有</Button>
     </div>
   </Card>
 
@@ -206,14 +198,14 @@
 
 <!-- Delete Dialog -->
 <Dialog
-  open={!!deleteTarget || deleteTargetIsAll}
-  title={deleteTargetIsAll ? '清除所有存储' : '删除存储项'}
-  confirmLabel={deleteTargetIsAll ? '确定清除' : '删除'}
+  open={!!deleteTarget}
+  title="删除存储项"
+  confirmLabel="删除"
   danger
   onclose={cancelDelete}
   onconfirm={executeDelete}
 >
-  {deleteTargetIsAll ? '确定要清除所有存储数据吗？此操作不可撤销。' : `确定删除 "${deleteTarget}"？`}
+  {`确定删除 "${deleteTarget}"？`}
 </Dialog>
 
 <!-- Edit Dialog -->

@@ -6,7 +6,7 @@ Web Agent Client 是一个轻量级、可扩展的 Chrome 侧边栏扩展，为 
 
 ## ✨ 核心特性
 
-- 🎯 **Microkernel 架构**：Kernel（服务注册/生命周期） + IPC（事件总线） + ToolRegistry（系统调用） + CapabilityManager（权限门控），零外部依赖
+- 🎯 **Microkernel 架构**：Kernel（服务注册/生命周期） + IPC（事件总线） + ToolsManager（系统调用） + CapabilityManager（权限门控），零外部依赖
 - 🔌 **可插拔 Provider**：内置 **OpenAI**、**OpenRouter**、**LM Studio** 支持，新增 Provider 只需实现 `IProviderAPIService` 接口
 - 💬 **多会话与持久化**：基于 `chrome.storage.local` 的会话/消息/工具调用全持久化
 - 🌊 **流式响应 + 思考模式**：原生支持 SSE 流式输出与 `reasoning_content`（OpenAI o-series、Claude thinking 等）
@@ -33,8 +33,6 @@ webagentcli/
 │   ├── Bootloader.ts          # Bootloader（4 阶段标准化启动）
 │   ├── IPC.ts                 # 进程间事件总线（优先级/中间件/通道）
 │   ├── Events.ts              # 事件常量与类型定义
-│   ├── ToolRegistry.ts        # 工具注册中心（系统调用注册表）
-│   ├── CapabilityManager.ts   # 权限门控（声明式权限/动态授权）
 │   ├── models/                # 数据模型（纯数据，无壳依赖）
 │   │   ├── BaseModel.ts       # 抽象基类（id/createdAt/updatedAt）
 │   │   ├── Message.ts         # 消息（role/content/reasoning/toolCalls）
@@ -47,10 +45,14 @@ webagentcli/
 │   │   ├── ToolDefinition.ts  # 工具契约（不可变）
 │   │   ├── Process.ts         # 进程模型（生命周期/状态机）
 │   │   └── Scripts.ts         # 用户脚本模型
-│   ├── programs/              # 内核程序（事件驱动的业务编排）
-│   │   ├── ChatProgram.ts     # 聊天程序（发送/流式/工具循环/会话切换）
-│   │   └── chat/              # 聊天子模块
-│   └── services/              # 核心服务实现
+│   ├── orchestration/         # 会话编排（无状态单轮 runConversation）
+│   │   ├── session.ts         # runConversation / cancelConversation（编排层）
+│   │   ├── session-context.ts # ContextBuilder：system prompt + 历史截断
+│   │   ├── session-tools.ts   # ToolExecutor：校验 / 重试 / 工具执行
+│   │   └── request.ts         # MessagesRequest 封装（API 流式请求）
+│   └── services/              # 核心服务实现（全部走 kernel.register 常规注册）
+│       ├── ToolsManager.ts    # 工具管理器（注册/查询/执行/审计）
+│       ├── CapabilityManager.ts # 权限门控（声明式权限/动态授权）
 │       ├── SessionManager.ts  # 会话/消息持久化
 │       ├── SettingsManager.ts # 设置管理
 │       ├── ScriptsManager.ts  # 脚本管理
@@ -69,8 +71,8 @@ webagentcli/
 │           ├── OpenAIService.ts
 │           ├── OpenRouterService.ts
 │           └── LMStudioService.ts
-├── index.html                 # 入口 HTML
-├── sidepanel/                 # Svelte 5 UI + Service Worker
+├── sidepanel/                 # ★ 壳层：入口 + Service Worker + Svelte 5 UI
+│   ├── index.html             # 入口 HTML
 │   ├── background.js          # Service Worker（脚本自动注入）
 │   ├── main.ts                # Kernel 自举 + 挂载 Svelte App
 │   ├── Sidepanel.svelte       # 根组件（Sidebar + 5 页路由）
@@ -87,10 +89,9 @@ webagentcli/
 │   │   ├── SettingsPage.svelte# 设置页面
 │   │   └── chat/              # 聊天子组件
 │   │       ├── MessageBubble.svelte
-│   │       ├── ChatEventHandler.ts
 │   │       └── ...
 │   ├── services/              # 壳层服务
-│   │   └── ChromeStorageAdapter.js
+│   │   └── chromeStorage.ts
 │   ├── tools/                 # 内置工具实现
 │   │   ├── RunUserScriptTool.js
 │   │   └── ManageUserScriptsTool.js
@@ -192,15 +193,14 @@ webagentcli/
 │   Kernel (TypeScript · 零外部依赖)                │
 │   ├── Kernel.ts        — 服务注册/生命周期/状态机  │
 │   ├── IPC.ts           — 消息总线（优先级/中间件） │
-│   ├── ToolRegistry.ts  — 系统调用注册表            │
-│   ├── CapabilityManager.ts — 权限门控              │
 │   ├── Bootloader.ts    — 4 阶段标准化启动          │
-│   └── programs/        — 内核程序（ChatProgram）   │
+│   └── orchestration/ — 会话编排（runConversation 由 session RPC facade 直接驱动） │
 └──────────────┬───────────────────────────────────┘
                │
                ▼
 ┌──────────────────────────────────────────────────┐
 │   Services + Models                               │
+│   ToolsManager / CapabilityManager                │
 │   SessionManager / SettingsManager / ProviderFactory│
 │   Message / Session / Settings / ToolCall / Process│
 └──────────────────────────────────────────────────┘
@@ -223,7 +223,7 @@ webagentcli/
 
 ## 📦 版本
 
-- **扩展版本**：`0.6.5`（见 `manifest.json` / `package.json`）
+- **扩展版本**：（见 `package.json`，构建完成后 同步到`manifest.json`等 ）
 - **架构版本**：Microkernel（Kernel + Bootloader + ProviderFactory 解耦）
 - **构建系统**：TypeScript 6 + Vite 8 + Vitest 4 + Svelte 5
 - **Manifest**：V3

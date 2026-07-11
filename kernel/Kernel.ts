@@ -3,9 +3,13 @@
  * 
  * 职责：
  * - 服务注册表：管理所有服务的注册、懒加载、生命周期
- * - 承载内核子系统引用（IPC / ToolRegistry / CapabilityManager）
+ * - 承载内核基础设施引用（IPC / storage）
  * - 提供统一的 boot() / shutdown() 生命周期
  * - 零外部依赖，可在任何 JS 环境运行
+ *
+ * 注：ToolsManager / CapabilityManager 与其余 Manager 一样走常规注册路径
+ * （kernel.register('toolsManager'/'capabilities')），经 getToolsManager()/getCapabilities()
+ * 或 get() 访问，不再由构造器注入。
  * 
  * 设计原则：
  * - 内核最小化：只做服务注册、消息路由、生命周期
@@ -15,13 +19,15 @@
 import { IStorageManager } from './services/IStorageManager.js';
 import { IPC } from './IPC.js';
 import { Log } from './services/Log.js';
-import { ToolsManager } from './ToolsManager.js';
-import { CapabilityManager } from './CapabilityManager.js';
+import { ToolsManager } from './services/ToolsManager.js';
+import { CapabilityManager } from './services/CapabilityManager.js';
 import { ProviderFactory } from './services/ProviderFactory.js';
 import { ProcessManager } from './services/ProcessManager.js';
 import { ScriptsManager } from './services/ScriptsManager.js';
 import { SessionManager } from './services/SessionManager.js';
 import { SettingsManager } from './services/SettingsManager.js';
+
+type HookFn = (kernel: Kernel) => void | Promise<void>;
 
 export class Kernel {
   static STATE = Object.freeze({ CREATED: 'created', BOOTING: 'booting', RUNNING: 'running', SHUTTING_DOWN: 'shutting_down', SHUTDOWN: 'shutdown', FAILED: 'failed' });
@@ -31,20 +37,22 @@ export class Kernel {
   origin: string;
   ipc: IPC | null;
   storage: IStorageManager | null;
-  toolsManager: ToolsManager | null;
-  capabilities: CapabilityManager | null;
-  private _services: Map<string, { factory: unknown; instance: unknown; options: Record<string, unknown> }>;
-  private _hooks: { beforeBoot: unknown[]; afterBoot: unknown[]; beforeShutdown: unknown[]; afterShutdown: unknown[] };
+  /** 媒体解析回调：把 mediaId 解析为可发送内容（dataURL 或远端 URL）。由 background 注入。 */
+  mediaResolver: ((id: string) => Promise<string | null>) | null;
+  /** 媒体回收回调：删除会话/消息时连带清理媒体二进制（按 mediaId 批量删除）。由 background 注入。 */
+  mediaDeleter: ((ids: string[]) => Promise<void>) | null;
+  private _services: Map<string, { factory: unknown; instance: any; options: Record<string, unknown> }>;
+  private _hooks: { beforeBoot: HookFn[]; afterBoot: HookFn[]; beforeShutdown: HookFn[]; afterShutdown: HookFn[] };
   private _bootOrder: string[];
 
-  constructor(options: { name?: string; origin?: string; ipc?: IPC | null; storage?: IStorageManager | null; toolsManager?: ToolsManager | null; capabilities?: CapabilityManager | null } = {}) {
+  constructor(options: { name?: string; origin?: string; ipc?: IPC | null; storage?: IStorageManager | null } = {}) {
     this.name = options.name || 'kernel';
     this.state = Kernel.STATE.CREATED;
     this.origin = options.origin || 'kernel';
     this.ipc = options.ipc || null;
     this.storage = options.storage || null;
-    this.toolsManager = options.toolsManager || null;
-    this.capabilities = options.capabilities || null;
+    this.mediaResolver = null;
+    this.mediaDeleter = null;
     this._services = new Map();
     this._hooks = { beforeBoot: [], afterBoot: [], beforeShutdown: [], afterShutdown: [] };
     this._bootOrder = [];
@@ -81,14 +89,19 @@ export class Kernel {
       await this._runHooks('beforeShutdown');
       const initialized = Array.from(this._services.entries()).filter(([, e]) => e.instance !== null);
       for (const [name, entry] of initialized.reverse()) {
-        if (entry.instance && typeof entry.instance.shutdown === 'function') {
+        // 服务 teardown：优先 shutdown()，退化到 destroy()（如 ToolsManager / CapabilityManager）
+        const teardown = entry.instance && (
+          typeof entry.instance.shutdown === 'function' ? entry.instance.shutdown :
+          typeof entry.instance.destroy === 'function' ? entry.instance.destroy : null
+        );
+        if (teardown) {
           Log.debug('KERNEL', `Shutting down service: ${name}`);
-          try { await entry.instance.shutdown(); } catch (e) { Log.warn('KERNEL', `Service "${name}" shutdown error`, e); }
+          try { await teardown.call(entry.instance); } catch (e) { Log.warn('KERNEL', `Service "${name}" shutdown error`, e); }
         }
         entry.instance = null;
       }
       await this._runHooks('afterShutdown');
-      this.toolsManager?.destroy(); this.capabilities?.destroy(); this.ipc?.destroy(); Log.getLogger()?.destroy();
+      this.ipc?.destroy(); Log.getLogger()?.destroy();
       this.state = Kernel.STATE.SHUTDOWN;
       Log.info('KERNEL', 'Kernel shutdown complete');
     } catch (error) {
@@ -98,7 +111,7 @@ export class Kernel {
     }
   }
 
-  register(name, factory, options = {}) {
+  register(name: string, factory: unknown, options: Record<string, unknown> = {}) {
     if (this._services.has(name)) throw new Error(`[Kernel] Service "${name}" already registered`);
     if (this.state !== Kernel.STATE.CREATED && this.state !== Kernel.STATE.BOOTING) throw new Error(`[Kernel] Cannot register service "${name}" after boot`);
     this._services.set(name, { factory, instance: null, options: { autoInit: true, singleton: true, dependsOn: [], ...options } });
@@ -106,23 +119,23 @@ export class Kernel {
     return this;
   }
 
-  get(name) {
+  get(name: string): any {
     const entry = this._services.get(name);
     if (!entry) throw new Error(`[Kernel] Service "${name}" not registered`);
     return entry.instance;
   }
 
-  has(name) { return this._services.has(name); }
+  has(name: string) { return this._services.has(name); }
   getServiceNames() { return Array.from(this._services.keys()); }
   getAllServices() { const r = new Map(); this._services.forEach((e, n) => { if (e.instance !== null) r.set(n, e.instance); }); return r; }
 
-  on(phase, hook) {
+  on(phase: 'beforeBoot' | 'afterBoot' | 'beforeShutdown' | 'afterShutdown', hook: (kernel: Kernel) => void | Promise<void>) {
     if (!this._hooks[phase]) throw new Error(`[Kernel] Unknown phase: "${phase}"`);
     this._hooks[phase].push(hook);
     return this;
   }
 
-  async _initService(name, entry) {
+  async _initService(name: string, entry: { factory: unknown; instance: any; options: any }) {
     if (entry.instance !== null) return;
     const { factory, options } = entry;
     if (options.dependsOn?.length) {
@@ -136,7 +149,7 @@ export class Kernel {
     if (entry.instance && typeof entry.instance.init === 'function') await entry.instance.init(this);
   }
 
-  async _runHooks(phase) {
+  async _runHooks(phase: 'beforeBoot' | 'afterBoot' | 'beforeShutdown' | 'afterShutdown') {
     for (const hook of this._hooks[phase] || []) { try { await hook(this); } catch (e) { Log.error('KERNEL', `Hook error in "${phase}"`, e); throw e; } }
   }
 
@@ -144,10 +157,12 @@ export class Kernel {
     return {
       state: this.state, origin: this.origin,
       services: { total: this._services.size, initialized: Array.from(this._services.values()).filter(e => e.instance !== null).length, names: this.getServiceNames(), bootOrder: [...this._bootOrder] },
-      subsystems: { hasIPC: this.ipc !== null, hasLog: true, hasToolsManager: this.toolsManager !== null, hasCapabilities: this.capabilities !== null }
+      subsystems: { hasIPC: this.ipc !== null, hasLog: true, hasToolsManager: this.has('toolsManager'), hasCapabilities: this.has('capabilities') }
     };
   }
 
+  getToolsManager() : ToolsManager { return this.get('toolsManager') as ToolsManager; }
+  getCapabilities() : CapabilityManager { return this.get('capabilities') as CapabilityManager; }
   getSessionManager() : SessionManager { return this.get('sessionManager') as SessionManager; }
   getSettingsManager() : SettingsManager { return this.get('settingsManager') as SettingsManager; }
   getStorageManager() : IStorageManager { return this.get('storageManager') as IStorageManager; }
@@ -155,4 +170,8 @@ export class Kernel {
   getProcessManager() : ProcessManager { return this.get('processManager') as ProcessManager; }
   getProviderFactory() : ProviderFactory { return this.get('providerFactory') as ProviderFactory; }
   getIPC() { return this.ipc; }
+  setMediaResolver(fn: (id: string) => Promise<string | null>) { this.mediaResolver = fn; }
+  getMediaResolver() { return this.mediaResolver; }
+  setMediaDeleter(fn: (ids: string[]) => Promise<void>) { this.mediaDeleter = fn; }
+  getMediaDeleter() { return this.mediaDeleter; }
 }

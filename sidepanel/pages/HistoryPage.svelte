@@ -1,13 +1,23 @@
 <script lang="ts">
-  import { getContext } from 'svelte';
+  import { getContext, onMount, onDestroy } from 'svelte';
+  import { waitKernelReady } from '../utils/kernel-ready.js';
   import Button from '../components/atoms/Button.svelte';
   import Input from '../components/forms/Input.svelte';
   import Badge from '../components/atoms/Badge.svelte';
   import Dialog from '../components/overlays/Dialog.svelte';
   import EmptyState from '../components/layout/EmptyState.svelte';
-  import { KernelEvents } from '../../kernel/Events.js';
+  import { KernelEvents, KernelChannels } from 'kernel/Events.js';
+  import type { KernelAPIContract } from '../api-contract.js';
+  import { getShellCache } from '../cache/shell-cache.js';
+  import { useToast } from '../components/overlays/toast-store.svelte';
+  import { Log } from 'kernel/services/Log.js';
 
-  const kernel = getContext<any>('kernel');
+  const toast = useToast();
+
+  const ipc: any = getContext('ipc');
+  const sessionChannel = ipc?.getOrCreateChannel?.(KernelChannels.SESSION) || ipc;
+  const api = getContext('api') as KernelAPIContract;
+  const cache = getShellCache(api);
   const navigateTo = getContext<any>('navigate');
 
   // ---------- Reactive State ----------
@@ -20,27 +30,54 @@
   const groupedSessions = $derived(groupAndFilter(sessions, searchKeyword));
 
   // ---------- Init ----------
-  $effect(() => {
-    const sm = kernel?.getSessionManager?.();
-    if (!sm || isLoaded) return;
-    isLoaded = true;
-    refreshList();
+  let unsubSessionUpdated: (() => void) | undefined;
 
-    // Listen for session changes
-    const ipc = kernel?.getIPC?.();
-    if (ipc) {
-      const chatChannel = ipc.getOrCreateChannel?.('chat') || ipc;
-      chatChannel.on(KernelEvents.CHAT.SESSION_UPDATED, refreshList);
-    }
+  onMount(() => {
+    // 订阅会话更新广播；组件销毁时必须退订（{#key activePage} 会重挂载，否则叠加幽灵监听器）
+    unsubSessionUpdated = sessionChannel?.on(KernelEvents.SESSION.SESSION_UPDATED, handleSessionUpdated);
+    // 内核就绪后再加载（等待 bootComplete 消息，时序门控）
+    waitKernelReady(ipc).then(() => {
+      refreshList(true).finally(() => { isLoaded = true; }); // 页面（重）加载：强制全量获取并刷新缓存
+    });
   });
 
-  function refreshList() {
-    const sm = kernel?.getSessionManager?.();
-    if (!sm) return;
-    const all = sm.getAllSessions?.() || [];
-    sessions = [...all].sort(
-      (a: any, b: any) => (b.updated_at || b.updatedAt || 0) - (a.updated_at || a.updatedAt || 0)
-    );
+  onDestroy(() => {
+    unsubSessionUpdated?.();
+  });
+
+  function sortSessions(all: any[]): any[] {
+    // 防御：序列化边界可能把个别 toJSON 异常的会话变成 null，必须过滤掉，
+    // 否则比较器访问 a.updated_at 会抛 "Cannot read properties of null"。
+    return (all || [])
+      .filter((s: any) => s && s.id)
+      .sort(
+        (a: any, b: any) => (b.updated_at || b.updatedAt || 0) - (a.updated_at || a.updatedAt || 0)
+      );
+  }
+
+  async function refreshList(force = false) {
+    try {
+      // 页面（重）加载入口传 force=true：全量获取并把结果写回缓存；删除后走 invalidate+refreshList()（标脏自动重拉）
+      const list = await cache.getSessionList(force);
+      sessions = sortSessions(list.sessions);
+    } catch (e) {
+      Log.error('HistoryPage', 'load sessions failed', e);
+    }
+  }
+
+  /**
+   * SESSION_UPDATED 事件处理：优先用 Kernel 携带的 index 视图做差量 patch（零 RPC）；
+   * 旧版 Kernel 不带 session 字段时降级为全量刷新。
+   */
+  function handleSessionUpdated(payload: any) {
+    const id = payload?.sessionId;
+    if (id && payload?.session) {
+      const updated = cache.patchSessionList(id, payload.session as Record<string, unknown>);
+      sessions = sortSessions(updated.sessions);
+    } else {
+      cache.invalidateSessionList();
+      refreshList();
+    }
   }
 
   // ---------- Helpers ----------
@@ -64,7 +101,7 @@
 
   /** 优先用 session.title，旧会话无标题时兜底 */
   function getSessionTitle(session: any): string {
-    return session?.title || generateTitle(session?.messages);
+    return session?.title || session?.preview || generateTitle(session?.messages);
   }
 
   function formatTime(ts: number): string {
@@ -95,6 +132,7 @@
     const yesterdayStart = todayStart - 86400000;
 
     for (const s of filtered) {
+      if (!s || !s.id) continue; // 防御：跳过 null / 非法条目，避免读 updated_at 崩溃
       const ts = s.updated_at || s.updatedAt || 0;
       if (ts >= todayStart) today.push(s);
       else if (ts >= yesterdayStart) yesterday.push(s);
@@ -108,8 +146,9 @@
     return result;
   }
 
-  function getMessageCount(messages: any[]): number {
-    return messages?.filter((m: any) => m?.role === 'user').length || 0;
+  function getMessageCount(session: any): number {
+    if (typeof session?.messageCount === 'number') return session.messageCount;
+    return session?.messages?.filter((m: any) => m?.role === 'user').length || 0;
   }
 
   function getProviderLabel(session: any): string {
@@ -128,9 +167,12 @@
   }
 
   function loadConversation(id: string) {
-    const sm = kernel?.getSessionManager?.();
-    sm?.setCurrentSession?.(id);
-    navigateTo('chat');
+    api.session.switch({ sessionId: id })
+      .then(() => navigateTo('chat'))
+      .catch((e) => {
+        Log.error('HistoryPage', 'switch session failed', e);
+        toast.error('切换会话失败：' + ((e as Error)?.message || String(e)));
+      });
   }
 
   function confirmDelete(id: string, e: MouseEvent) {
@@ -140,10 +182,17 @@
 
   async function executeDelete() {
     if (!deleteTargetId) return;
-    const sm = kernel?.getSessionManager?.();
-    await sm?.deleteSession?.(deleteTargetId);
-    deleteTargetId = null;
-    refreshList();
+    try {
+      await api.session.delete({ sessionId: deleteTargetId });
+      cache.invalidateSessionList();
+      await refreshList();
+      toast.success('会话已删除');
+    } catch (e) {
+      Log.error('HistoryPage', 'delete session failed', e);
+      toast.error('删除会话失败：' + ((e as Error)?.message || String(e)));
+    } finally {
+      deleteTargetId = null;
+    }
   }
 
   function cancelDelete() {
@@ -191,7 +240,7 @@
                 <div class="list-item-title">{getSessionTitle(session)}</div>
                 <div class="list-item-meta">
                   <span class="list-item-time">{formatTime(session.updated_at || session.updatedAt || 0)}</span>
-                  <Badge>{getMessageCount(session.messages)} 消息</Badge>
+                  <Badge>{getMessageCount(session)} 消息</Badge>
                   {#if getProviderLabel(session)}
                     <Badge variant="primary">{getProviderLabel(session)}</Badge>
                   {/if}

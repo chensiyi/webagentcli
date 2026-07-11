@@ -22,8 +22,8 @@
  *     └─ 看门狗触发 → forceKill(id)      // 状态 → killed
  */
 
-import { Process, ProcessStatus, TerminateFn } from '../models/Process.js';
-import { KernelEvents } from '../Events.js';
+import { Process, TerminateFn } from '../models/Process.js';
+import { KernelEvents, KernelChannels } from '../Events.js';
 import { IPC } from '../IPC.js';
 import { Log } from './Log.js';
 
@@ -45,11 +45,13 @@ export class ProcessManager {
   taskChannel: IPC | null;
   processes: Map<string, Process>;
   defaultTimeout: number;
+  /** init() 注册的 CANCEL_REQUEST 监听引用，shutdown() 时移除 */
+  private _cancelListener: ((data: unknown) => void) | null = null;
 
   constructor(kernel: KernelRef) {
     this.kernel = kernel;
     this.ipc = kernel?.getIPC() || null;
-    this.taskChannel = this.ipc?.getOrCreateChannel('task') || null;
+    this.taskChannel = this.ipc?.getOrCreateChannel(KernelChannels.TASK) || null;
     this.processes = new Map();
     this.defaultTimeout = 10000; // 默认看门狗超时 10 秒
   }
@@ -64,15 +66,16 @@ export class ProcessManager {
       return;
     }
 
-    // 监听外部取消请求
-    this.taskChannel.on(KernelEvents.TASK.CANCEL_REQUEST, (data: unknown) => {
+    // 监听外部取消请求（存引用以便 shutdown 时移除）
+    this._cancelListener = (data: unknown) => {
       const { processId, reason } = (data || {}) as { processId?: string; reason?: string };
       if (processId) {
         this.cancel(processId, reason).catch(err => {
           Log.error('ProcessManager', `Cancel failed for ${processId}:`, err);
         });
       }
-    });
+    };
+    this.taskChannel.on(KernelEvents.TASK.CANCEL_REQUEST, this._cancelListener);
 
     Log.info('ProcessManager', `Initialized, watching ${this.processes.size} processes`);
   }
@@ -220,7 +223,7 @@ export class ProcessManager {
         // terminateFn 抛错，如果看门狗还没触发，直接 forceKill
         if (p.status === 'cancelling') {
           p.clearWatchdog();
-          this._forceKill(id, `terminateFn threw: ${(err as Error)?.message || err}`);
+          this._forceKill(id, `terminateFn threw: ${(err)?.message || err}`);
         }
       }
     } else {
@@ -292,6 +295,12 @@ export class ProcessManager {
    * 关闭 — 取消所有活跃进程，由 Kernel.shutdown() 调用
    */
   async shutdown(): Promise<void> {
+    // 先移除初始化时注册的取消监听，避免 shutdown 后仍接收取消请求
+    if (this._cancelListener && this.taskChannel) {
+      this.taskChannel.off(KernelEvents.TASK.CANCEL_REQUEST, this._cancelListener);
+      this._cancelListener = null;
+    }
+
     const active = this.getRunning();
     if (active.length === 0) return;
 

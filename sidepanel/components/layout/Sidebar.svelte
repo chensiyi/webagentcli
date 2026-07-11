@@ -24,6 +24,15 @@
 
   let hoveredPage = $state<PageId | null>(null);
   let tooltipTarget = $state<DOMRect | null>(null);
+
+  // 自动读取扩展版本（取自 manifest.json，避免写死导致过期不同步）
+  const appVersion = (() => {
+    try {
+      return chrome.runtime.getManifest()?.version ?? '0.0.0';
+    } catch {
+      return '0.0.0';
+    }
+  })();
 </script>
 
 <aside class="sidebar" aria-label="主导航">
@@ -72,6 +81,6 @@
 
   <!-- 底部版本号 -->
   <div class="sidebar-footer">
-    <span class="sidebar-version">v0.6.0</span>
+    <span class="sidebar-version">v{appVersion}</span>
   </div>
 </aside>

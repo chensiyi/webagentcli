@@ -7,8 +7,8 @@
 // ==================== 内核核心 ====================
 import { IPC } from './IPC.js';
 import { KernelEvents } from './Events.js';
-import { ToolsManager } from './ToolsManager.js';
-import { CapabilityManager, CapabilityError } from './CapabilityManager.js';
+import { ToolsManager } from './services/ToolsManager.js';
+import { CapabilityManager, CapabilityError } from './services/CapabilityManager.js';
 import { Kernel } from './Kernel.js';
 import { Bootloader } from './Bootloader.js';
 export { IPC, KernelEvents, ToolsManager, CapabilityManager, CapabilityError, Kernel, Bootloader };
@@ -16,14 +16,15 @@ export { IPC, KernelEvents, ToolsManager, CapabilityManager, CapabilityError, Ke
 // ==================== 数据模型 ====================
 import { BaseModel } from './models/BaseModel.js';
 import { Tool, ToolCall, ToolResult } from './models/Tool.js';
-import { TextBlock, ImageBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock, ThinkingConfig, MediaContent, MessageStructure, MessagesRequest } from './models/MessageContent.js';
+import { TextBlock, ImageBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock, ThinkingConfig, MediaContent, MediaBlock, MediaKind, MessageStructure, MessagesRequest } from './models/MessageContent.js';
 import { Message, Role } from './models/Message.js';
 import { Session } from './models/Session.js';
 import { Settings } from './models/Settings.js';
 import { Model } from './models/Model.js';
 import { UserScript } from './models/Scripts.js';
 import { Process } from './models/Process.js';
-export { BaseModel, Tool, ToolCall, ToolResult, TextBlock, ImageBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock, ThinkingConfig, MediaContent, MessageStructure, MessagesRequest, Message, Role, Session, Settings, Model, UserScript, Process };
+export { BaseModel, Tool, ToolCall, ToolResult, TextBlock, ImageBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock, MediaContent, MediaBlock, MessageStructure, Message, Role, Session, Settings, Model, Process };
+export type { UserScript, ThinkingConfig, MessagesRequest, MediaKind };
 
 // ==================== 服务接口 ====================
 import { IStorageManager } from './services/IStorageManager.js';
@@ -31,7 +32,8 @@ import { BaseSettings } from './services/ISettings.js';
 import { BaseProviderAPIService } from './services/IProviderAPIService.js';
 import { BaseScriptsManager } from './services/IScriptsManager.js';
 import { BaseSessionManager } from './services/ISessionManager.js';
-export { IStorageManager, BaseSettings, BaseProviderAPIService, BaseScriptsManager, BaseSessionManager };
+export { BaseSettings, BaseProviderAPIService, BaseScriptsManager, BaseSessionManager };
+export type { IStorageManager };
 
 // ==================== Provider 实现 ====================
 import OpenAIService from './services/ProviderAPIServices/OpenAIService.js';
@@ -49,13 +51,13 @@ import { ConsoleLogger } from './services/ConsoleLogger.js';
 import { Log } from './services/Log.js';
 export { SessionManager, SettingsManager, ScriptsManager, ProcessManager, ProviderFactory, ConsoleLogger, Log };
 
-// ==================== 内核程序 ====================
-import { ChatProgram } from './programs/ChatProgram.js';
-export { ChatProgram };
+// ==================== 编排层 ====================
+// 会话编排（每轮调用的纯函数，无单例）；SESSION 组授权命令见 KernelEvents.SESSION
+import { runConversation, cancelConversation } from './orchestration/session.js';
+export { runConversation, cancelConversation };
 
 // ==================== 版本信息 ====================
 // __VERSION__ 由 vite.config.ts 从 package.json 注入（唯一版本源）
 declare const __VERSION__: string;
 export const VERSION = __VERSION__;
 export const CODENAME = 'Microkernel-Esm';
-

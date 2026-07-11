@@ -1,16 +1,22 @@
 <script lang="ts">
-  import { getContext } from 'svelte';
-  import Button from '../components/atoms/Button.svelte';
-  import Input from '../components/forms/Input.svelte';
-  import Select from '../components/forms/Select.svelte';
-  import Switch from '../components/forms/Switch.svelte';
-  import Slider from '../components/forms/Slider.svelte';
-  import Badge from '../components/atoms/Badge.svelte';
-  import Card from '../components/layout/Card.svelte';
-  import { useToast } from '../components/overlays/toast-store.svelte';
-  import { Log } from '../../kernel/services/Log.js';
+import { getContext, onMount, onDestroy } from 'svelte';
+import { waitKernelReady } from '../utils/kernel-ready.js';
+import { KernelChannels } from 'kernel/Events.js';
+  import Button from 'sidepanel/components/atoms/Button.svelte';
+  import Input from 'sidepanel/components/forms/Input.svelte';
+  import Select from 'sidepanel/components/forms/Select.svelte';
+  import Switch from 'sidepanel/components/forms/Switch.svelte';
+  import Slider from 'sidepanel/components/forms/Slider.svelte';
+  import Badge from 'sidepanel/components/atoms/Badge.svelte';
+  import Card from 'sidepanel/components/layout/Card.svelte';
+  import { useToast } from 'sidepanel/components/overlays/toast-store.svelte';
+  import { Log } from 'kernel/services/Log.js';
+  import { getShellCache } from 'sidepanel/cache/shell-cache.js';
 
-  const kernel = getContext<any>('kernel');
+  const ipc: any = getContext('ipc');
+  const settingsChannel = ipc?.getOrCreateChannel?.(KernelChannels.SETTINGS) || ipc;
+  const api: any = getContext('api');
+  const cache = getShellCache(api);
   const toast = useToast();
 
   // ---------- Reactive State ----------
@@ -55,34 +61,74 @@
     contextLength?: number;
     context_length?: number;
     pricing?: { prompt?: string; completion?: string };
+    /**
+     * 预留设计（reserved design）：模型输入模态的单一权威字段（如 ['text','image','audio','video']）。
+     * 各 Provider（OpenRouter / LMStudio）与 handleLoadModels 统一写入此字段；supports_vision/audio/video 由其派生。
+     * 更完整的「模型能力归一化」（跨 Provider 共享 util、统一序列化 / 请求）列为下个版本 TODO，本版本不做进一步开发。
+     * 注：inputModalities / modalities 旧别名已移除，统一以 input_modalities 为准。
+     */
     input_modalities?: string[];
-    inputModalities?: string[];
     description?: string;
     supports_reasoning?: boolean;
     supports_tools?: boolean;
     supports_function_calling?: boolean;
     supports_json_mode?: boolean;
+    /** 由 input_modalities 派生的能力标志 */
+    supports_vision?: boolean;
+    supports_audio?: boolean;
+    supports_video?: boolean;
     links?: { details?: string };
     capabilities?: Record<string, boolean>;
     metadata?: { description?: string };
   }
 
-  // ---------- Init: Load Settings ----------
-  // 关键：直接从 SettingsManager 读取已加载的设置（boot 时已从 Chrome Storage 反序列化）
-  // 注意：不能在这里调用 loadSettings()（$effect 不支持 async），boot 阶段已 await 完成
-  $effect(() => {
-    const sm = kernel?.getSettingsManager?.();
-    if (!sm || isLoaded) return;
+  /**
+   * 从不同 Provider 的模型结构里归一化出输入模态数组。
+   * 覆盖：OpenRouter(architecture.input_modalities)、OpenAI 兼容(input_modalities/modalities)、
+   * 以及 modality 字符串(如 "text+image->text")两种写法。
+   */
+  function normalizeModalities(m: any): string[] {
+    const arch = m?.architecture || {};
+    const raw = arch.input_modalities || m?.input_modalities || m?.modalities || [];
+    if (Array.isArray(raw) && raw.length) {
+      return raw.map((x: any) => String(x).toLowerCase());
+    }
+    // 兜底：解析 modality 字符串，如 "text+image->text"
+    const mod: string = arch.modality || m?.modality || '';
+    if (typeof mod === 'string' && mod.includes('->')) {
+      return mod
+        .split('->')[0]
+        .split('+')
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean);
+    }
+    return [];
+  }
 
-    const raw = sm.getSettings?.() || {};
-    // raw 来自 Chrome Storage 反序列化，始终是纯 JS 对象，直接解构即可
-    currentSettings = { ...raw };
-    isLoaded = true;
+  // ---------- Init: Load Settings via RPC ----------
 
-    Log.info('SettingsPage', `Loaded settings, models count: ${Array.isArray(currentSettings.models) ? currentSettings.models.length : 'N/A'}`);
-
-    applyTheme(currentSettings.theme);
+  onMount(() => {
+    // 内核就绪后再加载（等待 bootComplete 消息，时序门控）
+    waitKernelReady(ipc).then(() => {
+      loadSettings(true).finally(() => { isLoaded = true; }); // 页面（重）加载：强制全量获取并刷新缓存
+    });
   });
+
+  onDestroy(() => {
+  });
+
+  async function loadSettings(force = false) {
+    try {
+      // 页面（重）加载入口传 force=true：全量获取并把结果写回缓存
+      const raw = await cache.getSettings(force);
+      currentSettings = { ...(raw || {}) };
+      currentSettings.resourceServer = currentSettings.resourceServer || {};
+      applyTheme(currentSettings.theme);
+      Log.info('SettingsPage', 'Settings loaded via API contract');
+    } catch (e) {
+      Log.error('SettingsPage', 'Failed to load settings', e);
+    }
+  }
 
   // ---------- Handlers ----------
   function applyTheme(theme: string | undefined) {
@@ -127,8 +173,10 @@
   function handleThemeChange(theme: string) {
     currentSettings.theme = theme;
     applyTheme(theme);
-    const sm = kernel?.getSettingsManager?.();
-    sm?.saveSetting?.('theme', theme);
+    // 写穿透：先写主库，再回读权威结果同步缓存与 UI（不再只 invalidate 等下次重拉）
+    cache.saveSettings({ theme })
+      .then((fresh: any) => { if (fresh) currentSettings = { ...fresh }; toast.success('主题已切换'); })
+      .catch((e) => toast.error('保存失败: ' + (e as Error).message));
   }
 
   async function handleLoadModels() {
@@ -178,29 +226,32 @@
       }
 
       const result = await response.json();
-      const models = (result.data || []).map((m: any) => ({
-        id: m.id,
-        name: m.name || m.id,
-        created: m.created,
-        owned_by: m.owned_by || m.owner || apiStandard,
-        context_length: m.context_length || null,
-        max_output_tokens: m.max_output_tokens || null,
-        modality: m.architecture?.modality || 'text->text',
-        modalities: m.architectures || [],
-        pricing: m.pricing || null,
-        supports_reasoning: (m.supported_parameters || []).includes('reasoning'),
-        supports_tools: (m.supported_parameters || []).includes('tools'),
-        description: m.description || null,
-        ...m
-      }));
+      const models = (result.data || []).map((m: any) => {
+        const inputModalities = normalizeModalities(m);
+        return {
+          id: m.id,
+          name: m.name || m.id,
+          created: m.created,
+          owned_by: m.owned_by || m.owner || apiStandard,
+          context_length: m.context_length || null,
+          max_output_tokens: m.max_output_tokens || null,
+          modality: m.architecture?.modality || 'text->text',
+          input_modalities: inputModalities,
+          pricing: m.pricing || null,
+          supports_reasoning: (m.supported_parameters || []).includes('reasoning'),
+          supports_tools: (m.supported_parameters || []).includes('tools'),
+          supports_vision: inputModalities.includes('image') || inputModalities.includes('vision'),
+          supports_audio: inputModalities.includes('audio'),
+          supports_video: inputModalities.includes('video'),
+          description: m.description || null,
+          ...m
+        };
+      });
 
       currentSettings.models = models;
-      
-      // 保存到存储
-      const sm = kernel?.getSettingsManager?.();
-      if (sm?.saveSetting) {
-        await sm.saveSetting('models', models);
-      }
+
+      // 写穿透：先写主库，再回读权威结果回填缓存
+      await cache.saveSettings({ models });
 
       toast.success(`已加载 ${models.length} 个模型`);
     } catch (e) {
@@ -214,18 +265,11 @@
   async function handleSave() {
     isSaving = true;
     try {
-      const sm = kernel?.getSettingsManager?.();
-      // 关键：currentSettings 是 Svelte $state Proxy，必须剥离为纯 JS 对象再传给 SettingsManager
-      // 否则 Object.assign 会将 Svelte 内部属性（$$ 等）注入 _settings，导致 Chrome Storage 序列化异常
+      // 关键：currentSettings 是 Svelte $state Proxy，必须剥离为纯 JS 对象再传给 Kernel
       const plainSettings = JSON.parse(JSON.stringify(currentSettings));
-      if (sm?.saveSettings) {
-        await sm.saveSettings(plainSettings);
-      } else {
-        // Fallback: 直接 emit SAVED 事件让 ProviderFactory 响应
-        const ipc = kernel?.getIPC?.();
-        const channel = ipc?.getOrCreateChannel?.('settings') || ipc;
-        channel?.emit('settings:saved', { settings: plainSettings });
-      }
+      // 写穿透：先写主库，再回读权威结果同步缓存与 UI（不再只 invalidate 等下次重拉）
+      const fresh: any = await cache.saveSettings(plainSettings);
+      currentSettings = { ...(fresh || plainSettings) };
       Log.info('SettingsPage', `Saved settings, models count: ${Array.isArray(plainSettings.models) ? plainSettings.models.length : 'N/A'}`);
       toast.success('设置已保存');
     } catch (e) {
@@ -260,16 +304,20 @@
     if (typeof model === 'string') {
       return { id: model, name: model };
     }
+    const inputModalities: string[] = model.input_modalities ?? [];
     return {
       id: model.id || '',
       name: model.name || model.id || '',
       context_length: model.contextLength ?? model.context_length ?? undefined,
       pricing: model.pricing ?? undefined,
-      input_modalities: model.inputModalities ?? model.input_modalities ?? [],
+      input_modalities: inputModalities,
       description: model.description ?? model.metadata?.description ?? '',
       supports_reasoning: model.capabilities?.reasoning ?? model.supports_reasoning ?? false,
       supports_tools: model.capabilities?.toolUse ?? model.supports_tools ?? model.supports_function_calling ?? false,
       supports_json_mode: model.capabilities?.jsonMode ?? model.supports_json_mode ?? false,
+      supports_vision: model.supports_vision ?? inputModalities.includes('image'),
+      supports_audio: model.supports_audio ?? inputModalities.includes('audio'),
+      supports_video: model.supports_video ?? inputModalities.includes('video'),
       links: model.links ?? {},
     };
   }
@@ -698,6 +746,15 @@
                   {#if hoveredModel.supports_json_mode}
                     <span class="search-tooltip-cap">📄 JSON 模式</span>
                   {/if}
+                  {#if hoveredModel.supports_vision}
+                    <span class="search-tooltip-cap">👁 视觉</span>
+                  {/if}
+                  {#if hoveredModel.supports_audio}
+                    <span class="search-tooltip-cap">🎵 音频</span>
+                  {/if}
+                  {#if hoveredModel.supports_video}
+                    <span class="search-tooltip-cap">🎬 视频</span>
+                  {/if}
                 </div>
               </div>
             {/if}
@@ -759,6 +816,94 @@
           <span class="theme-label">深色模式</span>
         </button>
       </div>
+    </div>
+
+    <!-- 资源服务器（媒体上传后端） -->
+    <div class="settings-section">
+      <h3 class="settings-section-title">资源服务器</h3>
+      <Card>
+        <div class="settings-form-grid">
+          <Switch
+            label="启用远端资源服务器（关闭则媒体存本地 IndexedDB）"
+            checked={currentSettings.resourceServer.enabled === true}
+            onchange={(v) => currentSettings.resourceServer.enabled = v}
+          />
+          <Select
+            label="图床类型"
+            options={[
+              { value: 'generic', label: '通用（自托管 / 对象存储）' },
+              { value: 'imgbb', label: 'ImgBB (api.imgbb.com)' },
+            ]}
+            value={currentSettings.resourceServer.provider || 'generic'}
+            onchange={(v) => {
+              currentSettings.resourceServer.provider = v;
+              if (v === 'imgbb') {
+                // 选 ImgBB 时自动填充标准端点与字段，用户只需填 API Key
+                currentSettings.resourceServer.uploadUrl = 'https://api.imgbb.com/1/upload';
+                currentSettings.resourceServer.fieldName = 'image';
+                currentSettings.resourceServer.responseUrlField = 'data.url';
+                currentSettings.resourceServer.method = 'POST';
+                currentSettings.resourceServer.authHeader = '';
+                currentSettings.resourceServer.authToken = '';
+              }
+            }}
+          />
+          {#if currentSettings.resourceServer.provider === 'imgbb'}
+            <Input
+              label="ImgBB API Key"
+              type="password"
+              placeholder="在 https://api.imgbb.com/ 注册获取的 API Key"
+              value={currentSettings.resourceServer.apiKey ?? ''}
+              oninput={(e) => currentSettings.resourceServer.apiKey = (e.target as HTMLInputElement).value}
+            />
+          {:else}
+            <Input
+              label="上传链接 (Upload URL)"
+              placeholder="https://your-server.example.com/upload"
+              value={currentSettings.resourceServer.uploadUrl ?? ''}
+              oninput={(e) => currentSettings.resourceServer.uploadUrl = (e.target as HTMLInputElement).value}
+            />
+            <Select
+              label="HTTP 方法"
+              options={[{ value: 'POST', label: 'POST' }, { value: 'PUT', label: 'PUT' }]}
+              value={currentSettings.resourceServer.method ?? 'POST'}
+              onchange={(v) => currentSettings.resourceServer.method = v}
+            />
+            <Input
+              label="鉴权请求头名（可选，如 Authorization）"
+              placeholder="Authorization"
+              value={currentSettings.resourceServer.authHeader ?? ''}
+              oninput={(e) => currentSettings.resourceServer.authHeader = (e.target as HTMLInputElement).value}
+            />
+            <Input
+              label="鉴权令牌（可选）"
+              type="password"
+              placeholder="Bearer xxx / Token xxx"
+              value={currentSettings.resourceServer.authToken ?? ''}
+              oninput={(e) => currentSettings.resourceServer.authToken = (e.target as HTMLInputElement).value}
+            />
+          {/if}
+          <Input
+            label="响应取 URL 的字段名（默认自动识别 url/link 等，可留空；支持点路径如 data.url）"
+            placeholder="自动识别"
+            value={currentSettings.resourceServer.responseUrlField ?? ''}
+            oninput={(e) => currentSettings.resourceServer.responseUrlField = (e.target as HTMLInputElement).value}
+          />
+          <Input
+            label="URL 前缀（可选，拼到返回 URL 前）"
+            placeholder="https://cdn.example.com/"
+            value={currentSettings.resourceServer.urlPrefix ?? ''}
+            oninput={(e) => currentSettings.resourceServer.urlPrefix = (e.target as HTMLInputElement).value}
+          />
+          <p class="settings-hint">
+            {#if currentSettings.resourceServer.provider === 'imgbb'}
+              启用后图片上传到 ImgBB，返回 <code>i.ibb.co</code> 公网直链。ImgBB 直链公开可访问，通常对 OpenRouter / 模型服务端可见，可解决免费图床（如 hd-r.cn）反盗链导致模型看不到图的问题。免费版有上传频率与流量限制，请自行评估。
+            {:else}
+              启用后，上传的媒体会发送到你的服务器并返回公网 URL 存入消息（图片以直链发送，更省请求体积）。上传失败将直接报错，不会静默回退本地。<strong>注意：</strong>公网直链必须能被模型服务端访问；部分免费图床（如 hd-r.cn）有反盗链，会导致模型看不到图片，建议用可公开访问的存储或关闭此选项走本地 base64 内联。
+            {/if}
+          </p>
+        </div>
+      </Card>
     </div>
 
     <!-- 保存按钮 -->

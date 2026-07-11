@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Web Agent Client",
-  "version": "0.6.7",
+  "version": "0.7.0",
   "description": "AI Agent Runtime Environment for Web - Provides execution environment and capabilities for AI agents",
   "permissions": [
     "storage",
@@ -24,11 +24,11 @@
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "background.js",
+    "service_worker": "dist/background.bundle.js",
     "type": "module"
   },
   "side_panel": {
-    "default_path": "index.html"
+    "default_path": "dist/sidepanel/index.html"
   },
   "action": {
     "default_title": "Open Web Agent",

@@ -1,6 +1,13 @@
 /**
  * Toast 通知 store
- * 简单的全局提示队列。
+ *
+ * 采用 Svelte 5 推荐的「class + $state 字段」单例模式：
+ * - `toasts` 是 class 的 `$state` 字段，组件模板直接读取 `toast.toasts` 即可建立响应式订阅，
+ *   不依赖 getter 间接访问（避免模块级 $state 经 getter 返回时偶发的响应式失灵）。
+ * - 全局唯一实例 `toastStore`，所有页面调用 `useToast()` 拿到的是同一实例，
+ *   任意页面调用 `toast.success/error/...` 都会更新同一个 `toasts` 队列，由挂载一次的
+ *   <ToastContainer> 统一渲染。
+ * - `remove` 用箭头字段定义，绑定实例 `this`，作为回调透传给 <Toast> 的 ondismiss 时不会丢失上下文。
  */
 
 export interface ToastItem {
@@ -10,50 +17,31 @@ export interface ToastItem {
   duration: number;
 }
 
-let toasts = $state<ToastItem[]>([]);
+class ToastStore {
+  toasts = $state<ToastItem[]>([]);
 
-export function useToast() {
-  function add(message: string, type: ToastItem['type'] = 'info', duration = 3000) {
+  private add(message: string, type: ToastItem['type'], duration = 3000): string {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const toast: ToastItem = { id, message, type, duration };
-    toasts = [...toasts, toast];
-
+    this.toasts = [...this.toasts, { id, message, type, duration }];
     if (duration > 0) {
-      setTimeout(() => remove(id), duration);
+      setTimeout(() => this.remove(id), duration);
     }
-
     return id;
   }
 
-  function remove(id: string) {
-    toasts = toasts.filter((t) => t.id !== id);
-  }
-
-  function success(message: string, duration?: number) {
-    return add(message, 'success', duration);
-  }
-
-  function error(message: string, duration?: number) {
-    return add(message, 'error', duration);
-  }
-
-  function warning(message: string, duration?: number) {
-    return add(message, 'warning', duration);
-  }
-
-  function info(message: string, duration?: number) {
-    return add(message, 'info', duration);
-  }
-
-  return {
-    get toasts() {
-      return toasts;
-    },
-    add,
-    remove,
-    success,
-    error,
-    warning,
-    info,
+  remove = (id: string): void => {
+    this.toasts = this.toasts.filter((t) => t.id !== id);
   };
+
+  success = (message: string, duration?: number) => this.add(message, 'success', duration);
+  error = (message: string, duration?: number) => this.add(message, 'error', duration);
+  warning = (message: string, duration?: number) => this.add(message, 'warning', duration);
+  info = (message: string, duration?: number) => this.add(message, 'info', duration);
+}
+
+export const toastStore = new ToastStore();
+
+/** 返回全局唯一的 ToastStore 单例。 */
+export function useToast() {
+  return toastStore;
 }

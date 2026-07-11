@@ -19,8 +19,8 @@
     onchange,
   }: Props = $props();
 
-  let containerEl: HTMLDivElement;
-  let editorView: any = null;
+  let containerEl = $state<HTMLDivElement>();
+  let editorView = $state<any>(null);
   let isInternalChange = false;
   let isLoaded = $state(false);
   let loadError = $state<string | null>(null);

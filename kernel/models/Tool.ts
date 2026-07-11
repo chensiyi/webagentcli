@@ -8,6 +8,8 @@
 
 // ─── ToolCall（工具调用记录） ──────────────────────────
 
+import { genId } from '../utils/id.js';
+
 export class ToolCall {
   id: string;
   toolName: string;
@@ -19,7 +21,7 @@ export class ToolCall {
   completedAt: number | null;
 
   constructor(id: string | null = null, toolName: string = '', input: unknown = {}) {
-    this.id = id || `tool_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    this.id = id || genId('tool');
     this.toolName = toolName;
     this.input = input;
     this.status = 'pending';
@@ -40,6 +42,8 @@ export class ToolCall {
 
 export class ToolResult {
   toolCallId: string | null;
+  toolName: string | null;
+  timestamp: number;
   status: string;
   output: unknown;
   error: unknown;
@@ -48,6 +52,9 @@ export class ToolResult {
 
   constructor(opts: Record<string, unknown> = {}) {
     this.toolCallId = (opts.toolCallId as string) || null;
+    this.toolName = (opts.toolName as string) || null;
+    // 记录产生时间：未显式传入时取构造时刻，供调用历史按时间过滤
+    this.timestamp = (opts.timestamp as number) || Date.now();
     this.status = (opts.status as string) || 'pending';
     this.output = opts.output ?? null;
     this.error = opts.error || null;
@@ -61,14 +68,21 @@ export class ToolResult {
 
   toJSON(): Record<string, unknown> {
     return {
-      toolCallId: this.toolCallId, status: this.status,
+      toolCallId: this.toolCallId,
+      toolName: this.toolName,
+      timestamp: this.timestamp,
+      status: this.status,
       output: this.output, error: this.error, duration: this.duration, metadata: this.metadata
     };
   }
 
   static fromJSON(data: Record<string, unknown>): ToolResult { return new ToolResult(data); }
-  static success(toolCallId: string, output: unknown, duration = 0): ToolResult { return new ToolResult({ toolCallId, status: 'success', output, duration }); }
-  static failed(toolCallId: string, error: unknown, duration = 0): ToolResult { return new ToolResult({ toolCallId, status: 'failed', error, duration }); }
+  static success(toolCallId: string, output: unknown, duration = 0, toolName: string | null = null): ToolResult {
+    return new ToolResult({ toolCallId, status: 'success', output, duration, toolName });
+  }
+  static failed(toolCallId: string, error: unknown, duration = 0, toolName: string | null = null): ToolResult {
+    return new ToolResult({ toolCallId, status: 'failed', error, duration, toolName });
+  }
 }
 
 // ─── Tool（工具定义 + 执行器） ─────────────────────────
@@ -105,6 +119,23 @@ export class Tool {
         description: this.description,
         parameters: this.inputSchema || { type: 'object', properties: {} }
       }
+    };
+  }
+
+  /**
+   * 可序列化快照（用于跨进程 RPC 响应）。
+   * 显式排除 handler 等函数字段——否则 chrome.runtime.sendMessage
+   * 用结构化克隆会抛 "Could not serialize message"。
+   */
+  toJSON(): Record<string, unknown> {
+    return {
+      name: this.name,
+      description: this.description,
+      capabilities: this.capabilities,
+      inputSchema: this.inputSchema,
+      outputSchema: this.outputSchema,
+      enabled: this.enabled,
+      metadata: this.metadata
     };
   }
 }

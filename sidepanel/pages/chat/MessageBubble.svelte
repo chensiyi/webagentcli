@@ -1,5 +1,6 @@
 <script lang="ts">
   import ToolCallCard from './ToolCallCard.svelte';
+  import MediaBlock from './MediaBlock.svelte';
   import { extractText, renderMarkdown } from '../../utils/text.js';
 
   let {
@@ -11,6 +12,7 @@
     hasReasoning,
     hasContent,
     hasToolCalls,
+    mediaBlocks = [],
     expandedReasoning,
     collapsedToolCalls,
     toggleReasoning,
@@ -90,8 +92,17 @@
         <span>💭 思考完成</span>
         <span style="margin-left: 8px; font-size: 11px; color: var(--color-text-hint);">展开上方查看思考过程</span>
       </div>
-    {:else if isUser}
+    {:else if isUser && (!mediaBlocks || mediaBlocks.length === 0)}
       <div class="message-content empty-message-hint">空消息</div>
+    {/if}
+
+    <!-- 媒体内容（图片/音频/视频/文件） -->
+    {#if mediaBlocks && mediaBlocks.length > 0}
+      <div class="media-grid">
+        {#each mediaBlocks as b, i (b.mediaId || b.url || b.source || i)}
+          <MediaBlock block={b} />
+        {/each}
+      </div>
     {/if}
   </div>
 

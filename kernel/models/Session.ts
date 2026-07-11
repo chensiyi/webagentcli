@@ -6,11 +6,12 @@
  */
 
 import { BaseModel } from './BaseModel.js';
+import { Message } from './Message.js';
 
 export class Session extends BaseModel {
   title: string;
-  messages: unknown[];
-  reasoningEffort: string;
+  messages: Message[];
+  reasoningEffort: string | null;
   model: unknown;
 
   constructor(options: Record<string, unknown> = {}) {
@@ -22,7 +23,9 @@ export class Session extends BaseModel {
     this.createdAt = (options.createdAt as number) || Date.now();
     this.updatedAt = (options.updatedAt as number) || this.createdAt;
     if (Array.isArray(options.messages)) {
-      options.messages.filter(m => m != null).forEach(m => this.messages.push(m));
+      // 从存储重建时 messages 是纯对象数组，必须 rehydrate 成 Message 实例，
+      // 否则后续 toJSON() 调 m.toJSON() 会报 "e.toJSON is not a function"。
+      options.messages.filter(m => m != null).forEach(m => this.messages.push(m instanceof Message ? m : new Message(m)));
     }
   }
 
@@ -30,12 +33,36 @@ export class Session extends BaseModel {
     return {
       ...(super.toJSON() as Record<string, unknown>),
       title: this.title,
-      // 过滤掉 undefined 或 null 的消息，并安全调用 toJSON
-      messages: this.messages.filter(m => m != null).map(m => (m as { toJSON: () => unknown }).toJSON?.() ?? m),
+      // 过滤掉 undefined 或 null 的消息，并安全调用 toJSON（裸对象原样返回，不抛错）
+      messages: this.messages.filter(m => m != null).map(m => (typeof (m as any).toJSON === 'function' ? (m as any).toJSON() : m)),
       reasoningEffort: this.reasoningEffort,
       model: this.model,
       createdAt: this.createdAt,
       updatedAt: this.updatedAt
+    };
+  }
+
+  /** 轻量索引条目（存于 StorageKeys.SESSIONS），不含消息体，供会话列表快速渲染。 */
+  toIndexJSON(): Record<string, unknown> {
+    const last = this.messages[this.messages.length - 1];
+    let preview = '';
+    if (last) {
+      const c = last.content;
+      preview = (typeof c === 'string' ? c : JSON.stringify(c)).slice(0, 120);
+    }
+    return {
+      id: this.id,
+      title: this.title,
+      createdAt: this.createdAt,
+      updatedAt: this.updatedAt,
+      messageCount: this.messages.length,
+      preview,
+      // 会话级配置必须随索引持久化，否则重启后 init() 从索引重建会话时丢失。
+      // 此前 toIndexJSON 只存了 id/title/时间戳/preview，漏掉 reasoningEffort 与 model，
+      // 导致重建时构造器回退默认（reasoningEffort→'medium'、model→null）。
+      // 构造器保证 reasoningEffort 恒为字符串；model 可能为 null（沿用全局默认）。
+      reasoningEffort: this.reasoningEffort,
+      model: this.model,
     };
   }
 

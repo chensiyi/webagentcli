@@ -19,6 +19,7 @@
  */
 
 import { BaseModel } from "./BaseModel.js";
+import { genId } from '../utils/id.js';
 
 export type ProcessStatus =
   | 'created'
@@ -59,7 +60,7 @@ export class Process extends BaseModel {
 
   constructor(options: Record<string, unknown> = {}) {
     super(options);
-    this.id = (options.id as string) || `proc_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    this.id = (options.id as string) || genId('proc', 6);
     this.name = (options.name as string) || '';
     this.status = (options.status as ProcessStatus) || 'created';
     this.output = (options.output as unknown[]) || [];

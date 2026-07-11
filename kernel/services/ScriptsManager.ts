@@ -1,17 +1,17 @@
 import { BaseScriptsManager } from './IScriptsManager.js';
-import { KernelEvents } from '../Events.js';
+import { KernelEvents, KernelChannels } from '../Events.js';
+import { StorageKeys } from '../Keys.js';
 import { IPC } from '../IPC.js';
 import { IStorageManager } from './IStorageManager.js';
 import { UserScript } from '../models/Scripts.js';
 import { Log } from './Log.js';
+import { genId } from '../utils/id.js';
 
 /** 最小 Kernel 接口，避免与 Kernel.ts 产生循环引用 */
 interface KernelRef {
   getIPC(): IPC | null;
   getStorageManager(): IStorageManager | null;
 }
-
-const STORAGE_KEY = 'user_scripts';
 
 export class ScriptsManager extends BaseScriptsManager {
   kernel: KernelRef;
@@ -24,7 +24,7 @@ export class ScriptsManager extends BaseScriptsManager {
     super();
     this.kernel = kernel;
     this.ipc = kernel?.getIPC();
-    this.scriptsChannel = this.ipc?.getOrCreateChannel('scripts') || null;
+    this.scriptsChannel = this.ipc?.getOrCreateChannel(KernelChannels.SCRIPTS) || null;
     this.storage = kernel?.getStorageManager?.() || null;
     this.scripts = [];
   }
@@ -33,7 +33,7 @@ export class ScriptsManager extends BaseScriptsManager {
   async loadAll(): Promise<UserScript[]> {
     try {
       if (this.storage) {
-        const stored = await this.storage.get(STORAGE_KEY);
+        const stored = await this.storage.get(StorageKeys.USER_SCRIPTS);
         this.scripts = Array.isArray(stored) ? stored as UserScript[] : [];
       }
     } catch (e) {
@@ -48,7 +48,7 @@ export class ScriptsManager extends BaseScriptsManager {
   private async _save(): Promise<void> {
     try {
       if (this.storage) {
-        await this.storage.set(STORAGE_KEY, this.scripts);
+        await this.storage.set(StorageKeys.USER_SCRIPTS, this.scripts);
       }
     } catch (e) {
       Log.error('ScriptsManager', 'Failed to save scripts to storage:', e);
@@ -99,7 +99,7 @@ export class ScriptsManager extends BaseScriptsManager {
   async install(code: string): Promise<UserScript> {
     const meta = this.parseMetadata(code);
     const script: UserScript = {
-      id: `script_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: genId('script'),
       code,
       enabled: true,
       createdAt: Date.now(),

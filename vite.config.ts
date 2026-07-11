@@ -8,6 +8,7 @@ const pkg = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf-8')
 const VERSION = pkg.version;
 
 export default defineConfig({
+  base: '',
   define: {
     __VERSION__: JSON.stringify(VERSION),
   },
@@ -21,8 +22,11 @@ export default defineConfig({
     emptyOutDir: false,
     rollupOptions: {
       input: {
-        // 唯一 UI 入口——Svelte 5
-        'svelte-app': resolve(__dirname, 'sidepanel/main.ts'),
+        // 侧边栏 HTML 入口（manifest 的 side_panel.default_path 指向 dist/sidepanel/index.html）
+        // 其 <script src="./main.ts"> 会由 Vite 自动打包注入
+        'sidepanel/index': resolve(__dirname, 'sidepanel/index.html'),
+        // Service Worker 入口——Kernel 后台
+        'background': resolve(__dirname, 'background/main.ts'),
       },
       output: {
         entryFileNames: '[name].bundle.js',
