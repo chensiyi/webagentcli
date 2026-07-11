@@ -15,4 +15,9 @@ export interface UserScript extends BaseModel {
   author?: string;
   match?: string[];
   grant?: string[];
+  /** @run-at 原始值（如 'document-end'），注册时由 syncRegisteredScripts 经 RUN_AT_MAP 转为 chrome runAt */
+  runAt?: string;
+  icon?: string;
+  require?: string[];
+  resource?: string[];
 }

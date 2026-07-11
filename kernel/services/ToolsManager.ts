@@ -14,6 +14,13 @@
  */
 import { Log } from './Log.js';
 import { Tool, ToolCall, ToolResult } from '../models/Tool.js';
+import { KernelEvents, KernelChannels } from '../Events.js';
+import { IPC } from '../IPC.js';
+
+/** 最小 IPC 引用，避免与 Kernel.ts 循环依赖 */
+interface IPCLike {
+  getOrCreateChannel(name: string): { emit(event: string, payload?: unknown): void } | null;
+}
 
 export class ToolsManager {
   private _tools: Map<string, Tool>;
@@ -21,13 +28,38 @@ export class ToolsManager {
   private _maxHistory: number;
   private _beforeInvoke: ((toolCall: ToolCall, context: Record<string, unknown>) => boolean | Promise<boolean>) | null;
   private _afterInvoke: ((result: ToolResult, context: Record<string, unknown>) => void) | null;
+  /** 可选 IPC：用于注册表变更时广播 TOOL.* 事件，使 UI / LLM 工具集可实时反映 */
+  private _ipc: IPCLike | null;
+  private _channel: { emit(event: string, payload?: unknown): void } | null;
 
-  constructor(options: { maxHistory?: number; beforeInvoke?: (toolCall: ToolCall, context: Record<string, unknown>) => boolean | Promise<boolean>; afterInvoke?: (result: ToolResult, context: Record<string, unknown>) => void } = {}) {
+  constructor(options: {
+    maxHistory?: number;
+    beforeInvoke?: (toolCall: ToolCall, context: Record<string, unknown>) => boolean | Promise<boolean>;
+    afterInvoke?: (result: ToolResult, context: Record<string, unknown>) => void;
+    ipc?: IPCLike;
+  } = {}) {
     this._tools = new Map();
     this._invocationHistory = [];
     this._maxHistory = options.maxHistory ?? 500;
     this._beforeInvoke = options.beforeInvoke ?? null;
     this._afterInvoke = options.afterInvoke ?? null;
+    this._ipc = options.ipc ?? null;
+    this._channel = null;
+  }
+
+  /** 懒初始化工具通道（仅在注入 ipc 时） */
+  private _toolChannel(): { emit(event: string, payload?: unknown): void } | null {
+    if (!this._ipc) return null;
+    if (!this._channel) this._channel = this._ipc.getOrCreateChannel(KernelChannels.TOOL) || null;
+    return this._channel;
+  }
+
+  /** 广播注册表变更：REGISTERED/UNREGISTERED 同时发 CHANGED（CHANGED 是 UI 唯一订阅点） */
+  private _emitChange(event: string, payload: Record<string, unknown>): void {
+    const ch = this._toolChannel();
+    if (!ch) return;
+    ch.emit(event, payload);
+    ch.emit(KernelEvents.TOOL.CHANGED, { ...payload, event });
   }
 
   // ─── 注册/注销 ────────────────────────────────────
@@ -36,6 +68,7 @@ export class ToolsManager {
     if (!tool || !tool.name) throw new Error('[ToolsManager] Invalid tool: missing name');
     if (this._tools.has(tool.name)) throw new Error(`[ToolsManager] Tool "${tool.name}" already registered`);
     this._tools.set(tool.name, tool);
+    this._emitChange(KernelEvents.TOOL.REGISTERED, { name: tool.name, source: tool.source });
     return this;
   }
 
@@ -45,7 +78,27 @@ export class ToolsManager {
   }
 
   unregister(name: string): this {
+    if (!this._tools.has(name)) return this;
     this._tools.delete(name);
+    this._emitChange(KernelEvents.TOOL.UNREGISTERED, { name });
+    return this;
+  }
+
+  /**
+   * 原地更新已注册工具的定义（handler / source / category / tags / danger / version 等）。
+   * 相比「先 unregister 再 register」，本方法保留同一 Tool 实例引用，
+   * 适合 P1/P2 在运行时对既有工具做幂等刷新（如脚本 @tool 重注册）。
+   * @param name   工具名（不可改）
+   * @param patch  要覆盖的字段（name 字段被忽略）
+   */
+  update(name: string, patch: Partial<Record<string, unknown>>): this {
+    const tool = this._tools.get(name);
+    if (!tool) throw new Error(`[ToolsManager] Tool "${name}" not found, cannot update`);
+    const allowed = ['description', 'capabilities', 'inputSchema', 'outputSchema', 'enabled', 'handler', 'metadata', 'source', 'category', 'tags', 'danger', 'version'];
+    for (const key of allowed) {
+      if (key in patch) (tool as any)[key] = patch[key];
+    }
+    this._emitChange(KernelEvents.TOOL.CHANGED, { name, reason: 'update' });
     return this;
   }
 
@@ -80,16 +133,42 @@ export class ToolsManager {
     return this._tools.size;
   }
 
+  /** 按来源过滤（builtin / script / page / mcp） */
+  getBySource(source: string): Tool[] {
+    return Array.from(this._tools.values()).filter(t => t.source === source);
+  }
+
+  /** 按业务类别过滤 */
+  getByCategory(category: string): Tool[] {
+    return Array.from(this._tools.values()).filter(t => t.category === category);
+  }
+
+  /** 启用且标记为危险（可能改账户/破坏性）的工具——供人工确认门控使用 */
+  getDangerous(): Tool[] {
+    return this.getEnabled().filter(t => t.danger === true);
+  }
+
+  /** 启用工具的 LLM 函数定义集（openai 格式），与 getDefinitionsForLLM('openai') 等价 */
+  getEnabledDefinitions(): unknown[] {
+    return this.getEnabled().map(t => t.toOpenAIFunction());
+  }
+
   // ─── 启用/禁用 ────────────────────────────────────
 
   enable(name: string): void {
     const t = this._tools.get(name);
-    if (t) t.enabled = true;
+    if (t && !t.enabled) {
+      t.enabled = true;
+      this._emitChange(KernelEvents.TOOL.CHANGED, { name, enabled: true, reason: 'toggle' });
+    }
   }
 
   disable(name: string): void {
     const t = this._tools.get(name);
-    if (t) t.enabled = false;
+    if (t && t.enabled) {
+      t.enabled = false;
+      this._emitChange(KernelEvents.TOOL.CHANGED, { name, enabled: false, reason: 'toggle' });
+    }
   }
 
   // ─── LLM 接口 ────────────────────────────────────

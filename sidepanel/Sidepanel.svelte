@@ -6,7 +6,7 @@
   import { KernelEvents } from 'kernel/Events.js';
   //避免在页面中硬编码css样式，使用style中定义的语义性质的风格，便于统一风格与切换样式。
 
-  type PageId = 'chat' | 'history' | 'storage' | 'scripts' | 'settings';
+  type PageId = 'chat' | 'history' | 'storage' | 'scripts' | 'tools' | 'settings';
 
   interface PageDef {
     id: PageId;
@@ -19,12 +19,14 @@
     { id: 'history', icon: '📋', label: '历史' },
     { id: 'storage', icon: '💾', label: '存储' },
     { id: 'scripts', icon: '📜', label: '脚本' },
+    { id: 'tools', icon: '🧰', label: '工具' },
     { id: 'settings', icon: '⚙️', label: '设置' },
   ];
   import ChatPage from './pages/ChatPage.svelte';
   import HistoryPage from './pages/HistoryPage.svelte';
   import StoragePage from './pages/StoragePage.svelte';
   import ScriptsPage from './pages/ScriptsPage.svelte';
+  import ToolsPage from './pages/ToolsPage.svelte';
   import SettingsPage from './pages/SettingsPage.svelte';
   import { RPCClient, createApiClient } from 'bridge/RPC.js';
   import type { KernelAPIContract } from './api-contract.js';
@@ -75,6 +77,8 @@
             <StoragePage />
           {:else if activePage === 'scripts'}
             <ScriptsPage />
+          {:else if activePage === 'tools'}
+            <ToolsPage />
           {:else if activePage === 'settings'}
             <SettingsPage />
           {/if}

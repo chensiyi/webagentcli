@@ -93,6 +93,7 @@ export const KernelEvents = {
     ERROR: 'scripts:error',
     INJECTED: 'scripts:injected',
     EXECUTED: 'scripts:executed',
+    CHANGED: 'scripts:changed',
   },
   TOOL: {
     EXECUTING: 'tool:executing',
@@ -101,6 +102,7 @@ export const KernelEvents = {
     ERROR: 'tool:error',
     REGISTERED: 'tool:registered',
     UNREGISTERED: 'tool:unregistered',
+    CHANGED: 'tool:changed',
   },
   TASK: {
     CREATED: 'task:created',

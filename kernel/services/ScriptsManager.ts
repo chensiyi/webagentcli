@@ -73,14 +73,14 @@ export class ScriptsManager extends BaseScriptsManager {
   /** 解析 Tampermonkey 用户脚本头部元数据 */
   parseMetadata(code: string): Partial<UserScript> {
     const metadata: Partial<UserScript> = {
-      name: '', namespace: '', version: '', description: '', author: '', match: [], grant: []
+      name: '', namespace: '', version: '', description: '', author: '', match: [], grant: [], runAt: ''
     };
     const match = code.match(/==UserScript==([\s\S]*?)==\/UserScript==/);
     if (!match) return metadata;
     const block = match[1];
-    (['name', 'namespace', 'version', 'description', 'author'] as const).forEach(k => {
+    (['name', 'namespace', 'version', 'description', 'author', 'run-at'] as const).forEach(k => {
       const m = block.match(new RegExp('@' + k + '\\s+(.+)'));
-      if (m) (metadata as any)[k] = m[1].trim();
+      if (m) (metadata as any)[k === 'run-at' ? 'runAt' : k] = m[1].trim();
     });
     const matchRegex = /@match\s+(.+)/g;
     let m: RegExpExecArray | null;
@@ -97,6 +97,8 @@ export class ScriptsManager extends BaseScriptsManager {
   }
 
   async install(code: string): Promise<UserScript> {
+    if (!code || !code.trim()) throw new Error('脚本代码不能为空');
+    if (!/==UserScript==/.test(code)) throw new Error('缺少 ==UserScript== 元数据头，无法识别为用户脚本');
     const meta = this.parseMetadata(code);
     const script: UserScript = {
       id: genId('script'),
@@ -110,11 +112,13 @@ export class ScriptsManager extends BaseScriptsManager {
       description: meta.description || '',
       author: meta.author || '',
       match: meta.match || [],
-      grant: meta.grant || []
+      grant: meta.grant || [],
+      runAt: meta.runAt || '',
     } as UserScript;
     this.scripts.push(script);
     await this._save();
     await this.loadAll();
+    this.scriptsChannel?.emit(KernelEvents.SCRIPTS.CHANGED, { reason: 'install', id: script.id });
     return script;
   }
 
@@ -125,10 +129,12 @@ export class ScriptsManager extends BaseScriptsManager {
       s.updatedAt = Date.now();
       await this._save();
       await this.loadAll();
+      this.scriptsChannel?.emit(KernelEvents.SCRIPTS.CHANGED, { reason: 'toggle', id });
     }
   }
 
   async edit(id: string, code: string): Promise<void> {
+    if (!code || !code.trim()) throw new Error('脚本代码不能为空');
     const s = this.get(id);
     if (s) {
       const meta = this.parseMetadata(code);
@@ -140,9 +146,11 @@ export class ScriptsManager extends BaseScriptsManager {
       s.author = meta.author || s.author;
       s.match = meta.match || s.match;
       s.grant = meta.grant || s.grant;
+      s.runAt = meta.runAt || s.runAt;
       s.updatedAt = Date.now();
       await this._save();
       await this.loadAll();
+      this.scriptsChannel?.emit(KernelEvents.SCRIPTS.CHANGED, { reason: 'edit', id });
     }
   }
 
@@ -150,6 +158,7 @@ export class ScriptsManager extends BaseScriptsManager {
     this.remove(id);
     await this._save();
     await this.loadAll();
+    this.scriptsChannel?.emit(KernelEvents.SCRIPTS.CHANGED, { reason: 'uninstall', id });
   }
 
   // 保持 updateCode 别名兼容
