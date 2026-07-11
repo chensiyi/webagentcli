@@ -17,7 +17,13 @@
 ### 文档
 - 删除 `docs/MULTIMEDIA_MESSAGE_PLAN.md`（详细方案已实施完毕，实施进度/待办已并入 `docs/TARGETS.md` 的「多媒体功能支持」条目，作为后续维护入口）。
 
-### 修复 / 待办
+### 修复 / 收尾
 - **反馈完善**：补齐此前静默吞掉的保存/操作结果提示——设置页主题切换成功 toast；历史页切换/删除会话失败 toast + 删除成功 toast；对话页删除消息/切换工具/新建对话/改标题/改思考强度/停止生成 等失败均弹错误 toast（此前仅 Log.error 无用户可见提示）。
-- 模型能力归一化的跨 Provider 共享 `modelCapabilities.ts` 重构标记为**下版本 TODO**（本版本仅收敛字段，未抽公共 util）。
-- P3 真机发图验证待用户 ImgBB key 实测；P4 视频/语音输入延后。
+- **模型能力归一化重构（已完成）**：`BaseProviderAPIService.normalizeModel` + 可覆写 extractor（`extractInputModalities` / `extractSupportsReasoning` / `extractSupportsTools` / `extractModality` / `extractPricing`）；`OpenRouterService` 覆写 3 个字段布局差异的 extractor（`architecture.input_modalities`、`supported_parameters.includes`、`architecture.modality`），`LMStudioService` 复用基类默认；**废弃原「抽独立 `modelCapabilities.ts` + source 分发 util」方案**（该用覆写消解的反模式）。
+- **XSS P0 修复**：`renderMarkdown` 接入 `DOMPurify` 净化（新增依赖 `dompurify`），阻断 LLM 输出经 `{@html}` 注入 `<script>` / 事件处理器；`MessageBubble` 与 `ToolMessageCard` 均经此函数，一处修复全覆盖。
+- P3 真机发图验证**已完成**（用户以 ImgBB key 实测通过，0.7 才升版）；P4 视频/语音输入延后。
+
+### 发布工程化
+- 新增 `.github/workflows/ci.yml`（**Layer 1 持续集成**）：`pull_request` + `push` 到 `main` 时跑 `typecheck → test → build`，作为合入闸口；job 名 `verify` 即分支保护所需的必需状态检查。
+- 重构 `.github/workflows/release.yml`（**Layer 2 发布**）：原版只建 Release 不构建/不打包/不上传产物（用户反馈“发布了但找不到构建物”）→ 现拆 `verify`(release 闸：`typecheck+test`+`package.json version` 与 tag 一致性校验) + `release`(`needs: verify` 引擎级硬关卡：`build` → 打包 `manifest.json+dist+assets` 为 `webagentcli-<ver>.zip` → 创建 GitHub Release 并附 zip)。
+- 触发方式：推送 `v*` tag 即自动构建并发布完整压缩包；版本号单一来源仍是 `package.json`（构建期同步到 `manifest.json`）。

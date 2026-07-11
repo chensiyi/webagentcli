@@ -1,0 +1,41 @@
+name: CI
+
+# Layer 1 — everyday verification gate.
+# Runs on every PR and on every push to main, so bugs surface the day they're written
+# instead of at release time. The job name "verify" is the status check that
+# branch protection (Settings → Branches) should require before merging to main.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Typecheck / Test / Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
