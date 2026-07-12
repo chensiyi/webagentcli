@@ -8,7 +8,7 @@
   import EmptyState from '../components/layout/EmptyState.svelte';
   import { KernelEvents, KernelChannels } from 'kernel/Events.js';
   import type { KernelAPIContract } from '../api-contract.js';
-  import { getShellCache } from '../cache/shell-cache.js';
+  import { getShellCache } from 'sidepanel/cache/shell-cache.js';
   import { useToast } from '../components/overlays/toast-store.svelte';
   import { Log } from 'kernel/services/Log.js';
 
@@ -167,12 +167,12 @@
   }
 
   function loadConversation(id: string) {
-    api.session.switch({ sessionId: id })
-      .then(() => navigateTo('chat'))
-      .catch((e) => {
-        Log.error('HistoryPage', 'switch session failed', e);
-        toast.error('切换会话失败：' + ((e as Error)?.message || String(e)));
-      });
+    // 切换会话完全是 Shell 侧行为：内核不维护「当前会话」。
+    // 更新 Shell 持有的 currentSessionId，再导航回 chat —— 因 activePage 由 history 变 chat，
+    // ChatPage 会重挂载，onMount 用新的 id 拉取会话内容。
+    api.session.stop().catch(() => {});
+    cache.setCurrentSessionId(id);
+    navigateTo('chat');
   }
 
   function confirmDelete(id: string, e: MouseEvent) {
@@ -182,8 +182,14 @@
 
   async function executeDelete() {
     if (!deleteTargetId) return;
+    const deletedId = deleteTargetId;
     try {
-      await api.session.delete({ sessionId: deleteTargetId });
+      await api.session.delete({ sessionId: deletedId });
+      // 若删除的正是当前打开的会话，重置并重新引导当前会话（恢复首个/新建）
+      if (cache.getCurrentSessionId() === deletedId) {
+        cache.setCurrentSessionId(null);
+        await cache.ensureCurrentSession();
+      }
       cache.invalidateSessionList();
       await refreshList();
       toast.success('会话已删除');

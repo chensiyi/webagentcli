@@ -112,12 +112,17 @@ export class ToolExecutor {
    */
   async execute(toolCalls: ToolCall[], sessionId: string, context: Record<string, unknown> = {}): Promise<ToolResult[]> {
     const sm = this.kernel.getSessionManager();
+    const session = sm.getSession(sessionId);
     const toolResults: ToolResult[] = [];
 
     for (const tc of toolCalls) {
       this.emit(KernelEvents.TOOL.EXECUTING, { toolName: tc.toolName, toolCallId: tc.id, sessionId });
 
-      const toolResult = await this._invokeWithRetry(tc, { sessionId, kernel: this.kernel, ...context });
+      // 取本会话对该工具的覆盖（true|false|undefined），传入 invoke 危险闸门：
+      //   false → 直接拒绝；danger+true → 跳过确认；danger+undefined → 弹确认。
+      const overrides = session ? (session.toolEnabled as Record<string, boolean> | null) : null;
+      const override: boolean | undefined = overrides ? (overrides[tc.toolName] as boolean | undefined) : undefined;
+      const toolResult = await this._invokeWithRetry(tc, { sessionId, kernel: this.kernel, toolEnabledOverride: override, ...context });
 
       toolResults.push(toolResult);
       this.emit(KernelEvents.TOOL.COMPLETED, {

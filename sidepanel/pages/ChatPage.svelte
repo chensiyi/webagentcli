@@ -193,7 +193,6 @@
 
   let toolPanelVisible = $state(false);
   let allTools = $state<any[]>([]);
-  let toolEnabledMap = $state<Record<string, boolean>>({});
 
   // 流式内容累积 Map: messageId → { content, reasoning }
   let streamingMap = $state<Record<string, { content: string; reasoning: string }>>({});
@@ -243,14 +242,21 @@
   }
 
   function applyToolList(data: any) {
+    // 仅缓存全局工具列表（含各工具 global enabled）。会话级开关走 session.toolEnabled，
+    // 由 ToolPanel 合并全局与会话两层显示，不在此处合成。
     if (data?.tools) {
       allTools = [...data.tools];
-      const map: Record<string, boolean> = {};
-      for (const t of data.tools) {
-        if (t.name) map[t.name] = t.enabled;
-      }
-      toolEnabledMap = map;
     }
+  }
+
+  /**
+   * 当前会话 id 的权威来源：shell 持有的「普通内存变量」（内核已不再维护 currentSessionId）。
+   * 所有会话操作（发送 / 停止 / 删除 / 更新）一律用此值传参，确保与「当前视图」严格一致，
+   * 不会因本地响应式 session 的刷新时序而脱节。
+   * 取数优先级：cache 持有的变量 → 退路用本地响应式 session（极端异步窗口兜底）。
+   */
+  function currentSessionId(): string | null {
+    return cache.getCurrentSessionId() ?? session?.id ?? null;
   }
 
   // ==================== 消息刷新 ====================
@@ -269,7 +275,7 @@
 
   // ==================== 业务逻辑 ====================
 
-  function handleSend() {
+  async function handleSend() {
     const text = inputText.trim();
     const attachments = pendingAttachments.filter((a) => a.mediaId && !a.error);
     if (!text && attachments.length === 0) return;
@@ -298,14 +304,28 @@
     inputText = '';
     pendingAttachments = [];
     const content = blocks.length === 1 && blocks[0].type === 'text' ? text : blocks;
+    const sid = currentSessionId();
+    if (!sid) { toast.error('会话未就绪，请先新建对话'); return; }
+
+    // 查询活动标签页 id 传入内核，供 ScriptTool 等页面操作工具定位目标
+    let activeTabId: number | null = null;
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab?.id != null) activeTabId = tab.id;
+    } catch { /* sidepanel 有时无 tabs 权限，静默忽略 */ }
+
     api.session.send({
+      sessionId: sid,
       content,
       reasoningEffort: session?.reasoningEffort || reasoningEffort,
+      tabId: activeTabId,
     }).catch((e) => toast.error('发送失败：' + ((e as Error)?.message || String(e))));
   }
 
   function handleStop() {
-    api.session.stop().catch((e) => {
+    const sid = currentSessionId();
+    if (!sid) return;
+    api.session.stop({ sessionId: sid }).catch((e) => {
       Log.error('ChatPage', 'stop failed', e);
       toast.error('停止生成失败：' + ((e as Error)?.message || String(e)));
     });
@@ -313,7 +333,11 @@
 
   function handleNewChat() {
     api.session.create()
-      .then((data) => { applyCurrentSession(data); streamingMap = {}; })
+      .then((data) => {
+        if (data?.session?.id) cache.setCurrentSessionId(data.session.id);
+        applyCurrentSession(data);
+        streamingMap = {};
+      })
       .catch((e) => {
         Log.error('ChatPage', 'new chat failed', e);
         toast.error('新建对话失败：' + ((e as Error)?.message || String(e)));
@@ -327,7 +351,7 @@
   function handleDeleteMessage() {
     if (!deleteTargetId) return;
     const id = deleteTargetId;
-    const sid = session?.id;
+    const sid = currentSessionId();
     if (!sid) {
       deleteTargetId = null;
       toast.error('会话不存在');
@@ -344,7 +368,7 @@
   function handleReasoningEffortChange(val: string) {
     reasoningEffort = val; // 乐观即时反馈
     if (session) {
-      api.session.update({ sessionId: session.id, data: { reasoningEffort: val } })
+      api.session.update({ sessionId: currentSessionId() ?? session.id, data: { reasoningEffort: val } })
         .then((view: any) => {
           if (view) {
             // 根据写操作返回的结果差量更新缓存与 UI（零额外 RPC）
@@ -377,7 +401,7 @@
     isEditingTitle = false;
     if (session.title !== newTitle) {
       session.title = newTitle; // 乐观即时反馈
-      api.session.update({ sessionId: session.id, data: { title: newTitle } })
+      api.session.update({ sessionId: currentSessionId() ?? session.id, data: { title: newTitle } })
         .then((view: any) => {
           if (view) {
             // 根据写操作返回的结果差量更新缓存与 UI（零额外 RPC）
@@ -396,16 +420,50 @@
     isEditingTitle = false;
   }
 
-  function toggleTool(tool: any) {
-    const name = tool.name;
-    if (!name) return;
-    const next = !tool.enabled;
-    toolEnabledMap = { ...toolEnabledMap, [name]: next }; // 乐观即时反馈
-    // 写穿透：先写主库（api.tools.toggle），缓存由 toggleTool 写主库后标脏，下次读取自动从主库重拉
-    cache.toggleTool(name, next)
+  /**
+   * 会话级工具开关（与全局 tool.toggle 不是同一渠道）。
+   * 仅修改本会话的 toolEnabled 覆盖表，不动全局——全局是天花板，全局已禁用无法在此开启。
+   * 写穿透：乐观更新本地 session 视图 → api.session.update 写主库 → 用返回权威视图刷新缓存与本地状态。
+   */
+  /**
+   * 会话级工具开关（三态循环，与全局 tool.toggle 不是同一渠道）。
+   * 仅修改本会话的 toolEnabled 覆盖表，不动全局——全局是天花板，全局已禁用无法在此开启。
+   * 三态循环：undefined（继承全局）→ true（本会话开启）→ false（本会话禁用）→ undefined。
+   * 写穿透：乐观更新本地 session 视图 → api.session.update 写主库 → 用返回权威视图刷新缓存与本地状态。
+   */
+  async function toggleSessionTool(tool: any) {
+    const sid = currentSessionId();
+    if (!sid || !tool?.name) return;
+    // 全局已禁用：会话层天花板之下，无法开启
+    if (!tool.enabled) {
+      toast.warning(`工具「${tool.name}」已被全局禁用，无法在本会话启用`);
+      return;
+    }
+    const base: Record<string, boolean> = (session?.toolEnabled as Record<string, boolean>) || {};
+    const current: boolean | undefined = base[tool.name];
+    // 三态循环：未定义→开启→关闭→未定义（删除键即回到继承）
+    let next: boolean | undefined;
+    if (current === undefined) next = true;
+    else if (current === true) next = false;
+    else next = undefined;
+    const newMap: Record<string, boolean> = { ...base };
+    if (next === undefined) delete newMap[tool.name];
+    else newMap[tool.name] = next;
+    // 表空则整体置 null（继承全局），保持存储精简
+    const normalized = Object.keys(newMap).length ? newMap : null;
+    // 乐观即时反馈：直接刷新本地会话视图，ToolPanel 依赖 session.toolEnabled 重渲染
+    session = { ...session, toolEnabled: normalized };
+    api.session.update({ sessionId: sid, data: { toolEnabled: normalized } })
+      .then((view: any) => {
+        if (view?.session) {
+          // 写穿透：用返回权威视图更新缓存与本地状态（零额外 RPC）
+          cache.patchCurrentSession({ session: view.session });
+          session = view.session;
+        }
+      })
       .catch((e) => {
-        Log.error('ChatPage', 'toggle tool failed', e);
-        toast.error('切换工具失败：' + ((e as Error)?.message || String(e)));
+        Log.error('ChatPage', 'toggle session tool failed', e);
+        toast.error('切换会话工具失败：' + ((e as Error)?.message || String(e)));
       });
   }
 
@@ -488,16 +546,11 @@
           refreshMessages();
         }),
 
-        sessionChannel.on(KernelEvents.SESSION.CURRENT_SESSION_CHANGED, () => {
-          streamingMap = {};
-          isEditingTitle = false;
-          refreshMessages();
-        }),
-
         // 会话更新（标题等）：根据事件携带的结果差量 patch 元数据，零 RPC，不碰流式累积的 messages
         sessionChannel.on(KernelEvents.SESSION.SESSION_UPDATED, (data: any) => {
           const idx = data?.session;
-          if (idx && session && idx.id === session.id) {
+          // 仅当事件属于「当前会话」（shell 持有的变量）时才合并到显示态，避免显示态与变量脱节
+          if (idx && idx.id === currentSessionId()) {
             const merged = { ...session, ...idx };
             cache.patchCurrentSession({ session: merged });
             session = merged;
@@ -549,8 +602,10 @@
     // 键盘导航
     document.addEventListener('keydown', handleKeydown);
 
-    // 内核就绪后再请求当前会话和工具列表（等待 bootComplete 消息，时序门控）
-    waitKernelReady(ipc).then(() => {
+    // 内核就绪后确定当前会话 id（首个/新建）并拉取会话内容。
+    // 切换到历史会话时 activePage 由 history 变 chat，ChatPage 重挂载，onMount 用当前 id 重新拉取。
+    waitKernelReady(ipc).then(async () => {
+      await cache.ensureCurrentSession();
       refreshMessages();
       refreshTools(true); // 页面（重）加载：强制全量获取并刷新缓存
       refreshModelCaps(); // 读取当前模型能力，联动上传按钮
@@ -687,7 +742,7 @@
   <footer class="chat-input-area" class:chat-input-dragging={isDragging}
     ondragover={handleDragOver} ondrop={handleDrop} ondragleave={handleDragLeave}>
     {#if toolPanelVisible}
-      <ToolPanel {allTools} {toolEnabledMap} {toggleTool} />
+      <ToolPanel {allTools} sessionToolEnabled={session?.toolEnabled || null} toggleTool={toggleSessionTool} />
     {/if}
 
     <!-- 附件预览区 -->

@@ -12,7 +12,6 @@ import {
 } from '../Keys.js';
 
 export class SessionManager extends BaseSessionManager {
-  currentSessionId: string | null;
   sessions: Session[];
 
   /** 每个会话的批量落盘定时器（sessionId → timer）。 */
@@ -26,19 +25,7 @@ export class SessionManager extends BaseSessionManager {
 
   constructor(obj: any = null) {
     super(obj);
-    this.currentSessionId = null;
     this.sessions = [];
-  }
-
-  getCurrentSession(): Session | null {
-    return this.sessions.find(s => s.id === this.currentSessionId) || null;
-  }
-
-  async setCurrentSession(id: string): Promise<void> {
-    this.currentSessionId = id;
-    if (this.storage) {
-      try { await this.storage.set(StorageKeys.CURRENT_SESSION_ID, id); } catch (e) { /* ignore */ }
-    }
   }
 
   getSession(id: string): Session | null {
@@ -52,12 +39,8 @@ export class SessionManager extends BaseSessionManager {
 
   async createSession(opts: Record<string, unknown> = {}): Promise<Session> {
     const { persist = true, ...rest } = opts as Record<string, unknown> & { persist?: boolean };
-    // 丢弃上一个「未发送即空」的临时会话，避免内存里堆积空对话
-    if (this.currentSessionId && this._transientIds.has(this.currentSessionId)) {
-      const i = this.sessions.findIndex((s) => s.id === this.currentSessionId);
-      if (i !== -1) this.sessions.splice(i, 1);
-      this._transientIds.delete(this.currentSessionId);
-    }
+    // 丢弃全部「未发送即空」的临时会话，避免内存里堆积空对话（transient 永不可见、永安全）
+    this.discardAllTransient();
     const s = new Session({
       title: (rest.title as string) || '新对话',
       reasoningEffort: (rest.reasoningEffort as string) || 'medium',
@@ -66,24 +49,24 @@ export class SessionManager extends BaseSessionManager {
       updatedAt: Date.now()
     });
     this.sessions.push(s);
-    this.currentSessionId = s.id;
     if (persist) {
       await this._persistMessages(s.id);
       await this._persistIndex();
-      await this._persistCurrentSessionId();
     } else {
       this._transientIds.add(s.id);
     }
     return s;
   }
 
-  /** 丢弃当前未发送即空的临时会话（切换/新建前清理，避免内存堆积空对话）。 */
-  discardTransientCurrent(): void {
-    if (this.currentSessionId && this._transientIds.has(this.currentSessionId)) {
-      const i = this.sessions.findIndex((s) => s.id === this.currentSessionId);
+  /** 丢弃全部「未发送即空」的临时会话（切换/新建前清理，避免内存堆积空对话）。
+   *  transient 永不可见、永未落盘，故直接全清，无需引用「当前会话」。 */
+  discardAllTransient(): void {
+    if (this._transientIds.size === 0) return;
+    for (const id of this._transientIds) {
+      const i = this.sessions.findIndex((s) => s.id === id);
       if (i !== -1) this.sessions.splice(i, 1);
-      this._transientIds.delete(this.currentSessionId);
     }
+    this._transientIds.clear();
   }
 
   async deleteSession(id: string): Promise<void> {
@@ -94,7 +77,6 @@ export class SessionManager extends BaseSessionManager {
       const mediaIds = collectMediaIdsFromMessages(session.messages);
       this.sessions.splice(i, 1);
       this._transientIds.delete(id);
-      if (this.currentSessionId === id) this.currentSessionId = null;
       await this._persistIndex();
       if (this.storage) {
         try { await this.storage.remove(sessionMessagesKey(id)); } catch (e) { /* ignore */ }
@@ -147,7 +129,6 @@ export class SessionManager extends BaseSessionManager {
       // 新增消息是低频操作（每条一次，非 per-token）：直接落盘
       await this._persistMessages(sessionId);
       await this._persistIndex();
-      if (wasTransient) await this._persistCurrentSessionId();
     }
   }
 
@@ -276,21 +257,6 @@ export class SessionManager extends BaseSessionManager {
       } else {
         Log.info('SESSION', 'No sessions found in storage');
       }
-
-      try {
-        const meta = await this.storage.get(StorageKeys.CURRENT_SESSION_ID);
-        if (meta && this.sessions.some(s => s.id === meta)) {
-          this.currentSessionId = meta as string;
-          Log.info('SESSION', `Restored current session: ${meta}`);
-        } else if (this.sessions.length > 0) {
-          this.currentSessionId = this.sessions[0].id;
-          Log.debug('SESSION', `First session set as current: ${this.currentSessionId}`);
-        } else {
-          Log.info('SESSION', 'No sessions found in storage');
-        }
-      } catch (e) {
-        Log.warn('SESSION', `currentSessionId restore error: ${(e as any)?.message}`);
-      }
     } catch (e) {
       Log.warn('SESSION', `init error: ${(e as any)?.message}`);
     }
@@ -330,15 +296,6 @@ export class SessionManager extends BaseSessionManager {
       );
     } catch (e) {
       this._emitStorageError(e);
-    }
-  }
-
-  async _persistCurrentSessionId(): Promise<void> {
-    if (!this.storage) return;
-    try {
-      await this.storage.set(StorageKeys.CURRENT_SESSION_ID, this.currentSessionId);
-    } catch (e) {
-      Log.warn('SESSION', `persistCurrentSessionId error: ${(e as any)?.message}`);
     }
   }
 

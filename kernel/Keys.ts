@@ -16,9 +16,10 @@
  */
 export const StorageKeys = {
   APP_SETTINGS: 'app_settings',
+  /** 工具启用/禁用状态持久化：值为 { [toolName]: boolean }，SW 重启后由 ToolsManager.init() 读回 */
+  TOOLS_ENABLED: 'tools_enabled',
   /** 会话索引（轻量：id/title/时间/消息数/预览，不含消息体） */
   SESSIONS: 'sessions',
-  CURRENT_SESSION_ID: 'currentSessionId',
   USER_SCRIPTS: 'user_scripts',
 } as const;
 

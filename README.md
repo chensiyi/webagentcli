@@ -27,7 +27,17 @@ webagentcli/
 ├── docs/                      # 设计文档
 │   ├── ARCHITECTURE.md        # 架构设计（Microkernel + IPC + Programs）
 │   └── CORE_MODELS.md         # 数据模型详解
-├── kernel/                    # 核心内核（TypeScript · 零外部依赖）
+├── background/               # ★ 内核自举 + Service Worker 入口（Kernel 启动、RPC facade、内置工具）
+│   ├── main.ts                # 内核 Bootloader + RPCServer.expose 注册（构建为 dist/background.bundle.js）
+│   ├── rpc-facades.ts         # Shell→Kernel 接口优先 RPC（session/tools/storage/scripts/media/confirm/kernel）
+│   ├── tools/                 # 内置工具实现（background/tools/）
+│   │   ├── RunUserScriptTool.js      # 页面执行任意 JS（danger）
+│   │   ├── ManageUserScriptsTool.js  # 用户脚本写操作 install/update/toggle/delete（danger）
+│   │   ├── ScriptTool.js              # @tool 脚本执行（页面注入 __toolArgs，return 值作结果）
+│   │   └── GetUserScriptsTool.js      # 用户脚本只读查询 list/get（免确认，从 Manage 拆出）
+│   ├── script-tools.js        # syncRegisteredScripts / reconcileScriptTools（userScripts 注册与 @tool 自动注册）
+│   └── gm-api.js              # 用户脚本 GM_* API + wrapWithGM 注入包装
+├── kernel/                    # 核心内核模型与服务（TypeScript · 零外部依赖，被 background 引用）
 │   ├── index.ts               # ES Module 统一入口
 │   ├── Kernel.ts              # 内核（服务注册/生命周期/状态机）
 │   ├── Bootloader.ts          # Bootloader（4 阶段标准化启动）
@@ -40,9 +50,7 @@ webagentcli/
 │   │   ├── Session.ts         # 会话（含消息列表/思考强度）
 │   │   ├── Settings.ts        # 设置（Provider/Endpoint/Model）
 │   │   ├── Model.ts           # AI 模型元数据
-│   │   ├── ToolCall.ts        # 工具调用意图（不可变）
-│   │   ├── ToolResult.ts      # 工具执行结果（不可变）
-│   │   ├── ToolDefinition.ts  # 工具契约（不可变）
+│   │   ├── Tool.ts            # 统一工具模型（ToolCall + ToolResult + Tool 定义合并于此）
 │   │   ├── Process.ts         # 进程模型（生命周期/状态机）
 │   │   └── Scripts.ts         # 用户脚本模型
 │   ├── orchestration/         # 会话编排（无状态单轮 runConversation）
@@ -71,30 +79,30 @@ webagentcli/
 │           ├── OpenAIService.ts
 │           ├── OpenRouterService.ts
 │           └── LMStudioService.ts
-├── sidepanel/                 # ★ 壳层：入口 + Service Worker + Svelte 5 UI
+├── sidepanel/                 # ★ 壳层 UI（Svelte 5）：入口 HTML + 挂载 Svelte App，经 RPC 与 background 内核通信
 │   ├── index.html             # 入口 HTML
-│   ├── background.js          # Service Worker（脚本自动注入）
-│   ├── main.ts                # Kernel 自举 + 挂载 Svelte App
-│   ├── Sidepanel.svelte       # 根组件（Sidebar + 5 页路由）
+│   ├── main.ts                # 挂载 Svelte App（Kernel 在 background 进程，经 RPC 通信）
+│   ├── Sidepanel.svelte       # 根组件（Sidebar + 6 页路由）
 │   ├── components/            # Svelte 组件
 │   │   ├── atoms/             # 原子组件（Button/Input/Select 等）
 │   │   ├── forms/             # 表单组件（CodeEditor 等）
 │   │   ├── layout/            # 布局组件（Sidebar/Card/EmptyState 等）
 │   │   └── overlays/          # 覆盖层组件（Toast/Dialog/Tooltip 等）
-│   ├── pages/                 # 页面组件
+│   ├── pages/                 # 页面组件（6 个：对话/历史/存储/脚本/工具/设置）
 │   │   ├── ChatPage.svelte    # 对话页面
 │   │   ├── HistoryPage.svelte # 历史页面
 │   │   ├── StoragePage.svelte # 存储页面
 │   │   ├── ScriptsPage.svelte # 脚本页面
+│   │   ├── ToolsPage.svelte   # 工具页面（启用/禁用、危险确认）
 │   │   ├── SettingsPage.svelte# 设置页面
 │   │   └── chat/              # 聊天子组件
 │   │       ├── MessageBubble.svelte
 │   │       └── ...
+│   ├── cache/                 # Shell 侧缓存层（shell-cache.ts：应用级单例，currentSessionId 等，globalThis 锚定）
+│   ├── api-contract.ts        # Shell→Kernel RPC 契约类型
+│   ├── lib/types.ts           # 共享类型（PageId / PageDef 等）
 │   ├── services/              # 壳层服务
 │   │   └── chromeStorage.ts
-│   ├── tools/                 # 内置工具实现
-│   │   ├── RunUserScriptTool.js
-│   │   └── ManageUserScriptsTool.js
 │   ├── styles/                # 全局样式
 │   │   ├── tokens.css         # 设计令牌（CSS 变量）
 │   │   ├── components.css     # 组件样式
@@ -105,8 +113,8 @@ webagentcli/
 │       ├── text.ts
 │       └── time.ts
 ├── dist/                      # 构建产物
-│   ├── assets/svelte-app.css  # Svelte 5 样式
-│   └── svelte-app.bundle.js   # Svelte 5 打包
+│   ├── background.bundle.js   # 内核 + Service Worker 打包
+│   └── sidepanel/             # Svelte 5 UI 打包（index.html + bundle）
 ├── package.json               # 依赖与构建脚本
 ├── tsconfig.json              # TypeScript 配置
 ├── vite.config.ts             # Vite 构建配置

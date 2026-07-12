@@ -9,6 +9,7 @@
   ];
 
   let effortDropdownOpen = $state(false);
+  let effortBtn = $state<HTMLButtonElement | null>(null);
 
   function handleEffortWheel(e: WheelEvent) {
     e.preventDefault();
@@ -39,6 +40,15 @@
       return () => document.removeEventListener('click', handleGlobalClick);
     }
   });
+
+  // 手动以 { passive: false } 挂 wheel 监听：handler 内调用了 preventDefault 阻止页面滚动，
+  // 必须显式声明非 passive，否则 Chrome 会报 "Added non-passive event listener to a scroll-blocking 'wheel'"。
+  $effect(() => {
+    const btn = effortBtn;
+    if (!btn) return;
+    btn.addEventListener('wheel', handleEffortWheel, { passive: false });
+    return () => btn.removeEventListener('wheel', handleEffortWheel, { passive: false });
+  });
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -46,8 +56,8 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <button
     class="effort-btn effort-btn--{reasoningEffort !== 'off' ? 'primary' : 'secondary'}"
+    bind:this={effortBtn}
     onclick={() => (effortDropdownOpen = !effortDropdownOpen)}
-    onwheel={handleEffortWheel}
     title="滚轮切换思考强度"
     type="button"
   >

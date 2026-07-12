@@ -313,7 +313,9 @@ runConversation(kernel, input, { onEvent })   // 解析/创建会话 → 构建�
 cancelConversation(kernel, emit, sessionId?)  // 按 session 精确取消或全部取消
 ```
 
-**发射的 SESSION 事件**（经 onEvent 外发）：`SESSION.STREAM_START` / `SESSION.STREAM_CHUNK_APPEND` / `SESSION.STREAM_COMPLETE` / `SESSION.STREAM_ERROR` / `SESSION.STREAM_STOP` / `SESSION.MESSAGE_ADDED` / `SESSION.CURRENT_SESSION_CHANGED`。
+**发射的 SESSION 事件**（经 onEvent 外发）：`SESSION.STREAM_START` / `SESSION.STREAM_CHUNK_APPEND` / `SESSION.STREAM_COMPLETE` / `SESSION.STREAM_ERROR` / `SESSION.STREAM_STOP` / `SESSION.MESSAGE_ADDED` / `SESSION.UPDATED`。
+
+> 内核**不再维护**「当前会话指针」，`currentSessionId` 是 Shell 层持有的普通内存变量（见 Shell 侧 `ShellDataCache`）。因此**没有** `CURRENT_SESSION_CHANGED` 这类内核广播事件——切换会话完全由 Shell 侧 `setCurrentSessionId(id) + navigateTo('chat')` 驱动，`{#key activePage}` 重挂载 ChatPage 后用新 id 拉取内容，所有会话请求都把 `currentSessionId` 当参数显式传入内核（无状态记录服务调用）。
 
 **模块拆分**：
 - `session-context.ts` — `ContextBuilder`：System Prompt + 历史截断（保护 tool_call/tool_result 配对）+ API 格式转换。
@@ -325,7 +327,8 @@ cancelConversation(kernel, emit, sessionId?)  // 按 session 精确取消或全�
 `background/rpc-facades.ts` 的 `createSessionFacade` 是会话命令的统一入口（由 main.ts Phase 4 经 `RPCServer.expose('session', ...)` 暴露为 `api.session.*`）：
 - `send()` → 直接 `runConversation(kernel, data, { onEvent: emit })`，流式事件经 `onEvent` 回灌 SESSION 通道。
 - `stop()` → 直接 `cancelConversation(kernel, emit)`。
-- `create()` / `switch()` → 切换会话前先 `cancelConversation(kernel, emit)` 取消旧会话进行中的轮次。
+- `create()` / `getCurrent({ sessionId })` → 基于显式 `sessionId` 创建/获取会话视图（`getCurrent` 直接 `getSession(id)` 返回，不再读内核持有的 current）。
+- 会话切换**不在内核**：Shell 调 `cache.setCurrentSessionId(id)` 后 `navigateTo('chat')`；`{#key activePage}` 重挂载 ChatPage 用新 id 经 `getCurrent({ sessionId })` 拉内容。
 - `delete()` → 调用 `cancelConversation(kernel, emit, sessionId)` 取消待删会话的轮次（`SessionManager.deleteSession()` 自身会 emit `SESSION_DELETED`）。
 
 不再有独立的 `eventhandler/` 层：`USER_APPLY_*` 意图层早已移除，命令由 RPC facade 直接驱动编排，命令与事件均走 SESSION 通道但职责清晰（命令=RPC 入口、事件=流式回灌）。
@@ -341,9 +344,11 @@ cancelConversation(kernel, emit, sessionId?)  // 按 session 精确取消或全�
 | `createSession(title?)` | 创建新会话 |
 | `getSession(id)` | 按 ID 获取会话 |
 | `getAllSessions()` | 获取所有会话（按 updatedAt 降序） |
-| `getCurrentSession()` | 获取当前会话 |
-| `switchSession(sessionId)` | 切换当前会话 |
 | `deleteSession(sessionId)` | 删除会话及所有消息 |
+| `discardAllTransient()` | 清空所有未发送空会话（瞬时会话草稿） |
+| `discardAllTransientExcept(keepId)` | 清空其他瞬时会话、保留目标（切换会话时用） |
+
+> 注：内核**不持有** `currentSessionId`、`getCurrentSession`、`switchSession` 等「当前会话」概念——这些已被移除（见上文 SESSION 事件说明）。「当前会话」是 Shell 层的内存变量，由 `ShellDataCache.getCurrentSessionId()/setCurrentSessionId()` 维护，仅 `lastSessionId` 做 best-effort 持久化用于冷启动引导。
 | `addMessageToSession(sessionId, message)` | 添加消息 |
 | `removeMessageFromSession(sessionId, messageId)` | 删除消息 |
 | `updateMessageInSession(sessionId, messageId, updater)` | 更新消息 |
@@ -417,15 +422,16 @@ class ToolsManager {
 }
 ```
 
-**内置工具**（`sidepanel/tools/`）：
-- `RunUserScriptTool` — 在当前活动 tab 执行用户 JS（Turing-complete 万能工具）
-- `ManageUserScriptsTool` — 用户脚本 CRUD（list / get / install / update / toggle / delete）
+**内置工具**（`sidepanel/tools/`，路径后迁至 `background/tools/`）：
+- `RunUserScriptTool` — 在当前活动 tab 执行用户 JS（Turing-complete 万能工具），标 `danger` 需确认
+- `ManageUserScriptsTool` — 用户脚本**写操作**（install / update / toggle / delete），标 `danger` 需确认
+- `GetUserScriptsTool` — 用户脚本**只读查询**（list / get），安全免确认（从 ManageUserScriptsTool 拆出，避免只读操作也弹确认气泡）
 
 工具注册在 START 阶段完成：
 ```typescript
-const builtInClasses = [RunUserScriptTool, ManageUserScriptsTool];
-builtInClasses.forEach((ToolClass) => {
-  const tool = new ToolClass();
+const builtInTools = [new RunUserScriptTool(), new ManageUserScriptsTool(kernel), new GetUserScriptsTool(kernel)];
+builtInTools.forEach((tool) => {
+  if (!tool || !tool.name) return;
   toolsManager.register(tool);
 });
 ```
@@ -609,7 +615,7 @@ class MyNewTool extends Tool {
 ### 主要变更（v0.6.7 续：会话命令接线收敛）
 
 - ✅ **移除 `kernel/eventhandler/` 层**：原 `eventhandler/session.ts` 把 `SESSION.ADD_MESSAGE`/`STOP_STREAM` 命令从同进程 RPC facade emit 出来再接住、转调 `runConversation`/`cancelConversation`，属于「自己跟自己走 IPC 一圈」的冗余绕弯。命令本就是 RPC 入口，由 `createSessionFacade` 直接驱动编排更贴切
-- ✅ **命令接线内联进 session RPC facade**：`send()` 直接 `runConversation(kernel, data, { onEvent: emit })`，`stop()` 直接 `cancelConversation(kernel, emit)`；`create()`/`switch()` 在切换会话前、`delete()` 在删除会话前内联 `cancelConversation`（原 eventhandler 订阅 `CURRENT_SESSION_CHANGED`/`SESSION_DELETED` 的取消逻辑，现由 facade 直接承担）
+- ✅ **命令接线内联进 session RPC facade**：`send()` 直接 `runConversation(kernel, data, { onEvent: emit })`，`stop()` 直接 `cancelConversation(kernel, emit)`；`create()`/`getCurrent({sessionId})`/`delete()` 均基于显式 `sessionId`（无状态记录服务调用）。**内核不再维护「当前会话」**——`switch()`/`getCurrentSession()`/`setCurrentSession()` 及 `CURRENT_SESSION_CHANGED` 广播均已移除，会话切换改由 Shell 层 `setCurrentSessionId(id)+navigateTo('chat')` 驱动（原 eventhandler 订阅 `CURRENT_SESSION_CHANGED`/`SESSION_DELETED` 的取消逻辑，现由 facade 直接承担）
 - ✅ **删除 `registerHandlers` 调用**：`background/main.ts` Phase 4 不再 `registerHandlers(kernel, ipc)`，仅保留 `sessionChannel` 供 facade 回灌事件
 
 ### 主要变更（v0.6.6 → v0.6.7）

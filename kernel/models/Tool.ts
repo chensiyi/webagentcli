@@ -85,6 +85,20 @@ export class ToolResult {
   }
 }
 
+// ─── Tool 来源（注册主体） ─────────────────────────
+// 用于在「同一注册表」里区分工具从哪来，供 UI 分组、LLM 工具集裁剪、门控策略复用。
+export const ToolSource = {
+  /** 内核内置（RunUserScript / ManageUserScripts 等），启动即注册 */
+  BUILTIN: 'builtin',
+  /** 用户脚本经 @tool grant 自动注册（P2 预装/自动注册） */
+  SCRIPT: 'script',
+  /** 页内结构化工具（P1 in-page Playwright MCP 范式，由 content script 注入） */
+  PAGE: 'page',
+  /** 外部协议接入（WebMCP 等，当前未纳入计划，仅占位） */
+  MCP: 'mcp',
+} as const;
+export type ToolSourceValue = typeof ToolSource[keyof typeof ToolSource];
+
 // ─── Tool（工具定义 + 执行器） ─────────────────────────
 
 export class Tool {
@@ -96,6 +110,16 @@ export class Tool {
   enabled: boolean;
   handler: ((args: unknown, ctx: unknown) => Promise<unknown> | unknown) | null;
   metadata: Record<string, unknown>;
+  /** 来源：builtin / script / page / mcp（见 ToolSource） */
+  source: string;
+  /** 业务类别（如 'navigation' / 'extraction' / 'user-script'），UI 分组用 */
+  category: string;
+  /** 自由标签，便于按场景过滤 */
+  tags: string[];
+  /** 危险标记：为 true 时代表「可能改账户/破坏性」动作，必须人工确认（安全铁律） */
+  danger: boolean;
+  /** 工具版本，供自动注册场景做幂等更新判断 */
+  version: string;
 
   constructor(opts: Record<string, unknown> = {}) {
     this.name = (opts.name as string) || '';
@@ -106,6 +130,11 @@ export class Tool {
     this.enabled = (opts.enabled as boolean) !== false;
     this.handler = (opts.handler as ((args: unknown, ctx: unknown) => Promise<unknown> | unknown)) || null;
     this.metadata = (opts.metadata as Record<string, unknown>) || {};
+    this.source = (opts.source as string) || ToolSource.BUILTIN;
+    this.category = (opts.category as string) || 'general';
+    this.tags = (opts.tags as string[]) || [];
+    this.danger = (opts.danger as boolean) === true;
+    this.version = (opts.version as string) || '1.0';
   }
 
   /**
@@ -135,7 +164,12 @@ export class Tool {
       inputSchema: this.inputSchema,
       outputSchema: this.outputSchema,
       enabled: this.enabled,
-      metadata: this.metadata
+      metadata: this.metadata,
+      source: this.source,
+      category: this.category,
+      tags: this.tags,
+      danger: this.danger,
+      version: this.version,
     };
   }
 }

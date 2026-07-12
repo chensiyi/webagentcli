@@ -10,14 +10,17 @@
   import { useToast } from '../components/overlays/toast-store.svelte';
   import { KernelEvents, KernelChannels } from 'kernel/Events.js';
   import type { KernelAPIContract } from '../api-contract.js';
+  import { getShellCache } from 'sidepanel/cache/shell-cache.js';
 
   const ipc: any = getContext('ipc');
   const scriptsChannel = ipc?.getOrCreateChannel?.(KernelChannels.SCRIPTS) || ipc;
   const api = getContext('api') as KernelAPIContract;
   const toast = useToast();
+  const cache = getShellCache(api);
 
   // ---------- State ----------
   let scripts = $state<any[]>([]);
+  let menu = $state<Record<string, { id: string; name: string }[]>>({});
   let isLoading = $state(false);
   let showInstallForm = $state(false);
   let editingScriptId = $state<string | null>(null);
@@ -50,6 +53,8 @@
       toast.error(data?.error || '脚本操作失败');
       isLoading = false;
     });
+    // 用户脚本菜单命令现由 scripts.getMenu() RPC 在打开列表时主动拉取，
+    // 不再依赖 SCRIPTS.MENU_CHANGED 实时广播（见 gm-api.js / rpc-facades.ts）。
   });
 
   onDestroy(() => {
@@ -61,10 +66,21 @@
     try {
       const data = await api.scripts.list();
       scripts = data?.scripts || [];
+      await refreshMenu();
     } catch {
       scripts = [];
     } finally {
       isLoading = false;
+    }
+  }
+
+  /** 拉取用户脚本菜单命令（按 scriptId 聚合） */
+  async function refreshMenu() {
+    try {
+      const data = await api.scripts.getMenu();
+      menu = data?.menu || {};
+    } catch {
+      menu = {};
     }
   }
 
@@ -83,9 +99,9 @@
     try {
       const data = await api.scripts.install({ code: editCode });
       scripts = data?.scripts || [];
-      toast.success('脚本已安装');
       showInstallForm = false;
       editCode = '';
+      promptRestartKernel('脚本已安装');
     } catch (e) {
       toast.error('安装失败');
     }
@@ -112,9 +128,9 @@
     try {
       const data = await api.scripts.edit({ id: editingScriptId, code: editCode });
       scripts = data?.scripts || [];
-      toast.success('已保存');
       editingScriptId = null;
       editCode = '';
+      promptRestartKernel('脚本已更新');
     } catch (e) {
       toast.error('保存失败');
     }
@@ -136,19 +152,55 @@
 
   async function executeDelete() {
     if (!deleteTargetId) return;
+    const id = deleteTargetId;
+    deleteTargetId = null;
     try {
-      const data = await api.scripts.uninstall({ id: deleteTargetId });
+      const data = await api.scripts.uninstall({ id });
       scripts = data?.scripts || [];
-      toast.success('已删除');
+      promptRestartKernel('脚本已删除');
     } catch {
       toast.error('删除失败');
-    } finally {
-      deleteTargetId = null;
     }
+  }
+
+  /**
+   * 脚本安装/更新/卸载后，内核侧的 @tool 工具投影与注册脚本不会自动重新同步
+   * （syncRegisteredScripts / reconcileScriptTools 仅在启动期跑一次），
+   * 故询问是否立即重启内核，让 ToolsManager 移除/新增工具、改动彻底生效。
+   */
+  function promptRestartKernel(label: string) {
+    toast.action(
+      `${label}。是否立即重启内核使改动生效？`,
+      [
+        {
+          label: '立即重启',
+          variant: 'primary',
+          onClick: async () => {
+            try {
+              await api.kernel.reload();
+              cache.invalidateTools();
+              toast.success('内核已重启，改动已生效');
+            } catch {
+              toast.error('内核重启失败，请手动重载扩展');
+            }
+          },
+        },
+        { label: '稍后', variant: 'default', onClick: () => {} },
+      ],
+      'info',
+    );
   }
 
   function cancelDelete() {
     deleteTargetId = null;
+  }
+
+  async function invokeMenu(scriptId: string, id: string) {
+    try {
+      await api.scripts.invokeMenu({ scriptId, id });
+    } catch {
+      toast.error('触发失败');
+    }
   }
 </script>
 
@@ -214,7 +266,12 @@
           <Card hover>
             <div class="list-item list-item--top">
               <div class="list-item-info">
-                <div class="list-item-title">{script.name}</div>
+                <div class="list-item-title">
+                  {#if script.icon}
+                    <img class="script-icon" src={script.icon} alt="" loading="lazy" onerror={(e: any) => (e.currentTarget.style.display = 'none')} />
+                  {/if}
+                  {script.name}
+                </div>
                 {#if script.description}
                   <div class="list-item-desc">{script.description}</div>
                 {/if}
@@ -228,7 +285,26 @@
                   {#if script.match?.length > 0}
                     <Badge variant="info">{script.match.length} 匹配规则</Badge>
                   {/if}
+                  {#if script.include?.length > 0}
+                    <Badge variant="info">{script.include.length} 包含规则</Badge>
+                  {/if}
+                  {#if script.exclude?.length > 0}
+                    <Badge variant="warning">{script.exclude.length} 排除规则</Badge>
+                  {/if}
+                  {#if script.resource?.length > 0}
+                    <Badge variant="info">{script.resource.length} 资源</Badge>
+                  {/if}
                 </div>
+                {#if menu[script.id]?.length > 0}
+                  <div class="script-menu">
+                    <div class="script-menu-label">菜单命令</div>
+                    <div class="script-menu-list">
+                      {#each menu[script.id] as cmd (cmd.id)}
+                        <Button variant="ghost" size="sm" onclick={() => invokeMenu(script.id, cmd.id)}>{cmd.name}</Button>
+                      {/each}
+                    </div>
+                  </div>
+                {/if}
               </div>
               <div class="list-item-actions">
                 <Button variant="ghost" size="sm" onclick={() => startEdit(script.id)}>编辑</Button>
@@ -260,4 +336,31 @@
 >
   确定删除此脚本？此操作不可恢复。
 </Dialog>
+
+<style>
+  .script-icon {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    object-fit: contain;
+    vertical-align: -3px;
+    margin-right: 6px;
+    background: #f1f5f9;
+  }
+  .script-menu {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed #e5e7eb;
+  }
+  .script-menu-label {
+    font-size: 12px;
+    color: #6b7280;
+    margin-bottom: 4px;
+  }
+  .script-menu-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+</style>
 

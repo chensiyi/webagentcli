@@ -21,16 +21,15 @@ export interface SessionView {
 }
 
 export interface SessionAPI {
-  getCurrent(): Promise<SessionView>;
+  getCurrent(data: { sessionId?: string | null }): Promise<SessionView>;
   create(): Promise<SessionView>;
   update(data: { sessionId: string; data: any }): Promise<null>;
   deleteMessage(data: { messageId: string; sessionId: string }): Promise<null>;
   list(): Promise<{ sessions: any[] }>;
-  switch(data: { sessionId: string }): Promise<SessionView>;
   delete(data: { sessionId: string }): Promise<{ sessions: any[] }>;
   clearMessages(data: { sessionId: string }): Promise<null>;
-  send(data: { content: string | any[]; reasoningEffort?: string }): Promise<null>;
-  stop(): Promise<null>;
+  send(data: { sessionId: string; content: string | any[]; reasoningEffort?: string; tabId?: number | null }): Promise<null>;
+  stop(data: { sessionId?: string | null }): Promise<null>;
 }
 
 export interface ToolsAPI {
@@ -51,6 +50,10 @@ export interface ScriptsAPI {
   edit(data: { id: string; code: string }): Promise<{ scripts: any[] }>;
   toggle(data: { id: string; enabled: boolean }): Promise<{ scripts: any[] }>;
   uninstall(data: { id: string }): Promise<{ scripts: any[] }>;
+  /** 读取用户脚本菜单命令（GM_registerMenuCommand 收集，按 scriptId 聚合） */
+  getMenu(): Promise<{ menu: Record<string, { id: string; name: string }[]> }>;
+  /** 在当前活动标签页触发某脚本菜单命令 */
+  invokeMenu(data: { scriptId: string; id: string }): Promise<null>;
 }
 
 export interface MediaAPI {
@@ -60,6 +63,18 @@ export interface MediaAPI {
   delete(data: { id: string }): Promise<null>;
 }
 
+/** 危险工具人工确认专用 RPC 接口（UI 专用确认接口）。
+ * Shell 收到内核 CONFIRM.REQUEST 事件后弹确认框，用户决策经 resolve 回写内核。 */
+export interface ConfirmAPI {
+  resolve(data: { requestId: string; approved: boolean }): Promise<null>;
+}
+
+/** 内核控制面 RPC（如热重载脚本/工具注册表）。 */
+export interface KernelAPI {
+  /** 热重载内核：重跑 syncRegisteredScripts + reconcileScriptTools，使脚本安装/卸载/启停立即生效 */
+  reload(): Promise<null>;
+}
+
 export interface KernelAPIContract {
   settings: SettingsAPI;
   session: SessionAPI;
@@ -67,4 +82,6 @@ export interface KernelAPIContract {
   storage: StorageAPI;
   scripts: ScriptsAPI;
   media: MediaAPI;
+  confirm: ConfirmAPI;
+  kernel: KernelAPI;
 }

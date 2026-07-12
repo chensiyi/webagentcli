@@ -10,11 +10,19 @@
  * - `remove` 用箭头字段定义，绑定实例 `this`，作为回调透传给 <Toast> 的 ondismiss 时不会丢失上下文。
  */
 
+export interface ToastAction {
+  label: string;
+  variant?: 'primary' | 'danger' | 'default';
+  onClick: () => void;
+}
+
 export interface ToastItem {
   id: string;
   message: string;
   type: 'info' | 'success' | 'warning' | 'error';
   duration: number;
+  /** 操作按钮（如危险操作确认的「允许/取消」）。点击任一按钮后自动关闭。 */
+  actions?: ToastAction[];
 }
 
 class ToastStore {
@@ -37,6 +45,25 @@ class ToastStore {
   error = (message: string, duration?: number) => this.add(message, 'error', duration);
   warning = (message: string, duration?: number) => this.add(message, 'warning', duration);
   info = (message: string, duration?: number) => this.add(message, 'info', duration);
+
+  /**
+   * 带操作按钮的 toast（如危险操作确认）。
+   * 点击任一按钮后自动关闭；duration=0 表示不自动关闭（由按钮或 ✕ 关闭）。
+   */
+  action(message: string, actions: ToastAction[], type: ToastItem['type'] = 'warning', duration = 0): string {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const wrapped = actions.map((a) => ({
+      ...a,
+      onClick: () => {
+        try { a.onClick(); } finally { this.remove(id); }
+      },
+    }));
+    this.toasts = [...this.toasts, { id, message, type, duration, actions: wrapped }];
+    if (duration > 0) {
+      setTimeout(() => this.remove(id), duration);
+    }
+    return id;
+  }
 }
 
 export const toastStore = new ToastStore();

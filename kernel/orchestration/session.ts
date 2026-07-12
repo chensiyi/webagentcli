@@ -24,6 +24,22 @@ import { ThinkingConfig } from '../models/MessageContent.js';
 import { Session } from '../models/Session.js';
 import { Kernel } from '../Kernel.js';
 import { ContextBuilder } from './session-context.js';
+
+/**
+ * 解析某会话的有效工具定义集（openai 格式）。
+ * 两层开关合并（依据用户设计：全局优先级最高，会话级低于全局）：
+ *  1. 全局开关（ToolsManager）——全局关的工具根本不进入结果；
+ *  2. 会话级局部开关（session.toolEnabled）——全局开时，若本会话该工具为 false，
+ *     则在本会话内剔除；其余继承全局开启态。
+ * 全局是天花板：会话级 true 无法「重新开启」一个全局已关的工具。
+ */
+export function resolveSessionToolDefs(kernel: Kernel, session: Session): unknown[] {
+  const tm = kernel.getToolsManager();
+  const overrides = session?.toolEnabled || null;
+  return tm.getEnabled()
+    .filter((t) => !(overrides && overrides[t.name] === false))
+    .map((t) => t.toOpenAIFunction());
+}
 import { ToolExecutor } from './session-tools.js';
 import { buildTurnRequest, applySessionCache } from './request.js';
 
@@ -41,6 +57,8 @@ export interface ConversationInput {
   reasoningEffort?: string;
   model?: unknown;
   isToolContinuation?: boolean;
+  /** Shell 传入的活动标签页 id，供 ScriptTool 等页面操作类工具定位目标 */
+  tabId?: number | null;
 }
 
 export interface ConversationHooks {
@@ -77,21 +95,13 @@ export async function runConversation(
   }
 
   const sm = kernel.getSessionManager();
-  const settings = kernel.getSettingsManager().getSettings();
-  const defaultEffort = settings?.reasoningEffort || 'medium';
 
   let session: Session | null = null;
   try {
-    session = sessionId ? sm.getSession(sessionId as string) : sm.getCurrentSession();
-    if (!session) {
-      if (isToolContinuation) throw new Error('Session required for tool continuation');
-      session = await sm.createSession({
-        title: '新对话',
-        reasoningEffort: reasoningEffort || defaultEffort,
-        persist: false,
-      });
-      emit(KernelEvents.SESSION.CURRENT_SESSION_CHANGED, { sessionId: session.id });
-    } else if (reasoningEffort && session.reasoningEffort !== (reasoningEffort as string)) {
+    if (!sessionId) throw new Error('sessionId is required to send a message');
+    session = sm.getSession(sessionId as string);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+    if (reasoningEffort && session.reasoningEffort !== (reasoningEffort as string)) {
       session.reasoningEffort = reasoningEffort as string;
     }
   } catch (e: any) {
@@ -99,7 +109,7 @@ export async function runConversation(
     return;
   }
 
-  return runTurn(kernel, session.id, { content, model, isToolContinuation: !!isToolContinuation }, emit);
+  return runTurn(kernel, session.id, { content, model, isToolContinuation: !!isToolContinuation, tabId: input.tabId ?? null }, emit);
 }
 
 // ─── 单轮生成管线（围绕某个 session；ReAct 续轮递归进入） ──────
@@ -107,10 +117,10 @@ export async function runConversation(
 async function runTurn(
   kernel: Kernel,
   sessionId: string,
-  opts: { content: string | any[]; model: unknown; isToolContinuation: boolean },
+  opts: { content: string | any[]; model: unknown; isToolContinuation: boolean; tabId?: number | null },
   emit: (event: string, data: unknown) => void,
 ): Promise<void> {
-  const { content, model, isToolContinuation } = opts;
+  const { content, model, isToolContinuation, tabId } = opts;
   const sm = kernel.getSessionManager();
   const settings = kernel.getSettingsManager().getSettings();
   const sid = sessionId;
@@ -146,7 +156,8 @@ async function runTurn(
     // ── 上下文构建（委托 ContextBuilder） ──
     const freshSession = sm.getSession(sid);
     if (!freshSession) throw new Error(`Session not found: ${sid}`);
-    const tools = kernel.getToolsManager().getDefinitionsForLLM();
+    // 两层开关合并：全局（ToolsManager）为天花板，本会话 toolEnabled 仅能收窄
+    const tools = resolveSessionToolDefs(kernel, freshSession);
     const { messages: messagesForRequest, mediaWarnings } = await contextBuilder.buildMessages(freshSession, settings, tools, kernel.getMediaResolver() || undefined);
 
     // 媒体解析失败（如 mediaId 孤儿、IndexedDB 异常）上报 warning，由 Shell 弹 toast 提示用户
@@ -226,7 +237,7 @@ async function runTurn(
       emit(KernelEvents.SESSION.STREAM_COMPLETE, { sessionId: sid, messageId: assistantMsg.id, duration });
 
       const toolExecutor = new ToolExecutor(kernel, emit);
-      await toolExecutor.execute(result.toolCalls, sid);
+      await toolExecutor.execute(result.toolCalls, sid, { tabId: tabId ?? undefined });
       // 工具执行完成后，继续下一轮（ReAct 循环，递归进入续轮）
       await runTurn(kernel, sid, { content: '', model: null, isToolContinuation: true }, emit);
       return;

@@ -30,7 +30,7 @@ class LogService implements ILogger {
   private _backend: ILogger;
   private _minLevel: LogLevel;
 
-  constructor(logger: ILogger | null = null, minLevel: LogLevel = 'debug') {
+  constructor(logger: ILogger | null = null, minLevel: LogLevel = __DEV__ ? 'debug' : 'warn') {
     this._backend = logger || new ConsoleLogger();
     this._minLevel = minLevel;
   }

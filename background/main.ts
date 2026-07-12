@@ -18,7 +18,7 @@
 import { IPC } from 'kernel/IPC.js';
 import { IPCTransport } from 'bridge/IPCTransport.js';
 import { RPCServer } from 'bridge/RPC.js';
-import { createSessionFacade, createToolsFacade, createStorageFacade, createScriptsFacade, createMediaFacade } from './rpc-facades.js';
+import { createSessionFacade, createToolsFacade, createStorageFacade, createScriptsFacade, createMediaFacade, createConfirmFacade, createKernelFacade } from './rpc-facades.js';
 import { createMediaStore } from './services/mediaStore.js';
 import { Kernel } from 'kernel/Kernel.js';
 import { Bootloader } from 'kernel/Bootloader.js';
@@ -32,7 +32,8 @@ import { ProcessManager } from 'kernel/services/ProcessManager.js';
 import { ProviderFactory } from 'kernel/services/ProviderFactory.js';
 import { createChromeStorage } from './services/chromeStorage.js';
 import { RunUserScriptTool } from './tools/RunUserScriptTool.js';
-import { ManageUserScriptsTool, syncRegisteredScripts } from './tools/ManageUserScriptsTool.js';
+import { ManageUserScriptsTool, GetUserScriptsTool, syncRegisteredScripts } from './tools/ManageUserScriptsTool.js';
+import { reconcileScriptTools } from './script-tools.js';
 import { KernelEvents, KernelChannels } from 'kernel/Events.js';
 import { Log } from 'kernel/services/Log.js';
 
@@ -49,6 +50,12 @@ let kernelCrashed = false;
 let reloading = false;
 /** 当前已启动的内核实例（供 onSuspend 优雅清理时直接取用，免去二次 await）。 */
 let activeKernel: Kernel | null = null;
+
+// 用户脚本菜单命令：页面侧（gm-api.js）经 GM_registerMenuCommand 收集后，由 USER_SCRIPT 世界
+// 唯一可用的 chrome.runtime.sendMessage 回传（唤醒休眠 SW，带 300ms 重试防冷启动竞态）；
+// 此处监听持久化到 chrome.storage.local（key: __gm_menu_<scriptId>），scripts.getMenu() RPC
+// 在需要时主动拉取，invokeMenu 经 chrome.userScripts.sendMessage 回发 __gmMenuInvoke 给页面执行回调。
+// 注意：user script 世界无法访问 chrome.storage / chrome.tabs，所有扩展能力均需经 sendMessage 代理。
 
 /** 模块级 IPC：SW 加载时创建一次，确保 chrome 监听器只安装一次。 */
 const ipc: IPC = new IPC({ origin: 'background-kernel' });
@@ -94,7 +101,50 @@ function onUncaughtError(e: ErrorEvent) {
 }
 (self as unknown as EventTarget).addEventListener('unhandledrejection', onUnhandledRejection as EventListener);
 (self as unknown as EventTarget).addEventListener('error', onUncaughtError as EventListener);
+// 用户脚本世界（USER_SCRIPT）配置（模块加载时安装一次）：
+//  - messaging:true  → 开启专用通道 runtime.onUserScriptMessage（用户脚本世界收消息的唯一合法通道，
+//    chrome.runtime.onMessage 在该世界为 undefined，直接 .addListener 会抛错并导致整段脚本注入失败）
+//  - csp          → 给世界自己的 CSP 放开 trusted-types *：严格 TT 站点（trusted-types WMqk0 default）
+//    上 Chrome 注入用户脚本时会生成一个 UUID 命名的 TT 策略，被页面 CSP 拦截；世界自有 CSP 放开后放行
+if (typeof chrome.userScripts?.configureWorld === 'function') {
+  try {
+    chrome.userScripts.configureWorld({
+      messaging: true,
+      csp: "script-src 'self'; object-src 'self'; trusted-types *",
+    });
+  } catch (e) {
+    Log.warn('BACKGROUND', 'userScripts.configureWorld failed (TT 放开/消息通道可能不可用)', e);
+  }
+}
 
+// ── 用户脚本世界（USER_SCRIPT）回传桥接 ──
+// user script 世界只能访问 chrome.runtime / chrome.userScripts，凡涉及 chrome.storage /
+// chrome.tabs 等扩展能力，必须由页面侧经 chrome.runtime.sendMessage 回传。
+// ⚠️ 关键：user script 发出的 runtime.sendMessage 由 background 的 **专用事件**
+// `chrome.runtime.onUserScriptMessage` 接收（Chrome 官方明确：user script 不走 onMessage /
+// onConnect，改用专用 handler）。之前错误挂在 onMessage 上 → 消息永远无接收端 →
+// 反复 "Receiving end does not exist"。此处必须挂在 onUserScriptMessage。
+// - __gmMenu       → 菜单命令列表持久化到 chrome.storage.local（key: __gm_menu_<scriptId>），
+//   供 scripts.getMenu() RPC 主动拉取；唤醒休眠 SW 后可能首帧未注册监听，故页面侧有 300ms 重试。
+// - __gmOpenTab    → 代理 Chrome 打开新标签（GM_openInTab）。
+const userScriptMsg = chrome.runtime.onUserScriptMessage;
+if (typeof userScriptMsg?.addListener === 'function') {
+  userScriptMsg.addListener((msg: any, _sender: any, _sendResponse: any) => {
+    if (!msg || typeof msg !== 'object') return false;
+    if (msg.__gmMenu === true && msg.scriptId) {
+      const cmds = Array.isArray(msg.commands)
+        ? msg.commands.filter((c: any) => c && c.id && c.name).map((c: any) => ({ id: String(c.id), name: String(c.name) }))
+        : [];
+      try { chrome.storage.local.set({ ['__gm_menu_' + String(msg.scriptId)]: cmds }); } catch { /* 忽略持久化失败 */ }
+      return false;
+    }
+    if (msg.__gmOpenTab === true && msg.url) {
+      try { chrome.tabs.create({ url: String(msg.url), active: msg.active !== false }); } catch { /* 忽略 */ }
+      return false;
+    }
+    return false;
+  });
+}
 // ── 兼容旧握手：Shell 初始 ping 回 bootComplete，但必须等内核完全启动（RPC 已暴露）后，
 //    否则 Shell 收到"就绪"却调不动 RPC，导致 session.getCurrent / tools.list 超时 ──
 ipc.on(KernelEvents.KERNEL.PING, () => {
@@ -147,7 +197,13 @@ async function bootKernel() {
         const storage = createChromeStorage();
 
         // 工具管理 / 能力门控：与其余 Manager 一样走常规注册路径（不再构造器注入）
-        kernel.register('toolsManager', async () => new ToolsManager());
+        // ToolsManager 注入 ipc：注册/注销/启用/禁用时经 TOOL 通道广播 CHANGED，
+        // 供 UI（ToolsPage）与后续 P1/P2 动态注册实时反映。
+        kernel.register('toolsManager', async () => {
+            const mgr = new ToolsManager({ ipc, storage });
+            await mgr.init();
+            return mgr;
+        }, { dependsOn: ['storageManager'] });
         kernel.register('capabilities', async () => new CapabilityManager());
 
         kernel.register('storageManager', async () => storage);
@@ -179,10 +235,17 @@ async function bootKernel() {
         await kernel.boot();
         log.info('BACKGROUND', 'Services initialized');
 
-        // 注册内置工具（直接传实例：RunUserScriptTool 无参，ManageUserScriptsTool 需内核引用）
+        // 注册内置工具（直接传实例：RunUserScriptTool 无参，ManageUserScriptsTool/GetUserScriptsTool 需内核引用）
         // toolsManager 已在 kernel.boot() 期间初始化，此处经 getter 取实例
         const toolsManager = kernel.getToolsManager();
-        const builtInTools = [new RunUserScriptTool(), new ManageUserScriptsTool(kernel)];
+        // 危险工具确认闸门已内聚于 ToolsManager（注入 ipc 后 invoke 危险工具前自动 await Shell 确认）
+        // - ManageUserScriptsTool：写操作（install/update/toggle/delete），标 danger 需确认
+        // - GetUserScriptsTool：只读（list/get），安全免确认
+        const builtInTools = [
+          new RunUserScriptTool(),
+          new GetUserScriptsTool(kernel),
+          new ManageUserScriptsTool(kernel),
+        ];
         builtInTools.forEach((tool) => {
             if (!tool || !tool.name) return;
             try {
@@ -210,7 +273,7 @@ async function bootKernel() {
         const rpcServer = new RPCServer(ipc);
 
         rpcServer.expose('session', createSessionFacade(kernel, sessionChannel), {
-            methods: ['getCurrent', 'create', 'update', 'deleteMessage', 'list', 'switch', 'delete', 'clearMessages', 'send', 'stop'],
+            methods: ['getCurrent', 'create', 'update', 'deleteMessage', 'list', 'delete', 'clearMessages', 'send', 'stop'],
             capabilities: kernel.getCapabilities() as any,
         });
         rpcServer.expose('tools', createToolsFacade(kernel), {
@@ -226,7 +289,17 @@ async function bootKernel() {
             capabilities: kernel.getCapabilities() as any,
         });
         rpcServer.expose('scripts', createScriptsFacade(kernel), {
-            methods: ['list', 'install', 'edit', 'toggle', 'uninstall'],
+            methods: ['list', 'install', 'edit', 'toggle', 'uninstall', 'getMenu', 'invokeMenu'],
+            capabilities: kernel.getCapabilities() as any,
+        });
+        // 危险工具人工确认专用 RPC（UI 专用确认接口）：Shell 决策后回写 resolve
+        rpcServer.expose('confirm', createConfirmFacade(kernel), {
+            methods: ['resolve'],
+            capabilities: kernel.getCapabilities() as any,
+        });
+        // 内核控制面（如热重载脚本/工具注册表）；reload 重跑 syncRegisteredScripts + reconcileScriptTools
+        rpcServer.expose('kernel', createKernelFacade(kernel), {
+            methods: ['reload'],
             capabilities: kernel.getCapabilities() as any,
         });
 
@@ -252,6 +325,8 @@ async function bootKernel() {
         // 放在 READY 末尾并 await：bootComplete 在本函数完成后才发出，Shell 侧 waitKernelReady
         // 会在「内核就绪 + 首次注入注册完成」之后才放行，彻底消除唤醒竞态。
         await syncRegisteredScripts(kernel.getScriptsManager());
+        // 启动期把 @tool 脚本同步注册为 AI 工具（P2 自动注册）
+        reconcileScriptTools(kernel.getScriptsManager(), kernel.getToolsManager());
     });
 
     await bootloader.boot();
@@ -279,4 +354,4 @@ chrome.runtime.onSuspend.addListener(() => {
     }
 });
 
-console.log('[Background] Service worker loaded');
+Log.info('BACKGROUND', 'Service worker loaded');

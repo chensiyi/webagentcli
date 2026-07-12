@@ -41,6 +41,9 @@ interface Entry<T> {
 
 export class ShellDataCache {
   private api: KernelAPIContract;
+  /** Shell 端持有的「当前会话 id」。内核不再维护 currentSessionId，改由 Shell 临时持有。
+   *  这是一个普通内存变量：切换会话时由 switch/create 显式赋值；每次 session 相关请求都把它当参数传入。 */
+  private currentSessionId: string | null = null;
   private store: Record<CacheScope, Entry<any> | undefined> = {
     session: undefined,
     sessionList: undefined,
@@ -93,8 +96,38 @@ export class ShellDataCache {
   }
 
   // ---------- 当前会话视图 ----------
+  /** Shell 持有的当前会话 id（内核不再维护 currentSessionId）。 */
+  getCurrentSessionId(): string | null {
+    return this.currentSessionId;
+  }
+
+  /** 设定当前会话 id（普通内存变量，不做任何持久化）。 */
+  setCurrentSessionId(id: string | null): void {
+    this.currentSessionId = id;
+  }
+
+  /**
+   * 启动引导：仅在会话 id 从未被显式确定（切换/新建）过时，做一次兜底初始化。
+   * 无持久化：冷启动直接取「会话列表首个（最近更新）」；列表为空则新建一个临时会话。
+   * 一旦被设置（非 null）即严格沿用，绝不在挂载时二次校验或回退——否则会表现为「切换无效、锁死在旧会话」。
+   */
+  async ensureCurrentSession(): Promise<void> {
+    if (this.currentSessionId) {
+      return; // 已确定（切换/新建维护）→ 直接沿用
+    }
+    const list: any = await this.api.session.list();
+    const sessions: any[] = list?.sessions || [];
+    let target: string | null = null;
+    if (sessions.length > 0) target = sessions[0].id;
+    else {
+      const created: any = await this.api.session.create();
+      target = created?.session?.id || null;
+    }
+    this.setCurrentSessionId(target);
+  }
+
   getCurrentSession(force = false) {
-    return this._read('session', () => this.api.session.getCurrent() as any, force);
+    return this._read('session', () => this.api.session.getCurrent({ sessionId: this.currentSessionId }) as any, force);
   }
   /** 标记当前会话缓存失效（下次读取会触发一次 RPC）。不主动发起请求。 */
   invalidateSession() {
@@ -197,10 +230,16 @@ export class ShellDataCache {
   }
 }
 
-// 应用级单例（跨页面共享）。api 由 Sidepanel 顶层创建一次并注入 context，所有页面复用同一实例；
-// 本 sidepanel 模块在扩展生命周期内只求值一次，故模块级变量天然持久，不随 {#key activePage} 重挂载而重置。
-let _instance: ShellDataCache | null = null;
+// 应用级单例（跨页面共享）。api 由 Sidepanel 顶层创建一次并注入 context，所有页面复用同一实例。
+//
+// 关键坑（切换会话失效的根因）：本模块若被打包进「多份」（如不同页面用不同 import 形式——
+// 别名 `sidepanel/cache/shell-cache.js` 与相对 `../cache/shell-cache.js` 在部分打包配置下会解析成
+// 两个模块记录），每个副本各自持有独立的模块级 `_instance`，于是「单例」实际有多个，
+// 各页面拿到的 ShellDataCache 实例不同 → currentSessionId 互不连通 → 切换会话永远落到旧会话。
+// 因此把唯一实例锚定在 globalThis 上：无论模块被求值几次，全局只有一份，彻底消除该问题。
+const GLOBAL_CACHE_KEY = '__wac_shell_cache_instance__';
 export function getShellCache(api: KernelAPIContract): ShellDataCache {
-  if (!_instance) _instance = new ShellDataCache(api);
-  return _instance;
+  const g = globalThis as unknown as Record<string, ShellDataCache>;
+  if (!g[GLOBAL_CACHE_KEY]) g[GLOBAL_CACHE_KEY] = new ShellDataCache(api);
+  return g[GLOBAL_CACHE_KEY];
 }

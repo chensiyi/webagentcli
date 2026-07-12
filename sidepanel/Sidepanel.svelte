@@ -4,32 +4,36 @@
   import ToastContainer from './components/overlays/ToastContainer.svelte';
   import { useToast } from './components/overlays/toast-store.svelte';
   import { KernelEvents } from 'kernel/Events.js';
+  import type { PageId, PageDef } from './lib/types.js';
   //避免在页面中硬编码css样式，使用style中定义的语义性质的风格，便于统一风格与切换样式。
-
-  type PageId = 'chat' | 'history' | 'storage' | 'scripts' | 'settings';
-
-  interface PageDef {
-    id: PageId;
-    icon: string;
-    label: string;
-  }
 
   const PAGES: PageDef[] = [
     { id: 'chat', icon: '💬', label: '对话' },
     { id: 'history', icon: '📋', label: '历史' },
     { id: 'storage', icon: '💾', label: '存储' },
     { id: 'scripts', icon: '📜', label: '脚本' },
+    { id: 'tools', icon: '🧰', label: '工具' },
     { id: 'settings', icon: '⚙️', label: '设置' },
   ];
   import ChatPage from './pages/ChatPage.svelte';
   import HistoryPage from './pages/HistoryPage.svelte';
   import StoragePage from './pages/StoragePage.svelte';
   import ScriptsPage from './pages/ScriptsPage.svelte';
+  import ToolsPage from './pages/ToolsPage.svelte';
   import SettingsPage from './pages/SettingsPage.svelte';
   import { RPCClient, createApiClient } from 'bridge/RPC.js';
   import type { KernelAPIContract } from './api-contract.js';
+  import { confirmStore } from './stores/confirm-store.svelte.js';
 
   let { ipc, bootError = null }: { ipc: unknown; bootError?: string | null } = $props();
+
+  // 当前激活页面（导航状态）。必须在 setContext('navigate', navigateTo) 与传给 Sidebar 之前定义，
+  // 否则依赖函数提升才能工作，脆弱且易踩时序坑（表现为「切换无效 / 锁死」）。
+  let activePage = $state<PageId>('chat');
+
+  function navigateTo(pageId: PageId) {
+    activePage = pageId;
+  }
 
   // 注入 IPC 到 Svelte context（子组件通过 getContext('ipc') 访问）
   // ipc 是 IPC 事件总线实例，所有页面通过 IPC 通道与 Kernel 通信
@@ -39,8 +43,11 @@
   setContext('rpc', rpc);
   // 注入按「标准外部访问接口契约」自动生成的代理客户端：
   // api.settings.getSettings() 等价于 rpc.call('settings.getSettings', [])，类型与 kernel 侧一致。
-  setContext('api', createApiClient<KernelAPIContract>(rpc));
+  const api = createApiClient<KernelAPIContract>(rpc);
+  setContext('api', api);
   setContext('navigate', navigateTo);
+  // 危险工具「气泡内确认」store：绑定 api（回写 confirm.resolve）与 ipc
+  confirmStore.bind(api, ipc);
 
   // 存储写入失败（如配额超限）由内核经 STORAGE.ERROR 上报，全局弹 toast 提示
   const toast = useToast();
@@ -48,11 +55,41 @@
     toast.error(`存储写入失败：${d?.message || '空间可能已满'}`);
   });
 
-  let activePage = $state<PageId>('chat');
+  // 危险工具人工确认：内核 invoke danger 工具前广播，改在聊天气泡内确认。
+  // 按 toolCallId 关联到 ToolCallCard，在气泡里直接渲染「允许/取消」按钮。
+  // 详细入参（如 run_user_script 的代码）随聊天消息展示，无需 toast。
+  (ipc as any).on(KernelEvents.CONFIRM.REQUEST, (d: any) => {
+    if (!d?.requestId) return;
+    if (!d.toolCallId) {
+      // 兜底：极少数无 toolCallId 的场景退回 toast 轻量确认
+      const toolName = d.toolName || 'unknown';
+      const reason = d.reason || '该工具被标记为危险操作';
+      toast.action(
+        `⚠️ 危险操作确认：「${toolName}」${reason}`,
+        [
+          { label: '允许执行', variant: 'danger', onClick: () => { void api.confirm.resolve({ requestId: d.requestId, approved: true }).catch(() => {}); } },
+          { label: '取消', variant: 'default', onClick: () => { void api.confirm.resolve({ requestId: d.requestId, approved: false }).catch(() => {}); } },
+        ],
+        'warning',
+        130_000,
+      );
+      return;
+    }
+    confirmStore.add({
+      requestId: d.requestId,
+      toolCallId: d.toolCallId,
+      sessionId: d.sessionId || null,
+      toolName: d.toolName || 'unknown',
+      args: d.args,
+      reason: d.reason || '该工具被标记为危险操作，执行前需人工确认',
+      receivedAt: Date.now(),
+    });
+  });
 
-  function navigateTo(pageId: PageId) {
-    activePage = pageId;
-  }
+  // 内核超时/已决策后广播，移除气泡内残留的待确认态
+  (ipc as any).on(KernelEvents.CONFIRM.RESOLVED, (d: any) => {
+    if (d?.toolCallId) confirmStore.remove(d.toolCallId);
+  });
 </script>
 
 <div class="sidepanel-container">
@@ -75,6 +112,8 @@
             <StoragePage />
           {:else if activePage === 'scripts'}
             <ScriptsPage />
+          {:else if activePage === 'tools'}
+            <ToolsPage />
           {:else if activePage === 'settings'}
             <SettingsPage />
           {/if}

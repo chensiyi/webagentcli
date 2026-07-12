@@ -41,13 +41,11 @@ export const KernelEvents = {
     WARNING: 'session:warning',
     ACTIVITY_STATE_CHANGED: 'session:activityStateChanged',
     SESSION_CREATED: 'session:sessionCreated',
-    SESSION_SWITCHED: 'session:sessionSwitched',
     SESSION_CLEARED: 'session:sessionCleared',
     SESSION_DELETED: 'session:sessionDeleted',
     SESSION_CLEAR_REQUEST: 'session:sessionClearRequest',
     SESSION_LOADED: 'session:sessionLoaded',
     SESSION_UPDATED: 'session:sessionUpdated',
-    CURRENT_SESSION_CHANGED: 'session:currentSessionChanged',
     ALL_SESSIONS_CLEARED: 'session:allSessionsCleared',
     // 内核授权命令（由 session RPC facade 经 createSessionFacade 直接 emit 并驱动编排，不再经 eventhandler 转译）
     // 祈使式，与上方过去式事件（如 MESSAGE_ADDED）配对：addMessage ↔ messageAdded，时态区分命令与事件
@@ -93,6 +91,9 @@ export const KernelEvents = {
     ERROR: 'scripts:error',
     INJECTED: 'scripts:injected',
     EXECUTED: 'scripts:executed',
+    CHANGED: 'scripts:changed',
+    /** 用户脚本经 GM_registerMenuCommand 注册/反注册菜单命令后广播（Shell 菜单 UI 刷新） */
+    MENU_CHANGED: 'scripts:menuChanged',
   },
   TOOL: {
     EXECUTING: 'tool:executing',
@@ -101,6 +102,7 @@ export const KernelEvents = {
     ERROR: 'tool:error',
     REGISTERED: 'tool:registered',
     UNREGISTERED: 'tool:unregistered',
+    CHANGED: 'tool:changed',
   },
   TASK: {
     CREATED: 'task:created',
@@ -128,6 +130,17 @@ export const KernelEvents = {
     DENIED: 'capability:denied',
     GRANTED: 'capability:granted',
     REVOKED: 'capability:revoked',
+  },
+  /**
+   * 危险工具人工确认闸门事件。
+   * 内核在 invoke 危险工具（Tool.danger===true）前，经内核 IPC 向 Shell 广播 REQUEST，
+   * Shell 弹确认框，用户决策后经专用 RPC `confirm.resolve` 回写（见 background/rpc-facades）。
+   * 这是「UI 专用确认 RPC 接口」的 kernel→shell 半边（事件通知）；shell→kernel 半边是 RPC 调用。
+   */
+  CONFIRM: {
+    REQUEST: 'confirm:request',
+    /** 内核已收到用户决策（或超时自动拒绝）后广播，Shell 据此移除气泡内的待确认态 */
+    RESOLVED: 'confirm:resolved',
   }
 };
 

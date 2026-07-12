@@ -73,6 +73,10 @@ export class IPC {
       origin: this.origin
     };
 
+    // 区分本地发出 vs 远端接收（远端消息由 IPCTransport 注入 __remote 标记）
+    const isRemote = data != null && typeof data === 'object' && (data as any).__remote === true;
+    Log.debug('IPC', `${isRemote ? '← recv' : '→ emit'} ${this.origin} · ${event}`, data ?? null);
+
     if (this._runMiddleware(message) === false) return message;
 
     const cbs = this.listeners.get(event);
