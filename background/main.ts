@@ -18,7 +18,7 @@
 import { IPC } from 'kernel/IPC.js';
 import { IPCTransport } from 'bridge/IPCTransport.js';
 import { RPCServer } from 'bridge/RPC.js';
-import { createSessionFacade, createToolsFacade, createStorageFacade, createScriptsFacade, createMediaFacade } from './rpc-facades.js';
+import { createSessionFacade, createToolsFacade, createStorageFacade, createScriptsFacade, createMediaFacade, createConfirmFacade } from './rpc-facades.js';
 import { createMediaStore } from './services/mediaStore.js';
 import { Kernel } from 'kernel/Kernel.js';
 import { Bootloader } from 'kernel/Bootloader.js';
@@ -49,6 +49,26 @@ let kernelCrashed = false;
 let reloading = false;
 /** 当前已启动的内核实例（供 onSuspend 优雅清理时直接取用，免去二次 await）。 */
 let activeKernel: Kernel | null = null;
+
+/**
+ * 用户脚本菜单命令收集器（GM_registerMenuCommand 配套）。
+ * 页面侧脚本调用 GM_registerMenuCommand 时经 chrome.runtime.sendMessage 把
+ * 命令列表推回内核；此处按 scriptId 聚合，广播 SCRIPTS.MENU_CHANGED 供 Shell 菜单 UI 刷新。
+ * invokeMenu 时向当前活动标签页回发 __gmMenuInvoke，页面侧 onMessage 监听取出回调执行。
+ */
+const menuCommands = new Map<string, { id: string; name: string }[]>();
+
+/** 内核侧监听页面脚本回传的菜单命令（模块加载时安装一次）。 */
+function onMenuMessage(msg: any, _sender: any, _sendResponse: any) {
+  if (!msg || msg.__gmMenu !== true || !msg.scriptId) return false;
+  const cmds = Array.isArray(msg.commands)
+    ? msg.commands.filter((c: any) => c && c.id && c.name).map((c: any) => ({ id: String(c.id), name: String(c.name) }))
+    : [];
+  menuCommands.set(String(msg.scriptId), cmds);
+  ipc.getOrCreateChannel(KernelChannels.SCRIPTS)
+    .emit(KernelEvents.SCRIPTS.MENU_CHANGED, { scriptId: msg.scriptId, commands: cmds });
+  return false;
+}
 
 /** 模块级 IPC：SW 加载时创建一次，确保 chrome 监听器只安装一次。 */
 const ipc: IPC = new IPC({ origin: 'background-kernel' });
@@ -94,6 +114,12 @@ function onUncaughtError(e: ErrorEvent) {
 }
 (self as unknown as EventTarget).addEventListener('unhandledrejection', onUnhandledRejection as EventListener);
 (self as unknown as EventTarget).addEventListener('error', onUncaughtError as EventListener);
+// 监听页面脚本（userScript）经 GM_registerMenuCommand 回传的菜单命令（安装一次）
+chrome.runtime.onMessage.addListener(onMenuMessage);
+// 脚本增删改/启停后，旧页的菜单命令已失效：清空收集器，待页面重载后重新上报
+ipc.getOrCreateChannel(KernelChannels.SCRIPTS).on(KernelEvents.SCRIPTS.CHANGED, () => {
+  menuCommands.clear();
+});
 
 // ── 兼容旧握手：Shell 初始 ping 回 bootComplete，但必须等内核完全启动（RPC 已暴露）后，
 //    否则 Shell 收到"就绪"却调不动 RPC，导致 session.getCurrent / tools.list 超时 ──
@@ -188,6 +214,7 @@ async function bootKernel() {
         // 注册内置工具（直接传实例：RunUserScriptTool 无参，ManageUserScriptsTool 需内核引用）
         // toolsManager 已在 kernel.boot() 期间初始化，此处经 getter 取实例
         const toolsManager = kernel.getToolsManager();
+        // 危险工具确认闸门已内聚于 ToolsManager（注入 ipc 后 invoke 危险工具前自动 await Shell 确认）
         const builtInTools = [new RunUserScriptTool(), new ManageUserScriptsTool(kernel)];
         builtInTools.forEach((tool) => {
             if (!tool || !tool.name) return;
@@ -231,8 +258,13 @@ async function bootKernel() {
             methods: ['getAll', 'set', 'remove', 'clear'],
             capabilities: kernel.getCapabilities() as any,
         });
-        rpcServer.expose('scripts', createScriptsFacade(kernel), {
-            methods: ['list', 'install', 'edit', 'toggle', 'uninstall'],
+        rpcServer.expose('scripts', createScriptsFacade(kernel, menuCommands), {
+            methods: ['list', 'install', 'edit', 'toggle', 'uninstall', 'getMenu', 'invokeMenu'],
+            capabilities: kernel.getCapabilities() as any,
+        });
+        // 危险工具人工确认专用 RPC（UI 专用确认接口）：Shell 决策后回写 resolve
+        rpcServer.expose('confirm', createConfirmFacade(kernel), {
+            methods: ['resolve'],
             capabilities: kernel.getCapabilities() as any,
         });
 

@@ -186,7 +186,10 @@ export function createStorageFacade(kernel: Kernel) {
   };
 }
 
-export function createScriptsFacade(kernel: Kernel) {
+export function createScriptsFacade(
+  kernel: Kernel,
+  menuCommands?: Map<string, { id: string; name: string }[]>,
+) {
   return {
     async list() {
       const sm = kernel.getScriptsManager();
@@ -229,6 +232,45 @@ export function createScriptsFacade(kernel: Kernel) {
       const scripts = await sm.loadAll();
       await syncRegisteredScripts(sm);
       return { scripts };
+    },
+
+    /** 读取已注册的用户脚本菜单命令（GM_registerMenuCommand 收集，按 scriptId 聚合） */
+    getMenu() {
+      const menu = menuCommands ? Object.fromEntries(menuCommands) : {};
+      return { menu };
+    },
+
+    /** 在当前活动标签页触发某脚本的某个菜单命令（回发 __gmMenuInvoke 给页面 userScript） */
+    async invokeMenu(data: { scriptId: string; id: string }) {
+      if (!data?.scriptId || !data?.id) return null;
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab?.id != null) {
+        try {
+          chrome.tabs.sendMessage(tab.id, { __gmMenuInvoke: data.id });
+        } catch (e) {
+          Log.warn('SCRIPTS_FACADE', 'invokeMenu sendMessage failed', e);
+        }
+      }
+      return null;
+    },
+  };
+}
+
+/**
+ * confirm facade — 危险工具人工确认的专用 RPC 接口（UI 专用确认 RPC）。
+ *
+ * 这是 kernel→shell 确认闭环的「shell→kernel 半边」：
+ * - 内核 ToolsManager.invoke 危险工具前，经 ToolConfirmation 广播 CONFIRM.REQUEST 事件；
+ * - Shell 弹确认框，用户决策后调用 api.confirm.resolve({ requestId, approved })；
+ * - 本 facade 把该调用转交 kernel.getToolConfirmation().resolve()，解除内核侧 await。
+ * 仅暴露 resolve 一个方法（写穿透：Shell 是唯一决策方）。
+ */
+export function createConfirmFacade(kernel: Kernel) {
+  return {
+    resolve(data: { requestId: string; approved: boolean }) {
+      if (!data?.requestId) return null;
+      kernel.getToolsManager()?.resolveConfirm(data.requestId, !!data.approved);
+      return null;
     },
   };
 }

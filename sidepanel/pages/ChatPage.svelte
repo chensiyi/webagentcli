@@ -397,6 +397,12 @@
    * 仅修改本会话的 toolEnabled 覆盖表，不动全局——全局是天花板，全局已禁用无法在此开启。
    * 写穿透：乐观更新本地 session 视图 → api.session.update 写主库 → 用返回权威视图刷新缓存与本地状态。
    */
+  /**
+   * 会话级工具开关（三态循环，与全局 tool.toggle 不是同一渠道）。
+   * 仅修改本会话的 toolEnabled 覆盖表，不动全局——全局是天花板，全局已禁用无法在此开启。
+   * 三态循环：undefined（继承全局）→ true（本会话开启）→ false（本会话禁用）→ undefined。
+   * 写穿透：乐观更新本地 session 视图 → api.session.update 写主库 → 用返回权威视图刷新缓存与本地状态。
+   */
   async function toggleSessionTool(tool: any) {
     const sid = session?.id;
     if (!sid || !tool?.name) return;
@@ -406,12 +412,20 @@
       return;
     }
     const base: Record<string, boolean> = (session?.toolEnabled as Record<string, boolean>) || {};
-    const effective = base[tool.name] !== false; // 全局开，故只看本会话是否显式 false
-    const next = !effective;
-    const newMap: Record<string, boolean> = { ...base, [tool.name]: next };
+    const current: boolean | undefined = base[tool.name];
+    // 三态循环：未定义→开启→关闭→未定义（删除键即回到继承）
+    let next: boolean | undefined;
+    if (current === undefined) next = true;
+    else if (current === true) next = false;
+    else next = undefined;
+    const newMap: Record<string, boolean> = { ...base };
+    if (next === undefined) delete newMap[tool.name];
+    else newMap[tool.name] = next;
+    // 表空则整体置 null（继承全局），保持存储精简
+    const normalized = Object.keys(newMap).length ? newMap : null;
     // 乐观即时反馈：直接刷新本地会话视图，ToolPanel 依赖 session.toolEnabled 重渲染
-    session = { ...session, toolEnabled: newMap };
-    api.session.update({ sessionId: sid, data: { toolEnabled: newMap } })
+    session = { ...session, toolEnabled: normalized };
+    api.session.update({ sessionId: sid, data: { toolEnabled: normalized } })
       .then((view: any) => {
         if (view?.session) {
           // 写穿透：用返回权威视图更新缓存与本地状态（零额外 RPC）

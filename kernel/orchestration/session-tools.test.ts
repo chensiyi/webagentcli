@@ -9,6 +9,7 @@ describe('ToolExecutor 工具结果写入', () => {
   it('成功结果若 handler 返回媒体 block 数组，写入消息的 content 仍应为数组', async () => {
     const captured: any = {};
     const fakeSm: any = {
+      getSession: () => null,
       async appendToolResult(_sid: string, _tcId: string, content: any, isError: boolean) {
         captured.content = content;
         captured.isError = isError;
@@ -40,6 +41,7 @@ describe('ToolExecutor 工具结果写入', () => {
   it('字符串结果保持原样（向后兼容）', async () => {
     const captured: any = {};
     const fakeSm: any = {
+      getSession: () => null,
       async appendToolResult(_sid: string, _tcId: string, content: any, isError: boolean) {
         captured.content = content;
         captured.isError = isError;

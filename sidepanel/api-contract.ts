@@ -51,6 +51,10 @@ export interface ScriptsAPI {
   edit(data: { id: string; code: string }): Promise<{ scripts: any[] }>;
   toggle(data: { id: string; enabled: boolean }): Promise<{ scripts: any[] }>;
   uninstall(data: { id: string }): Promise<{ scripts: any[] }>;
+  /** 读取用户脚本菜单命令（GM_registerMenuCommand 收集，按 scriptId 聚合） */
+  getMenu(): Promise<{ menu: Record<string, { id: string; name: string }[]> }>;
+  /** 在当前活动标签页触发某脚本菜单命令 */
+  invokeMenu(data: { scriptId: string; id: string }): Promise<null>;
 }
 
 export interface MediaAPI {
@@ -60,6 +64,12 @@ export interface MediaAPI {
   delete(data: { id: string }): Promise<null>;
 }
 
+/** 危险工具人工确认专用 RPC 接口（UI 专用确认接口）。
+ * Shell 收到内核 CONFIRM.REQUEST 事件后弹确认框，用户决策经 resolve 回写内核。 */
+export interface ConfirmAPI {
+  resolve(data: { requestId: string; approved: boolean }): Promise<null>;
+}
+
 export interface KernelAPIContract {
   settings: SettingsAPI;
   session: SessionAPI;
@@ -67,4 +77,5 @@ export interface KernelAPIContract {
   storage: StorageAPI;
   scripts: ScriptsAPI;
   media: MediaAPI;
+  confirm: ConfirmAPI;
 }

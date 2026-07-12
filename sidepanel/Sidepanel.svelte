@@ -30,6 +30,7 @@
   import SettingsPage from './pages/SettingsPage.svelte';
   import { RPCClient, createApiClient } from 'bridge/RPC.js';
   import type { KernelAPIContract } from './api-contract.js';
+  import { confirmStore } from './stores/confirm-store.svelte.js';
 
   let { ipc, bootError = null }: { ipc: unknown; bootError?: string | null } = $props();
 
@@ -41,13 +42,52 @@
   setContext('rpc', rpc);
   // 注入按「标准外部访问接口契约」自动生成的代理客户端：
   // api.settings.getSettings() 等价于 rpc.call('settings.getSettings', [])，类型与 kernel 侧一致。
-  setContext('api', createApiClient<KernelAPIContract>(rpc));
+  const api = createApiClient<KernelAPIContract>(rpc);
+  setContext('api', api);
   setContext('navigate', navigateTo);
+  // 危险工具「气泡内确认」store：绑定 api（回写 confirm.resolve）与 ipc
+  confirmStore.bind(api, ipc);
 
   // 存储写入失败（如配额超限）由内核经 STORAGE.ERROR 上报，全局弹 toast 提示
   const toast = useToast();
   (ipc as any).on(KernelEvents.STORAGE.ERROR, (d: any) => {
     toast.error(`存储写入失败：${d?.message || '空间可能已满'}`);
+  });
+
+  // 危险工具人工确认：内核 invoke danger 工具前广播，改在聊天气泡内确认。
+  // 按 toolCallId 关联到 ToolCallCard，在气泡里直接渲染「允许/取消」按钮。
+  // 详细入参（如 run_user_script 的代码）随聊天消息展示，无需 toast。
+  (ipc as any).on(KernelEvents.CONFIRM.REQUEST, (d: any) => {
+    if (!d?.requestId) return;
+    if (!d.toolCallId) {
+      // 兜底：极少数无 toolCallId 的场景退回 toast 轻量确认
+      const toolName = d.toolName || 'unknown';
+      const reason = d.reason || '该工具被标记为危险操作';
+      toast.action(
+        `⚠️ 危险操作确认：「${toolName}」${reason}`,
+        [
+          { label: '允许执行', variant: 'danger', onClick: () => { void api.confirm.resolve({ requestId: d.requestId, approved: true }).catch(() => {}); } },
+          { label: '取消', variant: 'default', onClick: () => { void api.confirm.resolve({ requestId: d.requestId, approved: false }).catch(() => {}); } },
+        ],
+        'warning',
+        130_000,
+      );
+      return;
+    }
+    confirmStore.add({
+      requestId: d.requestId,
+      toolCallId: d.toolCallId,
+      sessionId: d.sessionId || null,
+      toolName: d.toolName || 'unknown',
+      args: d.args,
+      reason: d.reason || '该工具被标记为危险操作，执行前需人工确认',
+      receivedAt: Date.now(),
+    });
+  });
+
+  // 内核超时/已决策后广播，移除气泡内残留的待确认态
+  (ipc as any).on(KernelEvents.CONFIRM.RESOLVED, (d: any) => {
+    if (d?.toolCallId) confirmStore.remove(d.toolCallId);
   });
 
   let activePage = $state<PageId>('chat');

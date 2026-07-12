@@ -7,6 +7,7 @@
     2. 完善工具管理基础功能（与油猴/用户脚本接口维护同批次）
         共享基座（2026-07-11 已落地）：ToolsManager 升级为实时注册表（变更广播 TOOL.* 事件、原地 update、按 source/category/danger 过滤）；Tool 模型加 source/category/tags/danger/version 元字段；ScriptsManager 修复 @run-at 解析与安装校验；新增 ToolsPage 工具管理主页；工具启用/禁用状态已持久化（tools_enabled 键）并支持 SW 重启恢复；会话级工具开关模型已落地（Session.toolEnabled 字段 + session.ts 两层合并，全局为天花板、会话仅能收窄；UI 开关面待做）
         油猴功能 / 用户脚本接口维护：提供并维护相关接口与能力（Tampermonkey 范式，与工具管理同批次推进）
+            油猴对齐设计（进行中）：元数据 @指令 + GM_* API 覆盖矩阵已出基线 → docs/TAMPERMONKEY_ALIGN.md；本批补 @include/@exclude/@require/@resource/@icon + registerMenuCommand/getResourceText/addElement/download/GM_info 补全；VM 沙箱/鉴权/@tool 自动注册(P2) 不在本批
         结构化页内工具层 [P1]：类型化 in-page 工具原语（act/extract/observe，基于 accessibility tree），复用上方 ToolRegistry
         用户脚本自动注册 [P2]：@tool grant 标注 → 内核自动注册（经 ToolsManager.register，source='script'），与 P1 共用同一 ToolRegistry
     3. 预装脚本（非默认提供，第 2 项完善后编写）

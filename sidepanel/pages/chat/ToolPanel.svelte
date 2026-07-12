@@ -24,8 +24,9 @@
       {#if def}
         {@const globalOn = !!def.enabled}
         {@const override = sessionToolEnabled ? sessionToolEnabled[def.name] : undefined}
-        {@const effective = globalOn && override !== false}
         {@const locked = !globalOn}
+        <!-- 三态：undefined=继承全局 / true=本会话开启 / false=本会话禁用 -->
+        {@const state = locked ? 'locked' : override === true ? 'on' : override === false ? 'off' : 'inherit'}
         <div class="tool-panel-item" class:locked>
           <div class="tool-panel-info">
             <span class="tool-panel-name">{def.name}</span>
@@ -38,11 +39,16 @@
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="tool-toggle-btn"
-            title={locked ? '已被全局禁用，无法在本会话启用' : effective ? '点击：在本会话禁用' : '点击：在本会话启用'}
+            title={
+              locked ? '已被全局禁用，无法在本会话启用'
+                : state === 'inherit' ? '点击：在本会话开启'
+                : state === 'on' ? '点击：在本会话禁用'
+                : '点击：恢复继承全局'
+            }
             onclick={() => { if (!locked) toggleTool(tool); }}
           >
-            <Badge variant={locked ? 'default' : effective ? 'success' : 'error'}>
-              {locked ? '全局禁用' : effective ? '本会话启用' : '本会话禁用'}
+            <Badge variant={locked ? 'default' : state === 'on' ? 'success' : state === 'off' ? 'error' : 'info'}>
+              {locked ? '全局禁用' : state === 'on' ? '本会话开启' : state === 'off' ? '本会话禁用' : '继承全局'}
             </Badge>
           </div>
         </div>

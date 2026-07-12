@@ -94,6 +94,8 @@ export const KernelEvents = {
     INJECTED: 'scripts:injected',
     EXECUTED: 'scripts:executed',
     CHANGED: 'scripts:changed',
+    /** 用户脚本经 GM_registerMenuCommand 注册/反注册菜单命令后广播（Shell 菜单 UI 刷新） */
+    MENU_CHANGED: 'scripts:menuChanged',
   },
   TOOL: {
     EXECUTING: 'tool:executing',
@@ -130,6 +132,17 @@ export const KernelEvents = {
     DENIED: 'capability:denied',
     GRANTED: 'capability:granted',
     REVOKED: 'capability:revoked',
+  },
+  /**
+   * 危险工具人工确认闸门事件。
+   * 内核在 invoke 危险工具（Tool.danger===true）前，经内核 IPC 向 Shell 广播 REQUEST，
+   * Shell 弹确认框，用户决策后经专用 RPC `confirm.resolve` 回写（见 background/rpc-facades）。
+   * 这是「UI 专用确认 RPC 接口」的 kernel→shell 半边（事件通知）；shell→kernel 半边是 RPC 调用。
+   */
+  CONFIRM: {
+    REQUEST: 'confirm:request',
+    /** 内核已收到用户决策（或超时自动拒绝）后广播，Shell 据此移除气泡内的待确认态 */
+    RESOLVED: 'confirm:resolved',
   }
 };
 

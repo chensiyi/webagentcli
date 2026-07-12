@@ -73,12 +73,13 @@ export class ScriptsManager extends BaseScriptsManager {
   /** 解析 Tampermonkey 用户脚本头部元数据 */
   parseMetadata(code: string): Partial<UserScript> {
     const metadata: Partial<UserScript> = {
-      name: '', namespace: '', version: '', description: '', author: '', match: [], grant: [], runAt: ''
+      name: '', namespace: '', version: '', description: '', author: '',
+      match: [], include: [], exclude: [], grant: [], runAt: '', icon: '', require: [], resource: [],
     };
     const match = code.match(/==UserScript==([\s\S]*?)==\/UserScript==/);
     if (!match) return metadata;
     const block = match[1];
-    (['name', 'namespace', 'version', 'description', 'author', 'run-at'] as const).forEach(k => {
+    (['name', 'namespace', 'version', 'description', 'author', 'run-at', 'icon'] as const).forEach(k => {
       const m = block.match(new RegExp('@' + k + '\\s+(.+)'));
       if (m) (metadata as any)[k === 'run-at' ? 'runAt' : k] = m[1].trim();
     });
@@ -87,19 +88,75 @@ export class ScriptsManager extends BaseScriptsManager {
     const matchArr: string[] = [];
     while ((m = matchRegex.exec(block)) !== null) matchArr.push(m[1].trim());
     metadata.match = matchArr;
+    const includeRegex = /@include\s+(.+)/g;
+    const includeArr: string[] = [];
+    while ((m = includeRegex.exec(block)) !== null) includeArr.push(m[1].trim());
+    metadata.include = includeArr;
+    const excludeRegex = /@exclude\s+(.+)/g;
+    const excludeArr: string[] = [];
+    while ((m = excludeRegex.exec(block)) !== null) excludeArr.push(m[1].trim());
+    metadata.exclude = excludeArr;
     const grantRegex = /@grant\s+(.+)/g;
     const grantArr: string[] = [];
     let g: RegExpExecArray | null;
     while ((g = grantRegex.exec(block)) !== null) grantArr.push(g[1].trim());
     metadata.grant = grantArr;
+    const requireRegex = /@require\s+(.+)/g;
+    const requireArr: string[] = [];
+    while ((g = requireRegex.exec(block)) !== null) requireArr.push(g[1].trim());
+    metadata.require = requireArr;
+    const resourceRegex = /@resource\s+(\S+)\s+(.+)/g;
+    const resourceArr: { name: string; url: string }[] = [];
+    let r: RegExpExecArray | null;
+    while ((r = resourceRegex.exec(block)) !== null) resourceArr.push({ name: r[1].trim(), url: r[2].trim() });
+    metadata.resource = resourceArr;
     if (!metadata.name) metadata.name = '未命名脚本';
     return metadata;
+  }
+
+  /**
+   * 解析 @require（拉取外部库并拼接为前置代码）与 @resource（拉取内容为文本）。
+   * 在 install / edit 时调用；拉取失败则降级为空（仅告警，不阻断安装）。
+   * 之所以在安装期解析而非运行时，是因为 chrome.userScripts.register 需要「最终 JS」，
+   * 无法在注入时再发网络请求；结果随脚本持久化，离线也可注入。
+   */
+  private async _resolveIncludes(meta: Partial<UserScript>): Promise<{ requireCode: string; resources: Record<string, string> }> {
+    let requireCode = '';
+    let resources: Record<string, string> = {};
+    try {
+      if (Array.isArray(meta.require) && meta.require.length > 0) {
+        const libs = await Promise.all(
+          meta.require.map((u) => this._fetchText(u).catch(() => ''))
+        );
+        requireCode = libs.filter(Boolean).join('\n;\n');
+      }
+      if (Array.isArray(meta.resource) && meta.resource.length > 0) {
+        const entries = await Promise.all(
+          meta.resource.map(async (item) => {
+            const text = await this._fetchText(item.url).catch(() => '');
+            return [item.name, text] as const;
+          })
+        );
+        resources = Object.fromEntries(entries);
+      }
+    } catch (e) {
+      Log.warn('ScriptsManager', 'require/resource resolve error', e);
+    }
+    return { requireCode, resources };
+  }
+
+  /** 拉取文本（wrap fetch，便于各调用点 catch 降级） */
+  private async _fetchText(url: string): Promise<string> {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    return await resp.text();
   }
 
   async install(code: string): Promise<UserScript> {
     if (!code || !code.trim()) throw new Error('脚本代码不能为空');
     if (!/==UserScript==/.test(code)) throw new Error('缺少 ==UserScript== 元数据头，无法识别为用户脚本');
     const meta = this.parseMetadata(code);
+    const { requireCode, resources } = await this._resolveIncludes(meta);
     const script: UserScript = {
       id: genId('script'),
       code,
@@ -112,8 +169,15 @@ export class ScriptsManager extends BaseScriptsManager {
       description: meta.description || '',
       author: meta.author || '',
       match: meta.match || [],
+      include: meta.include || [],
+      exclude: meta.exclude || [],
       grant: meta.grant || [],
       runAt: meta.runAt || '',
+      icon: meta.icon || '',
+      require: meta.require || [],
+      resource: meta.resource || [],
+      requireCode,
+      resources,
     } as UserScript;
     this.scripts.push(script);
     await this._save();
@@ -138,6 +202,7 @@ export class ScriptsManager extends BaseScriptsManager {
     const s = this.get(id);
     if (s) {
       const meta = this.parseMetadata(code);
+      const { requireCode, resources } = await this._resolveIncludes(meta);
       s.code = code;
       s.name = meta.name || s.name;
       s.namespace = meta.namespace || s.namespace;
@@ -145,8 +210,15 @@ export class ScriptsManager extends BaseScriptsManager {
       s.description = meta.description || s.description;
       s.author = meta.author || s.author;
       s.match = meta.match || s.match;
+      s.include = meta.include || s.include;
+      s.exclude = meta.exclude || s.exclude;
       s.grant = meta.grant || s.grant;
       s.runAt = meta.runAt || s.runAt;
+      s.icon = meta.icon || s.icon;
+      s.require = meta.require || s.require;
+      s.resource = meta.resource || s.resource;
+      s.requireCode = requireCode;
+      s.resources = resources;
       s.updatedAt = Date.now();
       await this._save();
       await this.loadAll();

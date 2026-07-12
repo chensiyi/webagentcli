@@ -48,13 +48,17 @@ export async function syncRegisteredScripts(scriptsManager) {
     const usesGrant =
       Array.isArray(s.grant) &&
       s.grant.some((g) => typeof g === 'string' && g.startsWith('GM_'));
-    return {
+    const reg = {
       id: s.id,
       matches: s.match,
       js: [{ code: wrapWithGM(s.code, s) }],
       world: usesGrant ? USER_SCRIPT_WORLD : MAIN_WORLD,
       runAt: RUN_AT_MAP[s.runAt] || DEFAULT_RUN_AT,
     };
+    // @include（glob）→ includeGlobs；@exclude（URL 模式）→ excludeMatches
+    if (Array.isArray(s.include) && s.include.length > 0) reg.includeGlobs = s.include;
+    if (Array.isArray(s.exclude) && s.exclude.length > 0) reg.excludeMatches = s.exclude;
+    return reg;
   });
 
   // 先整体反注册再重新注册：幂等且能正确反映「禁用 / 删除」后的状态。
