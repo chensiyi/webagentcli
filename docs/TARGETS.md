@@ -18,10 +18,12 @@
         会话切换重构：currentSessionId 改由 Shell 侧内存变量持有，内核 SessionManager 改为无状态（请求显式带 sessionId）；修复 ShellDataCache 双实例（globalThis 单例锚定 + HistoryPage import 统一别名）
         脚本写操作后「重启内核」确认 toast：新增 kernel.reload RPC（轻量重跑 syncRegisteredScripts+reconcileScriptTools，不冲 sidepanel）；安装/更新/卸载统一提示，「立即重启」→ reload+invalidateTools
         manage_user_scripts 标 danger（高危确认闸门）；只读 list/get 拆为独立 get_user_scripts（免确认）；脚本 @-header/@tool 参数已写入工具说明
-    4. 预装脚本（第 2 项完善后编写）
-        标准页面能力脚本：点击/填表/抽取/观察等通用页内能力封装（落地 P1）
-        before-request 编排脚本：请求前注入/改写/拦截编排（落地「请求编排」）
-        Navigator/Planner/Validator 能力脚本：多_agent 协作（规划-执行-校验）页内实现（落地「子任务编排」，呼应 Nanobrowser 范式）
+    4. 预装脚本体系（当前迭代）
+        0. 预装机制：首次加载插件时，从 git 仓库对应版本对应目录批量下载安装脚本；后续版本升级增量更新
+        1. 标准页面能力脚本（`page_to_markdown`、`capture_screenshot`），以 @tool 注册为 AI 工具；功能不强制自研，可导入网络 JS
+        2. 油猴请求拦截与编辑（main world，油猴功能一部分，非 agent 请求编排）
+        3. Agent 请求编排（background isolated world）：请求生命周期 hooks（beforeRequest / afterResponse），独立于油猴请求拦截
+        4. Main World RPC Bridge：升级brige，为脚本在 main world 调用内核 RPC 提供通道（暴露有限接口如 getPageContent、invokeTool），实现页面内 mini agent；安全约束：仅已安装脚本可用，敏感操作走 danger 确认
 以上内容可能存在临时性开发文档，当模块足够庞大，开发完成后，应当整理为标准说明文档，清理临时文档。
 
 待建设:
