@@ -4,15 +4,8 @@
   import ToastContainer from './components/overlays/ToastContainer.svelte';
   import { useToast } from './components/overlays/toast-store.svelte';
   import { KernelEvents } from 'kernel/Events.js';
+  import type { PageId, PageDef } from './lib/types.js';
   //避免在页面中硬编码css样式，使用style中定义的语义性质的风格，便于统一风格与切换样式。
-
-  type PageId = 'chat' | 'history' | 'storage' | 'scripts' | 'tools' | 'settings';
-
-  interface PageDef {
-    id: PageId;
-    icon: string;
-    label: string;
-  }
 
   const PAGES: PageDef[] = [
     { id: 'chat', icon: '💬', label: '对话' },
@@ -33,6 +26,14 @@
   import { confirmStore } from './stores/confirm-store.svelte.js';
 
   let { ipc, bootError = null }: { ipc: unknown; bootError?: string | null } = $props();
+
+  // 当前激活页面（导航状态）。必须在 setContext('navigate', navigateTo) 与传给 Sidebar 之前定义，
+  // 否则依赖函数提升才能工作，脆弱且易踩时序坑（表现为「切换无效 / 锁死」）。
+  let activePage = $state<PageId>('chat');
+
+  function navigateTo(pageId: PageId) {
+    activePage = pageId;
+  }
 
   // 注入 IPC 到 Svelte context（子组件通过 getContext('ipc') 访问）
   // ipc 是 IPC 事件总线实例，所有页面通过 IPC 通道与 Kernel 通信
@@ -89,12 +90,6 @@
   (ipc as any).on(KernelEvents.CONFIRM.RESOLVED, (d: any) => {
     if (d?.toolCallId) confirmStore.remove(d.toolCallId);
   });
-
-  let activePage = $state<PageId>('chat');
-
-  function navigateTo(pageId: PageId) {
-    activePage = pageId;
-  }
 </script>
 
 <div class="sidepanel-container">

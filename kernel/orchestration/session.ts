@@ -93,21 +93,13 @@ export async function runConversation(
   }
 
   const sm = kernel.getSessionManager();
-  const settings = kernel.getSettingsManager().getSettings();
-  const defaultEffort = settings?.reasoningEffort || 'medium';
 
   let session: Session | null = null;
   try {
-    session = sessionId ? sm.getSession(sessionId as string) : sm.getCurrentSession();
-    if (!session) {
-      if (isToolContinuation) throw new Error('Session required for tool continuation');
-      session = await sm.createSession({
-        title: '新对话',
-        reasoningEffort: reasoningEffort || defaultEffort,
-        persist: false,
-      });
-      emit(KernelEvents.SESSION.CURRENT_SESSION_CHANGED, { sessionId: session.id });
-    } else if (reasoningEffort && session.reasoningEffort !== (reasoningEffort as string)) {
+    if (!sessionId) throw new Error('sessionId is required to send a message');
+    session = sm.getSession(sessionId as string);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+    if (reasoningEffort && session.reasoningEffort !== (reasoningEffort as string)) {
       session.reasoningEffort = reasoningEffort as string;
     }
   } catch (e: any) {

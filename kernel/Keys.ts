@@ -20,7 +20,6 @@ export const StorageKeys = {
   TOOLS_ENABLED: 'tools_enabled',
   /** 会话索引（轻量：id/title/时间/消息数/预览，不含消息体） */
   SESSIONS: 'sessions',
-  CURRENT_SESSION_ID: 'currentSessionId',
   USER_SCRIPTS: 'user_scripts',
 } as const;
 

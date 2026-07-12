@@ -15,6 +15,7 @@ import { Tool } from 'kernel/models/Tool.js';
 import { wrapWithGM, RUN_AT_MAP } from '../gm-api.js';
 import { Log } from 'kernel/services/Log.js';
 import { USER_SCRIPT_WORLD, MAIN_WORLD, DEFAULT_RUN_AT } from '../keys.js';
+import { reconcileScriptTools } from '../script-tools.js';
 
 /**
  * 把内核 ScriptsManager 中「已启用且有 @match」的脚本同步注册到 chrome.userScripts。
@@ -116,6 +117,8 @@ class ManageUserScriptsTool extends Tool {
             const installed = await sm.install(args.code);
             // 安装后重新注册到 chrome.userScripts（持久化注入）
             await this.syncRegisteredScripts();
+            // 同步把 @tool 脚本注册成 AI 工具
+            await this._reconcileTools();
             return installed;
           }
 
@@ -124,6 +127,7 @@ class ManageUserScriptsTool extends Tool {
             if (!args.code) throw new Error('code is required');
             await sm.edit(args.id, args.code);
             await this.syncRegisteredScripts();
+            await this._reconcileTools();
             return (await sm.loadAll()).find((s) => s.id === args.id);
           }
 
@@ -132,6 +136,7 @@ class ManageUserScriptsTool extends Tool {
             if (args.enabled === undefined) throw new Error('enabled is required');
             await sm.toggle(args.id, args.enabled);
             await this.syncRegisteredScripts();
+            await this._reconcileTools();
             return (await sm.loadAll()).find((s) => s.id === args.id);
           }
 
@@ -139,6 +144,7 @@ class ManageUserScriptsTool extends Tool {
             if (!args.id) throw new Error('id is required');
             await sm.uninstall(args.id);
             await this.syncRegisteredScripts();
+            await this._reconcileTools();
             return { success: true, id: args.id };
           }
 
@@ -153,6 +159,11 @@ class ManageUserScriptsTool extends Tool {
   /** 从内核 ScriptsManager 读取脚本并同步注册到 chrome.userScripts */
   async syncRegisteredScripts() {
     await syncRegisteredScripts(this.kernel.getScriptsManager());
+  }
+
+  /** 把 @tool 脚本同步注册为 AI 工具（P2 自动注册） */
+  async _reconcileTools() {
+    reconcileScriptTools(this.kernel.getScriptsManager(), this.kernel.getToolsManager());
   }
 }
 

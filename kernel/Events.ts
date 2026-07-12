@@ -41,13 +41,11 @@ export const KernelEvents = {
     WARNING: 'session:warning',
     ACTIVITY_STATE_CHANGED: 'session:activityStateChanged',
     SESSION_CREATED: 'session:sessionCreated',
-    SESSION_SWITCHED: 'session:sessionSwitched',
     SESSION_CLEARED: 'session:sessionCleared',
     SESSION_DELETED: 'session:sessionDeleted',
     SESSION_CLEAR_REQUEST: 'session:sessionClearRequest',
     SESSION_LOADED: 'session:sessionLoaded',
     SESSION_UPDATED: 'session:sessionUpdated',
-    CURRENT_SESSION_CHANGED: 'session:currentSessionChanged',
     ALL_SESSIONS_CLEARED: 'session:allSessionsCleared',
     // 内核授权命令（由 session RPC facade 经 createSessionFacade 直接 emit 并驱动编排，不再经 eventhandler 转译）
     // 祈使式，与上方过去式事件（如 MESSAGE_ADDED）配对：addMessage ↔ messageAdded，时态区分命令与事件

@@ -56,3 +56,47 @@ console.log('hi');`;
     expect(s.requireCode).toBe('');
   });
 });
+
+describe('ScriptsManager.parseMetadata @tool 声明（P2 自动注册）', () => {
+  const code = `// ==UserScript==
+// @name    My Script
+// @tool
+// @tool.name        do_thing
+// @tool.description 对当前页面做X
+// @tool.danger
+// @tool.param.q     string  查询词
+// @tool.param.n     number  数量
+// @tool.param.m     string  模式
+// @tool.enum.m     one|all
+// ==/UserScript==
+console.log(1);`;
+
+  it('解析 @tool/@tool.name/@tool.description/@tool.danger/@tool.param/@tool.enum', () => {
+    const sm = new ScriptsManager({ getIPC: () => null, getStorageManager: () => null });
+    const m = sm.parseMetadata(code);
+    expect(m.toolMeta?.isTool).toBe(true);
+    expect(m.toolMeta?.name).toBe('do_thing');
+    expect(m.toolMeta?.description).toBe('对当前页面做X');
+    expect(m.toolMeta?.danger).toBe(true);
+    const q = m.toolMeta?.params.find(p => p.name === 'q');
+    expect(q).toMatchObject({ name: 'q', type: 'string', description: '查询词' });
+    const mParam = m.toolMeta?.params.find(p => p.name === 'm');
+    expect(mParam?.enum).toEqual(['one', 'all']);
+  });
+
+  it('无 @tool 标记则 toolMeta 为 null（非工具脚本）', () => {
+    const sm = new ScriptsManager({ getIPC: () => null, getStorageManager: () => null });
+    const m = sm.parseMetadata(`// ==UserScript==
+// @name    Plain
+// ==/UserScript==
+console.log(1);`);
+    expect(m.toolMeta).toBeUndefined();
+  });
+
+  it('install 落盘 toolMeta，可被 reconcile 读取', async () => {
+    const sm = new ScriptsManager({ getIPC: () => null, getStorageManager: () => null });
+    const s = await sm.install(code);
+    expect(s.toolMeta?.isTool).toBe(true);
+    expect(s.toolMeta?.name).toBe('do_thing');
+  });
+});

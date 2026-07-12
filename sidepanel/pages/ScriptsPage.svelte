@@ -39,7 +39,6 @@
 
   // ---------- IPC 事件监听 ----------
   let unsubScriptError: (() => void) | undefined;
-  let unsubMenuChanged: (() => void) | undefined;
 
   onMount(() => {
     // 内核就绪后再加载列表（等待 bootComplete 消息，时序门控）
@@ -52,13 +51,12 @@
       toast.error(data?.error || '脚本操作失败');
       isLoading = false;
     });
-    // 用户脚本菜单命令（GM_registerMenuCommand）变更时刷新本地菜单
-    unsubMenuChanged = scriptsChannel.on(KernelEvents.SCRIPTS.MENU_CHANGED, () => refreshMenu());
+    // 用户脚本菜单命令现由 scripts.getMenu() RPC 在打开列表时主动拉取，
+    // 不再依赖 SCRIPTS.MENU_CHANGED 实时广播（见 gm-api.js / rpc-facades.ts）。
   });
 
   onDestroy(() => {
     unsubScriptError?.();
-    unsubMenuChanged?.();
   });
 
   async function refreshList() {

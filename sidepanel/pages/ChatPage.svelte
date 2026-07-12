@@ -249,6 +249,16 @@
     }
   }
 
+  /**
+   * 当前会话 id 的权威来源：shell 持有的「普通内存变量」（内核已不再维护 currentSessionId）。
+   * 所有会话操作（发送 / 停止 / 删除 / 更新）一律用此值传参，确保与「当前视图」严格一致，
+   * 不会因本地响应式 session 的刷新时序而脱节。
+   * 取数优先级：cache 持有的变量 → 退路用本地响应式 session（极端异步窗口兜底）。
+   */
+  function currentSessionId(): string | null {
+    return cache.getCurrentSessionId() ?? session?.id ?? null;
+  }
+
   // ==================== 消息刷新 ====================
 
   /** 失效当前会话缓存并强制重拉（切会话 / 错误恢复等需要最新全量时调用）。 */
@@ -294,14 +304,19 @@
     inputText = '';
     pendingAttachments = [];
     const content = blocks.length === 1 && blocks[0].type === 'text' ? text : blocks;
+    const sid = currentSessionId();
+    if (!sid) { toast.error('会话未就绪，请先新建对话'); return; }
     api.session.send({
+      sessionId: sid,
       content,
       reasoningEffort: session?.reasoningEffort || reasoningEffort,
     }).catch((e) => toast.error('发送失败：' + ((e as Error)?.message || String(e))));
   }
 
   function handleStop() {
-    api.session.stop().catch((e) => {
+    const sid = currentSessionId();
+    if (!sid) return;
+    api.session.stop({ sessionId: sid }).catch((e) => {
       Log.error('ChatPage', 'stop failed', e);
       toast.error('停止生成失败：' + ((e as Error)?.message || String(e)));
     });
@@ -309,7 +324,11 @@
 
   function handleNewChat() {
     api.session.create()
-      .then((data) => { applyCurrentSession(data); streamingMap = {}; })
+      .then((data) => {
+        if (data?.session?.id) cache.setCurrentSessionId(data.session.id);
+        applyCurrentSession(data);
+        streamingMap = {};
+      })
       .catch((e) => {
         Log.error('ChatPage', 'new chat failed', e);
         toast.error('新建对话失败：' + ((e as Error)?.message || String(e)));
@@ -323,7 +342,7 @@
   function handleDeleteMessage() {
     if (!deleteTargetId) return;
     const id = deleteTargetId;
-    const sid = session?.id;
+    const sid = currentSessionId();
     if (!sid) {
       deleteTargetId = null;
       toast.error('会话不存在');
@@ -340,7 +359,7 @@
   function handleReasoningEffortChange(val: string) {
     reasoningEffort = val; // 乐观即时反馈
     if (session) {
-      api.session.update({ sessionId: session.id, data: { reasoningEffort: val } })
+      api.session.update({ sessionId: currentSessionId() ?? session.id, data: { reasoningEffort: val } })
         .then((view: any) => {
           if (view) {
             // 根据写操作返回的结果差量更新缓存与 UI（零额外 RPC）
@@ -373,7 +392,7 @@
     isEditingTitle = false;
     if (session.title !== newTitle) {
       session.title = newTitle; // 乐观即时反馈
-      api.session.update({ sessionId: session.id, data: { title: newTitle } })
+      api.session.update({ sessionId: currentSessionId() ?? session.id, data: { title: newTitle } })
         .then((view: any) => {
           if (view) {
             // 根据写操作返回的结果差量更新缓存与 UI（零额外 RPC）
@@ -404,7 +423,7 @@
    * 写穿透：乐观更新本地 session 视图 → api.session.update 写主库 → 用返回权威视图刷新缓存与本地状态。
    */
   async function toggleSessionTool(tool: any) {
-    const sid = session?.id;
+    const sid = currentSessionId();
     if (!sid || !tool?.name) return;
     // 全局已禁用：会话层天花板之下，无法开启
     if (!tool.enabled) {
@@ -518,16 +537,11 @@
           refreshMessages();
         }),
 
-        sessionChannel.on(KernelEvents.SESSION.CURRENT_SESSION_CHANGED, () => {
-          streamingMap = {};
-          isEditingTitle = false;
-          refreshMessages();
-        }),
-
         // 会话更新（标题等）：根据事件携带的结果差量 patch 元数据，零 RPC，不碰流式累积的 messages
         sessionChannel.on(KernelEvents.SESSION.SESSION_UPDATED, (data: any) => {
           const idx = data?.session;
-          if (idx && session && idx.id === session.id) {
+          // 仅当事件属于「当前会话」（shell 持有的变量）时才合并到显示态，避免显示态与变量脱节
+          if (idx && idx.id === currentSessionId()) {
             const merged = { ...session, ...idx };
             cache.patchCurrentSession({ session: merged });
             session = merged;
@@ -579,8 +593,10 @@
     // 键盘导航
     document.addEventListener('keydown', handleKeydown);
 
-    // 内核就绪后再请求当前会话和工具列表（等待 bootComplete 消息，时序门控）
-    waitKernelReady(ipc).then(() => {
+    // 内核就绪后确定当前会话 id（首个/新建）并拉取会话内容。
+    // 切换到历史会话时 activePage 由 history 变 chat，ChatPage 重挂载，onMount 用当前 id 重新拉取。
+    waitKernelReady(ipc).then(async () => {
+      await cache.ensureCurrentSession();
       refreshMessages();
       refreshTools(true); // 页面（重）加载：强制全量获取并刷新缓存
       refreshModelCaps(); // 读取当前模型能力，联动上传按钮

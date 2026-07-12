@@ -3,7 +3,7 @@ import { KernelEvents, KernelChannels } from '../Events.js';
 import { StorageKeys } from '../Keys.js';
 import { IPC } from '../IPC.js';
 import { IStorageManager } from './IStorageManager.js';
-import { UserScript } from '../models/Scripts.js';
+import type { UserScript, ScriptToolMeta, ScriptToolParam } from '../models/Scripts.js';
 import { Log } from './Log.js';
 import { genId } from '../utils/id.js';
 
@@ -111,7 +111,63 @@ export class ScriptsManager extends BaseScriptsManager {
     while ((r = resourceRegex.exec(block)) !== null) resourceArr.push({ name: r[1].trim(), url: r[2].trim() });
     metadata.resource = resourceArr;
     if (!metadata.name) metadata.name = '未命名脚本';
+    // @tool 声明：脚本经 P2 自动注册为 AI 工具
+    const toolMeta = this._parseToolMeta(block);
+    if (toolMeta) (metadata as Record<string, unknown>).toolMeta = toolMeta;
     return metadata;
+  }
+
+  /**
+   * 解析 @tool 工具声明（P2：脚本自动注册为 AI 工具）。
+   * 语法（写在 ==UserScript== 块内，逐行）：
+   *   @tool                                  标记：本脚本是一个工具
+   *   @tool.name        <name>            工具名（缺省由脚本 @name slug 化推导）
+   *   @tool.description <text>            工具说明（缺省用脚本 @description）
+   *   @tool.danger                          危险标记：执行前需人工确认
+   *   @tool.param.<p>  <type> [<desc>]   参数声明（type∈string/number/boolean/integer/array/object）
+   *   @tool.enum.<p>   a|b|c               参数枚举约束
+   * 无 @tool 标记则返回 null（非工具脚本）。
+   */
+  private _parseToolMeta(block: string): ScriptToolMeta | null {
+    let isTool = false;
+    let name: string | undefined;
+    let description: string | undefined;
+    let danger = false;
+    const params = new Map<string, ScriptToolParam>();
+    const enums = new Map<string, string[]>();
+    for (const raw of block.split('\n')) {
+      let line = raw.trim();
+      // 去掉 Tampermonkey 注释前缀 `// `（元数据块里每行形如 `// @tool ...`）
+      line = line.replace(/^\/\/\s?/, '').trim();
+      // sub 允许带点（如 param.q / enum.m）；rest 为后续值
+      const m = line.match(/^@tool(?:\.([\w.]+))?\s*(.*)$/);
+      if (!m) continue;
+      const sub = m[1];           // undefined | name | description | danger | param.q | enum.m
+      const rest = (m[2] || '').trim();
+      if (!sub) { isTool = true; continue; }
+      if (sub === 'name') { name = rest; continue; }
+      if (sub === 'description') { description = rest; continue; }
+      if (sub === 'danger') { danger = true; continue; }
+      if (sub.startsWith('param.')) {
+        const pname = sub.slice('param.'.length);
+        const pm = rest.match(/^(\S+)\s+(.*)$/); // <type> [<free desc>]
+        if (pname && pm) {
+          params.set(pname, { name: pname, type: pm[1], description: (pm[2] || '').trim() || undefined });
+        }
+        continue;
+      }
+      if (sub.startsWith('enum.')) {
+        const pname = sub.slice('enum.'.length);
+        if (pname) enums.set(pname, rest.split('|').map(s => s.trim()).filter(Boolean));
+        continue;
+      }
+    }
+    if (!isTool) return null;
+    for (const [pname, vals] of enums) {
+      const p = params.get(pname);
+      if (p) p.enum = vals;
+    }
+    return { isTool: true, name, description, danger, params: Array.from(params.values()) };
   }
 
   /**
@@ -178,6 +234,7 @@ export class ScriptsManager extends BaseScriptsManager {
       resource: meta.resource || [],
       requireCode,
       resources,
+      toolMeta: (meta as Record<string, unknown>).toolMeta as ScriptToolMeta | null || null,
     } as UserScript;
     this.scripts.push(script);
     await this._save();
@@ -219,6 +276,7 @@ export class ScriptsManager extends BaseScriptsManager {
       s.resource = meta.resource || s.resource;
       s.requireCode = requireCode;
       s.resources = resources;
+      s.toolMeta = (meta as Record<string, unknown>).toolMeta as ScriptToolMeta | null || null;
       s.updatedAt = Date.now();
       await this._save();
       await this.loadAll();

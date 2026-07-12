@@ -8,7 +8,6 @@
  * facade 负责：
  * - 组合 manager 的真实方法调用
  * - 跨进程边界的返回形状（如 { session, messages, reasoningEffort }）
- * - 调用后的事件广播（如 CURRENT_SESSION_CHANGED）
  * - 入参基本校验
  * 纯数据访问与持久化仍由各自的 Manager 负责（Manager 基类为多态实现提供基础方法）。
  */
@@ -23,14 +22,13 @@ export interface RpcChannel {
   emit(event: string, payload?: unknown): void;
 }
 
-function sessionView(kernel: any, sm: any): { session: any; messages: any[]; reasoningEffort: string } {
-  const s = sm.getCurrentSession();
+function sessionView(kernel: any, session: any): { session: any; messages: any[]; reasoningEffort: string } {
   const settingsEffort = kernel?.getSettingsManager?.()?.getSettings?.()?.reasoningEffort;
   return {
-    session: s,
-    messages: s?.messages || [],
+    session,
+    messages: session?.messages || [],
     // 无当前会话时回退到全局默认档位，保证空态也显示正确默认（如“关”）
-    reasoningEffort: s?.reasoningEffort || settingsEffort || 'medium',
+    reasoningEffort: session?.reasoningEffort || settingsEffort || 'medium',
   };
 }
 
@@ -40,33 +38,30 @@ export function createSessionFacade(kernel: Kernel, sessionChannel: RpcChannel) 
   const emit = (event: string, payload?: unknown) => sessionChannel.emit(event, payload);
 
   return {
-    getCurrent() {
-      return sessionView(kernel, kernel.getSessionManager());
+    getCurrent(data: { sessionId?: string | null }) {
+      const sm = kernel.getSessionManager();
+      const s = data?.sessionId ? sm.getSession(data.sessionId) : null;
+      return sessionView(kernel, s);
     },
 
     async create() {
-      // 离开旧会话前取消其进行中的轮次（原 eventhandler 通过 CURRENT_SESSION_CHANGED 实现，现内联）
+      // 新建会话前取消进行中的轮次（避免残留流式占用 provider）
       cancelConversation(kernel, emit);
       const sm = kernel.getSessionManager();
       const settings = kernel.getSettingsManager().getSettings() as any;
       // 新建会话沿用全局默认思考强度，但先不落盘——未发送前只是临时会话，
       // 避免留下空对话（首条消息发送时由 addMessage 正式落盘）
-      await sm.createSession({ reasoningEffort: settings?.reasoningEffort || 'medium', persist: false });
-      const s = sm.getCurrentSession();
-      sessionChannel.emit(KernelEvents.SESSION.CURRENT_SESSION_CHANGED, { sessionId: s?.id });
-      return {
-        session: s,
-        messages: [],
-        reasoningEffort: s?.reasoningEffort || 'medium',
-      };
+      const s = await sm.createSession({ reasoningEffort: settings?.reasoningEffort || 'medium', persist: false });
+      return sessionView(kernel, s);
     },
 
     async update(data: { sessionId: string; data: any }) {
       if (!data?.sessionId) return null;
       const sm = kernel.getSessionManager();
       await sm.updateSession(data.sessionId, data.data);
+      const s = sm.getSession(data.sessionId);
       // 返回更新后的权威会话视图，供 Shell 侧「根据结果更新」缓存与 UI（差量，零额外 RPC）
-      return sessionView(kernel, sm);
+      return sessionView(kernel, s);
     },
 
     async deleteMessage(data: { messageId: string; sessionId: string }) {
@@ -85,19 +80,6 @@ export function createSessionFacade(kernel: Kernel, sessionChannel: RpcChannel) 
     list() {
       const sm = kernel.getSessionManager();
       return { sessions: sm.getAllSessions() };
-    },
-
-    async switch(data: { sessionId: string }) {
-      if (!data?.sessionId) return null;
-      // 离开旧会话前取消其进行中的轮次（原 eventhandler 通过 CURRENT_SESSION_CHANGED 实现，现内联）
-      cancelConversation(kernel, emit);
-      const sm = kernel.getSessionManager();
-      // 切走前丢弃当前未发送即空的临时会话，避免内存堆积空对话
-      sm.discardTransientCurrent();
-      await sm.setCurrentSession(data.sessionId);
-      const s = sm.getCurrentSession();
-      sessionChannel.emit(KernelEvents.SESSION.CURRENT_SESSION_CHANGED, { sessionId: s?.id });
-      return sessionView(kernel, sm);
     },
 
     async delete(data: { sessionId: string }) {
@@ -120,18 +102,18 @@ export function createSessionFacade(kernel: Kernel, sessionChannel: RpcChannel) 
 
     // 发送消息：Shell→Kernel 经 RPC 统一入口，直接驱动编排（fire-and-forget）。
     // 流式 STREAM_* / MESSAGE_* 事件由 runConversation 通过 onEvent 经 sessionChannel 回灌到 Shell。
-    send(data: { content: string | any[]; reasoningEffort?: string }) {
-      if (!data?.content) return null;
-      void runConversation(kernel, data as any, { onEvent: emit }).catch((err: any) => {
+    send(data: { sessionId: string; content: string | any[]; reasoningEffort?: string }) {
+      if (!data?.sessionId || !data?.content) return null;
+      void runConversation(kernel, { sessionId: data.sessionId, content: data.content, reasoningEffort: data.reasoningEffort } as any, { onEvent: emit }).catch((err: any) => {
         Log.error('SESSION_FACADE', 'runConversation error', err);
         emit(KernelEvents.SESSION.STREAM_ERROR, { error: err, message: err?.message || String(err) });
       });
       return null;
     },
 
-    // 停止当前流式：直接取消进行中的轮次（fire-and-forget）
-    stop() {
-      cancelConversation(kernel, emit);
+    // 停止当前流式：直接取消进行中的轮次（fire-and-forget）。传 sessionId 仅取消该会话，省略则取消全部。
+    stop(data: { sessionId?: string | null }) {
+      cancelConversation(kernel, emit, data?.sessionId);
       return null;
     },
   };
@@ -188,7 +170,6 @@ export function createStorageFacade(kernel: Kernel) {
 
 export function createScriptsFacade(
   kernel: Kernel,
-  menuCommands?: Map<string, { id: string; name: string }[]>,
 ) {
   return {
     async list() {
@@ -234,22 +215,45 @@ export function createScriptsFacade(
       return { scripts };
     },
 
-    /** 读取已注册的用户脚本菜单命令（GM_registerMenuCommand 收集，按 scriptId 聚合） */
-    getMenu() {
-      const menu = menuCommands ? Object.fromEntries(menuCommands) : {};
+    /**
+     * 读取已注册的用户脚本菜单命令（GM_registerMenuCommand 收集）。
+     * 菜单列表由页面侧经 GM_* 注入持久化到 chrome.storage.local（key: __gm_menu_<scriptId>），
+     * 此处遍历读取组装返回。不再依赖页面 → background 的实时 push（MV3 SW 休眠时收不到）。
+     */
+    async getMenu() {
+      const menu: Record<string, { id: string; name: string }[]> = {};
+      try {
+        const all = await chrome.storage.local.get(null);
+        for (const [k, v] of Object.entries(all as Record<string, unknown>)) {
+          if (k.startsWith('__gm_menu_') && Array.isArray(v)) {
+            menu[k.slice('__gm_menu_'.length)] = v as { id: string; name: string }[];
+          }
+        }
+      } catch {
+        /* storage 不可用时返回空菜单 */
+      }
       return { menu };
     },
 
-    /** 在当前活动标签页触发某脚本的某个菜单命令（回发 __gmMenuInvoke 给页面 userScript） */
+    /** 在当前活动标签页触发某脚本的某个菜单命令回调 */
     async invokeMenu(data: { scriptId: string; id: string }) {
       if (!data?.scriptId || !data?.id) return null;
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tab?.id != null) {
-        try {
-          chrome.tabs.sendMessage(tab.id, { __gmMenuInvoke: data.id });
-        } catch (e) {
-          Log.warn('SCRIPTS_FACADE', 'invokeMenu sendMessage failed', e);
+      if (tab?.id == null) return null;
+      try {
+        // 注意：chrome.userScripts.sendMessage 这个 API **不存在**（userScripts 仅
+        // configureWorld/execute/getScripts/register/...）。背景向 user script 世界发消息的
+        // 唯一正规手段是 chrome.userScripts.execute()：把一段代码注入 USER_SCRIPT 世界执行。
+        // 注册脚本与 execute 注入共享同一 USER_SCRIPT 世界，故可直接访问
+        // window.__gmMenuCommands 触发对应回调。
+        const us = chrome.userScripts as any;
+        if (typeof us?.execute === 'function') {
+          const safeId = JSON.stringify(data.id);
+          const code = `((mid)=>{try{var c=window.__gmMenuCommands&&window.__gmMenuCommands.get(mid);if(c&&c.fn)c.fn();}catch(e){}})(' + safeId + ')`;
+          us.execute({ target: { tabId: tab.id }, js: [{ code }], world: 'USER_SCRIPT' as any });
         }
+      } catch (e) {
+        Log.warn('SCRIPTS_FACADE', 'invokeMenu execute failed', e);
       }
       return null;
     },

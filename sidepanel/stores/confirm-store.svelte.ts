@@ -77,11 +77,12 @@ class ConfirmStore {
    */
   async rememberAllow(toolCallId: string): Promise<void> {
     const req = this.pending[toolCallId];
-    if (!req || !this.api?.session?.getCurrent || !this.api?.session?.update) return;
+    if (!req || !this.api?.session?.update) return;
+    // 直接用请求携带的 sessionId（CONFIRM.REQUEST 事件必然带 sessionId），不再依赖内核「当前会话」
+    const sid = req.sessionId;
+    if (!sid) return;
     try {
-      const view: any = await this.api.session.getCurrent();
-      const sid = req.sessionId || view?.session?.id;
-      if (!sid) return;
+      const view: any = await this.api.session.getCurrent({ sessionId: sid });
       const base: Record<string, boolean> = view?.session?.toolEnabled || {};
       const newMap = { ...base, [req.toolName]: true };
       await this.api.session.update({ sessionId: sid, data: { toolEnabled: newMap } });

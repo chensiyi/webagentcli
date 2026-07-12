@@ -21,16 +21,15 @@ export interface SessionView {
 }
 
 export interface SessionAPI {
-  getCurrent(): Promise<SessionView>;
+  getCurrent(data: { sessionId?: string | null }): Promise<SessionView>;
   create(): Promise<SessionView>;
   update(data: { sessionId: string; data: any }): Promise<null>;
   deleteMessage(data: { messageId: string; sessionId: string }): Promise<null>;
   list(): Promise<{ sessions: any[] }>;
-  switch(data: { sessionId: string }): Promise<SessionView>;
   delete(data: { sessionId: string }): Promise<{ sessions: any[] }>;
   clearMessages(data: { sessionId: string }): Promise<null>;
-  send(data: { content: string | any[]; reasoningEffort?: string }): Promise<null>;
-  stop(): Promise<null>;
+  send(data: { sessionId: string; content: string | any[]; reasoningEffort?: string }): Promise<null>;
+  stop(data: { sessionId?: string | null }): Promise<null>;
 }
 
 export interface ToolsAPI {

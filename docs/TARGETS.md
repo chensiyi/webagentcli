@@ -9,7 +9,7 @@
         油猴功能 / 用户脚本接口维护：提供并维护相关接口与能力（Tampermonkey 范式，与工具管理同批次推进）
             油猴对齐设计（进行中）：元数据 @指令 + GM_* API 覆盖矩阵已出基线 → docs/TAMPERMONKEY_ALIGN.md；本批补 @include/@exclude/@require/@resource/@icon + registerMenuCommand/getResourceText/addElement/download/GM_info 补全；VM 沙箱/鉴权/@tool 自动注册(P2) 不在本批
         结构化页内工具层 [P1]：类型化 in-page 工具原语（act/extract/observe，基于 accessibility tree），复用上方 ToolRegistry
-        用户脚本自动注册 [P2]：@tool grant 标注 → 内核自动注册（经 ToolsManager.register，source='script'），与 P1 共用同一 ToolRegistry
+        用户脚本自动注册 [P2 ✅已落地]：@tool 声明 → ScriptsManager 解析 toolMeta → reconcileScriptTools 经 ToolsManager.register（source='script'）自动注册为 AI 工具；handler 在目标页执行脚本并注入 __toolArgs，return 值作为工具结果；与 P1 共用同一 ToolRegistry
     3. 预装脚本（非默认提供，第 2 项完善后编写）
         标准页面能力脚本：点击/填表/抽取/观察等通用页内能力封装（落地 P1）
         before-request 编排脚本：请求前注入/改写/拦截编排（落地「请求编排」）
@@ -23,9 +23,11 @@
         在 run_user_script（裸执行）之上，新增类型化 in-page 工具原语（act/extract/observe，基于 accessibility tree 而非截图，token 友好）
         由 content script 在页面上下文执行，经 RPC 回灌内核；敏感默认走 USER_SCRIPT 隔离世界
         目标：大模型以结构化参数调用页面能力，成本显著低于"写裸脚本+截图"
-    自定义化的工具（用户脚本自动注册）  [P2]
-        为脚本加特殊 grant 记录（@tool + 参数 schema），内核扫描并自动注册为可调工具
-        用户脚本通常在 main world 执行（Trusted Types 兼容）；与 P1 结构化工具共用同一 ToolRegistry
+    自定义化的工具（用户脚本自动注册）  [P2 ✅已落地]
+        为脚本加 @tool 声明（@tool.name/@tool.description/@tool.param.<p>/@tool.enum.<p>/@tool.danger），
+        内核 ScriptsManager 解析 toolMeta，reconcileScriptTools 扫描已启用脚本并自动经 ToolsManager.register
+        （source='script'）注册为可调工具；handler 在目标页执行脚本并注入 __toolArgs，return 值作为工具结果
+        用户脚本通常在 main world 执行（Trusted Types 兼容，走 wrapWithGM + USER_SCRIPT 世界）；与 P1 结构化工具共用同一 ToolRegistry
         完成后大模型可自引入/维护外部工具
     子任务编排
         考虑如何利用消息机制，独立建立非sidepanel区的独立agent

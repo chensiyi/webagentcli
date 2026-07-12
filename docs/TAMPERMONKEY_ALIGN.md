@@ -23,16 +23,17 @@
 | GM_addElement | ✅ | `gm-api.js`（创建/挂载 DOM 节点） |
 | GM_download | ✅ | `gm-api.js`（fetch→blob→`a[download]`） |
 | GM_info 补全 | ✅ | `wrapWithGM` 注入 namespace/description/author/downloadURL |
-| GM_registerMenuCommand / unregister | ✅ | `gm-api.js`（页面侧收集+`chrome.runtime.sendMessage` 回传）；`background/main.ts` 收集器（按 scriptId 聚合）+ `SCRIPTS.MENU_CHANGED` 广播；`scripts.getMenu`/`invokeMenu` RPC；`ScriptsPage` 菜单 UI 触发（回发 `__gmMenuInvoke` 给页面 userScript） |
+| GM_registerMenuCommand / unregister | ✅ | 页面侧（`gm-api.js`）经 `GM_registerMenuCommand` 收集命令，持久化到 `chrome.storage.local`（key `__gm_menu_<scriptId>`）；`scripts.getMenu()` RPC 主动拉取；`invokeMenu` 经 `chrome.tabs.sendMessage` 回发 `__gmMenuInvoke` 给页面 userScript 执行回调。不再用 `sendMessage` push（MV3 SW 休眠时收不到 → "Receiving end does not exist"） |
 
 **明确延后（与本次无关）**：`@connect`/`@updateURL`/`@inject-into`、`GM_webRequest`、`GM_getTabs`、`GM_cookie`、`@noframes`。
 > ⚠️ 用户澄清：`GM_webRequest` 与项目 TARGETS#3 的「API before-request 编排」**不是同一概念**（前者是脚本层请求拦截，后者是工具/Provider 层的请求前置编排），故 `GM_webRequest` 维持延后，不随 before-request 提前。
 
 **danger 工具人工确认闸门（同批新增，独立于油猴）**：
-- 内核 `ToolConfirmation` 服务 + `ToolsManager.invoke` 闸门（`danger===true` 必须用户确认，安全默认拒绝/超时）。
+- 确认逻辑已**并入 `ToolsManager`**（`_pendingConfirm` + `requestConfirm/resolveConfirm`，安全默认拒绝/超时），无独立 `ToolConfirmation` 服务。
 - 专用 UI 确认 RPC 接口：`confirm.resolve({requestId, approved})`（kernel→shell 通知走 `CONFIRM.REQUEST` 事件，shell→kernel 决策走 RPC）。
-- Shell `ConfirmDialog` 顶层浮层（展示工具/原因/将执行的代码），`run_user_script` 已标记 `danger`。
-- 测试：`ToolsManager.test.ts` 3 条闸门用例。
+- 确认 UI 已**升级进聊天气泡 `ToolCallCard`**（允许/取消/始终允许按钮），非顶层 `ConfirmDialog` 浮层；`run_user_script` 已标记 `danger`。
+- 三态会话工具开关：`Session.toolEnabled[name]` = undefined(继承全局)/true(跳过确认)/false(直接拒绝)，`ToolsManager.invoke` 接 `context.toolEnabledOverride`。
+- 测试：`ToolsManager.test.ts` +5 条闸门用例（含三态）。
 
 ---
 
@@ -101,7 +102,7 @@
 **明确不在本批（用户已定）**：
 - 虚拟机沙箱（VM）— 滞后开发
 - 鉴权体系（auth）— 滞后开发；`danger` 确认闸门随此桶（当前 `Tool.danger` 已声明但无执行闸门）
-- P2 用户脚本自动注册 `@tool` — 项目自有扩展，单独排期
+- P2 用户脚本自动注册 `@tool` — **已于后续批次落地**：`ScriptsManager` 解析 `@tool*` 声明 → `reconcileScriptTools` 经 `ToolsManager.register`（source='script'）自动注册为 AI 工具；handler 在目标页执行脚本并注入 `__toolArgs`，`return` 值作为工具结果；`@tool.danger` 复用既有危险确认闸门。详见 `docs/TARGETS.md` P2 ✅。
 
 ---
 
