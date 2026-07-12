@@ -2,16 +2,30 @@ import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { resolve } from 'path';
 import { readFileSync, writeFileSync } from 'fs';
+import { execSync } from 'child_process';
 
 // 唯一版本源：package.json
 const pkg = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf-8'));
 const VERSION = pkg.version;
 
-export default defineConfig(({ mode }) => ({
+// 按 git branch 自动区分环境：main 分支 = production（warn 日志），
+// 其他分支（dev/feature/* 等）= development（debug 日志）。
+// CI release 构建通常是 detached HEAD（checkout tag），按 production 处理。
+function getGitBranch(): string {
+  try {
+    return execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf-8' }).trim();
+  } catch {
+    return 'unknown';
+  }
+}
+const GIT_BRANCH = getGitBranch();
+const IS_DEV = GIT_BRANCH !== 'main' && GIT_BRANCH !== 'HEAD';
+
+export default defineConfig({
   base: '',
   define: {
     __VERSION__: JSON.stringify(VERSION),
-    __DEV__: JSON.stringify(mode === 'development'),
+    __DEV__: JSON.stringify(IS_DEV),
   },
   resolve: {
     alias: {
@@ -58,4 +72,4 @@ export default defineConfig(({ mode }) => ({
       },
     },
   ],
-}));
+});
