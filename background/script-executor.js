@@ -85,25 +85,38 @@ export async function executeInPage({ tabId, code, world = MAIN_WORLD, timeout =
     args: [code],
   });
 
-  const results = await Promise.race([
-    executePromise,
-    new Promise((_, reject) => {
-      timeoutId = setTimeout(() => {
-        timeoutId = undefined;
-        reject(new Error(`脚本执行超时（${effectiveTimeout}ms）`));
-      }, effectiveTimeout);
-    }),
-  ]);
+  let results;
+  try {
+    results = await Promise.race([
+      executePromise,
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          timeoutId = undefined;
+          reject(new Error(`脚本执行超时（${effectiveTimeout}ms）`));
+        }, effectiveTimeout);
+      }),
+    ]);
+  } catch (e) {
+    // chrome.scripting.executeScript 对特殊页面（chrome://、about:、edge:// 等）
+    // 或已关闭标签页会抛出 "Cannot access contents of url..." / "No tab with id..."
+    throw new Error(`页面注入失败：${e?.message || e || '未知错误'}`);
+  }
 
   if (timeoutId) clearTimeout(timeoutId);
 
-  const result = results?.[0]?.result;
-  if (!result) {
-    return null;
+  const injectionResult = results?.[0]?.result;
+  if (!injectionResult) {
+    // executeScript 返回空结果数组或 result 为 null/undefined：
+    // 通常意味着目标页面不支持内容脚本注入（特殊页面 / 已关闭 / 权限不足）
+    const lastError = chrome.runtime.lastError?.message;
+    throw new Error(
+      `页面未返回执行结果（可能是不支持注入的特殊页面）。` +
+      (lastError ? ` Chrome: ${lastError}` : '')
+    );
   }
-  if (!result.success) {
-    throw new Error(`脚本执行错误：${result.error}`);
+  if (!injectionResult.success) {
+    throw new Error(`脚本执行错误：${injectionResult.error}`);
   }
 
-  return formatOutput(result.data);
+  return formatOutput(injectionResult.data);
 }

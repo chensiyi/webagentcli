@@ -60,16 +60,29 @@ export function createScriptTool(script, getScriptById) {
 
     // 目标标签页：优先用调用方传入的 tabId，否则取活动标签
     let tabId = (context && context.tabId != null) ? Number(context.tabId) : null;
+    let targetTab;
     if (tabId == null) {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!tab || tab.id == null) throw new Error('无法找到目标标签页');
-      tabId = tab.id;
+      [targetTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!targetTab || targetTab.id == null) throw new Error('无法找到目标标签页');
+      tabId = targetTab.id;
+    } else {
+      // 用 tabId 查一下 URL，便于诊断注入失败时知道目标是什么页面
+      const tabs = await chrome.tabs.query({});
+      targetTab = tabs.find((t) => t.id === tabId);
     }
     if (typeof tabId !== 'number') throw new Error('目标标签页 id 无效');
 
     // 世界选择：有 GM_* grant → USER_SCRIPT（GM API 可用）；否则 MAIN
     const usesGrant = Array.isArray(s.grant) && s.grant.some(g => typeof g === 'string' && g.startsWith('GM_'));
     const world = usesGrant ? USER_SCRIPT_WORLD : MAIN_WORLD;
+
+    // 前置校验：MAIN 世界只能注入 http(s) 页面，特殊页面直接给明确报错而非静默 null
+    if (world === MAIN_WORLD && targetTab?.url && !targetTab.url.startsWith('http')) {
+      throw new Error(
+        `当前活动标签页不支持内容提取（${targetTab.url}）。` +
+        `请切换到一个普通网页（http/https）后再试。`
+      );
+    }
 
     // 注入 GM_* API + @require 前置库，并前置 __toolArgs 供脚本读取
     const gmCode = wrapWithGM(s.code, s);

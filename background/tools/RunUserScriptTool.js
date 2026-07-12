@@ -119,21 +119,30 @@ class RunUserScriptTool extends Tool {
           args: [code]
         });
 
-        const results = await Promise.race([
-          executePromise,
-          new Promise((_, reject) => {
-            timeoutId = setTimeout(() => {
-              timeoutId = undefined;
-              reject(new Error(`脚本执行超时（${effectiveTimeout}ms）`));
-            }, effectiveTimeout);
-          })
-        ]);
+        let results;
+        try {
+          results = await Promise.race([
+            executePromise,
+            new Promise((_, reject) => {
+              timeoutId = setTimeout(() => {
+                timeoutId = undefined;
+                reject(new Error(`脚本执行超时（${effectiveTimeout}ms）`));
+              }, effectiveTimeout);
+            })
+          ]);
+        } catch (e) {
+          throw new Error(`页面注入失败：${e?.message || e || '未知错误'}`);
+        }
 
         if (timeoutId) clearTimeout(timeoutId);
 
         const result = results?.[0]?.result;
         if (!result) {
-          return null;
+          const lastError = chrome.runtime.lastError?.message;
+          throw new Error(
+            `页面未返回执行结果（可能是不支持注入的特殊页面）。` +
+            (lastError ? ` Chrome: ${lastError}` : '')
+          );
         }
         if (!result.success) {
           throw new Error(`脚本执行错误：${result.error}`);
