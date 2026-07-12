@@ -112,7 +112,7 @@ function collectExposeMethods(impl: any): string[] {
 export class RPCClient {
   private pending = new Map<
     string,
-    { resolve: (v: any) => void; reject: (e: any) => void; timer: ReturnType<typeof setTimeout> }
+    { resolve: (v: any) => void; reject: (e: any) => void; timer: ReturnType<typeof setTimeout>; method: string }
   >();
   private seq = 0;
   private timeoutMs: number;
@@ -125,13 +125,15 @@ export class RPCClient {
   /** 发起一次 RPC 调用，返回 Promise（响应到达或超时/出错时 settle）。 */
   call<T = any>(method: string, params?: any): Promise<T> {
     const id = `${Date.now().toString(36)}-${(++this.seq).toString(36)}`;
+    Log.debug('RPCClient', `→ ${method} (${id})`, params ?? null);
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
+        Log.warn('RPCClient', `⏱ timeout: ${method} (${id})`);
         reject(new Error(`RPC timeout: ${method} (${id})`));
       }, this.timeoutMs);
 
-      this.pending.set(id, { resolve, reject, timer });
+      this.pending.set(id, { resolve, reject, timer, method });
       this.ipc.emit(RPC_REQUEST, { id, method, params: params ?? null });
     });
   }
@@ -142,8 +144,13 @@ export class RPCClient {
     if (!entry) return; // 迟到/未知响应，忽略
     clearTimeout(entry.timer);
     this.pending.delete(payload.id);
-    if (payload.ok) entry.resolve(payload.result);
-    else entry.reject(new Error(payload.error?.message || 'RPC error'));
+    if (payload.ok) {
+      Log.debug('RPCClient', `✓ ${entry.method} (${payload.id})`, payload.result);
+      entry.resolve(payload.result);
+    } else {
+      Log.debug('RPCClient', `✗ ${entry.method} (${payload.id})`, payload.error);
+      entry.reject(new Error(payload.error?.message || 'RPC error'));
+    }
   };
 
   destroy() {
@@ -252,13 +259,17 @@ export class RPCServer {
     const id = req?.id;
     const method = req?.method;
     const params = req?.params;
+    Log.debug('RPCServer', `← ${method} (${id})`, params ?? null);
+    const start = Date.now();
 
     try {
       const handler = this.handlers.get(method);
       if (!handler) throw new Error(`No RPC handler for method: ${method}`);
       const result = await handler(params);
+      Log.debug('RPCServer', `→ ${method} (${id}) ok ${Date.now() - start}ms`, result ?? null);
       this.ipc.emit(RPC_RESPONSE, { id, ok: true, result: result ?? null });
     } catch (err) {
+      Log.debug('RPCServer', `→ ${method} (${id}) error ${Date.now() - start}ms`, err);
       Log.error('RPCServer', `Handler failed: ${method}`, err);
       this.ipc.emit(RPC_RESPONSE, {
         id,

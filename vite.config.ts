@@ -7,10 +7,11 @@ import { readFileSync, writeFileSync } from 'fs';
 const pkg = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf-8'));
 const VERSION = pkg.version;
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   base: '',
   define: {
     __VERSION__: JSON.stringify(VERSION),
+    __DEV__: JSON.stringify(mode === 'development'),
   },
   resolve: {
     alias: {
@@ -57,4 +58,4 @@ export default defineConfig({
       },
     },
   ],
-});
+}));

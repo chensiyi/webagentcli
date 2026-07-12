@@ -16,16 +16,15 @@ import './styles/pages.css';
 
 import { IPC } from 'kernel/IPC.js';
 import { IPCTransport } from 'bridge/IPCTransport.js';
-import { ConsoleLogger } from 'kernel/services/ConsoleLogger.js';
+import { Log } from 'kernel/services/Log.js';
 import { KernelEvents } from 'kernel/Events.js';
 
 /** Shell 等待内核就绪的超时（毫秒）。超时后视为内核启动失败/被回收，继续挂载 UI。 */
 const BOOT_TIMEOUT_MS = 3000;
 
 async function init() {
-    console.log('[Shell] Initializing...');
+    Log.info('SHELL', 'Initializing...');
 
-    const log = new ConsoleLogger();
     const ipc = new IPC({ origin: 'sidepanel-shell' });
 
     // IPC 远程传输：连接 background Kernel
@@ -50,14 +49,14 @@ async function init() {
         const unsub = ipc.on(KernelEvents.KERNEL.BOOT_COMPLETE, () => {
             responded = true;
             cleanup(unsub, unsubErr);
-            log.info('SHELL', 'Kernel ready');
+            Log.info('SHELL', 'Kernel ready');
             resolve();
         });
         const unsubErr = ipc.on(KernelEvents.KERNEL.BOOT_ERROR, (d: any) => {
             responded = true;
             cleanup(unsub, unsubErr);
             bootError = (d && d.message) || 'Kernel boot failed';
-            log.error('SHELL', 'Kernel boot error:', bootError);
+            Log.error('SHELL', 'Kernel boot error:', bootError);
             resolve();
         });
         // 如果 Kernel 已经就绪但事件已错过，发送查询
@@ -70,7 +69,7 @@ async function init() {
             cleanup(unsub, unsubErr);
             if (!responded) {
                 bootError = 'Kernel 未在 ' + (BOOT_TIMEOUT_MS / 1000) + ' 秒内就绪（可能启动失败或被 Service Worker 回收）';
-                log.warn('SHELL', 'Kernel not responding, continuing anyway');
+                Log.warn('SHELL', 'Kernel not responding, continuing anyway');
             }
             resolve();
         }, BOOT_TIMEOUT_MS);
@@ -79,7 +78,7 @@ async function init() {
     // 挂载侧边栏 Shell，注入 IPC 实例
     const root = document.getElementById('root');
     if (!root) {
-        console.error('[Shell] #root element not found');
+        Log.error('SHELL', '#root element not found');
         return;
     }
 
@@ -88,7 +87,7 @@ async function init() {
         props: { ipc, bootError }, // 注入 IPC 实例，页面通过 IPC 通道与 Kernel 通信
     });
 
-    console.log('[Shell] Mounted successfully');
+    Log.info('SHELL', 'Mounted successfully');
 }
 
 window.addEventListener('load', init);

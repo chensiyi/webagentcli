@@ -57,7 +57,7 @@ import { runConversation, cancelConversation } from './orchestration/session.js'
 export { runConversation, cancelConversation };
 
 // ==================== 版本信息 ====================
-// __VERSION__ 由 vite.config.ts 从 package.json 注入（唯一版本源）
-declare const __VERSION__: string;
+// __VERSION__ / __DEV__ 由 vite.config.ts 注入，全局声明见 kernel/globals.d.ts
 export const VERSION = __VERSION__;
+export const IS_DEV = __DEV__;
 export const CODENAME = 'Microkernel-Esm';

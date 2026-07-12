@@ -317,4 +317,4 @@ chrome.runtime.onSuspend.addListener(() => {
     }
 });
 
-console.log('[Background] Service worker loaded');
+Log.info('BACKGROUND', 'Service worker loaded');
