@@ -28,7 +28,7 @@ export interface SessionAPI {
   list(): Promise<{ sessions: any[] }>;
   delete(data: { sessionId: string }): Promise<{ sessions: any[] }>;
   clearMessages(data: { sessionId: string }): Promise<null>;
-  send(data: { sessionId: string; content: string | any[]; reasoningEffort?: string }): Promise<null>;
+  send(data: { sessionId: string; content: string | any[]; reasoningEffort?: string; tabId?: number | null }): Promise<null>;
   stop(data: { sessionId?: string | null }): Promise<null>;
 }
 
@@ -69,6 +69,12 @@ export interface ConfirmAPI {
   resolve(data: { requestId: string; approved: boolean }): Promise<null>;
 }
 
+/** 内核控制面 RPC（如热重载脚本/工具注册表）。 */
+export interface KernelAPI {
+  /** 热重载内核：重跑 syncRegisteredScripts + reconcileScriptTools，使脚本安装/卸载/启停立即生效 */
+  reload(): Promise<null>;
+}
+
 export interface KernelAPIContract {
   settings: SettingsAPI;
   session: SessionAPI;
@@ -77,4 +83,5 @@ export interface KernelAPIContract {
   scripts: ScriptsAPI;
   media: MediaAPI;
   confirm: ConfirmAPI;
+  kernel: KernelAPI;
 }

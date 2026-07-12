@@ -125,7 +125,7 @@ export class RPCClient {
   /** 发起一次 RPC 调用，返回 Promise（响应到达或超时/出错时 settle）。 */
   call<T = any>(method: string, params?: any): Promise<T> {
     const id = `${Date.now().toString(36)}-${(++this.seq).toString(36)}`;
-    Log.debug('RPCClient', `→ ${method} (${id})`, params ?? null);
+    Log.debug('RPCClient', `→ ${method} (${id})`);
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
@@ -145,10 +145,10 @@ export class RPCClient {
     clearTimeout(entry.timer);
     this.pending.delete(payload.id);
     if (payload.ok) {
-      Log.debug('RPCClient', `✓ ${entry.method} (${payload.id})`, payload.result);
+      Log.debug('RPCClient', `✓ ${entry.method} (${payload.id})`);
       entry.resolve(payload.result);
     } else {
-      Log.debug('RPCClient', `✗ ${entry.method} (${payload.id})`, payload.error);
+      Log.debug('RPCClient', `✗ ${entry.method} (${payload.id}): ${payload.error?.message ?? 'unknown error'}`);
       entry.reject(new Error(payload.error?.message || 'RPC error'));
     }
   };
@@ -259,17 +259,15 @@ export class RPCServer {
     const id = req?.id;
     const method = req?.method;
     const params = req?.params;
-    Log.debug('RPCServer', `← ${method} (${id})`, params ?? null);
     const start = Date.now();
 
     try {
       const handler = this.handlers.get(method);
       if (!handler) throw new Error(`No RPC handler for method: ${method}`);
       const result = await handler(params);
-      Log.debug('RPCServer', `→ ${method} (${id}) ok ${Date.now() - start}ms`, result ?? null);
+      Log.debug('RPCServer', `→ ${method} (${id}) ok ${Date.now() - start}ms`);
       this.ipc.emit(RPC_RESPONSE, { id, ok: true, result: result ?? null });
     } catch (err) {
-      Log.debug('RPCServer', `→ ${method} (${id}) error ${Date.now() - start}ms`, err);
       Log.error('RPCServer', `Handler failed: ${method}`, err);
       this.ipc.emit(RPC_RESPONSE, {
         id,

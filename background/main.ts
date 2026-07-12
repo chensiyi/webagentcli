@@ -18,7 +18,7 @@
 import { IPC } from 'kernel/IPC.js';
 import { IPCTransport } from 'bridge/IPCTransport.js';
 import { RPCServer } from 'bridge/RPC.js';
-import { createSessionFacade, createToolsFacade, createStorageFacade, createScriptsFacade, createMediaFacade, createConfirmFacade } from './rpc-facades.js';
+import { createSessionFacade, createToolsFacade, createStorageFacade, createScriptsFacade, createMediaFacade, createConfirmFacade, createKernelFacade } from './rpc-facades.js';
 import { createMediaStore } from './services/mediaStore.js';
 import { Kernel } from 'kernel/Kernel.js';
 import { Bootloader } from 'kernel/Bootloader.js';
@@ -289,6 +289,11 @@ async function bootKernel() {
         // 危险工具人工确认专用 RPC（UI 专用确认接口）：Shell 决策后回写 resolve
         rpcServer.expose('confirm', createConfirmFacade(kernel), {
             methods: ['resolve'],
+            capabilities: kernel.getCapabilities() as any,
+        });
+        // 内核控制面（如热重载脚本/工具注册表）；reload 重跑 syncRegisteredScripts + reconcileScriptTools
+        rpcServer.expose('kernel', createKernelFacade(kernel), {
+            methods: ['reload'],
             capabilities: kernel.getCapabilities() as any,
         });
 

@@ -318,9 +318,19 @@ export function wrapWithGM(code, script) {
     parts.push('var unsafeWindow = window;');
     // @require 拉取的库代码前置到用户代码之前（库通常依赖 GM_*，故在 GM_* 注入之后）
     if (script.requireCode) parts.push(script.requireCode);
+    // 用变量捕获用户脚本的返回值，使 @tool 脚本的 return 能透传为工具结果。
+    // 用户代码自身常是 IIFE（如 `(function(){ ... return result; })()`）。
+    // 关键：此处必须显式 `return (code)`，否则再包一层 (function(){ code })() 后，
+    // 内层 IIFE 的返回值会作为「语句」被丢弃，外层函数返回 undefined，
+    // 导致 __scriptResult 恒为 undefined、工具永远拿到 null。
+    // 去掉 code 末尾多余分号，避免 return (...) 内出现非法语句结尾。
+    // 注：这是纯静态语法重组，运行时不使用 eval / new Function，故不影响
+    // userScripts.execute 绕 Trusted Types 的主路径。
+    const bodyCode = String(code).replace(/\s*;\s*$/, '');
+    parts.push('var __scriptResult;');
     parts.push(
         'try {\n' +
-        '  ' + code + '\n' +
+        '  __scriptResult = (function(){ return (' + bodyCode + '); })();\n' +
         '} catch(__e) {\n' +
         '  console.error("[ScriptInject] " + ' + safeName + ' + ": ", __e);\n' +
         '}\n'

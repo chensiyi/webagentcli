@@ -57,6 +57,8 @@ export interface ConversationInput {
   reasoningEffort?: string;
   model?: unknown;
   isToolContinuation?: boolean;
+  /** Shell 传入的活动标签页 id，供 ScriptTool 等页面操作类工具定位目标 */
+  tabId?: number | null;
 }
 
 export interface ConversationHooks {
@@ -107,7 +109,7 @@ export async function runConversation(
     return;
   }
 
-  return runTurn(kernel, session.id, { content, model, isToolContinuation: !!isToolContinuation }, emit);
+  return runTurn(kernel, session.id, { content, model, isToolContinuation: !!isToolContinuation, tabId: input.tabId ?? null }, emit);
 }
 
 // ─── 单轮生成管线（围绕某个 session；ReAct 续轮递归进入） ──────
@@ -115,10 +117,10 @@ export async function runConversation(
 async function runTurn(
   kernel: Kernel,
   sessionId: string,
-  opts: { content: string | any[]; model: unknown; isToolContinuation: boolean },
+  opts: { content: string | any[]; model: unknown; isToolContinuation: boolean; tabId?: number | null },
   emit: (event: string, data: unknown) => void,
 ): Promise<void> {
-  const { content, model, isToolContinuation } = opts;
+  const { content, model, isToolContinuation, tabId } = opts;
   const sm = kernel.getSessionManager();
   const settings = kernel.getSettingsManager().getSettings();
   const sid = sessionId;
@@ -235,7 +237,7 @@ async function runTurn(
       emit(KernelEvents.SESSION.STREAM_COMPLETE, { sessionId: sid, messageId: assistantMsg.id, duration });
 
       const toolExecutor = new ToolExecutor(kernel, emit);
-      await toolExecutor.execute(result.toolCalls, sid);
+      await toolExecutor.execute(result.toolCalls, sid, { tabId: tabId ?? undefined });
       // 工具执行完成后，继续下一轮（ReAct 循环，递归进入续轮）
       await runTurn(kernel, sid, { content: '', model: null, isToolContinuation: true }, emit);
       return;

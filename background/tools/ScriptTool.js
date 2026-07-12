@@ -84,10 +84,17 @@ export function createScriptTool(script, getScriptById) {
       );
     }
 
-    // 注入 GM_* API + @require 前置库，并前置 __toolArgs 供脚本读取
+    // 注入 GM_* API + @require 前置库，并前置 __toolArgs 供脚本读取。
+    // gm-api.js 的 wrapWithGM 会把用户代码的返回值捕获到 __scriptResult 变量。
+    // 此处生成的 finalCode 是一段「带顶层 return 的语句块」(而非被丢弃的裸 IIFE 表达式)，
+    // 这样 script-executor 的 harness `(function(){ code })()` 才能取到返回值
+    // （与 run_user_script 的 `return X;` 契约一致）。
     const gmCode = wrapWithGM(s.code, s);
     const argsJson = JSON.stringify(args || {});
-    const finalCode = `(function() { const __toolArgs = ${argsJson};\n${gmCode}\n})()`;
+    const finalCode =
+      `const __toolArgs = ${argsJson};\n` +
+      `${gmCode}\n` +
+      `return typeof __scriptResult !== 'undefined' ? __scriptResult : null;`;
 
     return await executeInPage({ tabId, code: finalCode, world, timeout });
   };

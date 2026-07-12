@@ -15,6 +15,7 @@
 import type { Kernel } from 'kernel/Kernel.js';
 import { KernelEvents } from 'kernel/Events.js';
 import { syncRegisteredScripts } from './tools/ManageUserScriptsTool.js';
+import { reconcileScriptTools } from './script-tools.js';
 import { runConversation, cancelConversation } from 'kernel/orchestration/session.js';
 import { Log } from 'kernel/services/Log.js';
 
@@ -102,9 +103,9 @@ export function createSessionFacade(kernel: Kernel, sessionChannel: RpcChannel) 
 
     // 发送消息：Shell→Kernel 经 RPC 统一入口，直接驱动编排（fire-and-forget）。
     // 流式 STREAM_* / MESSAGE_* 事件由 runConversation 通过 onEvent 经 sessionChannel 回灌到 Shell。
-    send(data: { sessionId: string; content: string | any[]; reasoningEffort?: string }) {
+    send(data: { sessionId: string; content: string | any[]; reasoningEffort?: string; tabId?: number | null }) {
       if (!data?.sessionId || !data?.content) return null;
-      void runConversation(kernel, { sessionId: data.sessionId, content: data.content, reasoningEffort: data.reasoningEffort } as any, { onEvent: emit }).catch((err: any) => {
+      void runConversation(kernel, { sessionId: data.sessionId, content: data.content, reasoningEffort: data.reasoningEffort, tabId: data.tabId ?? null } as any, { onEvent: emit }).catch((err: any) => {
         Log.error('SESSION_FACADE', 'runConversation error', err);
         emit(KernelEvents.SESSION.STREAM_ERROR, { error: err, message: err?.message || String(err) });
       });
@@ -274,6 +275,27 @@ export function createConfirmFacade(kernel: Kernel) {
     resolve(data: { requestId: string; approved: boolean }) {
       if (!data?.requestId) return null;
       kernel.getToolsManager()?.resolveConfirm(data.requestId, !!data.approved);
+      return null;
+    },
+  };
+}
+
+/**
+ * kernel facade — 内核控制面 RPC（如热重载脚本/工具注册表）。
+ *
+ * reload() 重跑内核启动末尾的「用户脚本 ↔ AI 工具」同步，等价于一次
+ * 轻量重启内核的脚本/工具子系统，而不必 chrome.runtime.reload() 把 sidepanel 一起冲掉：
+ *  - syncRegisteredScripts：按当前已安装脚本重注册 chrome.userScripts（卸载后停止注入）
+ *  - reconcileScriptTools：把 @tool 脚本同步进 ToolsManager 注册表（卸载后移除孤儿工具）
+ * 安装/卸载/启停用户脚本后调用，使改动立即生效。
+ */
+export function createKernelFacade(kernel: Kernel) {
+  return {
+    async reload() {
+      const sm = kernel.getScriptsManager();
+      const tm = kernel.getToolsManager();
+      await syncRegisteredScripts(sm);
+      reconcileScriptTools(sm, tm);
       return null;
     },
   };

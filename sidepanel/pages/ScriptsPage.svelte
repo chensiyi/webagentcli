@@ -10,11 +10,13 @@
   import { useToast } from '../components/overlays/toast-store.svelte';
   import { KernelEvents, KernelChannels } from 'kernel/Events.js';
   import type { KernelAPIContract } from '../api-contract.js';
+  import { getShellCache } from 'sidepanel/cache/shell-cache.js';
 
   const ipc: any = getContext('ipc');
   const scriptsChannel = ipc?.getOrCreateChannel?.(KernelChannels.SCRIPTS) || ipc;
   const api = getContext('api') as KernelAPIContract;
   const toast = useToast();
+  const cache = getShellCache(api);
 
   // ---------- State ----------
   let scripts = $state<any[]>([]);
@@ -150,14 +152,35 @@
 
   async function executeDelete() {
     if (!deleteTargetId) return;
+    const id = deleteTargetId;
+    deleteTargetId = null;
     try {
-      const data = await api.scripts.uninstall({ id: deleteTargetId });
+      const data = await api.scripts.uninstall({ id });
       scripts = data?.scripts || [];
-      toast.success('已删除');
+      // 卸载后内核侧的 @tool 工具投影不会自动清理（reconcileScriptTools 仅在启动期跑一次），
+      // 故询问是否立即重启内核，让 ToolsManager 移除孤儿工具、改动彻底生效。
+      toast.action(
+        '脚本已删除。是否立即重启内核使改动生效？',
+        [
+          {
+            label: '立即重启',
+            variant: 'primary',
+            onClick: async () => {
+              try {
+                await api.kernel.reload();
+                cache.invalidateTools();
+                toast.success('内核已重启，改动已生效');
+              } catch {
+                toast.error('内核重启失败，请手动重载扩展');
+              }
+            },
+          },
+          { label: '稍后', variant: 'default', onClick: () => {} },
+        ],
+        'info',
+      );
     } catch {
       toast.error('删除失败');
-    } finally {
-      deleteTargetId = null;
     }
   }
 

@@ -275,7 +275,7 @@
 
   // ==================== 业务逻辑 ====================
 
-  function handleSend() {
+  async function handleSend() {
     const text = inputText.trim();
     const attachments = pendingAttachments.filter((a) => a.mediaId && !a.error);
     if (!text && attachments.length === 0) return;
@@ -306,10 +306,19 @@
     const content = blocks.length === 1 && blocks[0].type === 'text' ? text : blocks;
     const sid = currentSessionId();
     if (!sid) { toast.error('会话未就绪，请先新建对话'); return; }
+
+    // 查询活动标签页 id 传入内核，供 ScriptTool 等页面操作工具定位目标
+    let activeTabId: number | null = null;
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab?.id != null) activeTabId = tab.id;
+    } catch { /* sidepanel 有时无 tabs 权限，静默忽略 */ }
+
     api.session.send({
       sessionId: sid,
       content,
       reasoningEffort: session?.reasoningEffort || reasoningEffort,
+      tabId: activeTabId,
     }).catch((e) => toast.error('发送失败：' + ((e as Error)?.message || String(e))));
   }
 
