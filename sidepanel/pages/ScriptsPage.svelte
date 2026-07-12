@@ -99,9 +99,9 @@
     try {
       const data = await api.scripts.install({ code: editCode });
       scripts = data?.scripts || [];
-      toast.success('脚本已安装');
       showInstallForm = false;
       editCode = '';
+      promptRestartKernel('脚本已安装');
     } catch (e) {
       toast.error('安装失败');
     }
@@ -128,9 +128,9 @@
     try {
       const data = await api.scripts.edit({ id: editingScriptId, code: editCode });
       scripts = data?.scripts || [];
-      toast.success('已保存');
       editingScriptId = null;
       editCode = '';
+      promptRestartKernel('脚本已更新');
     } catch (e) {
       toast.error('保存失败');
     }
@@ -157,31 +157,38 @@
     try {
       const data = await api.scripts.uninstall({ id });
       scripts = data?.scripts || [];
-      // 卸载后内核侧的 @tool 工具投影不会自动清理（reconcileScriptTools 仅在启动期跑一次），
-      // 故询问是否立即重启内核，让 ToolsManager 移除孤儿工具、改动彻底生效。
-      toast.action(
-        '脚本已删除。是否立即重启内核使改动生效？',
-        [
-          {
-            label: '立即重启',
-            variant: 'primary',
-            onClick: async () => {
-              try {
-                await api.kernel.reload();
-                cache.invalidateTools();
-                toast.success('内核已重启，改动已生效');
-              } catch {
-                toast.error('内核重启失败，请手动重载扩展');
-              }
-            },
-          },
-          { label: '稍后', variant: 'default', onClick: () => {} },
-        ],
-        'info',
-      );
+      promptRestartKernel('脚本已删除');
     } catch {
       toast.error('删除失败');
     }
+  }
+
+  /**
+   * 脚本安装/更新/卸载后，内核侧的 @tool 工具投影与注册脚本不会自动重新同步
+   * （syncRegisteredScripts / reconcileScriptTools 仅在启动期跑一次），
+   * 故询问是否立即重启内核，让 ToolsManager 移除/新增工具、改动彻底生效。
+   */
+  function promptRestartKernel(label: string) {
+    toast.action(
+      `${label}。是否立即重启内核使改动生效？`,
+      [
+        {
+          label: '立即重启',
+          variant: 'primary',
+          onClick: async () => {
+            try {
+              await api.kernel.reload();
+              cache.invalidateTools();
+              toast.success('内核已重启，改动已生效');
+            } catch {
+              toast.error('内核重启失败，请手动重载扩展');
+            }
+          },
+        },
+        { label: '稍后', variant: 'default', onClick: () => {} },
+      ],
+      'info',
+    );
   }
 
   function cancelDelete() {
