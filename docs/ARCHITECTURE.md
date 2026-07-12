@@ -1,6 +1,6 @@
 # Web Agent Client 架构文档
 
-> 架构版本：Microkernel v0.6.7 · 与当前代码库保持同步
+> 架构版本：Microkernel v0.8.0 · 与当前代码库保持同步
 
 ## 核心理念
 
@@ -597,57 +597,3 @@ class MyNewTool extends Tool {
 1. 在 `sidepanel/pages/` 创建 Svelte 组件
 2. 在 `sidepanel/Sidepanel.svelte` 的 `PAGES` 数组注册 `{ id, icon, label }`
 3. 在侧边栏模板中添加条件渲染
-
-## 版本信息
-
-- **扩展版本**：0.6.7（见 `manifest.json` / `package.json`）
-- **架构版本**：Microkernel v0.6.7
-- **Manifest 版本**：3
-
-### 主要变更（v0.6.5 → v0.6.6）
-
-- ✅ **工具模型统一**：`ToolDefinition` + `IToolService` → 统一的 `Tool` 类（含定义 + handler）
-- ✅ **ToolCall / ToolResult 合并**：从独立文件合并到 `Tool.ts`
-- ✅ **ToolsManager**：替代 `ToolRegistry` + `IToolService`，统一管理注册和执行
-- ✅ **废弃文件清理**：删除 `ToolDefinition.ts`、`IToolService.ts`、`ToolRegistry.ts` 等 9 个废弃文件
-- ✅ **RunUserScriptTool 修复**：正确继承 `Tool`，handler 正常注册
-
-### 主要变更（v0.6.7 续：会话命令接线收敛）
-
-- ✅ **移除 `kernel/eventhandler/` 层**：原 `eventhandler/session.ts` 把 `SESSION.ADD_MESSAGE`/`STOP_STREAM` 命令从同进程 RPC facade emit 出来再接住、转调 `runConversation`/`cancelConversation`，属于「自己跟自己走 IPC 一圈」的冗余绕弯。命令本就是 RPC 入口，由 `createSessionFacade` 直接驱动编排更贴切
-- ✅ **命令接线内联进 session RPC facade**：`send()` 直接 `runConversation(kernel, data, { onEvent: emit })`，`stop()` 直接 `cancelConversation(kernel, emit)`；`create()`/`getCurrent({sessionId})`/`delete()` 均基于显式 `sessionId`（无状态记录服务调用）。**内核不再维护「当前会话」**——`switch()`/`getCurrentSession()`/`setCurrentSession()` 及 `CURRENT_SESSION_CHANGED` 广播均已移除，会话切换改由 Shell 层 `setCurrentSessionId(id)+navigateTo('chat')` 驱动（原 eventhandler 订阅 `CURRENT_SESSION_CHANGED`/`SESSION_DELETED` 的取消逻辑，现由 facade 直接承担）
-- ✅ **删除 `registerHandlers` 调用**：`background/main.ts` Phase 4 不再 `registerHandlers(kernel, ipc)`，仅保留 `sessionChannel` 供 facade 回灌事件
-
-### 主要变更（v0.6.6 → v0.6.7）
-
-- ✅ **kernel 扁平化**：`kernel/programs/chat/` → `kernel/orchestration/`（session.ts / session-context.ts / session-tools.ts / request.ts）
-- ✅ **eventhandler 接管接线**：新增 `kernel/eventhandler/`（按消息组管理），`main.ts` Phase 4 内联的 chat 接线迁此，集中 `registerHandlers(kernel, ipc)`
-- ✅ **CHAT 消息组更名为 SESSION**：`KernelEvents.CHAT` → `SESSION`、`KernelChannels.CHAT` → `SESSION`，线协议 `chat:*` → `session:*`（CMD.SEND/STOP 同步更名），Shell（ChatPage/HistoryPage）与 RPC facade 同步更新
-- ✅ **CMD 集中**：线协议常量上移至 `kernel/Events.ts`，与 `USER_APPLY_*` 同处
-- ✅ **命令用时态区分（去 `cmd:` 中缀）**：`CMD.SEND`（`session:cmd:send`）→ `CMD.ADD_MESSAGE`（`session:addMessage`）、`CMD.STOP`（`session:cmd:stop`）→ `CMD.STOP_STREAM`（`session:stopStream`）。命令用祈使式、事件用过去式（`addMessage` ↔ `messageAdded`），时态本身区分命令与事件，`cmd:` 中缀冗余移除
-- ✅ **授权命令并入 SESSION 组**：`CMD.ADD_MESSAGE`/`CMD.STOP_STREAM` 从独立 `CMD` 常量并入 `KernelEvents.SESSION.ADD_MESSAGE`/`STOP_STREAM`（与过去式事件同一命名空间），删除独立 `export const CMD`
-- ✅ **ToolsManager / CapabilityManager 移入 `services/`**：两者本是构造器注入子系统，现与其余 Manager 同处 `kernel/services/`；`kernel/` 根只留纯内核原语（Kernel / Bootloader / IPC / Events / Keys）
-- ✅ **发送/停止消息统一走 RPC**：移除 `USER_APPLY_SEND`/`USER_APPLY_STOP` 意图层，`session` RPC facade 新增 `send()`/`stop()`，由 facade 直接 `emit(SESSION.ADD_MESSAGE/STOP_STREAM)`，`eventhandler` 仍独占命令→编排接线。至此所有 Shell→Kernel 可执行命令统一经 RPC 入口，流式 `STREAM_*` 事件仍走 IPC 通道回灌
-- ✅ **ToolsManager / CapabilityManager 改走常规注册**：不再由 Kernel 构造器注入（移除 `toolsManager`/`capabilities` 字段与构造器 options），改为 Phase 2 `kernel.register('toolsManager'/'capabilities')`，经 `kernel.getToolsManager()`/`getCapabilities()` 访问；Kernel 构造器仅注入基础设施 `ipc`/`storage`。shutdown 服务循环泛化为 `shutdown()` 优先、退化 `destroy()`，两者 teardown 收敛进统一循环
-
-### 主要变更（v0.4.0 → v0.6.5）
-
-- ✅ **Kernel TypeScript 化**：所有 `kernel/*.js` 迁移到 `.ts`
-- ✅ **ChatProgram**：引入内核级聊天程序，移除 ChatController
-- ✅ **三层事件体系**：USER_APPLY_* → ChatEventHandler → CMD.SEND / CMD.STOP
-- ✅ **Bootloader 精简**：8 阶段 → 4 阶段（INIT/REGISTER/START/READY）
-- ✅ **ProviderFactory 独立**：Provider 不再耦合在 Kernel 上
-- ✅ **Svelte 5 UI 统一**：移除旧 JS 架构，全部使用 Svelte 5 + TypeScript
-- ✅ **Process 模型**：新增进程生命周期管理
-- ✅ **Vite 构建**：替换手写 IIFE，单入口构建
-- ✅ **消息序列化归一化**：MessageStructure.toAPIFormat 统一转换
-- ✅ **移除 ServiceCenter**：所有引用已迁移至 Kernel
-- ✅ **移除 ChatController**：聊天逻辑完全由 ChatProgram 处理
-- ✅ **移除 `_sidepanelShim`**：Shell 已全量 ES import，window 桥接已删除
-- ✅ **双 Shell 归并**：`src/` → `sidepanel/`，旧 UI 文件全部清理
-- ✅ **Background 脚本注入**：独立 Service Worker，不依赖 Kernel
-
----
-
-**推荐阅读**：
-- [CORE_MODELS.md](CORE_MODELS.md) — 数据模型详解
