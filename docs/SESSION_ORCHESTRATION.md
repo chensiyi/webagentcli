@@ -55,21 +55,24 @@
 
 ### P0-1: 完善工具描述 ✅
 
-#### RunUserScriptTool — `sidepanel/tools/RunUserScriptTool.js`
+#### RunUserScriptTool — `background/tools/RunUserScriptTool.js`
 
 - description 从通用描述改为结构化说明，包含适用场景和注意事项
 - code 参数描述优化，建议使用 IIFE 包裹代码
 - 新增 `timeout` 参数（number，默认 300000ms）
+- 标 `danger: true`（在页面执行任意 JS，高危确认闸门）
 
-#### ManageUserScriptsTool — `sidepanel/tools/ManageUserScriptsTool.js`
+#### ManageUserScriptsTool — `background/tools/ManageUserScriptsTool.js`
 
-- description 从一行改为分点列出所有操作 + 注意事项
+- description 从一行改为分点列出所有**写操作**（install / update / toggle / delete）+ 注意事项
+- 标 `danger: true`（安装/删除会注入执行任意代码的用户脚本，高危确认闸门）
+- **只读查询已拆为独立工具 `get_user_scripts`**（同文件 `GetUserScriptsTool`，不标 danger、免确认）
 
 ### P0-2: System Prompt 工具描述简化 ✅
 
 **文件**：`kernel/orchestration/session-context.ts`
 
-- 工具列表改为仅列出名称（`可用工具：run_user_script、manage_user_scripts`）
+- 工具列表改为仅列出名称（`可用工具：run_user_script、manage_user_scripts、get_user_scripts`）
 - 完整定义通过 API tools 参数传递
 - 行为原则优化为 4 条清晰规则
 
