@@ -422,15 +422,16 @@ class ToolsManager {
 }
 ```
 
-**内置工具**（`sidepanel/tools/`）：
-- `RunUserScriptTool` — 在当前活动 tab 执行用户 JS（Turing-complete 万能工具）
-- `ManageUserScriptsTool` — 用户脚本 CRUD（list / get / install / update / toggle / delete）
+**内置工具**（`sidepanel/tools/`，路径后迁至 `background/tools/`）：
+- `RunUserScriptTool` — 在当前活动 tab 执行用户 JS（Turing-complete 万能工具），标 `danger` 需确认
+- `ManageUserScriptsTool` — 用户脚本**写操作**（install / update / toggle / delete），标 `danger` 需确认
+- `GetUserScriptsTool` — 用户脚本**只读查询**（list / get），安全免确认（从 ManageUserScriptsTool 拆出，避免只读操作也弹确认气泡）
 
 工具注册在 START 阶段完成：
 ```typescript
-const builtInClasses = [RunUserScriptTool, ManageUserScriptsTool];
-builtInClasses.forEach((ToolClass) => {
-  const tool = new ToolClass();
+const builtInTools = [new RunUserScriptTool(), new ManageUserScriptsTool(kernel), new GetUserScriptsTool(kernel)];
+builtInTools.forEach((tool) => {
+  if (!tool || !tool.name) return;
   toolsManager.register(tool);
 });
 ```

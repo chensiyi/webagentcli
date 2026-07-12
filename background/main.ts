@@ -32,7 +32,7 @@ import { ProcessManager } from 'kernel/services/ProcessManager.js';
 import { ProviderFactory } from 'kernel/services/ProviderFactory.js';
 import { createChromeStorage } from './services/chromeStorage.js';
 import { RunUserScriptTool } from './tools/RunUserScriptTool.js';
-import { ManageUserScriptsTool, syncRegisteredScripts } from './tools/ManageUserScriptsTool.js';
+import { ManageUserScriptsTool, GetUserScriptsTool, syncRegisteredScripts } from './tools/ManageUserScriptsTool.js';
 import { reconcileScriptTools } from './script-tools.js';
 import { KernelEvents, KernelChannels } from 'kernel/Events.js';
 import { Log } from 'kernel/services/Log.js';
@@ -235,11 +235,17 @@ async function bootKernel() {
         await kernel.boot();
         log.info('BACKGROUND', 'Services initialized');
 
-        // 注册内置工具（直接传实例：RunUserScriptTool 无参，ManageUserScriptsTool 需内核引用）
+        // 注册内置工具（直接传实例：RunUserScriptTool 无参，ManageUserScriptsTool/GetUserScriptsTool 需内核引用）
         // toolsManager 已在 kernel.boot() 期间初始化，此处经 getter 取实例
         const toolsManager = kernel.getToolsManager();
         // 危险工具确认闸门已内聚于 ToolsManager（注入 ipc 后 invoke 危险工具前自动 await Shell 确认）
-        const builtInTools = [new RunUserScriptTool(), new ManageUserScriptsTool(kernel)];
+        // - ManageUserScriptsTool：写操作（install/update/toggle/delete），标 danger 需确认
+        // - GetUserScriptsTool：只读（list/get），安全免确认
+        const builtInTools = [
+          new RunUserScriptTool(),
+          new GetUserScriptsTool(kernel),
+          new ManageUserScriptsTool(kernel),
+        ];
         builtInTools.forEach((tool) => {
             if (!tool || !tool.name) return;
             try {
