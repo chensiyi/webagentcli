@@ -440,6 +440,10 @@
   }
 
   /* ----------------------------------------------------- 启动 */
+  // 启动即建立长连接：USER_SCRIPT 世界的 Port 在打开期间让 SW 保持存活（与 sidepanel 的
+  // IPCTransport 保活同源）。这样宠物作为独立入口时，即便侧栏关闭也能让 kernel 常驻、避免冷启动；
+  // 断开后 connectPort 内部会自动重连，保证保活连续性。
+  connectPort();
   injectStyles();
   buildDOM();
 })();

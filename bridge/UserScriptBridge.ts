@@ -47,12 +47,18 @@ export class UserScriptBridge {
     private _bound = false;
     /** bind 之前到达的 Port 连接暂存于此，bind 后逐个处理 */
     private _pendingPorts: any[] = [];
+    /** 选项：用户脚本世界连接时回调（用于触发内核启动/保活，对称于 IPCTransport 的 onShellConnect） */
+    private _opts: { onUserScriptConnect?: () => void | Promise<void> } = {};
 
     /**
      * 在 SW 顶层同步调用：注册 onUserScriptConnect 监听器。
      * 此时 rpcServer / sessionChannel 尚未创建，Port 连接会被暂存。
+     * @param opts.onUserScriptConnect 每当用户脚本世界经 Port 连接（含 SW 回收后重连）时调用；
+     *   典型用途：触发内核启动（ensureBoot）并保持 SW 存活，使宠物作为独立入口时即便侧栏关闭
+     *   也能可靠启动内核、处理暂存 Port，避免 RPC 永久挂起。
      */
-    init(): void {
+    init(opts: { onUserScriptConnect?: () => void | Promise<void> } = {}): void {
+        this._opts = opts;
         const usc = (chrome.runtime as any).onUserScriptConnect;
         if (typeof usc?.addListener !== 'function') {
             Log.warn('UserScriptBridge', 'onUserScriptConnect not available (Chrome < 120 or userScripts disabled)');
@@ -60,6 +66,15 @@ export class UserScriptBridge {
         }
         usc.addListener((port: any) => {
             if (port.name !== USER_SCRIPT_PORT_NAME) return;
+            // 用户脚本世界连接即视为一次唤醒：确保内核已启动（保持 SW 存活），
+            // 否则 SW 回收后仅靠宠物端口唤醒时内核永不启动、暂存 Port 永不处理。
+            try {
+                Promise.resolve(this._opts.onUserScriptConnect?.()).catch((e) =>
+                    Log.error('UserScriptBridge', 'onUserScriptConnect failed', e)
+                );
+            } catch (e) {
+                Log.error('UserScriptBridge', 'onUserScriptConnect threw', e);
+            }
             if (this._bound) {
                 this._handlePort(port);
             } else {

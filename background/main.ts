@@ -83,7 +83,15 @@ transport.init(); // 仅此处安装 chrome.runtime.onConnect，生命周期内�
 // 会因监听器未注册而 "Could not establish connection. Receiving end does not exist."
 // init() 同步注册监听器；bind() 在 READY 阶段注入 rpcServer + sessionChannel。
 const usBridge = new UserScriptBridge();
-usBridge.init();
+usBridge.init({
+    // 用户脚本世界（宠物）连接即唤醒内核（保持 SW 存活）：对称于 IPCTransport 的 onShellConnect，
+    // 确保仅由宠物端口唤醒 SW 时内核也能启动、暂存 Port 被 bind() 处理，不依赖侧栏。
+    onUserScriptConnect: () => {
+        ensureBoot()
+            .then(() => ipc.emit(KernelEvents.KERNEL.BOOT_COMPLETE, { timestamp: Date.now() }))
+            .catch(() => { /* 启动失败已通过 kernel:bootError 暴露 */ });
+    },
+});
 
 function triggerReload(reason: string): void {
     if (reloading) return;
