@@ -426,6 +426,7 @@ class ToolsManager {
 - `RunUserScriptTool` — 在当前活动 tab 执行用户 JS（Turing-complete 万能工具），标 `danger` 需确认
 - `ManageUserScriptsTool` — 用户脚本**写操作**（install / update / toggle / delete），标 `danger` 需确认
 - `GetUserScriptsTool` — 用户脚本**只读查询**（list / get），安全免确认（从 ManageUserScriptsTool 拆出，避免只读操作也弹确认气泡）
+- `CaptureScreenshotTool` — 截图工具（`background/tools/`），依赖 mediaStore；用 `chrome.tabs.captureVisibleTab`（SW 专属，页面世界无此 API）截图，结果经 `ToolExecutor` **原子注入一条 user 图片消息**（`userMedia`）+ 文本附 `dataUrl`；与其他内置工具注册路径相同，差异仅在此三点
 
 工具注册在 START 阶段完成：
 ```typescript
@@ -462,6 +463,19 @@ LLM 收到结果后继续（ReAct 循环）
 - 监听 `tabs.onActivated`/`tabs.onUpdated` — 标签页切换/加载时按 `@match` 规则注入脚本
 - 监听 `storage.onChanged` — 脚本数据变更时自动重新注入
 - 启动时延迟注入当前活跃标签页
+
+### 8. PRESET_SCRIPTS（预装脚本体系）
+
+**位置**：`sidepanel/userscripts/` + `background/preset-installer.js`
+
+预装脚本与本地用户脚本共用同一目录，避免双份冗余：
+
+- **单一脚本目录**：所有脚本源放在 `sidepanel/userscripts/`，其中 `presets.json` 是预装白名单（文件名数组）——只有列进清单的脚本才随版本发布预装，目录里其余 `.user.js` 仅作本地源。
+- **远程拉取**：首次启动（及升级）时，`preset-installer.js` 从 `https://cdn.jsdelivr.net/gh/chensiyi/webagentcli@v<当前版本>/sidepanel/userscripts` 拉取 `presets.json` + 各 `.user.js`，经 `installOrUpdate` 进 `ScriptsManager`；jsDelivr 回 `access-control-allow-origin: *`，规避 SW 跨域 CORS 限制。
+- **与 @tool 自动注册衔接**：预装脚本若含 `@tool` 声明，由 `ScriptsManager` 解析 `toolMeta` → `reconcileScriptTools` 经 `ToolsManager.register`（source='script'）注册为可调 AI 工具（如 `page_to_markdown.user.js` → `page_to_markdown_script`）。
+- **幂等升级**：storage 记录 `{ [name|namespace]: version }`；同版本跳过（保留用户编辑/删除），版本变化原地更新；拉取失败（离线/该 tag 暂无清单）跳过，不阻断启动。
+
+> 预装基址按 `chrome.runtime.getManifest().version` 取版本 tag；发布扩展时给仓库打 `vX.Y.Z` tag 并含 `sidepanel/userscripts/` 即生效，无需重包扩展。
 
 ## 事件系统参考
 
