@@ -80,6 +80,8 @@
     pet.classList.remove('idle');
     pet.classList.add('happy');
     showBubble();
+    // 通知宠物聊天浮窗（pet-chat.js）开合，实现「点宠物 → 弹出聊天输入框」
+    window.dispatchEvent(new CustomEvent('mini-pet:open-chat'));
     setTimeout(() => { pet.classList.remove('happy'); pet.classList.add('idle'); reacting = false; }, 620);
   });
 
