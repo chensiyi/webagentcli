@@ -10,7 +10,7 @@
   import { useToast } from '../components/overlays/toast-store.svelte';
   import { KernelEvents, KernelChannels } from 'kernel/Events.js';
   import type { KernelAPIContract } from '../api-contract.js';
-  import { getShellCache } from 'sidepanel/cache/shell-cache.js';
+  import { getShellCache } from 'sidepanel/utils/shell-cache.js';
 
   const ipc: any = getContext('ipc');
   const scriptsChannel = ipc?.getOrCreateChannel?.(KernelChannels.SCRIPTS) || ipc;

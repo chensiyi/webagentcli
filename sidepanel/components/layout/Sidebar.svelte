@@ -1,5 +1,11 @@
 <script lang="ts">
-  import type { PageId, PageDef } from '../../lib/types.js';
+  export type PageId = 'chat' | 'history' | 'storage' | 'scripts' | 'tools' | 'settings';
+
+  export interface PageDef {
+    id: PageId;
+    icon: string;
+    label: string;
+  }
 
   interface Props {
     activePage: PageId;

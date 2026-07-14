@@ -233,7 +233,7 @@ export class ShellDataCache {
 // 应用级单例（跨页面共享）。api 由 Sidepanel 顶层创建一次并注入 context，所有页面复用同一实例。
 //
 // 关键坑（切换会话失效的根因）：本模块若被打包进「多份」（如不同页面用不同 import 形式——
-// 别名 `sidepanel/cache/shell-cache.js` 与相对 `../cache/shell-cache.js` 在部分打包配置下会解析成
+// 别名 `sidepanel/utils/shell-cache.js` 与相对 `../utils/shell-cache.js` 在部分打包配置下会解析成
 // 两个模块记录），每个副本各自持有独立的模块级 `_instance`，于是「单例」实际有多个，
 // 各页面拿到的 ShellDataCache 实例不同 → currentSessionId 互不连通 → 切换会话永远落到旧会话。
 // 因此把唯一实例锚定在 globalThis 上：无论模块被求值几次，全局只有一份，彻底消除该问题。

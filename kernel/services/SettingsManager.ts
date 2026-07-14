@@ -43,6 +43,7 @@ export class SettingsManager extends BaseSettings {
     // 防御：剥离 Svelte $state Proxy
     const plainValue = clonePlain(value);
     this._settings[key] = plainValue;
+    { const p = typeof plainValue === 'string' ? plainValue : JSON.stringify(plainValue); Log.info('SETTINGS', `saveSetting: ${key} = ${p.length > 120 ? p.slice(0, 120) + '…' : p}`); }
       if (this.storage) {
       try { await this.storage.set(StorageKeys.APP_SETTINGS, { ...this._settings }); } catch (e) {
         Log.warn('SETTINGS', `saveSetting error: ${(e)?.message}`);
@@ -52,7 +53,7 @@ export class SettingsManager extends BaseSettings {
   }
   getSetting(key: string) { return this._settings[key]; }
   getSettings() { return { ...this._settings }; }
-  resetSettings() { this._settings = {}; }
+  resetSettings() { this._settings = {}; Log.info('SETTINGS', 'resetSettings (all cleared)'); }
 
   /** 合并设置并持久化到存储，同时通过 IPC 通知 ProviderFactory 更新 */
   async saveSettings(settings: Record<string, any>) {
@@ -74,6 +75,6 @@ export class SettingsManager extends BaseSettings {
     } catch (e) {
       Log.warn('SETTINGS', `emit SAVED error: ${(e)?.message}`);
     }
-    Log.info('SETTINGS', 'Settings saved and SAVED event emitted');
+    Log.info('SETTINGS', `Settings saved (${Object.keys(plainSettings).length} keys) and SAVED event emitted`);
   }
 }

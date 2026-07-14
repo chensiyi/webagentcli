@@ -98,9 +98,7 @@ webagentcli/
 │   │   └── chat/              # 聊天子组件
 │   │       ├── MessageBubble.svelte
 │   │       └── ...
-│   ├── cache/                 # Shell 侧缓存层（shell-cache.ts：应用级单例，currentSessionId 等，globalThis 锚定）
 │   ├── api-contract.ts        # Shell→Kernel RPC 契约类型
-│   ├── lib/types.ts           # 共享类型（PageId / PageDef 等）
 │   ├── services/              # 壳层服务
 │   │   └── chromeStorage.ts
 │   ├── styles/                # 全局样式
@@ -108,10 +106,16 @@ webagentcli/
 │   │   ├── components.css     # 组件样式
 │   │   ├── pages.css          # 页面样式
 │   │   └── utilities.css      # 工具类
-│   └── utils/                 # 工具函数
-│       ├── dom.ts
-│       ├── text.ts
-│       └── time.ts
+│   ├── utils/                 # 工具函数 / 壳层状态 store
+│   │   ├── dom.ts
+│   │   ├── text.ts
+│   │   ├── time.ts
+│   │   ├── shell-cache.ts     # Shell 侧缓存层（应用级单例，currentSessionId 等，globalThis 锚定）
+│   │   └── confirm-store.svelte.ts # 确认气泡 store（danger 工具确认闸门，Svelte 5 runes 单例）
+│   └── userscripts/           # 用户脚本源（单一目录）+ presets.json 预装白名单
+│       ├── presets.json       # 预装清单（列进此清单的脚本随版本 tag 发布预装）
+│       ├── page-pet.user.js
+│       └── page_to_markdown.user.js # @tool → page_to_markdown_script
 ├── dist/                      # 构建产物
 │   ├── background.bundle.js   # 内核 + Service Worker 打包
 │   └── sidepanel/             # Svelte 5 UI 打包（index.html + bundle）

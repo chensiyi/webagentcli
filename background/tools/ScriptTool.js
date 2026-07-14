@@ -27,20 +27,18 @@ export function toolNameFor(script) {
   return (meta?.name) || slug(script?.name);
 }
 
-/** 由 @tool.param.* 构建 inputSchema（全部参数默认必填） */
+/** 由 @tool.param.* 构建 inputSchema（所有参数默认可选，是否必填交由脚本自身处理，内核不做 required 校验） */
 export function buildInputSchema(meta) {
   if (!meta || !meta.params || meta.params.length === 0) {
     return { type: 'object', properties: {} };
   }
   const properties = {};
-  const required = [];
   for (const p of meta.params) {
     const def = { type: p.type, description: p.description || '' };
     if (p.enum && p.enum.length) def.enum = p.enum;
     properties[p.name] = def;
-    required.push(p.name);
   }
-  return { type: 'object', properties, required };
+  return { type: 'object', properties };
 }
 
 /**

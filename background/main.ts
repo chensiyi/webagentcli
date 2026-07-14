@@ -33,9 +33,12 @@ import { ProviderFactory } from 'kernel/services/ProviderFactory.js';
 import { createChromeStorage } from './services/chromeStorage.js';
 import { RunUserScriptTool } from './tools/RunUserScriptTool.js';
 import { ManageUserScriptsTool, GetUserScriptsTool, syncRegisteredScripts } from './tools/ManageUserScriptsTool.js';
+import { CaptureScreenshotTool } from './tools/CaptureScreenshotTool.js';
 import { reconcileScriptTools } from './script-tools.js';
+import { installPresets } from './preset-installer.js';
 import { KernelEvents, KernelChannels } from 'kernel/Events.js';
 import { Log } from 'kernel/services/Log.js';
+import { StorageKeys } from 'kernel/Keys.js';
 
 /**
  * 内核启动编排（只启动一次，跨 SW 唤醒保持单例）。
@@ -50,6 +53,8 @@ let kernelCrashed = false;
 let reloading = false;
 /** 当前已启动的内核实例（供 onSuspend 优雅清理时直接取用，免去二次 await）。 */
 let activeKernel: Kernel | null = null;
+/** 媒体二进制存储（在 START 阶段创建，供截图等工具与 RPC 媒体门面共用，避免重复实例）。 */
+let mediaStore: any = null;
 
 // 用户脚本菜单命令：页面侧（gm-api.js）经 GM_registerMenuCommand 收集后，由 USER_SCRIPT 世界
 // 唯一可用的 chrome.runtime.sendMessage 回传（唤醒休眠 SW，带 300ms 重试防冷启动竞态）；
@@ -153,6 +158,42 @@ ipc.on(KernelEvents.KERNEL.PING, () => {
         .catch(() => { /* 启动失败已通过 kernel:bootError 暴露 */ });
 });
 
+/**
+ * 内核 → Shell 全局通知（toast）。background 在关键节点（如预装脚本安装）经
+ * ui:notification 事件推送，Shell 侧订阅后透传为 toast。
+ * @param type    'info' | 'success' | 'warning' | 'error'
+ * @param message 提示文案
+ * @param duration 自动关闭毫秒数；0 表示常驻（需用户手动关闭）。省略用 toast 默认。
+ */
+function notifyShell(type: 'info' | 'success' | 'warning' | 'error', message: string, duration?: number): void {
+  ipc.emit(KernelEvents.UI.NOTIFICATION, { type, message, duration });
+}
+
+/**
+ * 判定是否为「全新安装」：仅当用户数据相关的存储键全部为空/不存在时才视为全新，
+ * 以此作为预装脚本的触发条件，避免每次 SW 唤醒都发起远程拉取（曾导致内核加载异常）。
+ * 注意：ToolsManager.init 仅读取 TOOLS_ENABLED、SettingsManager.loadSettings 在新鲜安装时
+ * 不会落盘，故该判定在 boot 流程中稳定有效。
+ */
+async function isFreshInstall(storage: { get(key: string): Promise<unknown> }): Promise<boolean> {
+  if (!storage) return false;
+  const probeKeys = [
+    StorageKeys.APP_SETTINGS,
+    StorageKeys.TOOLS_ENABLED,
+    StorageKeys.SESSIONS,
+    StorageKeys.USER_SCRIPTS,
+    StorageKeys.PRESET_INSTALLED,
+  ];
+  const values = await Promise.all(probeKeys.map((k) => storage.get(k).catch(() => undefined)));
+  return values.every((v) => {
+    if (v == null) return true;
+    if (typeof v === 'string') return v.trim().length === 0;
+    if (Array.isArray(v)) return v.length === 0;
+    if (typeof v === 'object') return Object.keys(v as Record<string, unknown>).length === 0;
+    return false;
+  });
+}
+
 function ensureBoot(): Promise<any> {
     if (!bootPromise) {
         bootPromise = bootKernel()
@@ -238,6 +279,9 @@ async function bootKernel() {
         // 注册内置工具（直接传实例：RunUserScriptTool 无参，ManageUserScriptsTool/GetUserScriptsTool 需内核引用）
         // toolsManager 已在 kernel.boot() 期间初始化，此处经 getter 取实例
         const toolsManager = kernel.getToolsManager();
+        // 媒体二进制存储：在 START 阶段尽早创建（闭包懒读设置，无需等 loadSettings），
+        // 供截图工具与 READY 阶段媒体 RPC 门面共用同一实例。
+        mediaStore = createMediaStore(() => kernel.getSettingsManager().getSettings());
         // 危险工具确认闸门已内聚于 ToolsManager（注入 ipc 后 invoke 危险工具前自动 await Shell 确认）
         // - ManageUserScriptsTool：写操作（install/update/toggle/delete），标 danger 需确认
         // - GetUserScriptsTool：只读（list/get），安全免确认
@@ -245,6 +289,7 @@ async function bootKernel() {
           new RunUserScriptTool(),
           new GetUserScriptsTool(kernel),
           new ManageUserScriptsTool(kernel),
+          new CaptureScreenshotTool(kernel, mediaStore),
         ];
         builtInTools.forEach((tool) => {
             if (!tool || !tool.name) return;
@@ -260,6 +305,32 @@ async function bootKernel() {
         const settingsManager = kernel.getSettingsManager();
         await settingsManager.loadSettings();
         log.info('BACKGROUND', 'Settings loaded');
+
+        // 预装脚本机制：仅在「所有用户数据存储为空」（全新安装）时执行一次，
+        // 避免每次 SW 唤醒都发起远程拉取而可能引发内核加载异常。
+        // 非致命：单条失败已被安装器内部吞掉，整体异常也不应阻断内核启动。
+        try {
+          const fresh = await isFreshInstall(kernel.getStorageManager());
+          if (fresh) {
+            // 安装前告知 Shell 正在尝试安装（error 型 toast 更醒目）
+            notifyShell('error', '正在尝试安装预装脚本，请稍候…', 0);
+            const presetRes = await installPresets(
+              kernel.getScriptsManager(),
+              kernel.getStorageManager()
+            );
+            log.info(
+              'BACKGROUND',
+              `Preset scripts: ${presetRes.installed} installed, ${presetRes.skipped} skipped`
+            );
+            // 完成后提示用户重新打开扩展，使注入脚本/投影工具生效
+            notifyShell('info', '预装脚本已安装完成，请重新打开扩展（或刷新页面）以生效。', 0);
+          } else {
+            log.info('BACKGROUND', 'Storage 非空，跳过预装脚本安装');
+          }
+        } catch (e) {
+          log.warn('BACKGROUND', 'Preset install failed (non-fatal)', e);
+          notifyShell('error', '预装脚本安装失败，可稍后重试或手动安装。', 0);
+        }
         // 注意：kernel:bootComplete 统一在 bootKernel() resolve 后由 onShellConnect 的 .then 发出，
         // 此时 Phase 4(READY) 已完成、RPC 服务已暴露，Shell 收到后即可安全调用 RPC，避免竞态超时。
     });
@@ -304,8 +375,9 @@ async function bootKernel() {
         });
 
         // 媒体二进制存储（可插拔后端：本地 IndexedDB / 远端资源服务器，按设置切换）
-        // 消息只持 mediaId 引用，避免 chrome.storage 配额膨胀
-        const mediaStore = createMediaStore(() => kernel.getSettingsManager().getSettings());
+        // 消息只持 mediaId 引用，避免 chrome.storage 配额膨胀。
+        // 复用 START 阶段创建的单例（mediaStore 已就绪）。
+        if (!mediaStore) mediaStore = createMediaStore(() => kernel.getSettingsManager().getSettings());
         rpcServer.expose('media', createMediaFacade(mediaStore), {
             methods: ['put', 'get', 'getMany', 'delete'],
             capabilities: kernel.getCapabilities() as any,

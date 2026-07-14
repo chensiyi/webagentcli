@@ -39,7 +39,7 @@ describe('reconcileScriptTools（P2 @tool 自动注册）', () => {
     expect(t).toBeTruthy();
     expect(t.source).toBe('script');
     expect(t.inputSchema.properties.x).toBeTruthy();
-    expect(t.inputSchema.required).toContain('x');
+    expect(t.inputSchema.required).toBeUndefined();
     expect(t.category).toBe('user-script');
   });
 

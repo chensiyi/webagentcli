@@ -124,9 +124,10 @@ export class ScriptsManager extends BaseScriptsManager {
    *   @tool.name        <name>            工具名（缺省由脚本 @name slug 化推导）
    *   @tool.description <text>            工具说明（缺省用脚本 @description）
    *   @tool.danger                          危险标记：执行前需人工确认
-   *   @tool.param.<p>  <type> [<desc>]   参数声明（type∈string/number/boolean/integer/array/object）
-   *   @tool.enum.<p>   a|b|c               参数枚举约束
-   * 无 @tool 标记则返回 null（非工具脚本）。
+ *   @tool.param.<p>  <type> [<desc>]   参数声明（type∈string/number/boolean/integer/array/object）
+ *   @tool.enum.<p>   a|b|c               参数枚举约束
+ * 无 @tool 标记则返回 null（非工具脚本）。
+ * 注：所有参数均默认可选，inputSchema 不生成 required 数组；是否必填由脚本自身处理。
    */
   private _parseToolMeta(block: string): ScriptToolMeta | null {
     let isTool = false;
@@ -289,6 +290,28 @@ export class ScriptsManager extends BaseScriptsManager {
     await this._save();
     await this.loadAll();
     this.scriptsChannel?.emit(KernelEvents.SCRIPTS.CHANGED, { reason: 'uninstall', id });
+  }
+
+  /**
+   * 安装或更新：按 name(+namespace) 去重。
+   * - 已存在同 key 脚本 → 原地 edit 更新（保留同一 id，注入/工具投影自动跟随）
+   * - 不存在         → install 新建
+   * 供预装机制（#4.0）幂等安装与版本升级复用，单个失败不影响其余。
+   */
+  async installOrUpdate(code: string): Promise<UserScript> {
+    if (!code || !code.trim()) throw new Error('脚本代码不能为空');
+    if (!/==UserScript==/.test(code)) throw new Error('缺少 ==UserScript== 元数据头，无法识别为用户脚本');
+    const meta = this.parseMetadata(code);
+    const key = (meta.namespace ? meta.namespace + '/' : '') + (meta.name || '未命名脚本');
+    const existing = (await this.loadAll()).find((s) => {
+      const ek = (s.namespace ? s.namespace + '/' : '') + s.name;
+      return ek === key;
+    });
+    if (existing) {
+      await this.edit(existing.id, code);
+      return this.get(existing.id) as UserScript;
+    }
+    return this.install(code);
   }
 
   // 保持 updateCode 别名兼容

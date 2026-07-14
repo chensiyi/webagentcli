@@ -8,7 +8,7 @@
   import EmptyState from '../components/layout/EmptyState.svelte';
   import { KernelEvents, KernelChannels } from 'kernel/Events.js';
   import type { KernelAPIContract } from '../api-contract.js';
-  import { getShellCache } from 'sidepanel/cache/shell-cache.js';
+  import { getShellCache } from 'sidepanel/utils/shell-cache.js';
   import { useToast } from '../components/overlays/toast-store.svelte';
   import { Log } from 'kernel/services/Log.js';
 

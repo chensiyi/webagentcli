@@ -1,6 +1,6 @@
 <script lang="ts">
   import { extractText } from '../../utils/text.js';
-  import { confirmStore } from '../../stores/confirm-store.svelte.js';
+  import { confirmStore } from '../../utils/confirm-store.svelte.js';
 
   let { tcId, tcName, tcArgs, tcResult, tcResultText, tcStatus, collapsed, toggleToolCall } = $props();
 

@@ -3,7 +3,7 @@
   import { waitKernelReady } from 'sidepanel/utils/kernel-ready.js';
   import { KernelEvents, KernelChannels } from 'kernel/Events.js';
   import type { KernelAPIContract } from 'sidepanel/api-contract.js';
-  import { getShellCache } from 'sidepanel/cache/shell-cache.js';
+  import { getShellCache } from 'sidepanel/utils/shell-cache.js';
   import { extractText, renderMarkdown, extractMediaBlocks } from 'sidepanel/utils/text.js';
   import { autoScrollToBottom } from 'sidepanel/utils/dom.js';
   import { useToast } from 'sidepanel/components/overlays/toast-store.svelte';

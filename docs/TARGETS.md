@@ -19,8 +19,18 @@
         脚本写操作后「重启内核」确认 toast：新增 kernel.reload RPC（轻量重跑 syncRegisteredScripts+reconcileScriptTools，不冲 sidepanel）；安装/更新/卸载统一提示，「立即重启」→ reload+invalidateTools
         manage_user_scripts 标 danger（高危确认闸门）；只读 list/get 拆为独立 get_user_scripts（免确认）；脚本 @-header/@tool 参数已写入工具说明
     4. 预装脚本体系（当前迭代）
-        0. 预装机制：首次加载插件时，从 git 仓库对应版本对应目录批量下载安装脚本；后续版本升级增量更新
-        1. 标准页面能力脚本（`page_to_markdown`、`capture_screenshot`），以 @tool 注册为 AI 工具；功能不强制自研，可导入网络 JS
+        0. 预装机制  ✅ 已落地（2026-07-13）
+        - 源即仓库（运行时远程拉取，最贴合原始 #4.0「从 git 仓库批量下载」设想）：首次启动（及升级）从 GitHub 仓库 `chensiyi/webagentcli` 经 **jsDelivr 镜像**拉取 `sidepanel/userscripts/presets.json` 清单 + 其登记的各 `.user.js`，installOrUpdate 进 ScriptsManager；往 `sidepanel/userscripts/` 丢文件并在 presets.json 登记即发布，无需重包扩展
+        - **单一脚本目录**：源脚本与预装源统一为 `sidepanel/userscripts/`（不再单独维护 `presets/`）；`presets.json` 是该目录下的预装白名单——只有列进清单的脚本才随发布预装，目录里其余脚本仅作本地源
+        - **版本 tag 绑定**：预装源 base = `https://cdn.jsdelivr.net/gh/chensiyi/webagentcli@v<当前版本>/sidepanel/userscripts`，版本取 `chrome.runtime.getManifest().version`（如 v0.8.0）；发布扩展时给仓库打 `vX.Y.Z` tag，已装扩展即从此 tag 拉取；若要固定分支/ref 改 `preset-installer.js` 的 `presetTag()` 即可
+        - 为什么 jsDelivr 而非 raw.githubusercontent：扩展 SW 跨域 fetch 受 CORS 限制，前者回 `access-control-allow-origin: *`，后者多不回会 Failed to fetch
+        - 运行时 `background/preset-installer.js`（START 阶段）读取清单→逐个 installOrUpdate，随后由 READY 的 syncRegisteredScripts / reconcileScriptTools 统一接管注入与 @tool 投影
+        - 幂等 & 升级：storage 记录 `{ [name|namespace]: version }`；已安装且同版本 → 跳过（保留用户编辑/删除），版本变化 → 原地更新；拉取失败（离线/该 tag 暂无清单）→ 跳过，己装脚本不受影响，不阻断启动
+        - 仓库结构：`sidepanel/userscripts/presets.json`（文件名数组）+ `sidepanel/userscripts/*.user.js`；当前预装：`page-pet.user.js`（迷你宠物 UI）、`page_to_markdown.user.js`（`@tool` → page_to_markdown_script）
+        1. 标准页面能力脚本（`page_to_markdown`、`capture_screenshot`）  ✅ 已落地（2026-07-13）
+        - `page_to_markdown`：内置工具（source=builtin），在 MAIN 世界执行 DOM→Markdown 转换（标题/段落/链接/列表/表格/代码），经 executeInPage 返回文本；另附 `@tool` 脚本版 sidepanel/userscripts/page_to_markdown.user.js（@tool.name page_to_markdown_script）供「用户脚本自动注册」路径验证
+        - `capture_screenshot`：内置工具（source=builtin），因截图需 chrome.tabs.captureVisibleTab（用户脚本世界无此 API），走内核实现；结果经 mediaStore 落盘为 mediaId，以 [MediaBlock, TextBlock] 返回，模型可直接「看到」截图
+        - 两者均在 background/main.ts START 阶段注册为内置 AI 工具，无需预装机制即可用
         2. 油猴请求拦截与编辑（main world，油猴功能一部分，非 agent 请求编排）
         3. Agent 请求编排（background isolated world）：请求生命周期 hooks（beforeRequest / afterResponse），独立于油猴请求拦截
         4. Main World RPC Bridge：升级brige，为脚本在 main world 调用内核 RPC 提供通道（暴露有限接口如 getPageContent、invokeTool），实现页面内 mini agent；安全约束：仅已安装脚本可用，敏感操作走 danger 确认

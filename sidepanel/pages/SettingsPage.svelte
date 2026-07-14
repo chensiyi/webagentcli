@@ -11,7 +11,7 @@ import { KernelChannels } from 'kernel/Events.js';
   import Card from 'sidepanel/components/layout/Card.svelte';
   import { useToast } from 'sidepanel/components/overlays/toast-store.svelte';
   import { Log } from 'kernel/services/Log.js';
-  import { getShellCache } from 'sidepanel/cache/shell-cache.js';
+  import { getShellCache } from 'sidepanel/utils/shell-cache.js';
 
   const ipc: any = getContext('ipc');
   const settingsChannel = ipc?.getOrCreateChannel?.(KernelChannels.SETTINGS) || ipc;

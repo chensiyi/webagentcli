@@ -49,6 +49,7 @@ export class SessionManager extends BaseSessionManager {
       updatedAt: Date.now()
     });
     this.sessions.push(s);
+    Log.info('SESSION', `create id=${s.id} title="${(s.title || '').slice(0, 24)}"`);
     if (persist) {
       await this._persistMessages(s.id);
       await this._persistIndex();
@@ -76,6 +77,7 @@ export class SessionManager extends BaseSessionManager {
       // 删除会话前先收集其中所有媒体引用，会话删掉后连带清理二进制，避免 IndexedDB/远端孤儿 blob
       const mediaIds = collectMediaIdsFromMessages(session.messages);
       this.sessions.splice(i, 1);
+      Log.info('SESSION', `delete id=${id} (media=${mediaIds.length})`);
       this._transientIds.delete(id);
       await this._persistIndex();
       if (this.storage) {
@@ -91,6 +93,7 @@ export class SessionManager extends BaseSessionManager {
   async updateSession(id: string, updater: ((s: Session) => void) | Record<string, unknown>): Promise<void> {
     const s = this.getSession(id);
     if (s) {
+      Log.info('SESSION', `update id=${id}`);
       if (typeof updater === 'function') updater(s);
       else Object.assign(s, updater);
       s.updatedAt = Date.now();
@@ -108,6 +111,7 @@ export class SessionManager extends BaseSessionManager {
     if (s) {
       // 清空前收集媒体引用，清空后连带回收，避免孤儿 blob
       const mediaIds = collectMediaIdsFromMessages(s.messages);
+      Log.info('SESSION', `clearMessages id=${sessionId} (media=${mediaIds.length})`);
       s.messages = [];
       s.title = '新对话'; // 清空消息时同步重置标题
       s.updatedAt = Date.now();
@@ -121,6 +125,7 @@ export class SessionManager extends BaseSessionManager {
   async addMessage(message: Message, sessionId: string): Promise<void> {
     const s = this.getSession(sessionId);
     if (s) {
+      Log.info('SESSION', `addMessage id=${sessionId} role=${message.role} msg=${message.id}`);
       // 首条消息落盘时，把「未发送即空」的临时会话正式化为持久会话
       const wasTransient = this._transientIds.has(sessionId);
       if (wasTransient) this._transientIds.delete(sessionId);
@@ -140,6 +145,7 @@ export class SessionManager extends BaseSessionManager {
       // 删除单条消息前收集其媒体引用，避免孤立 blob
       const mediaIds = collectMediaIdsFromMessages([s.messages[i]]);
       s.messages.splice(i, 1);
+      Log.info('SESSION', `deleteMessage id=${sessionId} msg=${messageId}`);
       await this._persistMessages(sessionId);
       await this._persistIndex();
       await this._cleanupMedia(mediaIds);

@@ -87,10 +87,11 @@ describe('ScriptTool 工厂与工具名推导', () => {
     expect(toolNameFor(mkScript({ name: 'My Script', toolMeta: { isTool: true, params: [] } }))).toBe('my_script');
   });
 
-  it('buildInputSchema：全部参数必填，enum 透传', () => {
+  it('buildInputSchema：所有参数默认可选（不生成 required），enum 透传', () => {
     const schema = buildInputSchema(mkScript().toolMeta);
     expect(schema.type).toBe('object');
-    expect(schema.required).toEqual(['x', 'm']);
+    expect(schema.required).toBeUndefined();
+    expect(Object.keys(schema.properties || {})).toEqual(['x', 'm']);
     expect((schema.properties as any).m.enum).toEqual(['one', 'all']);
   });
 

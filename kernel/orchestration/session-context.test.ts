@@ -179,6 +179,7 @@ describe('ContextBuilder', () => {
       const lastRole = roles[roles.length - 1];
       expect(lastRole).not.toBe('tool'); // tool 消息前面必定有 assistant
     });
+
   });
 
   // ─── 空消息处理 ──────────────────────────────

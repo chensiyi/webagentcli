@@ -21,6 +21,8 @@ export const StorageKeys = {
   /** 会话索引（轻量：id/title/时间/消息数/预览，不含消息体） */
   SESSIONS: 'sessions',
   USER_SCRIPTS: 'user_scripts',
+  /** 预装脚本（TARGETS #4.0）已应用版本记录：值为 { [name|namespace]: version }，用于幂等与升级判断 */
+  PRESET_INSTALLED: 'preset_installed',
 } as const;
 
 /**

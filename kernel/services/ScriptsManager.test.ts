@@ -100,3 +100,46 @@ console.log(1);`);
     expect(s.toolMeta?.name).toBe('do_thing');
   });
 });
+
+describe('ScriptsManager.installOrUpdate 幂等安装/升级（#4.0 预装）', () => {
+  const mkStorage = () => {
+    const mem = new Map<string, unknown>();
+    return {
+      get: async (k: string) => mem.get(k),
+      set: async (k: string, v: unknown) => { mem.set(k, v); },
+      remove: async (k: string) => { mem.delete(k); },
+      clear: async () => mem.clear(),
+    };
+  };
+
+  it('同 name+namespace 重复安装 → 原地更新而非新增', async () => {
+    const sm = new ScriptsManager({ getIPC: () => null, getStorageManager: mkStorage });
+    const code = `// ==UserScript==
+// @name    T
+// @namespace ns
+// ==/UserScript==
+console.log(1);`;
+    const a = await sm.installOrUpdate(code);
+    const count1 = (await sm.loadAll()).length;
+    const b = await sm.installOrUpdate(code.replace('console.log(1)', 'console.log(2)'));
+    const all = await sm.loadAll();
+    expect(all.length).toBe(count1); // 未新增
+    expect(b.id).toBe(a.id);         // 同一 id 原地更新
+    expect(all[0].code).toContain('console.log(2)');
+  });
+
+  it('不同 namespace → 各自安装为独立脚本', async () => {
+    const sm = new ScriptsManager({ getIPC: () => null, getStorageManager: mkStorage });
+    await sm.installOrUpdate(`// ==UserScript==
+// @name   Same
+// @namespace a
+// ==/UserScript==
+1;`);
+    await sm.installOrUpdate(`// ==UserScript==
+// @name   Same
+// @namespace b
+// ==/UserScript==
+2;`);
+    expect((await sm.loadAll()).length).toBe(2);
+  });
+});

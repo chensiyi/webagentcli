@@ -4,7 +4,7 @@
   import ToastContainer from './components/overlays/ToastContainer.svelte';
   import { useToast } from './components/overlays/toast-store.svelte';
   import { KernelEvents } from 'kernel/Events.js';
-  import type { PageId, PageDef } from './lib/types.js';
+  import type { PageId, PageDef } from './components/layout/Sidebar.svelte';
   //避免在页面中硬编码css样式，使用style中定义的语义性质的风格，便于统一风格与切换样式。
 
   const PAGES: PageDef[] = [
@@ -23,7 +23,7 @@
   import SettingsPage from './pages/SettingsPage.svelte';
   import { RPCClient, createApiClient } from 'bridge/RPC.js';
   import type { KernelAPIContract } from './api-contract.js';
-  import { confirmStore } from './stores/confirm-store.svelte.js';
+  import { confirmStore } from './utils/confirm-store.svelte.js';
 
   let { ipc, bootError = null }: { ipc: unknown; bootError?: string | null } = $props();
 
@@ -89,6 +89,20 @@
   // 内核超时/已决策后广播，移除气泡内残留的待确认态
   (ipc as any).on(KernelEvents.CONFIRM.RESOLVED, (d: any) => {
     if (d?.toolCallId) confirmStore.remove(d.toolCallId);
+  });
+
+  // 内核经 ui:notification 推送的全局通知（如预装脚本安装进度），透传为 toast。
+  // payload: { type: 'info'|'success'|'warning'|'error', message: string, duration?: number }
+  // duration 缺省用 toast 默认（3s）；显式传 0 则常驻，需用户手动关闭。
+  (ipc as any).on(KernelEvents.UI.NOTIFICATION, (d: any) => {
+    const msg = d?.message || '';
+    if (!msg) return;
+    const type = d?.type || 'info';
+    const duration = typeof d?.duration === 'number' ? d.duration : undefined;
+    if (type === 'error') toast.error(msg, duration);
+    else if (type === 'success') toast.success(msg, duration);
+    else if (type === 'warning') toast.warning(msg, duration);
+    else toast.info(msg, duration);
   });
 </script>
 

@@ -20,6 +20,18 @@ import { IStorageManager } from './IStorageManager.js';
 import { IPC } from '../IPC.js';
 import { genId } from '../utils/id.js';
 
+/** 工具返回值的简短预览（截断，避免大文本/媒体块刷屏） */
+function _previewToolResult(v: unknown, max = 200): string {
+  if (v == null) return '∅';
+  let s: string;
+  if (typeof v === 'string') s = v;
+  else if (Array.isArray(v)) s = `[${v.length} media block(s)]`;
+  else if (v && typeof v === 'object' && typeof (v as any).isSuccess === 'function') s = '[ToolResult]';
+  else s = JSON.stringify(v);
+  s = String(s);
+  return s.length > max ? s.slice(0, max) + `…(${s.length})` : s;
+}
+
 /**
  * 危险工具（Tool.danger===true）确认请求载荷（内核→Shell）。
  * - 内核在 invoke 危险工具前，经 requestConfirm() 向 Shell 广播 CONFIRM.REQUEST 事件；
@@ -378,8 +390,16 @@ export class ToolsManager {
         result = output as ToolResult;
       } else {
         const duration = Date.now() - start;
-        Log.info('ToolsManager', `Completed: ${toolName} in ${duration}ms`);
-        result = new ToolResult({ toolCallId, toolName, status: 'success', output, duration });
+        // 结构化返回：handler 可返回 { output, userMedia }，
+        // userMedia 描述「以 user 消息形式注入会话」的媒体（如截图）。
+        let out = output;
+        let userMedia: Array<{ mediaId: string; mimeType: string; filename?: string }> | undefined;
+        if (output && typeof output === 'object' && !Array.isArray(output) && 'userMedia' in (output as any)) {
+          out = (output as any).output;
+          userMedia = (output as any).userMedia;
+        }
+        Log.info('ToolsManager', `✓ ${toolName} (${duration}ms): ${_previewToolResult(out)}`);
+        result = new ToolResult({ toolCallId, toolName, status: 'success', output: out, duration, userMedia });
       }
     } catch (err) {
       const duration = Date.now() - start;
