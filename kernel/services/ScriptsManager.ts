@@ -49,6 +49,7 @@ export class ScriptsManager extends BaseScriptsManager {
     try {
       if (this.storage) {
         await this.storage.set(StorageKeys.USER_SCRIPTS, this.scripts);
+        Log.info('SCRIPTS', `Saved ${this.scripts.length} script(s) to storage`);
       }
     } catch (e) {
       Log.error('ScriptsManager', 'Failed to save scripts to storage:', e);

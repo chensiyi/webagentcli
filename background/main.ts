@@ -33,7 +33,6 @@ import { ProviderFactory } from 'kernel/services/ProviderFactory.js';
 import { createChromeStorage } from './services/chromeStorage.js';
 import { RunUserScriptTool } from './tools/RunUserScriptTool.js';
 import { ManageUserScriptsTool, GetUserScriptsTool, syncRegisteredScripts } from './tools/ManageUserScriptsTool.js';
-import { CaptureScreenshotTool } from './tools/CaptureScreenshotTool.js';
 import { reconcileScriptTools } from './script-tools.js';
 import { installPresets } from './preset-installer.js';
 import { KernelEvents, KernelChannels } from 'kernel/Events.js';
@@ -289,7 +288,6 @@ async function bootKernel() {
           new RunUserScriptTool(),
           new GetUserScriptsTool(kernel),
           new ManageUserScriptsTool(kernel),
-          new CaptureScreenshotTool(kernel, mediaStore),
         ];
         builtInTools.forEach((tool) => {
             if (!tool || !tool.name) return;

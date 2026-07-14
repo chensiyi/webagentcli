@@ -14,7 +14,6 @@
  */
 
 import { ToolCall, ToolResult } from 'kernel/models/Tool.js';
-import { Message } from 'kernel/models/Message.js';
 import { Kernel } from 'kernel/Kernel.js';
 import { KernelEvents } from 'kernel/Events.js';
 import { Log } from 'kernel/services/Log.js';
@@ -146,18 +145,6 @@ export class ToolExecutor {
       const toolMsg = await sm.appendToolResult(sessionId, tc.id, out as string | any[], isError);
       // 携带完整 message 对象，供 Shell 侧零 RPC 差量 upsert 进列表
       this.emit(KernelEvents.SESSION.MESSAGE_ADDED, { message: toolMsg, messageId: toolMsg.id, sessionId });
-
-      // 工具声明的「用户侧媒体」（如截图）：在同一次执行中原子追加为 user 消息，
-      // 模型当轮即可看到图片；Shell 侧按普通 user 消息渲染，无需特判。
-      const userMedia = (toolResult as any).userMedia;
-      if (Array.isArray(userMedia) && userMedia.length) {
-        const content = userMedia.map((m: any) => ({
-          type: 'media', kind: 'image', mediaId: m.mediaId, mimeType: m.mimeType, filename: m.filename,
-        }));
-        const userImgMsg = new Message({ role: 'user', content });
-        await sm.addMessage(userImgMsg, sessionId);
-        this.emit(KernelEvents.SESSION.MESSAGE_ADDED, { message: userImgMsg, messageId: userImgMsg.id, sessionId });
-      }
     }
 
     this.emit(KernelEvents.TOOL.ALL_COMPLETED, { toolResults, sessionId });

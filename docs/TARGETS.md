@@ -15,7 +15,7 @@
         0. 预装机制  ✅ 已落地（2026-07-14）
         - 详见架构文档「PRESET_SCRIPTS」一节：单一脚本目录 sidepanel/userscripts/，presets.json 白名单 + 按版本 tag 经 jsDelivr 远程拉取，幂等升级
         1. 标准页面能力脚本  ✅ 已落地（2026-07-14）
-        - capture_screenshot：内置工具（source=builtin），START 阶段经 toolsManager.register 注册；依赖 mediaStore，用 chrome.tabs.captureVisibleTab（SW 专属，页面世界无此 API）截图，结果经 ToolExecutor 原子注入一条 user 图片消息（userMedia）+ 文本附 dataUrl；与其他内置工具注册路径相同，差异仅在「依赖 mediaStore / SW 专属截图 API / 产出 userMedia」三点
+        - capture_screenshot：已**脚本化**（不再内置，source=script）。预装脚本 sidepanel/userscripts/screenshot.user.js（@tool 名 capture_screenshot），经 @tool 机制自动注册。流程：GM_captureVisibleTab（background 桥接调用 SW 专属 chrome.tabs.captureVisibleTab）截图 → 脚本自带上传拿网络 URL → GM_insertComposerMedia 推给 shell → shell 复用粘贴管线把 URL 录入输入框（仅插入、用户手动发送）。内核无截图专属逻辑（userMedia 注入 / mediaStore 截图接线均已删除）；setMediaResolver 仍保留服务粘贴/拖拽上传路径。
         - page_to_markdown：预装脚本（source=script），非内置工具；经 sidepanel/userscripts/page_to_markdown.user.js 的 @tool 声明 + 预装/脚本机制自动注册为 page_to_markdown_script，在 MAIN 世界执行 DOM→Markdown 转换；不随 capture_screenshot 默认可用，需经预装或手动安装
         2. 油猴请求拦截与编辑（main world，油猴功能一部分，非 agent 请求编排）  待开发 · 进行中 · 优先
         - 拦截/编辑页面请求，扩展 agent 的页面能力

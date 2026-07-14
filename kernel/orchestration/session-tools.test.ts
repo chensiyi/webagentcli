@@ -4,10 +4,10 @@ import { ToolsManager } from '../services/ToolsManager.js';
 import { Tool, ToolCall } from '../models/Tool.js';
 import { TextBlock } from '../models/MessageContent.js';
 
-// 验证 ToolExecutor：工具以 { output, userMedia } 结构化返回时，
-// tool 消息保留文本，且 userMedia 被原子追加为一条 user 图片消息（模型当轮可见）。
+// 验证 ToolExecutor：工具以 { output } 结构化返回时，tool 消息保留内容，
+// 且**不再**额外注入 user 图片消息（原 userMedia 注入机制已随截图脚本化移除）。
 describe('ToolExecutor 工具结果写入', () => {
-  it('结构化返回 { output, userMedia }：tool 消息为文本，且额外注入 user 图片消息', async () => {
+  it('结构化返回 { output }：tool 消息为文本块，且不注入额外 user 消息', async () => {
     const capturedTool: any = {};
     const userMsgs: any[] = [];
     const fakeSm: any = {
@@ -25,7 +25,6 @@ describe('ToolExecutor 工具结果写入', () => {
       inputSchema: { type: 'object', properties: {} },
       handler: async () => ({
         output: [new TextBlock('已捕获截图')],
-        userMedia: [{ mediaId: 'local_1', mimeType: 'image/png', filename: 'screenshot.png' }],
       }),
     });
     const fakeTools = new ToolsManager();
@@ -42,13 +41,8 @@ describe('ToolExecutor 工具结果写入', () => {
     expect(capturedTool.content[0].text).toContain('截图');
     expect(capturedTool.isError).toBe(false);
 
-    expect(userMsgs.length).toBe(1);
-    expect(userMsgs[0].role).toBe('user');
-    const mc = userMsgs[0].content;
-    expect(Array.isArray(mc)).toBe(true);
-    expect(mc[0].type).toBe('media');
-    expect(mc[0].mediaId).toBe('local_1');
-    expect(mc[0].mimeType).toBe('image/png');
+    // 截图能力已脚本化：内核不再把 userMedia 注入为独立的 user 图片消息
+    expect(userMsgs.length).toBe(0);
   });
 
   it('字符串结果保持原样且不注入 user 消息（向后兼容）', async () => {

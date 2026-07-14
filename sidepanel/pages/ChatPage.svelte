@@ -159,6 +159,54 @@
     pendingAttachments = pendingAttachments.filter((a) => a.id !== id);
   }
 
+  /** 按网络 URL 直接录入一条待发送媒体块（不下载、不上传）。
+   *  截图脚本经内核→shell 事件（UI.INSERT_COMPOSER_MEDIA）投递，以及粘贴图片 URL 都走此路径，
+   *  与「粘贴本地图片」(addFiles) 共用 pendingAttachments 队列，但跳过 mediaStore 上传。 */
+  function addMediaByUrl(url: string, kind: 'image' | 'audio' | 'video' | 'file' = 'image', mimeType = 'image/png') {
+    if (!url || typeof url !== 'string') return;
+    if (!kindSupported(kind)) {
+      toast.error(`当前模型不支持 ${kind} 类型输入，已忽略该链接`);
+      return;
+    }
+    const id = `att_url_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const name = (url.split('/').pop() || 'media').split(/[?#]/)[0] || 'media';
+    const att = {
+      id,
+      file: null,
+      kind,
+      filename: name,
+      mimeType,
+      size: 0,
+      dataUrl: '',
+      url, // 直链：展示与发送均用 url，不落 mediaStore
+      mediaId: null,
+      error: false,
+      uploading: false,
+    };
+    pendingAttachments = [...pendingAttachments, att];
+    Log.info('ChatPage', 'addMediaByUrl: queued', { url, kind });
+  }
+
+  /** 从 URL 猜测媒体类型（仅用于粘贴图片链接场景，默认按图片处理）。 */
+  function mediaKindFromUrl(url: string): 'image' | 'audio' | 'video' | 'file' {
+    const tail = url.split(/[?#]/)[0].toLowerCase();
+    if (/\.(png|jpe?g|gif|webp|svg|bmp|avif)$/.test(tail)) return 'image';
+    if (/\.(mp3|wav|ogg|m4a|flac)$/.test(tail)) return 'audio';
+    if (/\.(mp4|webm|mov|mkv|avi)$/.test(tail)) return 'video';
+    return 'file';
+  }
+
+  /** 是否为可直链渲染的图片 URL（粘贴场景：把链接作为图片录入输入框）。 */
+  function isImageUrl(text: string): boolean {
+    try {
+      const t = text.trim();
+      if (!/^https?:\/\//i.test(t)) return false;
+      return /\.(png|jpe?g|gif|webp|svg|bmp|avif)(\?.*)?$/i.test(t);
+    } catch {
+      return false;
+    }
+  }
+
   async function handlePaste(e: ClipboardEvent) {
     const items = e.clipboardData?.items;
     if (!items) return;
@@ -172,6 +220,13 @@
     if (files.length) {
       e.preventDefault();
       await addFiles(files);
+      return;
+    }
+    // 粘贴纯文本：若是图片链接，作为网络图片媒体块录入输入框（直链渲染，不下载）。
+    const text = e.clipboardData?.getData?.('text/plain');
+    if (text && isImageUrl(text)) {
+      e.preventDefault();
+      addMediaByUrl(text.trim(), 'image', 'image/' + (text.trim().split('.').pop() || 'png').split(/[?#]/)[0]);
     }
   }
 
@@ -277,7 +332,8 @@
 
   async function handleSend() {
     const text = inputText.trim();
-    const attachments = pendingAttachments.filter((a) => a.mediaId && !a.error);
+    // 已就绪的附件：本地上传得到的 mediaId，或网络直链得到的 url（截图纸 URL / 粘贴图片链接）。
+    const attachments = pendingAttachments.filter((a) => (a.mediaId || a.url) && !a.error);
     if (!text && attachments.length === 0) return;
 
     // 发送前再校验一次模型能力：拦截不支持的媒体类型（粘贴/拖拽被 addFiles 拦过，此处为兜底）
@@ -287,18 +343,22 @@
       return;
     }
 
-    // 组装 content：文本块 + 媒体块（mediaId 引用，发送时由内核经 mediaStore 解析）
+    // 组装 content：文本块 + 媒体块。
+    // - 本地附件：mediaId 引用，发送时由内核经 mediaStore 解析。
+    // - 网络直链附件（截图 / 粘贴图片 URL）：直接带 url，跳过上传/解析。
     const blocks: any[] = [];
     if (text) blocks.push({ type: 'text', text });
     for (const a of attachments) {
-      blocks.push({
+      const block: any = {
         type: 'media',
         kind: a.kind,
-        mediaId: a.mediaId,
         filename: a.filename,
         mimeType: a.mimeType,
         size: a.size,
-      });
+      };
+      if (a.url) block.url = a.url;
+      if (a.mediaId) block.mediaId = a.mediaId;
+      blocks.push(block);
     }
 
     inputText = '';
@@ -750,8 +810,8 @@
       <div class="attachment-tray">
         {#each pendingAttachments as att (att.id)}
           <div class="attachment-chip" class:att-error={att.error}>
-            {#if att.kind === 'image' && att.dataUrl}
-              <img class="att-thumb" src={att.dataUrl} alt={att.filename} />
+            {#if att.kind === 'image' && (att.url || att.dataUrl)}
+              <img class="att-thumb" src={att.url || att.dataUrl} alt={att.filename} />
             {:else}
               <span class="att-icon">
                 {att.kind === 'audio' ? '🎵' : att.kind === 'video' ? '🎬' : '📄'}
@@ -815,7 +875,7 @@
         <Button variant="danger" size="md" onclick={handleStop}>⏹ 停止</Button>
       {:else}
         <Button variant="primary" size="md" onclick={handleSend}
-          disabled={!inputText.trim() && pendingAttachments.filter((a: any) => a.mediaId && !a.error).length === 0}>
+          disabled={!inputText.trim() && pendingAttachments.filter((a: any) => (a.mediaId || a.url) && !a.error).length === 0}>
           发送
         </Button>
       {/if}

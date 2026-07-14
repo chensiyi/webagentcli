@@ -43,7 +43,6 @@ export class MediaBlock {
     if (this.filename) o.filename = this.filename;
     if (this.size) o.size = this.size;
     if (this.text) o.text = this.text;
-    // 注意：url 故意不持久化（避免配额膨胀），展示时由 media.get 现取
     return o;
   }
   static fromJSON(d: Record<string, unknown>): MediaBlock {

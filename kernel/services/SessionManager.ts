@@ -278,27 +278,31 @@ export class SessionManager extends BaseSessionManager {
 
   // ── 持久化（拆分存储：索引 + 按 sessionId 独立消息键）──
 
-  /** 写入单个会话的消息体（按 sessionId 局部更新，不碰其他会话）。 */
-  async _persistMessages(sessionId: string): Promise<void> {
+  /** 写入单个会话的消息体（按 sessionId 局部更新，不碰其他会话）。
+   *  @param silent 高频率批量写（流式增量）置 true，存储层降为 debug 不刷屏。 */
+  async _persistMessages(sessionId: string, silent = false): Promise<void> {
     const s = this.getSession(sessionId);
     if (!s || !this.storage) return;
     try {
       await this.storage.set(
         sessionMessagesKey(sessionId),
-        s.messages.filter(m => m != null).map(m => m.toJSON())
+        s.messages.filter(m => m != null).map(m => m.toJSON()),
+        { silent }
       );
     } catch (e) {
       this._emitStorageError(e);
     }
   }
 
-  /** 写入会话索引（轻量数组，不含消息体；临时会话不写入）。 */
-  async _persistIndex(): Promise<void> {
+  /** 写入会话索引（轻量数组，不含消息体；临时会话不写入）。
+   *  @param silent 高频率批量写（流式增量）置 true，存储层降为 debug 不刷屏。 */
+  async _persistIndex(silent = false): Promise<void> {
     if (!this.storage) return;
     try {
       await this.storage.set(
         StorageKeys.SESSIONS,
-        this.sessions.filter(s => s && s.id && !this._transientIds.has(s.id)).map(s => s.toIndexJSON())
+        this.sessions.filter(s => s && s.id && !this._transientIds.has(s.id)).map(s => s.toIndexJSON()),
+        { silent }
       );
     } catch (e) {
       this._emitStorageError(e);
@@ -316,17 +320,18 @@ export class SessionManager extends BaseSessionManager {
     this._msgFlushTimers.set(sessionId, timer);
   }
 
-  /** 落盘某会话的消息体 + 索引（合并写入，减少 IO）。 */
-  async _flushMessages(sessionId: string): Promise<void> {
-    await this._persistMessages(sessionId);
-    await this._persistIndex();
+  /** 落盘某会话的消息体 + 索引（合并写入，减少 IO）。流式增量批量写默认 silent，
+   *  不刷 STORAGE info 日志；一次性收尾（flushSession）同样静默，事件已由上层 SESSION 日志覆盖。 */
+  async _flushMessages(sessionId: string, silent = true): Promise<void> {
+    await this._persistMessages(sessionId, silent);
+    await this._persistIndex(silent);
   }
 
   /** 强制立即落盘（流式结束时调用，确保收尾内容不依赖定时器窗口）。 */
   async flushSession(sessionId: string): Promise<void> {
     const timer = this._msgFlushTimers.get(sessionId);
     if (timer) { clearTimeout(timer); this._msgFlushTimers.delete(sessionId); }
-    await this._flushMessages(sessionId);
+    await this._flushMessages(sessionId, true);
   }
 
   /** 存储写入失败（如配额超限）时上报：带冷却，避免刷屏式弹 toast。 */

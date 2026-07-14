@@ -49,8 +49,6 @@ export class ToolResult {
   error: unknown;
   duration: number;
   metadata: Record<string, unknown>;
-  /** 工具希望以 user 消息形式注入会话的媒体（如截图图片），由执行器在写入 tool 结果后原子追加 */
-  userMedia: Array<{ mediaId: string; mimeType: string; filename?: string }> | null;
 
   constructor(opts: Record<string, unknown> = {}) {
     this.toolCallId = (opts.toolCallId as string) || null;
@@ -62,9 +60,6 @@ export class ToolResult {
     this.error = opts.error || null;
     this.duration = (opts.duration as number) || 0;
     this.metadata = (opts.metadata as Record<string, unknown>) || {};
-    // 工具声明的「用户侧媒体」（如截图）：执行器将其作为 user 消息注入会话，
-    // 使模型当轮即可看到图片，且不违反 OpenAI tool message 禁含图片的限制。
-    this.userMedia = (opts.userMedia as Array<{ mediaId: string; mimeType: string; filename?: string }>) || null;
   }
 
   isSuccess(): boolean { return this.status === 'success'; }
@@ -78,7 +73,6 @@ export class ToolResult {
       timestamp: this.timestamp,
       status: this.status,
       output: this.output, error: this.error, duration: this.duration, metadata: this.metadata,
-      ...(this.userMedia ? { userMedia: this.userMedia } : {})
     };
   }
 

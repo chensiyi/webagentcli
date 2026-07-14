@@ -277,6 +277,8 @@ export class ToolsManager {
     for (const t of this._tools.values()) map[t.name] = t.enabled !== false;
     try {
       await this._storage.set(this._storageKey, map);
+      const on = Object.values(map).filter(Boolean).length;
+      Log.info('TOOLS', `Persisted ${on}/${this._tools.size} tool(s) enabled`);
     } catch (e) {
       Log.warn('ToolsManager', `persist error: ${(e as any)?.message}`);
     }
@@ -390,16 +392,13 @@ export class ToolsManager {
         result = output as ToolResult;
       } else {
         const duration = Date.now() - start;
-        // 结构化返回：handler 可返回 { output, userMedia }，
-        // userMedia 描述「以 user 消息形式注入会话」的媒体（如截图）。
+        // 结构化返回：handler 可返回 { output, ... }，统一取 output 作为工具结果。
         let out = output;
-        let userMedia: Array<{ mediaId: string; mimeType: string; filename?: string }> | undefined;
-        if (output && typeof output === 'object' && !Array.isArray(output) && 'userMedia' in (output as any)) {
+        if (output && typeof output === 'object' && !Array.isArray(output) && 'output' in (output as any)) {
           out = (output as any).output;
-          userMedia = (output as any).userMedia;
         }
         Log.info('ToolsManager', `✓ ${toolName} (${duration}ms): ${_previewToolResult(out)}`);
-        result = new ToolResult({ toolCallId, toolName, status: 'success', output: out, duration, userMedia });
+        result = new ToolResult({ toolCallId, toolName, status: 'success', output: out, duration });
       }
     } catch (err) {
       const duration = Date.now() - start;

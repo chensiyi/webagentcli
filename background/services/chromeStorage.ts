@@ -5,9 +5,13 @@
  * 内核只依赖 IStorageManager 接口，不直接触碰 chrome。本工厂在 background 组装阶段
  * 创建**唯一**实例并注入内核（见 background/main.ts），不做任何中转 / 代理类包装。
  *
- * 关键动作（set / remove / clear）均打 info 日志并附值的简短描述（类型+大小），
- * 便于排查存储读写；get / getAll 仅打 debug（生产默认不刷屏）。
- * 注意：会话消息落盘走批量定时器（MSG_PERSIST_BATCH_MS），非逐 token，故 set 日志不会随流式刷屏。
+ * 日志策略（降低常规噪音，重要写由业务服务自己记 info）：
+ * - set：打 **debug**（最高频的常规写——每次会话落盘 / 设置 / 脚本 / 工具 / 预装都会触发，刷屏）；
+ *        流式批量写再叠加 { silent: true } 同样走 debug（带 [silent] 标记）。
+ * - remove / clear：打 **info**（罕见且具破坏性，值得在常规日志里看到）。
+ * - get / getAll：打 debug（生产默认不刷屏）。
+ * 各业务服务（SettingsManager / SessionManager / ScriptsManager / ToolsManager / preset-installer）
+ * 已对各自的关键写打 info，故 storage 层无需为 set 重复 info。
  */
 
 import { IStorageManager } from 'kernel/services/IStorageManager.js';
@@ -30,8 +34,12 @@ export function createChromeStorage(): IStorageManager {
       return result[key];
     },
 
-    async set(key: string, value: unknown): Promise<void> {
-      Log.info('STORAGE', `set ${key} (${_desc(value)})`);
+    async set(key: string, value: unknown, opts?: { silent?: boolean }): Promise<void> {
+      if (opts?.silent) {
+        Log.debug('STORAGE', `set ${key} (${_desc(value)}) [silent]`);
+      } else {
+        Log.debug('STORAGE', `set ${key} (${_desc(value)})`);
+      }
       await chrome.storage.local.set({ [key]: value });
     },
 

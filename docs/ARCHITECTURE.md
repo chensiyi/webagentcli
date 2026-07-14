@@ -460,8 +460,11 @@ class ToolsManager {
 - `RunUserScriptTool` — 在当前活动 tab 执行用户 JS（Turing-complete 万能工具），标 `danger` 需确认
 - `ManageUserScriptsTool` — 用户脚本**写操作**（install / update / toggle / delete），标 `danger` 需确认（同文件导出 `GetUserScriptsTool`）
 - `GetUserScriptsTool` — 用户脚本**只读查询**（list / get），安全免确认（从 ManageUserScriptsTool 拆出，避免只读操作也弹确认气泡）
-- `CaptureScreenshotTool` — 截图工具，依赖 `mediaStore`；用 `chrome.tabs.captureVisibleTab`（SW 专属，页面世界无此 API）截图，结果经 `ToolExecutor` **原子注入一条 user 图片消息**（`userMedia`）+ 文本附 `dataUrl`；与其他内置工具注册路径相同，差异仅在此三点
 - `ScriptTool` — `@tool` 用户脚本的通用执行包装（handler 在目标页执行脚本并注入 `__toolArgs`，return 值作为工具结果）
+
+> **截图能力已脚本化（不再内置）**：原 `CaptureScreenshotTool`（强耦合内核、依赖 mediaStore、经 `userMedia` 注入 user 图片消息）已移除。
+> 改为预装 `@tool` 脚本 `sidepanel/userscripts/screenshot.user.js`（`capture_screenshot`），经 `@tool` 机制自动注册。
+> 脚本流程：经 `GM_captureVisibleTab`（background 桥接，调用 SW 专属的 `chrome.tabs.captureVisibleTab`）截图 → 脚本自带上传拿到**网络 URL** → `GM_insertComposerMedia` 把 URL 推给 shell → shell 复用「粘贴→媒体块」管线把 URL 录入**输入框**（仅插入、由用户手动发送）。内核不再有任何截图专属逻辑（`userMedia` 注入、`mediaStore` 截图接线均已删除）。
 
 工具注册在 START 阶段完成（`background/main.ts`）：
 ```typescript
@@ -469,7 +472,6 @@ const builtInTools = [
   new RunUserScriptTool(),
   new GetUserScriptsTool(kernel),
   new ManageUserScriptsTool(kernel),
-  new CaptureScreenshotTool(kernel, mediaStore),
 ];
 builtInTools.forEach((tool) => {
   if (!tool || !tool.name) return;
@@ -631,7 +633,7 @@ Shell 不通过 Svelte Context 持有 kernel 实例，而是通过 `bridge/RPC` 
 
 1. 在 `background/tools/` 创建 `XxxTool.js`
 2. 继承 `Tool` 类，在 `super()` 中传入定义和 handler
-3. 在 `background/main.ts` 的 START 阶段加入 `builtInTools` 数组（注意 `CaptureScreenshotTool` 这类需 `mediaStore` 的工具要传依赖）
+3. 在 `background/main.ts` 的 START 阶段加入 `builtInTools` 数组（无依赖的纯逻辑工具直接 `new XxxTool()`；若需 `mediaStore` 等依赖，像 `RunUserScriptTool` 那样按依赖注入）
 
 ```typescript
 class MyNewTool extends Tool {
