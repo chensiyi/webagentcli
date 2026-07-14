@@ -24,11 +24,13 @@
 ```
 webagentcli/
 │
-├── kernel/                          # 核心内核（TypeScript · 零外部依赖）
+├── kernel/                          # 核心内核（TypeScript · 零外部依赖，可脱离浏览器运行）
 │   ├── Kernel.ts                   # 核心内核：服务注册、生命周期、状态机
 │   ├── IPC.ts                      # 消息总线（优先级、来源追踪、中间件）
 │   ├── Bootloader.ts               # 启动序列（4 阶段）
 │   ├── Events.ts                   # 内核事件常量
+│   ├── Keys.ts                     # 内部键名常量
+│   ├── globals.d.ts                # 全局类型声明
 │   ├── index.ts                    # 统一导出
 │   │
 │   ├── models/                     # 数据模型（纯数据，无壳依赖）
@@ -67,52 +69,77 @@ webagentcli/
 │   │   └── ProviderAPIServices/    # AI Provider 实现
 │   │       ├── OpenAIService.ts
 │   │       ├── OpenRouterService.ts
-│   │       └── LMStudioService.ts
+│   │       ├── LMStudioService.ts
+│   │       └── sse.ts              # SSE 流式解析
 │   │
-│   └── tools/                      # 工具定义（已迁移至 sidepanel/tools/）
+│   └── utils/                      # 内核纯函数工具
+│       ├── clone.ts
+│       ├── id.ts
+│       └── url.ts
 │
-├── index.html                      # 入口 HTML
-├── sidepanel/                      # Svelte 5 UI + Service Worker
-│   ├── background.js               # Service Worker（脚本自动注入）
-│   ├── main.ts                     # 入口：Kernel 自举 + 挂载 Svelte App
-│   ├── Sidepanel.svelte            # 根组件（Sidebar + 5 页路由）
+├── bridge/                         # 跨进程通信层（Shell ↔ Kernel）
+│   ├── RPC.ts                      # RPCServer：背景暴露 facade，统一请求/响应/错误回传
+│   ├── IPCTransport.ts             # IPC 经 chrome.runtime 消息在 Shell 与 Kernel 间桥接
+│   └── serialize.ts                # 跨进程参数/返回值序列化
+│
+├── background/                     # Service Worker 入口（内核宿主 + 脚本注入 + 媒体存储）
+│   ├── main.ts                     # SW 入口：ensureBoot 懒启动 Kernel、Phase 4 暴露 RPC、脚本注入
+│   ├── rpc-facades.ts              # 跨进程 RPC 控制器（session/tools/settings/storage/scripts/confirm/kernel/media facade）
+│   ├── preset-installer.js         # 预装脚本远程拉取与安装
+│   ├── script-executor.js          # 用户脚本注入执行（main / isolated world 调度）
+│   ├── script-tools.js             # 脚本工具桥接
+│   ├── gm-api.js                   # 油猴 GM_* API 实现
+│   ├── keys.js
+│   └── services/
+│       ├── chromeStorage.ts        # IStorageManager 落地（chrome.storage 封装）
+│       └── mediaStore.ts           # 媒体二进制存储（IndexedDB，消息持 mediaId 引用）
+│
+├── sidepanel/                      # Svelte 5 UI Shell（不持有内核，经 bridge 连 Kernel）
+│   ├── index.html                  # 入口 HTML（manifest side_panel.default_path → dist/sidepanel/index.html）
+│   ├── main.ts                     # Shell 入口：建 IPC + IPCTransport 连 Kernel、待 BOOT_COMPLETE、挂 Svelte
+│   ├── Sidepanel.svelte            # 根组件（Sidebar + 6 页路由）
+│   ├── api-contract.ts             # Shell→Kernel RPC 契约类型
 │   ├── components/                 # Svelte 组件
-│   │   ├── atoms/                  # 原子组件
-│   │   ├── forms/                  # 表单组件
-│   │   ├── layout/                 # 布局组件（Sidebar 等）
-│   │   └── overlays/               # 覆盖层组件（Toast/Dialog 等）
-│   ├── pages/                      # 页面组件
+│   │   ├── atoms/                  # 原子组件（Button/IconButton/Badge/Spinner）
+│   │   ├── forms/                  # 表单组件（Input/Select/Switch/Slider/CodeEditor）
+│   │   ├── layout/                 # 布局组件（Sidebar/Card/EmptyState/PagePlaceholder）
+│   │   └── overlays/               # 覆盖层（Toast/ToastContainer/Dialog/Tooltip + toast-store）
+│   ├── pages/                      # 页面组件（6 个）
 │   │   ├── ChatPage.svelte         # 对话页面
 │   │   ├── HistoryPage.svelte      # 历史页面
 │   │   ├── StoragePage.svelte      # 存储页面
 │   │   ├── ScriptsPage.svelte      # 脚本页面
 │   │   ├── SettingsPage.svelte     # 设置页面
-│   │   └── chat/
-│   │       ├── MessageBubble.svelte
-│   │       └── ...
-│   ├── services/                   # 壳层服务
-│   │   └── chromeStorage.ts
-│   ├── tools/                      # 内置工具实现
-│   │   ├── RunUserScriptTool.js
-│   │   └── ManageUserScriptsTool.js
-│   ├── styles/                     # 全局样式
-│   │   ├── tokens.css
-│   │   ├── utilities.css
-│   │   ├── components.css
-│   │   └── pages.css
-│   └── utils/                      # 工具函数
-│       ├── dom.ts
-│       ├── text.ts
-│       └── time.ts
+│   │   ├── ToolsPage.svelte        # 工具管理页面
+│   │   └── chat/                   # 聊天子组件（MessageBubble / ToolCallCard / ToolMessageCard / ToolPanel / MediaBlock / Lightbox / EffortControl / StreamingIndicator）
+│   ├── styles/                     # 全局样式（tokens / utilities / components / pages）
+│   ├── userscripts/                # 用户脚本源 + 预装白名单（单一目录）
+│   │   ├── presets.json            # 预装清单（文件名数组）
+│   │   ├── page-pet.user.js        # 迷你宠物 UI（预装）
+│   │   ├── page_to_markdown.user.js# @tool → page_to_markdown_script（预装）
+│   │   └── pet-chat.*              # 宠物脚本配套资源
+│   └── utils/                      # 壳层工具 / 状态
+│       ├── dom.ts / text.ts / time.ts
+│       ├── kernel-ready.ts         # 等待 Kernel 就绪工具
+│       ├── shell-cache.ts          # Shell 侧缓存层（currentSessionId 等，globalThis 单例）
+│       └── confirm-store.svelte.ts # 确认气泡 store（danger 工具确认闸门）
 │
-├── dist/                           # 构建产物
-│   ├── assets/svelte-app.css       # Svelte 5 样式
-│   └── svelte-app.bundle.js        # Svelte 5 打包
+├── dist/                           # 构建产物（vite 多入口）
+│   ├── background.bundle.js        # Service Worker 包
+│   ├── sidepanel/                  # 侧边栏（index.html + index.bundle.js）
+│   ├── svelte-app.bundle.js        # Svelte 运行时 / 共享块
+│   └── assets/                     # 静态资源
 │
-├── docs/
+├── docs/                           # 文档
 │   ├── ARCHITECTURE.md             # 本文件
-│   └── CORE_MODELS.md              # 数据模型说明
+│   ├── TARGETS.md                  # 开发计划（目标 + 状态 + 链接）
+│   ├── CORE_MODELS.md              # 数据模型说明
+│   ├── SESSION_ORCHESTRATION.md    # 会话编排细节
+│   ├── JS_TOOL_STRATEGY.md         # JS 工具策略
+│   ├── TAMPERMONKEY_ALIGN.md       # 油猴对齐设计
+│   └── TAMPERMONKEY_COMPAT.md      # 油猴兼容矩阵
 │
+├── manifest.json
 ├── package.json
 ├── tsconfig.json
 ├── vite.config.ts
@@ -143,31 +170,36 @@ Kernel 只做 3 件事：
 - 中间件链：日志、权限、统计等横切关注点
 
 ### Shell 可替换原则
-`sidepanel/` 是壳（Shell），依赖内核 `kernel/`。更换 Shell 时（如 CLI 版本），kernel 无需改动一行代码。
+`sidepanel/` 是壳（Shell），经 `bridge/` 连接内核 `kernel/`；内核实际运行在 `background/` Service Worker。更换 Shell 时（如 CLI 版本），只需替换 `sidepanel/` 并实现同样的 bridge 客户端，kernel 与 background 无需改动。
 
 ### 两进程架构
 
 ```
-Service Worker (background.js)              Sidepanel (Svelte 5)
+Service Worker (background/main.ts)              Sidepanel (Svelte 5 Shell)
     │                                              │
-    │  持续运行，不依赖 Kernel                     │  按需打开，Kernel 自举
-    │  监听 tabs.onActivated                      │  IPC EventBus
-    │  监听 storage.onChanged                     │  5 个 UI 页面
-    │  脚本自动注入                                │  ChatPage + session RPC facade
+    │  ensureBoot() 懒启动 Kernel                  │  建 IPC + IPCTransport
+    │  Kernel 自举（Bootloader 4 阶段）            │  连接 background Kernel
+    │  注册服务 / 内置工具 / mediaStore            │  监听 KERNEL.BOOT_COMPLETE
+    │  Phase 4 暴露 RPC（session/tools/…）         │  挂载 Svelte 根组件
+    │  脚本自动注入（script-executor）             │  6 个 UI 页面经 bridge 调 RPC
+    │  监听 tabs.onActivated / storage.onChanged  │
     │                                              │
-    └────────────── chrome.storage ────────────────┘
-                  共享数据层
+    └──────── chrome.storage / chrome.runtime 消息 ──┘
+            共享数据层 + 跨进程 IPC 桥（bridge/IPCTransport）
 ```
+
+> 内核只在 Service Worker 中自举一次（`background/main.ts` 的 `bootKernel()`），Sidepanel 不持有内核实例，仅通过 `bridge/IPCTransport` 把 IPC 消息桥接到 background，并经 `bridge/RPC` 调用暴露的 facade。Service Worker 被回收后由 `ensureBoot()` 重新唤醒内核，Shell 侧 `kernel-ready` 负责等待就绪。
 
 ### 三层事件体系
 应用层与内核层通过三层事件通信：
 
 ```
-UI 层 (ChatPage)                      内核层 (orchestration/session.ts)
+UI 层 (ChatPage / Shell)                内核层 (background: orchestration/session.ts)
     │                                      │
     │  api.session.send()                 │
     │  / api.session.stop()               │
-    │  (Shell→Kernel RPC 入口)             │
+    │  (Shell→Kernel RPC 入口，经          │
+    │   bridge/IPCTransport 跨进程)        │
     ├──────→  facade 直接驱动编排           │
     │         runConversation /            │
     │         cancelConversation           │
@@ -179,8 +211,8 @@ UI 层 (ChatPage)                      内核层 (orchestration/session.ts)
 
 | 层 | 入口 | 职责 |
 |---|---|---|
-| **UI 层** | `api.session.send()`, `api.session.stop()` | Shell→Kernel 的 RPC 统一入口（发送/停止消息） |
-| **RPC 服务层** | `createSessionFacade.send()` / `stop()` | 直接调用 `runConversation` / `cancelConversation`，经 `onEvent`/`emit` 把流式与生命周期事件回灌 SESSION 通道（命令祈使式，与过去式事件区分） |
+| **UI 层** | `api.session.send()`, `api.session.stop()` | Shell→Kernel 的 RPC 统一入口（发送/停止消息），经 `bridge/IPCTransport` 跨进程发往 background |
+| **RPC 服务层（background）** | `createSessionFacade.send()` / `stop()` | 位于 `background/rpc-facades.ts`，直接调用 `runConversation` / `cancelConversation`，经 `onEvent`/`emit` 把流式与生命周期事件回灌 SESSION 通道（命令祈使式，与过去式事件区分） |
 | **内核层** | `SESSION.STREAM_START`, `SESSION.STREAM_COMPLETE`, `TOOL.EXECUTING` 等 | 发射真实业务事件驱动 UI |
 
 ## Kernel 子系统详解
@@ -240,6 +272,8 @@ kernel.getIPC()                 // → IPC
 - `NORMAL`（1）— 默认
 - `HIGH`（2）— 用户交互
 - `CRITICAL`（3）— 系统级
+
+> **跨进程桥接**：内核运行在 Service Worker，Sidepanel 是独立上下文，二者各有独立 IPC 实例。`bridge/IPCTransport` 把一侧 `emit` 的消息经 `chrome.runtime` 消息转发到另一侧，使 IPC 在 Shell 与 Kernel 间透明互通；`bridge/RPC` 在其上提供请求/响应式的 facade 调用（见下方「Shell 详解」与 `background/rpc-facades.ts`）。
 
 ### 3. ToolsManager.ts（工具管理器）
 
@@ -422,15 +456,21 @@ class ToolsManager {
 }
 ```
 
-**内置工具**（`sidepanel/tools/`，路径后迁至 `background/tools/`）：
+**内置工具**（`background/tools/`）：
 - `RunUserScriptTool` — 在当前活动 tab 执行用户 JS（Turing-complete 万能工具），标 `danger` 需确认
-- `ManageUserScriptsTool` — 用户脚本**写操作**（install / update / toggle / delete），标 `danger` 需确认
+- `ManageUserScriptsTool` — 用户脚本**写操作**（install / update / toggle / delete），标 `danger` 需确认（同文件导出 `GetUserScriptsTool`）
 - `GetUserScriptsTool` — 用户脚本**只读查询**（list / get），安全免确认（从 ManageUserScriptsTool 拆出，避免只读操作也弹确认气泡）
-- `CaptureScreenshotTool` — 截图工具（`background/tools/`），依赖 mediaStore；用 `chrome.tabs.captureVisibleTab`（SW 专属，页面世界无此 API）截图，结果经 `ToolExecutor` **原子注入一条 user 图片消息**（`userMedia`）+ 文本附 `dataUrl`；与其他内置工具注册路径相同，差异仅在此三点
+- `CaptureScreenshotTool` — 截图工具，依赖 `mediaStore`；用 `chrome.tabs.captureVisibleTab`（SW 专属，页面世界无此 API）截图，结果经 `ToolExecutor` **原子注入一条 user 图片消息**（`userMedia`）+ 文本附 `dataUrl`；与其他内置工具注册路径相同，差异仅在此三点
+- `ScriptTool` — `@tool` 用户脚本的通用执行包装（handler 在目标页执行脚本并注入 `__toolArgs`，return 值作为工具结果）
 
-工具注册在 START 阶段完成：
+工具注册在 START 阶段完成（`background/main.ts`）：
 ```typescript
-const builtInTools = [new RunUserScriptTool(), new ManageUserScriptsTool(kernel), new GetUserScriptsTool(kernel)];
+const builtInTools = [
+  new RunUserScriptTool(),
+  new GetUserScriptsTool(kernel),
+  new ManageUserScriptsTool(kernel),
+  new CaptureScreenshotTool(kernel, mediaStore),
+];
 builtInTools.forEach((tool) => {
   if (!tool || !tool.name) return;
   toolsManager.register(tool);
@@ -457,9 +497,9 @@ LLM 收到结果后继续（ReAct 循环）
 
 ### 7. ScriptInjector（脚本自动注入 — Service Worker 层）
 
-**位置**：`sidepanel/background.js`
+**位置**：`background/`（Service Worker，`script-executor.js` / `script-tools.js` / `gm-api.js`）+ 内核 `ScriptsManager`
 
-不依赖 Kernel，直接读取 `chrome.storage`，作为 Service Worker 持续运行：
+由 `background/main.ts` 在 READY 阶段经 `syncRegisteredScripts()` 把已启用的用户脚本注册到 `chrome.userScripts`（持久化，SW/内核回收后注入仍继续）；`script-executor.js` 负责按 `@match` 在 main / isolated world 调度执行，`gm-api.js` 提供 `GM_*` API 实现：
 - 监听 `tabs.onActivated`/`tabs.onUpdated` — 标签页切换/加载时按 `@match` 规则注入脚本
 - 监听 `storage.onChanged` — 脚本数据变更时自动重新注入
 - 启动时延迟注入当前活跃标签页
@@ -524,31 +564,45 @@ LLM 收到结果后继续（ReAct 循环）
 
 ## 壳层（Shell）详解
 
-### 入口启动流程（`sidepanel/main.ts`）
+### 内核自举流程（`background/main.ts`）
+
+内核仅在 Service Worker 中自举一次，由 `ensureBoot()` 懒启动（Shell 首次连接或 SW 唤醒时触发）：
 
 ```
-1. 创建 ConsoleLogger → IPC
-2. 创建 Kernel 实例，仅注入基础设施（ipc / storage）
+1. ensureBoot() → bootKernel()（幂等，避免重复启动）
+2. 创建 ConsoleLogger → Kernel（注入 ipc / origin）
 3. 创建 Bootloader，注册启动钩子
-4. INIT 阶段  → IPC ready（基础设施就绪）
-5. REGISTER 阶段 → 注册所有 Service 工厂（含 toolsManager / capabilities）
-6. START 阶段 → kernel.boot() 初始化服务
-             → 注册内置工具
-             → settingsManager.loadSettings()
-7. bootloader.boot() 完成
-8. mount(Sidepanel, target) 挂载 Svelte 根组件
+4. INIT 阶段    → IPC ready（基础设施就绪）
+5. REGISTER 阶段 → 注册所有 Service 工厂（toolsManager / capabilities / storageManager / sessionManager / settingsManager / scriptsManager / processManager / providerFactory）
+6. START 阶段   → kernel.boot() 初始化服务
+               → 注册内置工具（RunUserScript / GetUserScripts / ManageUserScripts / CaptureScreenshot）
+               → 创建 mediaStore（IndexedDB 媒体存储）
+               → 安装预装脚本（preset-installer，首次/升级）
+7. READY 阶段   → 暴露 RPC（session/tools/settings/storage/scripts/confirm/kernel/media）
+               → 同步已启用脚本注册到 chrome.userScripts
+               → 设置 mediaResolver / mediaDeleter
+8. 发出 KERNEL.BOOT_COMPLETE → Shell 收到后即可安全调用 RPC
 ```
 
-#### Kernel Context 注入
+### Shell 入口流程（`sidepanel/main.ts`）
 
-Svelte 组件通过 Svelte Context API 访问 Kernel：
+Shell 不持有内核，仅建立与 background 的连接并挂载 UI：
+
+```
+1. 创建 IPC 实例（origin: 'sidepanel-shell'）
+2. 创建 IPCTransport，连接到 background Kernel
+3. 监听 KERNEL.BOOT_COMPLETE / BOOT_ERROR（带 3s 超时保护）
+4. 收到就绪后 mount(Sidepanel)，注入 ipc 实例
+5. Svelte 组件经 bridge 调 RPC（api.*），不直接访问 kernel 模块
+```
+
+#### Kernel 访问方式（Shell 侧）
+
+Shell 不通过 Svelte Context 持有 kernel 实例，而是通过 `bridge/RPC` 客户端调用 background 暴露的 facade：
+
 ```typescript
-// sidepanel/Sidepanel.svelte
-setContext('kernel', kernel);
-
-// 任何子组件
-const kernel = getContext('kernel');
-const sessionManager = kernel.getSessionManager();
+// 页面组件经 ipc + RPC 客户端调用，如 api.session.send(...)
+// 具体契约见 sidepanel/api-contract.ts，背景实现见 background/rpc-facades.ts
 ```
 
 ## 向后兼容保证
@@ -569,15 +623,15 @@ const sessionManager = kernel.getSessionManager();
 
 ### 壳层原则（修改 sidepanel/ 时）
 
-1. **优先**通过 `kernel.get('serviceName')` 访问服务
-2. **Chrome API 调用**集中在壳层，不渗入 kernel
+1. **优先**通过 `bridge/RPC` 客户端调用 background 暴露的 facade（`api.*`）访问内核能力，不直接持有 kernel 实例
+2. **Chrome API 调用**集中在背景层（`background/`），壳层不渗入；`sidepanel/` 仅做 UI
 3. 所有 UI 开发在 `sidepanel/`（Svelte 5）中进行
 
 ### 添加新的内置工具
 
-1. 在 `sidepanel/tools/` 创建 `XxxTool.js`
+1. 在 `background/tools/` 创建 `XxxTool.js`
 2. 继承 `Tool` 类，在 `super()` 中传入定义和 handler
-3. 在 `sidepanel/main.ts` 的 START 阶段加入 `builtInClasses` 数组
+3. 在 `background/main.ts` 的 START 阶段加入 `builtInTools` 数组（注意 `CaptureScreenshotTool` 这类需 `mediaStore` 的工具要传依赖）
 
 ```typescript
 class MyNewTool extends Tool {
@@ -596,7 +650,7 @@ class MyNewTool extends Tool {
 
 1. 若命令属于会话域，直接在 `background/rpc-facades.ts` 的 `createSessionFacade` 中新增方法，方法体直接调用 `orchestration/session.ts` 的 `runConversation` / `cancelConversation`（或新增编排函数），并通过 `emit` 把事件回灌 SESSION 通道。
 2. 需要内核命令常量时引用 `KernelEvents.SESSION.ADD_MESSAGE` / `KernelEvents.SESSION.STOP_STREAM`（定义于 `kernel/Events.ts` 的 SESSION 组，祈使式命令、与过去式事件配对）。
-3. 在 `BACKGROUND.md` 的 `RPCServer.expose('session', ...)` 的 `methods` 列表里登记新方法名，Shell 侧 `api-contract.ts` 同步补充。
+3. 在 `background/main.ts` 的 `RPCServer.expose('session', ...)` 的 `methods` 列表里登记新方法名，Shell 侧 `api-contract.ts` 同步补充。
 
 > 历史说明：早期曾设独立的 `kernel/eventhandler/` 层按「消息组」接线，但会话命令本就是 RPC 入口、由 facade 直接驱动编排更贴切，已于 v0.6.7 移除该层，命令接线内联进 session RPC facade。
 
