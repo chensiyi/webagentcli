@@ -4,7 +4,7 @@
  * 设计要点：
  *  - 玻璃输入框：迷你 240×40、无圆角、0.5px 白色半透明「水晶窄边」+ 半透白渐变 + 柔影
  *  - 右侧两个 14×14 方块按钮：截图（相机）/ 工具（田字格），无圆角、贴右缘
- *  - 气泡栈：可滚动、始终贴底（对齐 shell 的 autoScrollToBottom）；除最后两条外随时间淡化消失
+ *  - 气泡栈：不限制最大高度，气泡随内容增长；消息多时仍可滚动贴底（对齐 shell 的 autoScrollToBottom）；除最后两条外随时间淡化消失
  *  - 工具上拉面板：从工具按钮处向上弹出（右缘对齐工具按钮），圆角 16 玻璃卡
  *  - 聊天气泡：玻璃圆角 12；用户气泡偏蓝、AI 气泡偏白；最后两条保留，其余随时间平滑淡化消失
  *
@@ -24,8 +24,6 @@
   gap: 8px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   color: #1a1c22;
-  -webkit-user-select: none;
-  user-select: none;
 }
 #pet-chat-root[hidden] { display: none; }
 
@@ -35,9 +33,8 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 8px;
-  max-height: 320px;
   width: 360px;
-  overflow-y: auto;            /* 消息多时可滚动，配合 scrollToBottom 始终贴底（对齐 shell） */
+  overflow-y: auto;            /* 消息多时仍可滚动，配合 scrollToBottom 始终贴底（对齐 shell）；不设最大高度，气泡随内容增长 */
   overflow-x: hidden;
   padding-right: 2px;          /* 给滚动条留白 */
   scrollbar-width: thin;
@@ -58,6 +55,8 @@
   -webkit-backdrop-filter: blur(10px);
           backdrop-filter: blur(10px);
   word-break: break-word;
+  -webkit-user-select: text;   /* 允许框选/复制气泡文字 */
+  user-select: text;
   transition: opacity 1.2s ease, transform 1.2s ease;   /* 时间驱动的柔和淡出 */
 }
 /* 用户气泡：淡蓝玻璃 */

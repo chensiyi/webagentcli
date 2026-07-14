@@ -39,10 +39,10 @@
    * CSS_SOURCE — pet-chat.css 的内联副本（运行时注入用，修改请同步 pet-chat.css）
    * ========================================================================== */
   const CSS_SOURCE = `
-#pet-chat-root{position:fixed;right:24px;bottom:24px;z-index:2147483646;display:flex;flex-direction:column;align-items:flex-end;gap:8px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:#1a1c22;-webkit-user-select:none;user-select:none}
+#pet-chat-root{position:fixed;right:24px;bottom:24px;z-index:2147483646;display:flex;flex-direction:column;align-items:flex-end;gap:8px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:#1a1c22}
 #pet-chat-root[hidden]{display:none}
-.pc-bubbles{display:flex;flex-direction:column;align-items:flex-end;gap:8px;max-height:320px;width:360px;overflow-y:auto;overflow-x:hidden;padding-right:2px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.6) transparent}.pc-bubbles::-webkit-scrollbar{width:6px}.pc-bubbles::-webkit-scrollbar-thumb{background:rgba(255,255,255,.6);border-radius:3px}.pc-bubbles::-webkit-scrollbar-track{background:transparent}
-.pc-bubble{max-width:360px;padding:10px 14px;border-radius:12px;font-size:14px;line-height:1.45;border:.5px solid rgba(255,255,255,.5);box-shadow:0 8px 24px rgba(20,22,35,.1);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);word-break:break-word;transition:opacity 1.2s ease,transform 1.2s ease}
+.pc-bubbles{display:flex;flex-direction:column;align-items:flex-end;gap:8px;width:360px;overflow-y:auto;overflow-x:hidden;padding-right:2px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.6) transparent}.pc-bubbles::-webkit-scrollbar{width:6px}.pc-bubbles::-webkit-scrollbar-thumb{background:rgba(255,255,255,.6);border-radius:3px}.pc-bubbles::-webkit-scrollbar-track{background:transparent}
+.pc-bubble{max-width:360px;padding:10px 14px;border-radius:12px;font-size:14px;line-height:1.45;border:.5px solid rgba(255,255,255,.5);box-shadow:0 8px 24px rgba(20,22,35,.1);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);word-break:break-word;-webkit-user-select:text;user-select:text;transition:opacity 1.2s ease,transform 1.2s ease}
 .pc-bubble.user{background:linear-gradient(180deg,rgba(229,242,255,.88),rgba(214,234,255,.72));color:#1a1c22;align-self:flex-end}
 .pc-bubble.ai{background:linear-gradient(180deg,rgba(255,255,255,.5),rgba(255,255,255,.28));color:#1a1c22}
 .pc-bubble.fading{opacity:0;transform:translateY(4px)}
