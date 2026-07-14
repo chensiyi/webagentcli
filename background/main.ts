@@ -18,6 +18,7 @@
 import { IPC } from 'kernel/IPC.js';
 import { IPCTransport } from 'bridge/IPCTransport.js';
 import { RPCServer } from 'bridge/RPC.js';
+import { UserScriptBridge } from 'bridge/UserScriptBridge.js';
 import { createSessionFacade, createToolsFacade, createStorageFacade, createScriptsFacade, createMediaFacade, createConfirmFacade, createKernelFacade } from './rpc-facades.js';
 import { createMediaStore } from './services/mediaStore.js';
 import { Kernel } from 'kernel/Kernel.js';
@@ -76,6 +77,13 @@ const transport = new IPCTransport(ipc, 'kernel', {
     },
 });
 transport.init(); // 仅此处安装 chrome.runtime.onConnect，生命周期内只一次
+
+// ⚠️ MV3 SW 生命周期：onUserScriptConnect 必须在顶层同步注册！
+// 若放在 READY 阶段（异步），SW 被回收后重新唤醒时 pet-chat.js 的 connect()
+// 会因监听器未注册而 "Could not establish connection. Receiving end does not exist."
+// init() 同步注册监听器；bind() 在 READY 阶段注入 rpcServer + sessionChannel。
+const usBridge = new UserScriptBridge();
+usBridge.init();
 
 function triggerReload(reason: string): void {
     if (reloading) return;
@@ -397,6 +405,10 @@ async function bootKernel() {
         await syncRegisteredScripts(kernel.getScriptsManager());
         // 启动期把 @tool 脚本同步注册为 AI 工具（P2 自动注册）
         reconcileScriptTools(kernel.getScriptsManager(), kernel.getToolsManager());
+
+        // 用户脚本世界 RPC 桥接：注入 rpcServer + sessionChannel，
+        // 处理 init() 阶段暂存的 Port 连接（SW 唤醒后可能已有 pet-chat.js 连接在排队）
+        usBridge.bind(rpcServer, sessionChannel);
     });
 
     await bootloader.boot();

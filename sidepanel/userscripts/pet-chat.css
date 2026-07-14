@@ -1,18 +1,11 @@
 /* =============================================================================
- * pet-chat.css — 网页宠物聊天浮窗样式（与 Ardot 设计稿一致）
+ * pet-chat.css — 网页宠物聊天浮窗样式
  * -----------------------------------------------------------------------------
- * 设计要点：
- *  - 玻璃输入框：迷你 240×40、无圆角、0.5px 白色半透明「水晶窄边」+ 半透白渐变 + 柔影
- *  - 右侧两个 14×14 方块按钮：截图（相机）/ 工具（田字格），无圆角、贴右缘
- *  - 气泡栈：不限制最大高度，气泡随内容增长；消息多时仍可滚动贴底（对齐 shell 的 autoScrollToBottom）；除最后两条外随时间淡化消失
- *  - 工具上拉面板：从工具按钮处向上弹出（右缘对齐工具按钮），圆角 16 玻璃卡
- *  - 聊天气泡：玻璃圆角 12；用户气泡偏蓝、AI 气泡偏白；最后两条保留，其余随时间平滑淡化消失
- *
- * 运行时由 pet-chat.js 注入（内联副本），本文件为可读/可打包的权威来源，
- * 两者需保持同步。
+ * 发布到 CDN（jsDelivr），由 pet-chat.js 运行时 fetch 加载后注入 <style>。
+ * CDN URL: https://cdn.jsdelivr.net/gh/chensiyi/webagentcli@latest/sidepanel/userscripts/pet-chat.css
  * ========================================================================== */
 
-/* 浮窗根容器：固定在视口右下，按列自下而上堆叠（气泡→输入框→宠物） */
+/* 浮窗根容器：固定在视口右下，按列自下而上堆叠（气泡→输入框） */
 #pet-chat-root {
   position: fixed;
   right: 24px;
@@ -34,9 +27,10 @@
   align-items: flex-end;
   gap: 8px;
   width: 360px;
-  overflow-y: auto;            /* 消息多时仍可滚动，配合 scrollToBottom 始终贴底（对齐 shell）；不设最大高度，气泡随内容增长 */
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
   overflow-x: hidden;
-  padding-right: 2px;          /* 给滚动条留白 */
+  padding-right: 2px;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.6) transparent;
 }
@@ -55,25 +49,22 @@
   -webkit-backdrop-filter: blur(10px);
           backdrop-filter: blur(10px);
   word-break: break-word;
-  -webkit-user-select: text;   /* 允许框选/复制气泡文字 */
+  -webkit-user-select: text;
   user-select: text;
-  transition: opacity 1.2s ease, transform 1.2s ease;   /* 时间驱动的柔和淡出 */
+  transition: opacity 1.2s ease, transform 1.2s ease;
 }
-/* 用户气泡：淡蓝玻璃 */
 .pc-bubble.user {
   background: linear-gradient(180deg, rgba(229, 242, 255, 0.88), rgba(214, 234, 255, 0.72));
   color: #1a1c22;
   align-self: flex-end;
 }
-/* AI 气泡：白玻璃 */
 .pc-bubble.ai {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.28));
   color: #1a1c22;
 }
-/* 历史气泡随时间淡出：除最后两条外，到点后由 JS 追加 .fading 平滑消失 */
 .pc-bubble.fading { opacity: 0; transform: translateY(4px); }
 
-/* 打字光标（AI 流式返回占位） */
+/* 打字光标 */
 .pc-caret {
   display: inline-block;
   width: 6px;
@@ -88,21 +79,20 @@
 
 /* ---------- 玻璃输入框 ---------- */
 .pc-box {
-  position: relative;          /* 工具面板 absolute 定位的参照 */
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   width: 240px;
   height: 40px;
   padding: 0 8px;
-  border-radius: 0;            /* 无圆角：水晶方框 */
-  border: 1px solid rgba(255, 255, 255, 0.55);   /* Excel 式极细水晶窄边 */
+  border-radius: 0;
+  border: 1px solid rgba(255, 255, 255, 0.55);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.28));
   box-shadow: 0 8px 24px rgba(20, 22, 35, 0.12);
   -webkit-backdrop-filter: blur(10px);
           backdrop-filter: blur(10px);
 }
-
 .pc-input {
   flex: 1 1 auto;
   min-width: 0;
@@ -115,7 +105,6 @@
 }
 .pc-input::placeholder { color: #9aa0b3; }
 
-/* 右侧按钮组：两个 14×14 方块，贴右缘 */
 .pc-actions {
   display: flex;
   align-items: center;
@@ -133,21 +122,20 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #3b6fd4;             /* 图标主色：蓝 */
+  color: #3b6fd4;
   opacity: 0.85;
   transition: opacity .15s ease, transform .15s ease;
 }
 .pc-btn:hover { opacity: 1; transform: scale(1.08); }
 .pc-btn svg { width: 14px; height: 14px; display: block; }
-/* 工具按钮激活（面板展开）时高亮 */
 .pc-btn.active { color: #1f5fe0; }
 .pc-btn.active svg { filter: drop-shadow(0 0 3px rgba(31, 95, 224, 0.5)); }
 
-/* ---------- 工具上拉面板（从工具按钮处弹出） ---------- */
+/* ---------- 工具上拉面板 ---------- */
 .pc-panel {
   position: absolute;
-  right: 0;                    /* 右缘对齐工具按钮 */
-  bottom: calc(100% + 8px);    /* 紧贴输入框顶向上弹出 */
+  right: 0;
+  bottom: calc(100% + 8px);
   width: 280px;
   max-height: 280px;
   overflow-y: auto;
@@ -202,7 +190,6 @@
 }
 .pc-badge.script { color: #2f7d4f; background: rgba(60, 160, 100, 0.14); }
 
-/* 启用开关（40×24，旋钮 20×20 白） */
 .pc-switch {
   flex: 0 0 auto;
   width: 40px;
@@ -211,7 +198,7 @@
   border: none;
   padding: 2px;
   cursor: pointer;
-  background: #d4d4d8;        /* 关：灰 */
+  background: #d4d4d8;
   transition: background .18s ease;
   position: relative;
 }
@@ -227,20 +214,8 @@
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
   transition: transform .18s ease;
 }
-.pc-switch.on { background: #3b6fd4; }   /* 开：蓝 */
+.pc-switch.on { background: #3b6fd4; }
 .pc-switch.on::after { transform: translateX(16px); }
-
-/* ---------- 宠物把手（输入框左下角的 🐱） ---------- */
-.pc-pet {
-  align-self: flex-start;
-  font-size: 30px;
-  line-height: 1;
-  cursor: pointer;
-  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.18));
-  transition: transform .12s ease;
-}
-.pc-pet:hover { transform: scale(1.08); }
-.pc-pet:active { transform: scale(0.94); }
 
 /* ---------- 轻量浮动启动器（无环境宠物时备用） ---------- */
 .pc-launcher {

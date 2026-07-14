@@ -277,6 +277,27 @@ export class RPCServer {
     }
   };
 
+  /**
+   * 直接分发一次 RPC 调用（不经 IPC 传输层），返回响应对象。
+   * 供非 Shell 客户端（如用户脚本世界经 onUserScriptConnect Port 接入）复用同一套 handler。
+   * handler 内部已包含 capability audit/authorize 逻辑（与 IPC 路径一致）。
+   */
+  async dispatch(method: string, params: any): Promise<RpcResponse> {
+    try {
+      const handler = this.handlers.get(method);
+      if (!handler) throw new Error(`No RPC handler for method: ${method}`);
+      const result = await handler(params);
+      return { id: '', ok: true, result: result ?? null };
+    } catch (err) {
+      Log.error('RPCServer', `dispatch failed: ${method}`, err);
+      return {
+        id: '',
+        ok: false,
+        error: { message: (err as Error)?.message || String(err), stack: (err as Error)?.stack },
+      };
+    }
+  }
+
   destroy() {
     this.ipc.off(RPC_REQUEST, this._onRequest);
     this.handlers.clear();

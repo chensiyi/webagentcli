@@ -79,7 +79,6 @@
     reacting = true;
     pet.classList.remove('idle');
     pet.classList.add('happy');
-    showBubble();
     // 唤醒聊天浮窗（pet-chat.js）：宠物停止运动并停在当前位置，直至聊天关闭才恢复
     chatOpen = true;
     pet.classList.remove('idle');
@@ -97,31 +96,12 @@
     pet.classList.add('idle');
   });
 
-  function showBubble() {
-    bubble.textContent = ['喵~', '喵呜!', '♥', '嘿嘿'][Math.floor(Math.random() * 4)];
-    bubble.style.left = (x + 30) + 'px';
-    bubble.style.top  = (y - 36) + 'px';
-    bubble.classList.add('show');
-    clearTimeout(showBubble._t);
-    showBubble._t = setTimeout(() => bubble.classList.remove('show'), 1100);
-  }
-
   // 偶尔眨眼
   setInterval(() => {
     if (reacting || hidden || chatOpen) return;
     pet.classList.add('blink');
     setTimeout(() => pet.classList.remove('blink'), 200);
   }, 4200);
-
-  // 按 P 显隐（输入框内不触发）
-  document.addEventListener('keydown', (e) => {
-    if (e.key.toLowerCase() !== 'p') return;
-    const t = e.target;
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-    hidden = !hidden;
-    pet.style.display = hidden ? 'none' : 'block';
-    bubble.classList.remove('show');
-  });
 
   // ---------- 主循环 ----------
   function loop() {
