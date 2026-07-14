@@ -13,7 +13,7 @@
  * pet-chat.js — 由 Ardot 设计稿实现的「宠物聊天浮窗」组件（零依赖、可独立运行）。
  *
  * 设计稿核心（详见 Ardot 文件 703523941510964）：
- *   气泡(历史) → 输入框 → 宠物(最底) 的自下而上阅读顺序；
+ *   气泡(历史) → 输入框 的自下而上阅读顺序（宠物为外部唤起方，不出现在聊天 UI 内）；
  *   输入框为无圆角水晶方框(240×40, 0.5px 白半透明窄边)；
  *   工具按钮点开「从按钮处向上弹出」的工具清单，与 sidepanel ToolsPage 同一套数据/启用逻辑。
  *
@@ -73,9 +73,6 @@
 .pc-switch::after{content:"";position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .18s ease}
 .pc-switch.on{background:#3b6fd4}
 .pc-switch.on::after{transform:translateX(16px)}
-.pc-pet{align-self:flex-start;font-size:30px;line-height:1;cursor:pointer;filter:drop-shadow(0 4px 6px rgba(0,0,0,.18));transition:transform .12s ease}
-.pc-pet:hover{transform:scale(1.08)}
-.pc-pet:active{transform:scale(.94)}
 .pc-launcher{position:fixed;right:24px;bottom:24px;z-index:2147483645;font-size:30px;line-height:1;cursor:pointer;filter:drop-shadow(0 4px 6px rgba(0,0,0,.18))}
 .pc-launcher[hidden]{display:none}
 `;
@@ -141,7 +138,7 @@
   };
 
   /* ---------------------------------------------------------------- DOM */
-  let root, bubblesEl, inputEl, panelEl, toolsBtn, shotBtn, petHandle, launcher;
+  let root, bubblesEl, inputEl, panelEl, toolsBtn, shotBtn, launcher;
 
   function svgCamera() {
     return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>';
@@ -187,12 +184,7 @@
 
     box.append(inputEl, actions, panelEl);
 
-    petHandle = document.createElement('div');
-    petHandle.className = 'pc-pet';
-    petHandle.textContent = '🐱';
-    petHandle.title = '收起聊天';
-
-    root.append(bubblesEl, box, petHandle);
+    root.append(bubblesEl, box);
     document.body.appendChild(root);
 
     // 无环境宠物时，自带启动器
@@ -211,7 +203,6 @@
     });
     shotBtn.addEventListener('click', captureScreenshot);
     toolsBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePanel(); });
-    petHandle.addEventListener('click', toggleOpen);
     // 点击面板外部关闭工具面板
     document.addEventListener('click', (e) => {
       if (panelEl.hidden) return;
@@ -219,6 +210,10 @@
     });
     // 环境宠物派发的开合事件
     window.addEventListener('mini-pet:open-chat', toggleOpen);
+    // Esc 关闭聊天（并恢复宠物运动）
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !root.hidden) closeChat();
+    });
   }
 
   /* ----------------------------------------------------- 工具面板 */
@@ -370,6 +365,8 @@
     root.hidden = true;
     closePanel();
     if (launcher) launcher.hidden = false;
+    // 通知环境宠物恢复运动
+    window.dispatchEvent(new CustomEvent('mini-pet:chat-closed'));
   }
   function toggleOpen() {
     if (root.hidden) openChat(); else closeChat();

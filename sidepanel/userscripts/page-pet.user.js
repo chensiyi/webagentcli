@@ -70,9 +70,9 @@
   document.body.appendChild(bubble);
 
   // ---------- 状态 ----------
-  let x = 100, y = 100, tx = x, ty = y, facing = 1, reacting = false, hidden = false;
+  let x = 100, y = 100, tx = x, ty = y, facing = 1, reacting = false, hidden = false, chatOpen = false;
 
-  document.addEventListener('mousemove', (e) => { if (!hidden) { tx = e.clientX; ty = e.clientY; } });
+  document.addEventListener('mousemove', (e) => { if (!hidden && !chatOpen) { tx = e.clientX; ty = e.clientY; } });
 
   pet.addEventListener('click', () => {
     if (reacting || hidden) return;
@@ -80,9 +80,21 @@
     pet.classList.remove('idle');
     pet.classList.add('happy');
     showBubble();
-    // 通知宠物聊天浮窗（pet-chat.js）开合，实现「点宠物 → 弹出聊天输入框」
+    // 唤醒聊天浮窗（pet-chat.js）：宠物停止运动并停在当前位置，直至聊天关闭才恢复
+    chatOpen = true;
+    pet.classList.remove('idle');
     window.dispatchEvent(new CustomEvent('mini-pet:open-chat'));
-    setTimeout(() => { pet.classList.remove('happy'); pet.classList.add('idle'); reacting = false; }, 620);
+    setTimeout(() => {
+      pet.classList.remove('happy');
+      if (!chatOpen) pet.classList.add('idle');   // 仅当聊天未开时才恢复浮动
+      reacting = false;
+    }, 620);
+  });
+
+  // 聊天关闭时恢复宠物运动（由 pet-chat.js 在关闭时派发）
+  window.addEventListener('mini-pet:chat-closed', () => {
+    chatOpen = false;
+    pet.classList.add('idle');
   });
 
   function showBubble() {
@@ -96,7 +108,7 @@
 
   // 偶尔眨眼
   setInterval(() => {
-    if (reacting || hidden) return;
+    if (reacting || hidden || chatOpen) return;
     pet.classList.add('blink');
     setTimeout(() => pet.classList.remove('blink'), 200);
   }, 4200);
@@ -113,7 +125,7 @@
 
   // ---------- 主循环 ----------
   function loop() {
-    if (!hidden) {
+    if (!hidden && !chatOpen) {
       const dx = tx - x, dy = ty - y;
       // 光标到宠物包围盒（按真实宽/高）的距离：X/Y 方向分别减去半宽半高再取正
       const bx = Math.max(0, Math.abs(dx) - HALF_W);
