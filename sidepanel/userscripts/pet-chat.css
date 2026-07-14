@@ -4,9 +4,9 @@
  * 设计要点：
  *  - 玻璃输入框：迷你 240×40、无圆角、0.5px 白色半透明「水晶窄边」+ 半透白渐变 + 柔影
  *  - 右侧两个 14×14 方块按钮：截图（相机）/ 工具（田字格），无圆角、贴右缘
- *  - 宠物表情 🐱 贴在输入框左下角（设计里是独立聊天入口的「宠物把手」）
+ *  - 气泡栈：可滚动、始终贴底（对齐 shell 的 autoScrollToBottom）；除最后两条外随时间淡化消失
  *  - 工具上拉面板：从工具按钮处向上弹出（右缘对齐工具按钮），圆角 16 玻璃卡
- *  - 聊天气泡：玻璃圆角 12；用户气泡偏蓝、AI 气泡偏白；越旧越淡，仅保留最新两条
+ *  - 聊天气泡：玻璃圆角 12；用户气泡偏蓝、AI 气泡偏白；最后两条保留，其余随时间平滑淡化消失
  *
  * 运行时由 pet-chat.js 注入（内联副本），本文件为可读/可打包的权威来源，
  * 两者需保持同步。
@@ -36,11 +36,16 @@
   align-items: flex-end;
   gap: 8px;
   max-height: 320px;
-  overflow: hidden;            /* 旧气泡淡出后不再占位 */
   width: 360px;
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 56px);
-          mask-image: linear-gradient(to bottom, transparent 0, #000 56px);
+  overflow-y: auto;            /* 消息多时可滚动，配合 scrollToBottom 始终贴底（对齐 shell） */
+  overflow-x: hidden;
+  padding-right: 2px;          /* 给滚动条留白 */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.6) transparent;
 }
+.pc-bubbles::-webkit-scrollbar { width: 6px; }
+.pc-bubbles::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.6); border-radius: 3px; }
+.pc-bubbles::-webkit-scrollbar-track { background: transparent; }
 
 .pc-bubble {
   max-width: 360px;
@@ -53,7 +58,7 @@
   -webkit-backdrop-filter: blur(10px);
           backdrop-filter: blur(10px);
   word-break: break-word;
-  transition: opacity .6s ease, transform .6s ease;
+  transition: opacity 1.2s ease, transform 1.2s ease;   /* 时间驱动的柔和淡出 */
 }
 /* 用户气泡：淡蓝玻璃 */
 .pc-bubble.user {
@@ -66,9 +71,8 @@
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.28));
   color: #1a1c22;
 }
-/* 历史气泡淡化等级（越旧越淡），由 JS 在「开始淡化」阶段追加 */
-.pc-bubble.fade-1 { opacity: 0.5; }
-.pc-bubble.fade-2 { opacity: 0.2; }
+/* 历史气泡随时间淡出：除最后两条外，到点后由 JS 追加 .fading 平滑消失 */
+.pc-bubble.fading { opacity: 0; transform: translateY(4px); }
 
 /* 打字光标（AI 流式返回占位） */
 .pc-caret {

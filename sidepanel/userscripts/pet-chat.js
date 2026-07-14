@@ -41,12 +41,11 @@
   const CSS_SOURCE = `
 #pet-chat-root{position:fixed;right:24px;bottom:24px;z-index:2147483646;display:flex;flex-direction:column;align-items:flex-end;gap:8px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:#1a1c22;-webkit-user-select:none;user-select:none}
 #pet-chat-root[hidden]{display:none}
-.pc-bubbles{display:flex;flex-direction:column;align-items:flex-end;gap:8px;max-height:320px;overflow:hidden;width:360px;-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 56px);mask-image:linear-gradient(to bottom,transparent 0,#000 56px)}
-.pc-bubble{max-width:360px;padding:10px 14px;border-radius:12px;font-size:14px;line-height:1.45;border:.5px solid rgba(255,255,255,.5);box-shadow:0 8px 24px rgba(20,22,35,.1);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);word-break:break-word;transition:opacity .6s ease,transform .6s ease}
+.pc-bubbles{display:flex;flex-direction:column;align-items:flex-end;gap:8px;max-height:320px;width:360px;overflow-y:auto;overflow-x:hidden;padding-right:2px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.6) transparent}.pc-bubbles::-webkit-scrollbar{width:6px}.pc-bubbles::-webkit-scrollbar-thumb{background:rgba(255,255,255,.6);border-radius:3px}.pc-bubbles::-webkit-scrollbar-track{background:transparent}
+.pc-bubble{max-width:360px;padding:10px 14px;border-radius:12px;font-size:14px;line-height:1.45;border:.5px solid rgba(255,255,255,.5);box-shadow:0 8px 24px rgba(20,22,35,.1);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);word-break:break-word;transition:opacity 1.2s ease,transform 1.2s ease}
 .pc-bubble.user{background:linear-gradient(180deg,rgba(229,242,255,.88),rgba(214,234,255,.72));color:#1a1c22;align-self:flex-end}
 .pc-bubble.ai{background:linear-gradient(180deg,rgba(255,255,255,.5),rgba(255,255,255,.28));color:#1a1c22}
-.pc-bubble.fade-1{opacity:.5}
-.pc-bubble.fade-2{opacity:.2}
+.pc-bubble.fading{opacity:0;transform:translateY(4px)}
 .pc-caret{display:inline-block;width:6px;height:14px;margin-left:2px;vertical-align:-2px;background:#1a1c22;border-radius:1px;animation:pc-blink 1s steps(2,start) infinite}
 @keyframes pc-blink{50%{opacity:0}}
 .pc-box{position:relative;display:flex;align-items:center;justify-content:space-between;width:240px;height:40px;padding:0 8px;border-radius:0;border:1px solid rgba(255,255,255,.55);background:linear-gradient(180deg,rgba(255,255,255,.5),rgba(255,255,255,.28));box-shadow:0 8px 24px rgba(20,22,35,.12);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
@@ -276,26 +275,42 @@
   /* ----------------------------------------------------- 气泡生命周期 */
   function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
+  // 气泡生命周期：除最后两条外，所有气泡在 FADE_DELAY 后随时间平滑淡化并移除；
+  // 最后两条始终保留、不启动消失过程（对齐 shell 消息常驻直觉，仅做极简清理）。
+  const FADE_DELAY = 6000;     // 气泡存活时长(ms)：到点后开始淡化
+  const FADE_MS = 1200;        // 淡出过渡时长(需与 CSS .fading transition 一致)
+
   function pushBubble(kind, text) {
     const el = document.createElement('div');
     el.className = 'pc-bubble ' + kind;
     el.textContent = text;
     bubblesEl.appendChild(el);
-    bubblesEl.scrollTop = bubblesEl.scrollHeight;
+    scrollToBottom();
+    scheduleFades();
     return el;
   }
 
-  // 仅保留最新两条 AI 气泡满亮，更早的依次淡化(fade-1/fade-2)并在过渡后移除
-  function pruneBubbles() {
-    const ais = Array.from(bubblesEl.querySelectorAll('.pc-bubble.ai'));
-    ais.forEach((el, idx) => {
-      const age = ais.length - 1 - idx;            // 0 = 最新
-      el.classList.remove('fade-1', 'fade-2');
-      if (age === 2) el.classList.add('fade-1');
-      else if (age >= 3) {
-        el.classList.add('fade-2');
-        setTimeout(() => el.remove(), 700);        // 淡出后移除，避免占位
+  // 对齐 shell ChatPage.autoScrollToBottom：有新增/流式内容时始终贴底
+  function scrollToBottom() {
+    bubblesEl.scrollTop = bubblesEl.scrollHeight;
+  }
+
+  // 仅保留最末两条气泡，其余安排随时间淡化消失
+  function scheduleFades() {
+    const all = Array.from(bubblesEl.querySelectorAll('.pc-bubble'));
+    all.forEach((el, idx) => {
+      const kept = idx >= all.length - 2;          // 最后两条：保留，不启动消失
+      if (kept) {
+        if (el._fadeTimer) { clearTimeout(el._fadeTimer); el._fadeTimer = null; }
+        el.classList.remove('fading');
+        return;
       }
+      if (el._fadeTimer || el.classList.contains('fading')) return;   // 已安排 / 已淡出
+      el._fadeTimer = setTimeout(() => {
+        el._fadeTimer = null;
+        el.classList.add('fading');
+        setTimeout(() => { if (el.isConnected) el.remove(); scheduleFades(); }, FADE_MS);
+      }, FADE_DELAY);
     });
   }
 
@@ -315,6 +330,7 @@
     const append = (chunk) => {
       if (caret && caret.isConnected) caret.insertAdjacentText('beforebegin', chunk);
       else bubble.append(chunk);
+      scrollToBottom();
     };
 
     // 真实通道：Pet Bridge 挂载 window.__petAgentSend(prompt, {onToken})
@@ -325,7 +341,7 @@
         append('（通道异常：' + (e && e.message ? e.message : e) + '）');
       }
       if (caret && caret.isConnected) caret.remove();
-      pruneBubbles();
+      scheduleFades();
       return;
     }
 
@@ -336,7 +352,7 @@
       await sleep(28);
     }
     if (caret && caret.isConnected) caret.remove();
-    pruneBubbles();
+    scheduleFades();
   }
 
   /* ----------------------------------------------------- 截图 */
