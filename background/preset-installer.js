@@ -20,9 +20,11 @@
  * 按当前扩展版本号拼 tag（如 0.7.5）。发布时仓库需打不带 v 前缀的 `X.Y.Z` 的 tag（如 0.7.5）并含 sidepanel/userscripts/ 目录，
  * 扩展即从此 tag 拉取。若要换分支/固定 ref，改 PRESET_REF 即可。
  *
- * 幂等 & 升级：storage 记录 { [name|namespace]: version }。
- *   - 已安装且版本号与远程一致 → 跳过（不覆盖用户后续编辑 / 删除）。
- *   - 未安装 / 版本变化       → installOrUpdate（已存在则原地更新，否则新建）。
+ * 来源 / 名称判定（dev 强制安装基础）：
+ *   - 已装脚本 namespace+name 与预装项完全一致 → installOrUpdate 覆盖更新（update 方法，
+ *     保留 id 与 @tool 投影），无需额外「强制」标志，天然安全；dev 强制安装即走此路径。
+ *   - 完全无同名脚本 → 首次安装。
+ *   - 同名但 namespace 不同（第三方 / 用户脚本）→ 跳过，避免误覆盖。
  *   - 拉取失败（离线 / 仓库不可达 / 该 tag 暂无清单）→ 跳过预装，己装脚本不受影响，不阻断启动。
  */
 import { StorageKeys } from 'kernel/Keys.js';
@@ -30,6 +32,9 @@ import { Log } from 'kernel/services/Log.js';
 
 /** 预装源仓库（GitHub org/repo）。 */
 const PRESET_REPO = 'chensiyi/webagentcli';
+/** 预装脚本统一 namespace，由 PRESET_REPO 派生；源文件用占位符 __PRESET_NAMESPACE__，
+ *  安装时注入，避免各脚本写死、仓库改名 / 换 org 只需改 PRESET_REPO 一处。 */
+const PRESET_NAMESPACE = `https://github.com/${PRESET_REPO}`;
 /** 仓库内预装脚本所在目录（相对仓库根）。与本地源目录统一，不再单独维护 presets/。 */
 const PRESET_DIR = 'sidepanel/userscripts';
 /** 版本 tag 前缀（与仓库 release tag 命名保持一致，tag 不带 v 前缀，如 0.7.5）。 */
@@ -92,30 +97,50 @@ export async function installPresets(scriptsManager, storage, remoteBase = PRESE
   }
   if (!Array.isArray(files) || files.length === 0) return { installed: 0, skipped: 0 };
 
-  // 2) 已应用版本记录（幂等 / 升级判断）
+  // 2) 已应用版本记录（仅作遥测 / 安装清单，不再用于跳过判定）
   const record = (await storage.get(StorageKeys.PRESET_INSTALLED)) || {};
 
-  // 预读当前已安装脚本，避免逐个 loadAll
+  // 预读当前已安装脚本，供来源(namespace)+名称(name) 一致性判定
   const scripts = await scriptsManager.loadAll();
-  const installedKeys = new Set(
-    scripts.map((s) => (s.namespace ? s.namespace + '/' : '') + s.name)
-  );
 
   let applied = 0;
   for (const file of files) {
     try {
-      const code = await fetchText(`${remoteBase}/${file}`);
+      const raw = await fetchText(`${remoteBase}/${file}`);
+      // 源文件 namespace 用占位符 __PRESET_NAMESPACE__，安装时注入为仓库派生值（统一且去硬编码）；
+      // 不含占位符的脚本（如本地非预装用户脚本）保持原样。
+      const code = raw.includes('__PRESET_NAMESPACE__')
+        ? raw.replace('__PRESET_NAMESPACE__', PRESET_NAMESPACE)
+        : raw;
       const meta = scriptsManager.parseMetadata(code);
       const key = scriptKey(meta);
       const ver = meta.version || '0';
 
-      // 已安装且版本一致 → 跳过，保留用户的编辑 / 删除
-      if (installedKeys.has(key) && record[key] === ver) continue;
-
-      await scriptsManager.installOrUpdate(code);
-      record[key] = ver;
-      applied++;
-      Log.info('preset-installer', `预装脚本已应用：${file} (${ver})`);
+      // 来源+名称检测：
+      //  - 已装脚本 namespace+name 与预装项完全一致 → 视作本扩展自带预装，
+      //    直接 installOrUpdate 覆盖更新（update 方法，保留 id 与 @tool 投影），
+      //    无需额外「强制」标志，天然安全（dev 强制安装即走此路径）；
+      //  - 完全无同名脚本 → 首次安装；
+      //  - 同名但 namespace 不同（第三方 / 用户脚本）→ 跳过，避免误覆盖。
+      const sameSourceName = scripts.find(
+        (s) => (s.namespace || '') === (meta.namespace || '') && (s.name || '') === (meta.name || '')
+      );
+      if (sameSourceName) {
+        await scriptsManager.installOrUpdate(code);
+        record[key] = ver;
+        applied++;
+        Log.info('preset-installer', `预装脚本已更新（覆盖）：${file} (${ver})`);
+      } else {
+        const sameNameOtherSource = scripts.find((s) => (s.name || '') === (meta.name || ''));
+        if (sameNameOtherSource) {
+          Log.warn('preset-installer', `跳过 ${file}：存在同名但来源(namespace)不同的脚本，避免误覆盖`);
+        } else {
+          await scriptsManager.installOrUpdate(code);
+          record[key] = ver;
+          applied++;
+          Log.info('preset-installer', `预装脚本已安装：${file} (${ver})`);
+        }
+      }
     } catch (e) {
       Log.warn('preset-installer', `预装脚本 ${file} 失败，已跳过`, e);
     }

@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         网页宠物聊天浮窗 Pet Chat
-// @namespace    https://github.com/webagentcli
+// @namespace    __PRESET_NAMESPACE__
 // @version      2.0.0
 // @description  点宠物 → 弹出玻璃输入框，工具清单与侧栏同步、聊天气泡流式返回并自动淡化保留最新两条。经 USER_SCRIPT 世界 Port 直连内核 RPC。
-// @author       webagentcli
+// @author       chensiyi
 // @match        *://*/*
 // @grant        GM_setValue
 // @run-at       document-idle
@@ -159,6 +159,9 @@
   // 会话思考强度：session.create 返回的 sessionView 已带 reasoningEffort（取自全局配置），
   // 宠物无需单独读 settings，捕获后随 session.send 透传，与侧栏行为一致。
   let sessionReasoning = null;
+  // 本会话工具开关覆盖表（session.toolEnabled）：与侧栏一致，宠物开关只写这一层（会话级），
+  // 不碰全局 tools.toggle。全局 enabled 是天花板，覆盖仅能在该会话内收窄/开启（全局关则锁定）。
+  let sessionToolEnabled = null;
 
   async function ensureSession() {
     if (sessionId) return sessionId;
@@ -166,6 +169,8 @@
     sessionId = resp?.session?.id || null;
     // sessionView 顶层即带 reasoningEffort（会话级→全局配置→'off' 的回退结果）
     sessionReasoning = resp?.reasoningEffort ?? null;
+    // 会话视图已带 toolEnabled 覆盖表（新建为 null），缓存供工具面板三层合并显示
+    sessionToolEnabled = resp?.session?.toolEnabled ?? null;
     // 向内核桥接上报本 Port 绑定的会话：bridge 据此仅向本 Port 定向转发本会话的
     // 流式/消息/确认事件（多会话并行时消除跨会话广播）。
     bindSession();
@@ -264,6 +269,9 @@
     if (_toolsRendered) return;
     _toolsRendered = true;
     try {
+      // 打开工具面板时若尚无会话，先建一个（transient，首条消息落盘），
+      // 否则没有 sessionId 可写本会话的 toolEnabled 覆盖——与侧栏一致：会话恒存在。
+      if (!sessionId) { try { await ensureSession(); } catch { /* 忽略，tools.list 仍可取全局 */ } }
       const r = await rpcCall('tools.list', []);
       const tools = (r && r.tools) || [];
       renderTools(tools);
@@ -276,11 +284,36 @@
       panelEl.appendChild(hint);
     }
   }
+
+  /**
+   * 计算单个工具在「全局 enabled 为上限 + 会话 toolEnabled 覆盖」下的三态视图。
+   * 与侧栏 ToolPanel.svelte 合并逻辑一致：
+   *   - 全局已禁用 → locked（本会话无法开启，开关置灰锁定）
+   *   - override === true  → 'on'（本会话开启）
+   *   - override === false → 'off'（本会话禁用）
+   *   - override 未定义     → 'inherit'（继承全局：全局开则生效）
+   */
+  function toolStateOf(t) {
+    const globalOn = !!t.enabled;
+    const override = sessionToolEnabled ? sessionToolEnabled[t.name] : undefined;
+    if (!globalOn) return { locked: true, effectiveOn: false, state: 'locked' };
+    if (override === true) return { locked: false, effectiveOn: true, state: 'on' };
+    if (override === false) return { locked: false, effectiveOn: false, state: 'off' };
+    return { locked: false, effectiveOn: globalOn, state: 'inherit' };
+  }
+
+  const TOOL_STATE_LABEL = {
+    inherit: '继承全局',
+    on: '本会话开启',
+    off: '本会话禁用',
+    locked: '全局禁用',
+  };
+
   function renderTools(tools) {
     panelEl.innerHTML = '';
     const head = document.createElement('div');
     head.className = 'pc-panel-head';
-    head.innerHTML = '<span class="pc-panel-title">工具</span><span class="pc-panel-hint">与侧栏同步</span>';
+    head.innerHTML = '<span class="pc-panel-title">工具</span><span class="pc-panel-hint">本会话开关（全局为上限）</span>';
     panelEl.appendChild(head);
 
     if (!tools.length) {
@@ -292,8 +325,9 @@
     }
 
     tools.forEach((t) => {
+      const st = toolStateOf(t);
       const row = document.createElement('div');
-      row.className = 'pc-tool';
+      row.className = 'pc-tool' + (st.locked ? ' locked' : '');
 
       const info = document.createElement('div');
       info.className = 'pc-tool-info';
@@ -306,17 +340,51 @@
       badge.className = 'pc-badge' + (t.source === '脚本' ? ' script' : '');
       badge.textContent = t.source || '内置';
       meta.appendChild(badge);
+      // 三态标签：继承全局 / 本会话开启 / 本会话禁用 / 全局禁用
+      const stateLabel = document.createElement('span');
+      stateLabel.className = 'pc-tool-state state-' + st.state;
+      stateLabel.textContent = TOOL_STATE_LABEL[st.state];
+      meta.appendChild(stateLabel);
       info.append(name, meta);
 
       const sw = document.createElement('button');
-      sw.className = 'pc-switch' + (t.enabled !== false ? ' on' : '');
-      sw.setAttribute('aria-pressed', String(!!(t.enabled !== false)));
-      sw.addEventListener('click', async () => {
-        const next = !sw.classList.contains('on');
-        sw.classList.toggle('on', next);
-        sw.setAttribute('aria-pressed', String(next));
-        try { await rpcCall('tools.toggle', [{ name: t.name, enabled: next }]); } catch { /* 忽略 */ }
-      });
+      sw.className = 'pc-switch' + (st.effectiveOn ? ' on' : '') + (st.locked ? ' locked' : '');
+      sw.setAttribute('aria-pressed', String(st.effectiveOn));
+      sw.title = st.locked ? '已被全局禁用，无法在本会话启用'
+        : st.state === 'inherit' ? '点击：在本会话开启'
+        : st.state === 'on' ? '点击：在本会话禁用'
+        : '点击：恢复继承全局';
+      if (!st.locked) {
+        // 三态循环：undefined（继承）→ true（本会话开）→ false（本会话禁）→ undefined（恢复继承）
+        // 仅写本会话 toolEnabled 覆盖表，不动全局 tools.toggle（全局是天花板，会话层只能收窄/开启）。
+        sw.addEventListener('click', async () => {
+          const override = sessionToolEnabled ? sessionToolEnabled[t.name] : undefined;
+          let next;
+          if (override === undefined) next = true;
+          else if (override === true) next = false;
+          else next = undefined;
+          const base = Object.assign({}, sessionToolEnabled || {});
+          if (next === undefined) delete base[t.name];
+          else base[t.name] = next;
+          const normalized = Object.keys(base).length ? base : null;
+          // 乐观即时反馈：先刷新本地覆盖表与 UI，再写回内核
+          sessionToolEnabled = normalized;
+          const ns = toolStateOf(t);
+          sw.classList.toggle('on', ns.effectiveOn);
+          sw.setAttribute('aria-pressed', String(ns.effectiveOn));
+          sw.title = ns.locked ? '已被全局禁用，无法在本会话启用'
+            : ns.state === 'inherit' ? '点击：在本会话开启'
+            : ns.state === 'on' ? '点击：在本会话禁用'
+            : '点击：恢复继承全局';
+          stateLabel.className = 'pc-tool-state state-' + ns.state;
+          stateLabel.textContent = TOOL_STATE_LABEL[ns.state];
+          try {
+            const resp = await rpcCall('session.update', [{ sessionId, data: { toolEnabled: normalized } }]);
+            // 用返回权威视图刷新覆盖表（零额外 RPC）
+            if (resp?.session) sessionToolEnabled = resp.session.toolEnabled ?? null;
+          } catch { /* 忽略 */ }
+        });
+      }
 
       row.append(info, sw);
       panelEl.appendChild(row);
@@ -569,6 +637,11 @@
     // 懒连接：首次打开时建立 Port
     if (!portReady) connectPort();
     inputEl.focus();
+    // 拉取初始化数据（= 内核启动完成）；到手即通知宠物加速奔向聊天窗左侧。
+    // ensureSession 幂等：会话已存在则瞬间返回（热路径），SW 被回收时则需唤醒 + boot（冷路径，较慢）。
+    ensureSession()
+      .then(() => window.dispatchEvent(new CustomEvent('mini-pet:kernel-ready')))
+      .catch(() => { /* 连不上内核则宠物保持慢速，无妨 */ });
   }
   function closeChat() {
     root.hidden = true;

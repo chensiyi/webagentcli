@@ -60,20 +60,55 @@ describe('installPresets 预装机制（#4.0 远程源）', () => {
     expect(Object.values(record)).toContain('1.0.0');
   });
 
-  it('同版本二次启动：幂等跳过，不重复安装/覆盖', async () => {
+  it('来源+名称一致：覆盖更新（update 方法），保留 id 不重建', async () => {
     mockFetch(['extract-headings.user.js']);
     const storage = mkStorage();
     const sm = new ScriptsManager({ getIPC: () => null, getStorageManager: () => storage });
 
     await installPresets(sm, storage, BASE);
     const idAfterFirst = (await sm.loadAll())[0].id;
-    const res = await installPresets(sm, storage, BASE); // 第二次
+    const res = await installPresets(sm, storage, BASE); // 第二次：来源+名称一致 → 覆盖
+
+    expect(res.installed).toBe(1);
+    expect(res.skipped).toBe(0);
+    const scripts = await sm.loadAll();
+    expect(scripts.length).toBe(1);
+    expect(scripts[0].id).toBe(idAfterFirst); // 同一脚本（update 方法原地更新，保留 id）
+    expect(scripts[0].version).toBe('1.0.0');
+  });
+
+  it('同名但 namespace 不同的第三方脚本：不强制覆盖，跳过', async () => {
+    mockFetch(['extract-headings.user.js']);
+    const storage = mkStorage();
+    const sm = new ScriptsManager({ getIPC: () => null, getStorageManager: () => storage });
+    // 先装一个同名（@name 相同）但来源（@namespace）不同的第三方脚本
+    const thirdParty = PRESET_CODE.replace(/@namespace\s+[^\n]+/, '@namespace    https://evil.example.com');
+    await sm.install(thirdParty);
+    const tpId = (await sm.loadAll())[0].id;
+
+    const res = await installPresets(sm, storage, BASE);
 
     expect(res.installed).toBe(0);
     expect(res.skipped).toBe(1);
     const scripts = await sm.loadAll();
     expect(scripts.length).toBe(1);
-    expect(scripts[0].id).toBe(idAfterFirst); // 同一脚本，未被重建
+    expect(scripts[0].id).toBe(tpId); // 第三方脚本未被覆盖
+    expect(scripts[0].namespace).toBe('https://evil.example.com');
+  });
+
+  it('源文件占位符 __PRESET_NAMESPACE__：安装时注入为仓库派生 namespace', async () => {
+    // 模拟源文件写法：@namespace 用占位符，安装时由 PRESET_REPO 派生注入
+    const withToken = PRESET_CODE.replace(/@namespace\s+[^\n]+/, '@namespace    __PRESET_NAMESPACE__');
+    mockFetch(['extract-headings.user.js'], withToken);
+    const sm = new ScriptsManager({ getIPC: () => null, getStorageManager: mkStorage });
+    const storage = mkStorage();
+
+    await installPresets(sm, storage, BASE);
+
+    const scripts = await sm.loadAll();
+    expect(scripts.length).toBe(1);
+    // PRESET_NAMESPACE = https://github.com/chensiyi/webagentcli（由 PRESET_REPO 派生）
+    expect(scripts[0].namespace).toBe('https://github.com/chensiyi/webagentcli');
   });
 
   it('清单缺失/损坏：安全跳过，不抛异常', async () => {

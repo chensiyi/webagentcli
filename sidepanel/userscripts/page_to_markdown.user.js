@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name              页面转 Markdown（脚本版）
-// @namespace         webagentcli.tool
+// @namespace         __PRESET_NAMESPACE__
 // @version           1.0.0
 // @description       把当前页面主要内容转换为 Markdown 文本返回（与内置 page_to_markdown 工具同逻辑，可经 @tool 自动注册为 AI 工具）
 // @match             *://*/*

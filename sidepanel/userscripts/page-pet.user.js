@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         迷你网页宠物 Mini Page Pet
-// @namespace    https://github.com/webagentcli
+// @namespace    __PRESET_NAMESPACE__
 // @version      1.0.0
 // @description  在任意网页挂一只会跟随鼠标、点击互动的迷你宠物（零依赖、零素材，emoji 实现）
-// @author       Senior Developer
+// @author       chensiyi
 // @match        *://*/*
 // @grant        none
 // @run-at       document-idle
@@ -18,6 +18,9 @@
   const PET = '🐱';          // 想换宠物改这里：🐶 🐰 🐤 🐲 …
   const ROOT_ID = 'mini-pet-root';
   const GAP = 25;           // 宠物包围盒每边与光标保持的空隙（px），可酌情调大/调小
+  const SLOW_STEP = 0.03;   // 冷内核（初始化数据未到手）：慢慢挪向聊天窗左侧
+  const FAST_STEP = 0.12;   // 热内核（初始化数据已到手）：加速冲刺到聊天窗左侧
+  const CHAT_GAP = 4;       // 宠物与聊天窗左缘的间隙（px），2~5
 
   // ---------- 样式 ----------
   const style = document.createElement('style');
@@ -70,31 +73,48 @@
   document.body.appendChild(bubble);
 
   // ---------- 状态 ----------
-  let x = 100, y = 100, tx = x, ty = y, facing = 1, reacting = false, hidden = false, chatOpen = false;
+  let x = 100, y = 100, tx = x, ty = y, facing = 1, reacting = false, hidden = false, chatOpen = false, fastMode = false;
 
   document.addEventListener('mousemove', (e) => { if (!hidden && !chatOpen) { tx = e.clientX; ty = e.clientY; } });
 
   pet.addEventListener('click', () => {
     if (reacting || hidden) return;
+    const chatRoot = document.getElementById('pet-chat-root');
+    // 无宠物聊天浮窗时（pet-chat.js 未注入）保持原互动行为
+    if (!chatRoot) {
+      reacting = true;
+      pet.classList.remove('idle');
+      pet.classList.add('happy');
+      setTimeout(() => {
+        pet.classList.remove('happy');
+        if (!chatOpen) pet.classList.add('idle');
+        reacting = false;
+      }, 620);
+      return;
+    }
     reacting = true;
     pet.classList.remove('idle');
     pet.classList.add('happy');
-    // 唤醒聊天浮窗（pet-chat.js）：宠物停止运动并停在当前位置，直至聊天关闭才恢复
+    // 唤醒聊天浮窗（pet-chat.js）：宠物不再停在原地，而是奔向聊天窗左侧；
+    // 内核冷暖由 pet-chat 拉取初始化数据的快慢决定（收到 mini-pet:kernel-ready 即加速）。
     chatOpen = true;
-    pet.classList.remove('idle');
     window.dispatchEvent(new CustomEvent('mini-pet:open-chat'));
     setTimeout(() => {
       pet.classList.remove('happy');
-      if (!chatOpen) pet.classList.add('idle');   // 仅当聊天未开时才恢复浮动
+      if (!chatOpen) pet.classList.add('idle');
       reacting = false;
     }, 620);
   });
 
-  // 聊天关闭时恢复宠物运动（由 pet-chat.js 在关闭时派发）
+  // 聊天关闭：恢复跟随鼠标，并复位加速档（下次打开重新判定内核冷暖）
   window.addEventListener('mini-pet:chat-closed', () => {
     chatOpen = false;
+    fastMode = false;
     pet.classList.add('idle');
   });
+
+  // 聊天浮窗初始化数据到手（= 内核已启动）：宠物加速冲刺到聊天窗左侧
+  window.addEventListener('mini-pet:kernel-ready', () => { fastMode = true; });
 
   // 偶尔眨眼
   setInterval(() => {
@@ -105,7 +125,39 @@
 
   // ---------- 主循环 ----------
   function loop() {
-    if (!hidden && !chatOpen) {
+    if (hidden) { requestAnimationFrame(loop); return; }
+    if (chatOpen) {
+      // —— 奔向聊天窗左侧（垂直居中、留 CHAT_GAP 间隙）——
+      const box = document.getElementById('pet-chat-root');
+      if (box && !box.hidden) {
+        const r = box.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) {
+          // 宠物中心目标：聊天窗左缘往左一个宠物半宽 + 间隙；垂直方向居中
+          const tgX = r.left - CHAT_GAP - HALF_W;
+          const tgY = r.top + r.height / 2;
+          const dx = tgX - x, dy = tgY - y;
+          const dist = Math.hypot(dx, dy);
+          if (dist > 2) {
+            // 内核冷热决定步长：冷（初始化数据未到手）慢挪，热（已到手）冲刺
+            const step = dist * (fastMode ? FAST_STEP : SLOW_STEP);
+            x += dx / (dist || 1) * step;
+            y += dy / (dist || 1) * step;
+            if (Math.abs(dx) > 1) facing = dx < 0 ? -1 : 1;
+            pet.classList.remove('idle');
+          } else {
+            pet.classList.add('idle');   // 已到位，原地轻晃
+          }
+          const ox = x - HALF_W, oy = y - HALF_H;
+          pet.style.setProperty('--x', ox + 'px');
+          pet.style.setProperty('--y', oy + 'px');
+          pet.style.setProperty('--f', facing);
+          if (!reacting && !pet.classList.contains('blink')) {
+            pet.style.transform = `translate(${ox}px, ${oy}px) scaleX(${facing})`;
+          }
+        }
+      }
+    } else {
+      // —— 跟随鼠标（原行为）——
       const dx = tx - x, dy = ty - y;
       // 光标到宠物包围盒（按真实宽/高）的距离：X/Y 方向分别减去半宽半高再取正
       const bx = Math.max(0, Math.abs(dx) - HALF_W);

@@ -234,6 +234,23 @@
 }
 .pc-switch.on { background: #3b6fd4; }
 .pc-switch.on::after { transform: translateX(16px); }
+/* 全局已禁用 → 锁定态：置灰、不可点（与侧栏"全局禁用"锁定一致） */
+.pc-switch.locked { background: #e4e4e7; cursor: not-allowed; opacity: 0.6; }
+.pc-switch.locked::after { box-shadow: none; }
+
+/* 三态标签：继承全局 / 本会话开启 / 本会话禁用 / 全局禁用 */
+.pc-tool-state {
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 6px;
+  color: #5a6275;
+  background: rgba(120, 130, 160, 0.14);
+}
+.pc-tool-state.state-on { color: #2f6fd4; background: rgba(60, 120, 220, 0.14); }
+.pc-tool-state.state-off { color: #c0392b; background: rgba(192, 57, 43, 0.12); }
+.pc-tool-state.state-locked { color: #9aa0b3; background: rgba(120, 130, 160, 0.12); }
+.pc-tool.locked .pc-tool-name { opacity: 0.55; }
 
 /* ---------- 轻量浮动启动器（无环境宠物时备用） ---------- */
 .pc-launcher {
