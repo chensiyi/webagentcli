@@ -65,6 +65,42 @@
     }
   }
 
+  /* =============================================================================
+   * Markdown 渲染 —— 外部库（marked + DOMPurify）从 npm CDN 加载
+   * -----------------------------------------------------------------------------
+   * USER_SCRIPT 世界 fetch 可绕过页面 CSP（与 pet-chat.css 加载同理）。
+   * 固定版本号，避免 @latest 漂移。库未就绪时渲染降级为纯文本。
+   * 加载方式：fetch 源码文本后间接 eval（UMD 挂到 window.marked / window.DOMPurify）。
+   * ========================================================================== */
+  const MARKED_URL = 'https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js';
+  const PURIFY_URL = 'https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js';
+  let _mdLibsPromise = null;
+  function loadMarkdownLibs() {
+    if (_mdLibsPromise) return _mdLibsPromise;
+    _mdLibsPromise = (async () => {
+      try {
+        if (!window.marked) {
+          const src = await (await fetch(MARKED_URL)).text();
+          (0, eval)(src);            // 间接 eval → 全局作用域，UMD 挂到 window.marked
+        }
+        if (!window.DOMPurify) {
+          const src = await (await fetch(PURIFY_URL)).text();
+          (0, eval)(src);            // 挂到 window.DOMPurify
+        }
+      } catch (e) {
+        console.warn('[pet-chat] markdown 库加载失败，降级纯文本:', e);
+      }
+    })();
+    return _mdLibsPromise;
+  }
+  // 渲染文本为安全 HTML；库未就绪时返回 null（调用方降级 textContent）
+  function renderMarkdown(text) {
+    if (!window.marked) return null;
+    let html = window.marked.parse(text || '', { breaks: true, gfm: true });
+    if (window.DOMPurify) html = window.DOMPurify.sanitize(html);
+    return html;
+  }
+
   /* ============================================ Port RPC 客户端 */
   const PORT_NAME = 'webagent-us-rpc';
   let port = null;
@@ -408,7 +444,9 @@
   function pushBubble(kind, text) {
     const el = document.createElement('div');
     el.className = 'pc-bubble ' + kind;
-    el.textContent = text;
+    // Markdown 渲染；库未就绪时降级纯文本
+    const html = renderMarkdown(text);
+    if (html !== null) el.innerHTML = html; else el.textContent = text || '';
     bubblesEl.appendChild(el);
     scrollToBottom();
     scheduleFades();
@@ -535,9 +573,24 @@
   }
 
   /* ----------------------------------------------------- 对话发送 + 流式接收 */
-  // 当前正在流式接收的气泡（用于事件回调追加 token）
+  // 当前正在流式接收的气泡（用于事件回调渲染）
   let streamingBubble = null;
-  let streamingCaret = null;
+  let streamingText = '';          // 流式累加的原文，每个 chunk 重新 markdown 渲染
+  // 把累加原文渲染进气泡（含打字光标）；库未就绪时降级纯文本
+  function renderStreaming(showCaret) {
+    if (!streamingBubble) return;
+    const html = renderMarkdown(streamingText);
+    if (html !== null) {
+      streamingBubble.innerHTML = html;
+      if (showCaret) {
+        const caret = document.createElement('span');
+        caret.className = 'pc-caret';
+        streamingBubble.appendChild(caret);
+      }
+    } else {
+      streamingBubble.textContent = streamingText;
+    }
+  }
 
   // 注册 session 事件监听：处理流式 token 与危险工具确认
   onSessionEvent((event, data) => {
@@ -556,40 +609,36 @@
     }
 
     if (event === 'session:streamStart') {
-      // 创建 AI 气泡，显示光标
+      // 创建 AI 气泡，准备累加渲染
       streamingBubble = pushBubble('ai', '');
-      streamingCaret = document.createElement('span');
-      streamingCaret.className = 'pc-caret';
-      streamingBubble.appendChild(streamingCaret);
+      streamingText = '';
     } else if (event === 'session:streamChunkAppend') {
-      // 追加 token
+      // 追加 token 并重新 markdown 渲染（含光标）
       if (streamingBubble) {
         const chunk = data?.content || '';
         if (chunk) {
-          if (streamingCaret && streamingCaret.isConnected) {
-            streamingCaret.insertAdjacentText('beforebegin', chunk);
-          } else {
-            streamingBubble.append(chunk);
-          }
+          streamingText += chunk;
+          renderStreaming(true);
           scrollToBottom();
         }
       }
     } else if (event === 'session:streamComplete') {
-      // 流式结束
-      if (streamingCaret && streamingCaret.isConnected) streamingCaret.remove();
-      streamingCaret = null;
+      // 流式结束：最终渲染（去光标）
+      renderStreaming(false);
       streamingBubble = null;
+      streamingText = '';
       scheduleFades();
     } else if (event === 'session:streamError') {
       // 流式错误
-      if (streamingCaret && streamingCaret.isConnected) streamingCaret.remove();
-      streamingCaret = null;
+      const msg = '（' + (data?.message || '发送失败') + '）';
       if (streamingBubble) {
-        streamingBubble.append('（' + (data?.message || '发送失败') + '）');
+        const html = renderMarkdown(msg);
+        if (html !== null) streamingBubble.innerHTML = html; else streamingBubble.textContent = msg;
       } else {
-        pushBubble('ai', '（' + (data?.message || '发送失败') + '）');
+        pushBubble('ai', msg);
       }
       streamingBubble = null;
+      streamingText = '';
       scheduleFades();
     }
   });
@@ -597,6 +646,8 @@
   async function sendUser(text) {
     text = (text || '').trim();
     if (!text) return;
+    // 确保 markdown 库就绪，首条气泡即走渲染（未就绪则降级纯文本）
+    await loadMarkdownLibs();
     pushBubble('user', text);
     inputEl.value = '';
 
@@ -660,5 +711,6 @@
   // 断开后 connectPort 内部会自动重连，保证保活连续性。
   connectPort();
   injectStyles();
+  loadMarkdownLibs();   // 外部 markdown 库（marked + DOMPurify），失败则降级纯文本
   buildDOM();
 })();

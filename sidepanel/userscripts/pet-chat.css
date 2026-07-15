@@ -67,6 +67,45 @@
   align-self: flex-start;
 }
 .pc-bubble.fading { opacity: 0; transform: translateY(4px); }
+
+/* ---------- Markdown 内容（marked 渲染）---------- */
+.pc-bubble > :first-child { margin-top: 0; }
+.pc-bubble > :last-child { margin-bottom: 0; }
+.pc-bubble p { margin: 6px 0; }
+.pc-bubble h1, .pc-bubble h2, .pc-bubble h3,
+.pc-bubble h4, .pc-bubble h5, .pc-bubble h6 { margin: 8px 0 4px; line-height: 1.25; font-weight: 600; }
+.pc-bubble h1 { font-size: 16px; }
+.pc-bubble h2 { font-size: 15px; }
+.pc-bubble h3 { font-size: 14px; }
+.pc-bubble ul, .pc-bubble ol { margin: 6px 0; padding-left: 20px; }
+.pc-bubble li { margin: 2px 0; }
+.pc-bubble a { color: #2f6fd4; text-decoration: underline; }
+.pc-bubble code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  background: rgba(20, 22, 35, 0.08);
+  padding: 1px 5px;
+  border-radius: 5px;
+}
+.pc-bubble pre {
+  margin: 6px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(20, 22, 35, 0.10);
+  overflow-x: auto;
+  max-height: 260px;
+}
+.pc-bubble pre code { background: none; padding: 0; font-size: 12.5px; }
+.pc-bubble blockquote {
+  margin: 6px 0;
+  padding: 2px 12px;
+  border-left: 3px solid rgba(20, 22, 35, 0.18);
+  color: #4a4f5c;
+}
+.pc-bubble table { border-collapse: collapse; margin: 6px 0; font-size: 13px; }
+.pc-bubble th, .pc-bubble td { border: 1px solid rgba(20, 22, 35, 0.15); padding: 4px 8px; }
+.pc-bubble img { max-width: 100%; border-radius: 8px; }
+.pc-bubble hr { border: none; border-top: 1px solid rgba(20, 22, 35, 0.12); margin: 8px 0; }
 /* 发送失败兜底气泡：常驻、不自动淡化，提示用户可重试 */
 .pc-bubble.pc-fallback {
   background: linear-gradient(180deg, rgba(255, 244, 224, 0.94), rgba(255, 236, 200, 0.80));
