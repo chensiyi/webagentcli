@@ -48,9 +48,10 @@ class ToastStore {
 
   /**
    * 带操作按钮的 toast（如危险操作确认）。
-   * 点击任一按钮后自动关闭；duration=0 表示不自动关闭（由按钮或 ✕ 关闭）。
+   * 点击任一按钮后自动关闭；默认 12s 后自动消失。
+   * 显式传 duration=0 表示常驻（不自动关闭，由按钮或 ✕ 关闭）。
    */
-  action(message: string, actions: ToastAction[], type: ToastItem['type'] = 'warning', duration = 0): string {
+  action(message: string, actions: ToastAction[], type: ToastItem['type'] = 'warning', duration = 12000): string {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const wrapped = actions.map((a) => ({
       ...a,
