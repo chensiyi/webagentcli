@@ -22,27 +22,42 @@
   const FAST_STEP = 0.12;   // 热内核（初始化数据已到手）：加速冲刺到聊天窗左侧
   const CHAT_GAP = 4;       // 宠物与聊天窗左缘的间隙（px），2~5
 
-  // ---------- 样式（外置 CDN，与 pet-chat 同模式）----------
-  // page-pet 在 MAIN 世界 @grant none，无法读 chrome.runtime 版本，故写死与扩展同版本 tag
-  // （每次发版需同步，与 namespace 写死同理）。库未加载成功则宠物短暂无样式（FOUC）。
-  const PET_CSS_TAG = '0.7.7';
-  const PET_CSS_URL = `https://cdn.jsdelivr.net/gh/chensiyi/webagentcli@${PET_CSS_TAG}/sidepanel/userscripts/page-pet.css`;
-  let _petCssLoaded = false;
-  async function injectPetStyles() {
-    if (_petCssLoaded || document.getElementById(ROOT_ID + '-style')) return;
-    try {
-      const resp = await fetch(PET_CSS_URL);
-      if (!resp.ok) throw new Error('HTTP ' + resp.status);
-      const css = await resp.text();
-      const style = document.createElement('style');
-      style.id = ROOT_ID + '-style';
-      style.textContent = css;
-      document.head.appendChild(style);
-      _petCssLoaded = true;
-    } catch (e) {
-      console.warn('[page-pet] CSS 加载失败，宠物将无样式:', e);
+  // ---------- 样式（内联，同步生效）----------
+  // 注意：page-pet 跑在 MAIN 世界（@grant none），fetch 受页面 CSP connect-src 约束，
+  // 若走 CDN 外置，严格 CSP 站点会拉取失败导致 position:fixed 缺失、宠物掉文档流跑偏。
+  // 故整段内联、脚本执行即生效，零失败路径。
+  const style = document.createElement('style');
+  style.id = ROOT_ID + '-style';
+  style.textContent = `
+    #${ROOT_ID} {
+      position: fixed; left: 0; top: 0; z-index: 2147483647;
+      font-size:28px; line-height: 1; cursor: pointer; user-select: none;
+      filter: drop-shadow(0 6px 6px rgba(0,0,0,.18));
+      transform: translate(40px,40px) scaleX(1);
+      transition: transform .12s cubic-bezier(.22,1,.36,1);
+      will-change: transform;
     }
-  }
+    #${ROOT_ID}.idle  { animation: mp-bob 2.4s ease-in-out infinite; }
+    @keyframes mp-bob { 0%,100%{ margin-top:0 } 50%{ margin-top:-6px } }
+    #${ROOT_ID}.happy { animation: mp-hop .6s cubic-bezier(.28,.84,.42,1); }
+    @keyframes mp-hop {
+      0%   { transform: translate(var(--x),var(--y)) scaleX(var(--f)) scale(1) }
+      40%  { transform: translate(var(--x),calc(var(--y) - 34px)) scaleX(var(--f)) scale(1.25) }
+      100% { transform: translate(var(--x),var(--y)) scaleX(var(--f)) scale(1) }
+    }
+    #${ROOT_ID}.blink { animation: mp-blink .18s ease; }
+    @keyframes mp-blink { 50% { transform: translate(var(--x),var(--y)) scaleX(var(--f)) scaleY(.1) } }
+    #${ROOT_ID}-bubble {
+      position: fixed; z-index: 2147483646; padding: 6px 12px; border-radius: 14px;
+      background: rgba(255,255,255,.85); backdrop-filter: blur(8px);
+      border: 1px solid rgba(0,0,0,.06); box-shadow: 0 8px 24px rgba(0,0,0,.12);
+      font: 14px/1.2 system-ui, sans-serif; color: #333;
+      opacity: 0; transform: translateY(6px);
+      transition: opacity .2s, transform .2s; pointer-events: none;
+    }
+    #${ROOT_ID}-bubble.show { opacity: 1; transform: translateY(0); }
+  `;
+  document.head.appendChild(style);
 
   // ---------- DOM ----------
   const pet = document.createElement('div');
@@ -59,9 +74,6 @@
   const bubble = document.createElement('div');
   bubble.id = ROOT_ID + '-bubble';
   document.body.appendChild(bubble);
-
-  // 运行时从 CDN 拉取外置样式（写死版本 tag）
-  injectPetStyles();
 
   // ---------- 状态 ----------
   let x = 100, y = 100, tx = x, ty = y, facing = 1, reacting = false, hidden = false, chatOpen = false, fastMode = false;
