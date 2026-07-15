@@ -30,6 +30,8 @@ export interface SessionAPI {
   clearMessages(data: { sessionId: string }): Promise<null>;
   send(data: { sessionId: string; content: string | any[]; reasoningEffort?: string; tabId?: number | null }): Promise<null>;
   stop(data: { sessionId?: string | null }): Promise<null>;
+  /** 危险工具人工确认回写（confirm 随会话管理，挂在 session facade 下）。Shell/用户脚本弹确认框后回写内核，解除 requestConfirm 的 await */
+  confirmResolve(data: { requestId: string; approved: boolean }): Promise<null>;
 }
 
 export interface ToolsAPI {
@@ -63,12 +65,6 @@ export interface MediaAPI {
   delete(data: { id: string }): Promise<null>;
 }
 
-/** 危险工具人工确认专用 RPC 接口（UI 专用确认接口）。
- * Shell 收到内核 CONFIRM.REQUEST 事件后弹确认框，用户决策经 resolve 回写内核。 */
-export interface ConfirmAPI {
-  resolve(data: { requestId: string; approved: boolean }): Promise<null>;
-}
-
 /** 内核控制面 RPC（如热重载脚本/工具注册表）。 */
 export interface KernelAPI {
   /** 热重载内核：重跑 syncRegisteredScripts + reconcileScriptTools，使脚本安装/卸载/启停立即生效 */
@@ -82,6 +78,5 @@ export interface KernelAPIContract {
   storage: StorageAPI;
   scripts: ScriptsAPI;
   media: MediaAPI;
-  confirm: ConfirmAPI;
   kernel: KernelAPI;
 }

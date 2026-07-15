@@ -46,8 +46,8 @@ export function createSessionFacade(kernel: Kernel, sessionChannel: RpcChannel) 
     },
 
     async create() {
-      // 新建会话前取消进行中的轮次（避免残留流式占用 provider）
-      cancelConversation(kernel, emit);
+      // 多 session 并行：新建会话不得取消其他会话进行中的轮次（并行合法，非独占）。
+      // 新会话此刻尚无本会话轮次可取消，故此处不再调用 cancelConversation。
       const sm = kernel.getSessionManager();
       const settings = kernel.getSettingsManager().getSettings() as any;
       // 新建会话沿用全局默认思考强度，但先不落盘——未发送前只是临时会话，
@@ -87,6 +87,8 @@ export function createSessionFacade(kernel: Kernel, sessionChannel: RpcChannel) 
       if (!data?.sessionId) return null;
       // 删除会话前取消其进行中的轮次（原 eventhandler 订阅 SessionManager 的 SESSION_DELETED 实现，现内联）
       cancelConversation(kernel, emit, data.sessionId);
+      // 回收该会话挂起的确认请求（confirm 随会话生命周期：会话没了，待确认也应一并清理）
+      kernel.getToolsManager()?.cancelPendingConfirmsForSession(data.sessionId);
       const sm = kernel.getSessionManager();
       await sm.deleteSession(data.sessionId);
       return { sessions: sm.getAllSessions() };
@@ -96,6 +98,8 @@ export function createSessionFacade(kernel: Kernel, sessionChannel: RpcChannel) 
       if (!data?.sessionId) return null;
       const sm = kernel.getSessionManager();
       await sm.clearMessages(data.sessionId);
+      // 清空消息后，原挂起的确认已无对应气泡/工具调用可落点，一并回收
+      kernel.getToolsManager()?.cancelPendingConfirmsForSession(data.sessionId);
       const idx = sm.getSession(data.sessionId)?.toIndexJSON();
       sessionChannel.emit(KernelEvents.SESSION.SESSION_UPDATED, { sessionId: data.sessionId, session: idx });
       return null;
@@ -107,14 +111,27 @@ export function createSessionFacade(kernel: Kernel, sessionChannel: RpcChannel) 
       if (!data?.sessionId || !data?.content) return null;
       void runConversation(kernel, { sessionId: data.sessionId, content: data.content, reasoningEffort: data.reasoningEffort, tabId: data.tabId ?? null } as any, { onEvent: emit }).catch((err: any) => {
         Log.error('SESSION_FACADE', 'runConversation error', err);
-        emit(KernelEvents.SESSION.STREAM_ERROR, { error: err, message: err?.message || String(err) });
+        // 多 session 并行：兜底错误必须带 sessionId，否则消费端（shell / 脚本 Port）按会话过滤后会丢弃或错配
+        emit(KernelEvents.SESSION.STREAM_ERROR, { error: err, message: err?.message || String(err), sessionId: data.sessionId });
       });
       return null;
     },
 
-    // 停止当前流式：直接取消进行中的轮次（fire-and-forget）。传 sessionId 仅取消该会话，省略则取消全部。
+    // 停止流式：传 sessionId 仅取消该会话（多 session 并行下必须按 id 定向，勿误伤其他会话）。
+    // ⚠️ 省略 sessionId 会取消全部进行中的轮次——仅限"全局停止"语义，普通停止按钮务必传 id。
     stop(data: { sessionId?: string | null }) {
       cancelConversation(kernel, emit, data?.sessionId);
+      return null;
+    },
+
+    /**
+     * 危险工具人工确认回写（confirm 作为会话管理子系统的一部分）。
+     * Shell / 用户脚本在 SESSION.CONFIRM_REQUEST 后弹确认框，用户决策经此回写内核，
+     * 解除 ToolsManager.requestConfirm() 的 await。仅暴露 resolve 半边（Shell 是唯一决策方）。
+     */
+    confirmResolve(data: { requestId: string; approved: boolean }) {
+      if (!data?.requestId) return null;
+      kernel.getToolsManager()?.resolveConfirm(data.requestId, !!data.approved);
       return null;
     },
   };
@@ -256,25 +273,6 @@ export function createScriptsFacade(
       } catch (e) {
         Log.warn('SCRIPTS_FACADE', 'invokeMenu execute failed', e);
       }
-      return null;
-    },
-  };
-}
-
-/**
- * confirm facade — 危险工具人工确认的专用 RPC 接口（UI 专用确认 RPC）。
- *
- * 这是 kernel→shell 确认闭环的「shell→kernel 半边」：
- * - 内核 ToolsManager.invoke 危险工具前，经 ToolConfirmation 广播 CONFIRM.REQUEST 事件；
- * - Shell 弹确认框，用户决策后调用 api.confirm.resolve({ requestId, approved })；
- * - 本 facade 把该调用转交 kernel.getToolConfirmation().resolve()，解除内核侧 await。
- * 仅暴露 resolve 一个方法（写穿透：Shell 是唯一决策方）。
- */
-export function createConfirmFacade(kernel: Kernel) {
-  return {
-    resolve(data: { requestId: string; approved: boolean }) {
-      if (!data?.requestId) return null;
-      kernel.getToolsManager()?.resolveConfirm(data.requestId, !!data.approved);
       return null;
     },
   };

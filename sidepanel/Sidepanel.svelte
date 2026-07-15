@@ -3,7 +3,7 @@
   import Sidebar from './components/layout/Sidebar.svelte';
   import ToastContainer from './components/overlays/ToastContainer.svelte';
   import { useToast } from './components/overlays/toast-store.svelte';
-  import { KernelEvents } from 'kernel/Events.js';
+  import { KernelEvents, KernelChannels } from 'kernel/Events.js';
   import type { PageId, PageDef } from './components/layout/Sidebar.svelte';
   //避免在页面中硬编码css样式，使用style中定义的语义性质的风格，便于统一风格与切换样式。
 
@@ -24,6 +24,7 @@
   import { RPCClient, createApiClient } from 'bridge/RPC.js';
   import type { KernelAPIContract } from './api-contract.js';
   import { confirmStore } from './utils/confirm-store.svelte.js';
+  import { getShellCache } from './utils/shell-cache.js';
 
   let { ipc, bootError = null }: { ipc: unknown; bootError?: string | null } = $props();
 
@@ -46,8 +47,13 @@
   const api = createApiClient<KernelAPIContract>(rpc);
   setContext('api', api);
   setContext('navigate', navigateTo);
-  // 危险工具「气泡内确认」store：绑定 api（回写 confirm.resolve）与 ipc
+  // 危险工具「气泡内确认」store：绑定 api（回写 session.confirmResolve）与 ipc
   confirmStore.bind(api, ipc);
+
+  // session 通道：SESSION.CONFIRM_* 危险工具确认事件现经此广播（与 STREAM_* 同通道、随会话隔离）。
+  const sessionChannel = (ipc as any)?.getOrCreateChannel?.(KernelChannels.SESSION) || ipc;
+  // Shell 侧当前会话（全局缓存单例），用于把确认请求限定在「侧栏正在查看的会话」
+  const cache = getShellCache(api as any);
 
   // 存储写入失败（如配额超限）由内核经 STORAGE.ERROR 上报，全局弹 toast 提示
   const toast = useToast();
@@ -55,11 +61,15 @@
     toast.error(`存储写入失败：${d?.message || '空间可能已满'}`);
   });
 
-  // 危险工具人工确认：内核 invoke danger 工具前广播，改在聊天气泡内确认。
+  // 危险工具人工确认：内核 invoke danger 工具前经 session 通道广播 SESSION.CONFIRM_REQUEST，改在聊天气泡内确认。
   // 按 toolCallId 关联到 ToolCallCard，在气泡里直接渲染「允许/取消」按钮。
   // 详细入参（如 run_user_script 的代码）随聊天消息展示，无需 toast。
-  (ipc as any).on(KernelEvents.CONFIRM.REQUEST, (d: any) => {
+  // 多 session 并行：仅处理「当前侧栏正在查看的会话」的确认请求；跨会话（如 pet 世界）的
+  // 确认由各世界自行处理，避免侧栏误弹他人会话的确认框。
+  sessionChannel.on(KernelEvents.SESSION.CONFIRM_REQUEST, (d: any) => {
     if (!d?.requestId) return;
+    const cur = cache.getCurrentSessionId();
+    if (cur && d.sessionId && d.sessionId !== cur) return;
     if (!d.toolCallId) {
       // 兜底：极少数无 toolCallId 的场景退回 toast 轻量确认
       const toolName = d.toolName || 'unknown';
@@ -67,8 +77,8 @@
       toast.action(
         `⚠️ 危险操作确认：「${toolName}」${reason}`,
         [
-          { label: '允许执行', variant: 'danger', onClick: () => { void api.confirm.resolve({ requestId: d.requestId, approved: true }).catch(() => {}); } },
-          { label: '取消', variant: 'default', onClick: () => { void api.confirm.resolve({ requestId: d.requestId, approved: false }).catch(() => {}); } },
+          { label: '允许执行', variant: 'danger', onClick: () => { void api.session.confirmResolve({ requestId: d.requestId, approved: true }).catch(() => {}); } },
+          { label: '取消', variant: 'default', onClick: () => { void api.session.confirmResolve({ requestId: d.requestId, approved: false }).catch(() => {}); } },
         ],
         'warning',
         130_000,
@@ -86,8 +96,8 @@
     });
   });
 
-  // 内核超时/已决策后广播，移除气泡内残留的待确认态
-  (ipc as any).on(KernelEvents.CONFIRM.RESOLVED, (d: any) => {
+  // 内核超时/已决策后广播 SESSION.CONFIRM_RESOLVED，移除气泡内残留的待确认态
+  sessionChannel.on(KernelEvents.SESSION.CONFIRM_RESOLVED, (d: any) => {
     if (d?.toolCallId) confirmStore.remove(d.toolCallId);
   });
 

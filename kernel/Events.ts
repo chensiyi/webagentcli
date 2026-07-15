@@ -51,6 +51,11 @@ export const KernelEvents = {
     // 祈使式，与上方过去式事件（如 MESSAGE_ADDED）配对：addMessage ↔ messageAdded，时态区分命令与事件
     ADD_MESSAGE: 'session:addMessage',
     STOP_STREAM: 'session:stopStream',
+    // 危险工具人工确认闸门（confirm 整体作为「会话管理」子系统的一部分）：
+    // REQUEST 经 session 通道广播给用户决策；RESOLVED 在决策/超时后广播让 UI 清理。
+    // 随会话隔离，多 session 并行互不干扰；会话删除/清空时由 ToolsManager 按 sessionId 精确回收。
+    CONFIRM_REQUEST: 'session:confirmRequest',
+    CONFIRM_RESOLVED: 'session:confirmResolved',
   },
   SETTINGS: {
     LOADED: 'settings:loaded',
@@ -131,17 +136,6 @@ export const KernelEvents = {
     GRANTED: 'capability:granted',
     REVOKED: 'capability:revoked',
   },
-  /**
-   * 危险工具人工确认闸门事件。
-   * 内核在 invoke 危险工具（Tool.danger===true）前，经内核 IPC 向 Shell 广播 REQUEST，
-   * Shell 弹确认框，用户决策后经专用 RPC `confirm.resolve` 回写（见 background/rpc-facades）。
-   * 这是「UI 专用确认 RPC 接口」的 kernel→shell 半边（事件通知）；shell→kernel 半边是 RPC 调用。
-   */
-  CONFIRM: {
-    REQUEST: 'confirm:request',
-    /** 内核已收到用户决策（或超时自动拒绝）后广播，Shell 据此移除气泡内的待确认态 */
-    RESOLVED: 'confirm:resolved',
-  }
 };
 
 /**

@@ -19,7 +19,7 @@ import { IPC } from 'kernel/IPC.js';
 import { IPCTransport } from 'bridge/IPCTransport.js';
 import { RPCServer } from 'bridge/RPC.js';
 import { UserScriptBridge } from 'bridge/UserScriptBridge.js';
-import { createSessionFacade, createToolsFacade, createStorageFacade, createScriptsFacade, createMediaFacade, createConfirmFacade, createKernelFacade } from './rpc-facades.js';
+import { createSessionFacade, createToolsFacade, createStorageFacade, createScriptsFacade, createMediaFacade, createKernelFacade } from './rpc-facades.js';
 import { createMediaStore } from './services/mediaStore.js';
 import { Kernel } from 'kernel/Kernel.js';
 import { Bootloader } from 'kernel/Bootloader.js';
@@ -358,7 +358,7 @@ async function bootKernel() {
         const rpcServer = new RPCServer(ipc);
 
         rpcServer.expose('session', createSessionFacade(kernel, sessionChannel), {
-            methods: ['getCurrent', 'create', 'update', 'deleteMessage', 'list', 'delete', 'clearMessages', 'send', 'stop'],
+            methods: ['getCurrent', 'create', 'update', 'deleteMessage', 'list', 'delete', 'clearMessages', 'send', 'stop', 'confirmResolve'],
             capabilities: kernel.getCapabilities() as any,
         });
         rpcServer.expose('tools', createToolsFacade(kernel), {
@@ -375,11 +375,6 @@ async function bootKernel() {
         });
         rpcServer.expose('scripts', createScriptsFacade(kernel), {
             methods: ['list', 'install', 'edit', 'toggle', 'uninstall', 'getMenu', 'invokeMenu'],
-            capabilities: kernel.getCapabilities() as any,
-        });
-        // 危险工具人工确认专用 RPC（UI 专用确认接口）：Shell 决策后回写 resolve
-        rpcServer.expose('confirm', createConfirmFacade(kernel), {
-            methods: ['resolve'],
             capabilities: kernel.getCapabilities() as any,
         });
         // 内核控制面（如热重载脚本/工具注册表）；reload 重跑 syncRegisteredScripts + reconcileScriptTools
@@ -415,7 +410,8 @@ async function bootKernel() {
         reconcileScriptTools(kernel.getScriptsManager(), kernel.getToolsManager());
 
         // 用户脚本世界 RPC 桥接：注入 rpcServer + sessionChannel，
-        // 处理 init() 阶段暂存的 Port 连接（SW 唤醒后可能已有 pet-chat.js 连接在排队）
+        // 处理 init() 阶段暂存的 Port 连接（SW 唤醒后可能已有 pet-chat.js 连接在排队）。
+        // CONFIRM.* 确认闸门事件与 STREAM_* 同走 session 通道，bridge 只订阅 sessionChannel 即可统一按会话路由。
         usBridge.bind(rpcServer, sessionChannel);
     });
 

@@ -26,6 +26,11 @@
 以上内容可能存在临时性开发文档，当模块足够庞大，开发完成后，应当整理为标准说明文档，清理临时文档。
 
 待建设:
+    Provider 多会话并行隔离（按 program/Process 收口）  已知缺口
+        现状：ProviderFactory 单例 + Service 单 abortController，chatStream 覆盖式；多会话并行流式时
+        cancel 只能中止最后一个，applySessionCache 共享实例存在竞态。
+        方向：每轮流式挂 ProcessManager 的 Process，terminateFn 持本轮 AbortController，chatStream 收外部
+        signal；cancel 按 sessionId/processId 精确中止，provider 缓存按 session 键隔离。
     子任务编排
         考虑如何利用消息机制，独立建立非 sidepanel 区的独立 agent
         如何关联和管理

@@ -6,8 +6,17 @@
  *
  * 双向通道：
  *   1. RPC 请求/响应：Port 消息 {__rpc, id, method, params} → rpcServer.dispatch() → {__rpc, id, ok, result/error}
- *   2. 流式事件转发：sessionChannel 上的 STREAM_* / MESSAGE_ADDED 事件 → Port 消息 {__event, event, data}
- *      （白名单 + __remote 过滤，避免 shell 回灌事件被二次转发）
+ *   2. 流式/确认事件转发：sessionChannel 上的 STREAM_* / MESSAGE_ADDED / SESSION.CONFIRM_* 事件 → Port 消息
+ *      {__event, event, data}（白名单 + __remote 过滤，避免 shell 回灌事件被二次转发）
+ *   3. 控制消息：Port → {__bind, sessionId}，脚本 ensureSession 后上报自身会话，
+ *      bridge 据此把该 Port 绑定到 sessionId，仅转发本会话事件（消除跨会话广播）。
+ *
+ * 多会话并行路由（sessionId 匹配）：
+ * - 每个 Port 维护 boundSessionId（初始 null）。脚本经 {__bind} 上报后置位。
+ * - 所有转发的事件（含 SESSION.CONFIRM_*）统一按「已绑定且 data.sessionId 不匹配则跳过」过滤；
+ *   未绑定时维持全量转发（向后兼容旧脚本）。
+ * - SESSION.CONFIRM_* 与 STREAM_* 同走 session 通道、同带 sessionId，因此路由逻辑完全统一，
+ *   无需 Task 4 早期方案里「root IPC + 已转发 requestId 集合」的额外 hack。
  *
  * MV3 SW 生命周期适配（init/bind 分离）：
  * - init() 必须在 SW 脚本顶层同步调用，确保 onUserScriptConnect 监听器在 SW 唤醒时立即可用。
@@ -30,7 +39,7 @@ import { KernelEvents } from 'kernel/Events.js';
 
 export const USER_SCRIPT_PORT_NAME = 'webagent-us-rpc';
 
-/** 转发到用户脚本世界的 session 通道事件白名单 */
+/** 转发到用户脚本世界的 session 通道事件白名单（含危险工具确认闸门 SESSION.CONFIRM_*） */
 const FORWARD_EVENTS = [
     KernelEvents.SESSION.STREAM_START,
     KernelEvents.SESSION.STREAM_CHUNK_APPEND,
@@ -39,6 +48,9 @@ const FORWARD_EVENTS = [
     KernelEvents.SESSION.STREAM_ERROR,
     KernelEvents.SESSION.STREAM_STOP,
     KernelEvents.SESSION.MESSAGE_ADDED,
+    // 危险工具人工确认闸门：与 STREAM_* 同走 session 通道，按 boundSessionId 统一过滤
+    KernelEvents.SESSION.CONFIRM_REQUEST,
+    KernelEvents.SESSION.CONFIRM_RESOLVED,
 ];
 
 export class UserScriptBridge {
@@ -93,6 +105,8 @@ export class UserScriptBridge {
 
     /**
      * 在内核 READY 阶段调用：注入依赖并处理暂存的 Port。
+     * @param sessionChannel session 通道实例——STREAM_* / MESSAGE_ADDED / SESSION.CONFIRM_* 均在此广播，
+     *   桥接层只订阅它即可统一按会话路由（无需再订阅根 IPC）。
      */
     bind(rpcServer: RPCServer, sessionChannel: IPC): void {
         this.rpcServer = rpcServer;
@@ -122,29 +136,46 @@ export class UserScriptBridge {
 
         Log.info('UserScriptBridge', 'Port connected');
 
-        // ── 事件转发：session 通道 → Port ──
-        const eventHandlers: Array<[string, (data: any) => void]> = [];
+        // 本 Port 绑定的会话（脚本经 {__bind} 上报后置位）；null=未绑定（全量转发，向后兼容）
+        let boundSessionId: string | null = null;
+
+        // 统一记录 [ipc实例, 事件名, 回调]，断开时精确 off
+        const eventHandlers: Array<[IPC, string, (data: any) => void]> = [];
+
+        const postEvent = (evt: string, data: any) => {
+            try {
+                port.postMessage({ __event: true, event: evt, data: sanitizeForClone(data) });
+            } catch {
+                /* Port 可能已断开 */
+            }
+        };
+
+        // ── 事件转发：session 通道 → Port（按 boundSessionId 定向）──
+        // STREAM_* / MESSAGE_ADDED / SESSION.CONFIRM_* 同走 session 通道、同带 sessionId，统一过滤路由。
         for (const evt of FORWARD_EVENTS) {
             const fn = (data: any) => {
                 // 跳过 shell 回灌事件（防止 echo 循环）
                 if (data && (data as any).__remote) return;
-                try {
-                    port.postMessage({
-                        __event: true,
-                        event: evt,
-                        data: sanitizeForClone(data),
-                    });
-                } catch {
-                    /* Port 可能已断开 */
-                }
+                // 已绑定会话时仅转发本会话事件；未绑定维持全量转发（向后兼容）
+                if (boundSessionId && (data as any)?.sessionId !== boundSessionId) return;
+                postEvent(evt, data);
             };
             sessionChannel.on(evt, fn);
-            eventHandlers.push([evt, fn]);
+            eventHandlers.push([sessionChannel, evt, fn]);
         }
 
-        // ── RPC 请求：Port → rpcServer.dispatch() ──
+        // ── Port 入站消息：控制消息 {__bind} 与 RPC 请求 {__rpc} ──
         const onMessage = async (msg: any) => {
-            if (!msg || !msg.__rpc) return;
+            if (!msg) return;
+            // 控制消息：绑定会话（脚本 ensureSession 后上报，reconnect 后会重发）
+            if (msg.__bind) {
+                const sid = typeof msg.sessionId === 'string' ? msg.sessionId : null;
+                boundSessionId = sid;
+                Log.info('UserScriptBridge', `Port bound to session: ${sid ?? '(none)'}`);
+                return;
+            }
+            // RPC 请求：Port → rpcServer.dispatch()
+            if (!msg.__rpc) return;
             const { id, method, params } = msg;
             const resp = await rpcServer.dispatch(method, params);
             try {
@@ -163,8 +194,8 @@ export class UserScriptBridge {
 
         // ── 断开清理 ──
         port.onDisconnect.addListener(() => {
-            for (const [evt, fn] of eventHandlers) {
-                sessionChannel.off(evt, fn);
+            for (const [ipc, evt, fn] of eventHandlers) {
+                ipc.off(evt, fn);
             }
             Log.info('UserScriptBridge', 'Port disconnected');
         });

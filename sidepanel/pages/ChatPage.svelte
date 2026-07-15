@@ -555,11 +555,15 @@
     if (sessionChannel) {
       cleanups.push(
         // 流式生命周期
-        sessionChannel.on(KernelEvents.SESSION.STREAM_START, () => {
+        // 多 session 并行：非当前查看会话的事件一律不消费（后台会话如 pet-chat 独立流式，
+        // 不得串入当前视图 / 误翻转 isStreaming）。事件均带 sessionId（内核发射端已打标）。
+        sessionChannel.on(KernelEvents.SESSION.STREAM_START, (data: any) => {
+          if (data?.sessionId && data.sessionId !== currentSessionId()) return;
           isStreaming = true;
         }),
 
         sessionChannel.on(KernelEvents.SESSION.STREAM_COMPLETE, (data: any) => {
+          if (data?.sessionId && data.sessionId !== currentSessionId()) return;
           isStreaming = false;
           if (data?.messageId) {
             const newMap = { ...streamingMap };
@@ -570,12 +574,14 @@
           if (messagesContainer) autoScrollToBottom(messagesContainer, true);
         }),
 
-        sessionChannel.on(KernelEvents.SESSION.STREAM_STOP, () => {
+        sessionChannel.on(KernelEvents.SESSION.STREAM_STOP, (data: any) => {
+          if (data?.sessionId && data.sessionId !== currentSessionId()) return;
           isStreaming = false;
           cache.invalidateSession();
         }),
 
         sessionChannel.on(KernelEvents.SESSION.STREAM_ERROR, (data: any) => {
+          if (data?.sessionId && data.sessionId !== currentSessionId()) return;
           isStreaming = false;
           toast.error(data?.message || '发送失败');
           refreshMessages();
@@ -583,12 +589,14 @@
 
         // 媒体解析失败等非致命警告（如图发了但模型读不到），合并提示不打断流式
         sessionChannel.on(KernelEvents.SESSION.WARNING, (data: any) => {
+          if (data?.sessionId && data.sessionId !== currentSessionId()) return;
           const warnings: string[] = data?.warnings || [];
           if (warnings.length) toast.warning(warnings.join('；'));
         }),
 
         // 消息新增：根据事件携带的结果差量 upsert 进列表（零 RPC），结果立即显示
         sessionChannel.on(KernelEvents.SESSION.MESSAGE_ADDED, (data: any) => {
+          if (data?.sessionId && data.sessionId !== currentSessionId()) return;
           if (data?.message) {
             const msg = data.message;
             const idx = messages.findIndex((m: any) => m.id === msg.id);
@@ -602,7 +610,8 @@
           cache.invalidateSession();
         }),
 
-        sessionChannel.on(KernelEvents.SESSION.MESSAGE_DELETED, () => {
+        sessionChannel.on(KernelEvents.SESSION.MESSAGE_DELETED, (data: any) => {
+          if (data?.sessionId && data.sessionId !== currentSessionId()) return;
           refreshMessages();
         }),
 
@@ -623,6 +632,7 @@
 
         // 流式分片追加
         sessionChannel.on(KernelEvents.SESSION.STREAM_CHUNK_APPEND, (data: any) => {
+          if (data?.sessionId && data.sessionId !== currentSessionId()) return;
           const { messageId, content, reasoning_content } = data;
           if (!messageId) return;
 
@@ -634,6 +644,7 @@
 
         // 消息更新（全文替换）
         sessionChannel.on(KernelEvents.SESSION.MESSAGE_UPDATED, (data: any) => {
+          if (data?.sessionId && data.sessionId !== currentSessionId()) return;
           if (!data?.message) return;
           const idx = messages.findIndex((m) => m.id === data.message.id);
           if (idx >= 0) {
@@ -643,11 +654,13 @@
 
         // 工具事件
         sessionChannel.on(KernelEvents.TOOL.EXECUTING, (data: any) => {
+          if (data?.sessionId && data.sessionId !== currentSessionId()) return;
           toolExecuting = true;
           toolExecutingName = data?.toolName || '工具';
         }),
 
         sessionChannel.on(KernelEvents.TOOL.COMPLETED, (data: any) => {
+          if (data?.sessionId && data.sessionId !== currentSessionId()) return;
           toolExecuting = false;
           toolExecutingName = '';
         })

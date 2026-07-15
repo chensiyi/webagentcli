@@ -71,6 +71,9 @@
       port = chrome.runtime.connect({ name: PORT_NAME });
       portReady = true;
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      // 断线重连后新 Port 无绑定态：若已有会话，立即重新上报绑定，
+      // 否则 bridge 会退回全量转发（跨会话串流）。首次连接时 sessionId 尚为空，静默跳过。
+      bindSession();
 
       port.onMessage.addListener((msg) => {
         if (!msg) return;
@@ -148,11 +151,28 @@
     if (sessionId) return sessionId;
     const resp = await rpcCall('session.create', []);
     sessionId = resp?.session?.id || null;
+    // 向内核桥接上报本 Port 绑定的会话：bridge 据此仅向本 Port 定向转发本会话的
+    // 流式/消息/确认事件（多会话并行时消除跨会话广播）。
+    bindSession();
     return sessionId;
   }
 
+  /**
+   * 上报 {__bind, sessionId} 控制消息，把当前 Port 绑定到本脚本会话。
+   * 在 ensureSession 拿到 sessionId 后调用；Port 断线重连后也需重发（新 Port 无绑定态）。
+   * 无 sessionId 或 Port 未就绪时静默跳过（重连成功或建会话后会再次触发）。
+   */
+  function bindSession() {
+    if (!sessionId || !portReady || !port) return;
+    try {
+      port.postMessage({ __bind: true, sessionId });
+    } catch (e) {
+      /* Port 可能已断开，重连后会再次上报 */
+    }
+  }
+
   /* ============================================ DOM */
-  let root, bubblesEl, inputEl, panelEl, toolsBtn, launcher;
+  let root, bubblesEl, inputEl, panelEl, toolsBtn, launcher, box;
 
   function svgGrid() {
     return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>';
@@ -166,7 +186,7 @@
     bubblesEl = document.createElement('div');
     bubblesEl.className = 'pc-bubbles';
 
-    const box = document.createElement('div');
+    box = document.createElement('div');
     box.className = 'pc-box';
 
     inputEl = document.createElement('input');
@@ -336,15 +356,123 @@
     });
   }
 
+  /* ----------------------------------------------------- 危险工具确认卡片 */
+  // 与内核 ToolsManager._confirmTimeoutMs（120000ms）对齐：内核超时后会自动拒绝并广播
+  // session:confirmResolved，这里作为兜底同步清理 UI，避免极端情况下卡片残留。
+  const CONFIRM_TIMEOUT = 120_000;
+  let confirmCard = null; // 当前挂起的确认卡片 DOM
+  let confirmTimer = null; // 自动超时清理计时器
+
+  function showConfirm(req) {
+    const requestId = req?.requestId;
+    if (!requestId) return;
+    // 安全起见：先清掉任何已有卡片（内核同一会话同一时刻只挂起一个请求，但保险）
+    clearConfirm();
+
+    // 危险操作提示优先于关闭态：自动展开聊天窗，确保用户能看见确认卡片
+    if (root.hidden) openChat();
+
+    const card = document.createElement('div');
+    card.className = 'pc-confirm';
+    card.dataset.requestId = requestId;
+
+    const head = document.createElement('div');
+    head.className = 'pc-confirm-head';
+    head.textContent = '⚠️ 危险操作确认';
+
+    const body = document.createElement('div');
+    body.className = 'pc-confirm-body';
+
+    const toolName = document.createElement('div');
+    toolName.className = 'pc-confirm-tool';
+    toolName.textContent = req?.toolName || '未知工具';
+
+    const reason = document.createElement('div');
+    reason.className = 'pc-confirm-reason';
+    reason.textContent = req?.reason || '该工具被标记为危险操作，执行前需人工确认';
+
+    body.append(toolName, reason);
+
+    // 参数摘要（可选）：args 可能是对象，紧凑展示为 JSON，过长截断
+    const argsSummary = summarizeArgs(req?.args);
+    if (argsSummary) {
+      const argsEl = document.createElement('pre');
+      argsEl.className = 'pc-confirm-args';
+      argsEl.textContent = argsSummary;
+      body.appendChild(argsEl);
+    }
+
+    const actions = document.createElement('div');
+    actions.className = 'pc-confirm-actions';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'pc-confirm-btn cancel';
+    cancelBtn.textContent = '取消';
+    cancelBtn.addEventListener('click', () => resolveConfirm(requestId, false));
+
+    const allowBtn = document.createElement('button');
+    allowBtn.className = 'pc-confirm-btn allow';
+    allowBtn.textContent = '允许执行';
+    allowBtn.addEventListener('click', () => resolveConfirm(requestId, true));
+
+    actions.append(cancelBtn, allowBtn);
+    card.append(head, body, actions);
+
+    // 插入到气泡栈与输入框之间
+    root.insertBefore(card, box);
+    confirmCard = card;
+
+    // 兜底超时：内核 120s 后会广播 session:confirmResolved 并再次清理，这里同步移除
+    confirmTimer = setTimeout(() => clearConfirm(), CONFIRM_TIMEOUT);
+  }
+
+  function resolveConfirm(requestId, approved) {
+    if (!requestId) return;
+    // 乐观移除 UI，内核随后广播 resolve 会再次确保清理（幂等）
+    clearConfirm();
+    rpcCall('session.confirmResolve', [{ requestId, approved }]).catch(() => {
+      pushBubble('ai', '（确认提交失败，工具未执行）');
+      scheduleFades();
+    });
+  }
+
+  function clearConfirm() {
+    if (confirmTimer) { clearTimeout(confirmTimer); confirmTimer = null; }
+    if (confirmCard && confirmCard.isConnected) confirmCard.remove();
+    confirmCard = null;
+  }
+
+  function summarizeArgs(args) {
+    if (args === undefined || args === null) return '';
+    try {
+      const s = typeof args === 'string' ? args : JSON.stringify(args, null, 2);
+      if (!s) return '';
+      return s.length > 600 ? s.slice(0, 600) + '\n…(已截断)' : s;
+    } catch {
+      return String(args);
+    }
+  }
+
   /* ----------------------------------------------------- 对话发送 + 流式接收 */
   // 当前正在流式接收的气泡（用于事件回调追加 token）
   let streamingBubble = null;
   let streamingCaret = null;
 
-  // 注册 session 事件监听：处理流式 token
+  // 注册 session 事件监听：处理流式 token 与危险工具确认
   onSessionEvent((event, data) => {
     // 只处理当前会话的事件
     if (!sessionId || data?.sessionId !== sessionId) return;
+
+    // —— 危险工具人工确认闸门（与 STREAM_* 同走 session 通道）——
+    if (event === 'session:confirmRequest') {
+      // 内核 invoke 危险工具前广播，弹出「允许/取消」卡片
+      showConfirm(data);
+      return;
+    } else if (event === 'session:confirmResolved') {
+      // 内核已决策（或超时自动拒绝）后广播，移除残留确认卡片
+      clearConfirm();
+      return;
+    }
 
     if (event === 'session:streamStart') {
       // 创建 AI 气泡，显示光标

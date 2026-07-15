@@ -170,7 +170,8 @@
     // 切换会话完全是 Shell 侧行为：内核不维护「当前会话」。
     // 更新 Shell 持有的 currentSessionId，再导航回 chat —— 因 activePage 由 history 变 chat，
     // ChatPage 会重挂载，onMount 用新的 id 拉取会话内容。
-    api.session.stop().catch(() => {});
+    // 多 session 并行（非独占）：切换查看不再取消任何进行中的流式——被离开的会话应在后台继续，
+    // 可随时切回；ChatPage 事件已按 sessionId 过滤，后台流式不会污染新视图。
     cache.setCurrentSessionId(id);
     navigateTo('chat');
   }

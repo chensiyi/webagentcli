@@ -7,9 +7,9 @@
  *
  * 设计要点：
  * - pending 以 toolCallId 为键（toolCallId 全局唯一，跨会话不会冲突）。
- * - bind(api, ipc) 注入 api（回写 confirm.resolve）与 ipc（可选日志）。
+ * - bind(api, ipc) 注入 api（回写 session.confirmResolve）与 ipc（可选日志）。
  * - approve/reject 先从本地移除（按钮即时消失），再回写内核；内核超时也会
- *   经 CONFIRM.RESOLVED 通知本 store 清除残留。
+ *   经 SESSION.CONFIRM_RESOLVED 通知本 store 清除残留。
  */
 export interface ConfirmRequest {
   requestId: string;
@@ -48,9 +48,9 @@ class ConfirmStore {
     const req = this.pending[toolCallId];
     if (!req) return;
     this.remove(toolCallId);
-    if (this.api?.confirm?.resolve) {
+    if (this.api?.session?.confirmResolve) {
       try {
-        await this.api.confirm.resolve({ requestId: req.requestId, approved: true });
+        await this.api.session.confirmResolve({ requestId: req.requestId, approved: true });
       } catch {
         /* 内核侧已超时回收则忽略 */
       }
@@ -61,9 +61,9 @@ class ConfirmStore {
     const req = this.pending[toolCallId];
     if (!req) return;
     this.remove(toolCallId);
-    if (this.api?.confirm?.resolve) {
+    if (this.api?.session?.confirmResolve) {
       try {
-        await this.api.confirm.resolve({ requestId: req.requestId, approved: false });
+        await this.api.session.confirmResolve({ requestId: req.requestId, approved: false });
       } catch {
         /* 内核侧已超时回收则忽略 */
       }
@@ -78,7 +78,7 @@ class ConfirmStore {
   async rememberAllow(toolCallId: string): Promise<void> {
     const req = this.pending[toolCallId];
     if (!req || !this.api?.session?.update) return;
-    // 直接用请求携带的 sessionId（CONFIRM.REQUEST 事件必然带 sessionId），不再依赖内核「当前会话」
+    // 直接用请求携带的 sessionId（SESSION.CONFIRM_REQUEST 事件必然带 sessionId），不再依赖内核「当前会话」
     const sid = req.sessionId;
     if (!sid) return;
     try {

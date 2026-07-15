@@ -34,8 +34,8 @@ function _previewToolResult(v: unknown, max = 200): string {
 
 /**
  * 危险工具（Tool.danger===true）确认请求载荷（内核→Shell）。
- * - 内核在 invoke 危险工具前，经 requestConfirm() 向 Shell 广播 CONFIRM.REQUEST 事件；
- * - Shell 弹确认框，用户决策后经专用 RPC `confirm.resolve` 回写内核 resolveConfirm()。
+ * - 内核在 invoke 危险工具前，经 requestConfirm() 经 session 通道广播 SESSION.CONFIRM_REQUEST 事件；
+ * - Shell 弹确认框（按会话作用域），用户决策后经专用 RPC `session.confirmResolve` 回写内核 resolveConfirm()。
  */
 export interface ToolConfirmRequest {
   /** 本次确认请求唯一 ID（由内核生成），Shell 回写时带回 */
@@ -71,17 +71,20 @@ export class ToolsManager {
   private _afterInvoke: ((result: ToolResult, context: Record<string, unknown>) => void) | null;
   /**
    * 危险工具人工确认闸门（Tool.danger===true 必须用户确认才执行）。
-   * 闸门逻辑内聚在本管理器：invoke 危险工具前 await requestConfirm()，向 Shell 广播
-   * CONFIRM.REQUEST 事件；Shell 决策后经专用 RPC `confirm.resolve` 回写 resolveConfirm()。
+   * 闸门逻辑内聚在本管理器：invoke 危险工具前 await requestConfirm()，经 session 通道
+   * 广播 SESSION.CONFIRM_REQUEST 事件（随会话隔离，多 session 并行互不干扰）；Shell 决策后
+   * 经专用 RPC `session.confirmResolve` 回写 resolveConfirm()。
    */
   private _pendingConfirm = new Map<
     string,
-    { resolve: (approved: boolean) => void; timer: ReturnType<typeof setTimeout>; toolCallId: string | null }
+    { resolve: (approved: boolean) => void; timer: ReturnType<typeof setTimeout>; toolCallId: string | null; sessionId: string | null }
   >();
   private _confirmTimeoutMs: number;
-  /** 可选 IPC：用于广播 TOOL.* 注册表变更事件与 CONFIRM.REQUEST 确认请求，使 UI / LLM 工具集可实时反映 */
+  /** 可选 IPC：用于广播 TOOL.* 注册表变更事件，使 UI / LLM 工具集可实时反映 */
   private _ipc: IPCLike | null;
   private _channel: { emit(event: string, payload?: unknown): void } | null;
+  /** session 通道缓存：CONFIRM.* 确认闸门事件经此（而非根 IPC）广播，使确认随会话隔离（多 session 并行） */
+  private _confirmChannel: { emit(event: string, payload?: unknown): void } | null;
   /** 可选存储：持久化工具启用/禁用状态，使 SW 重启后恢复用户选择 */
   private _storage: IStorageManager | null;
   /** 启动期从存储加载的启用覆盖表（name → enabled），register 时应用到对应工具 */
@@ -105,6 +108,7 @@ export class ToolsManager {
     this._confirmTimeoutMs = options.confirmTimeoutMs ?? DEFAULT_CONFIRM_TIMEOUT_MS;
     this._ipc = options.ipc ?? null;
     this._channel = null;
+    this._confirmChannel = null;
     this._storage = options.storage ?? null;
     this._overrides = new Map();
     this._storageKey = StorageKeys.TOOLS_ENABLED;
@@ -136,6 +140,17 @@ export class ToolsManager {
     if (!this._ipc) return null;
     if (!this._channel) this._channel = this._ipc.getOrCreateChannel(KernelChannels.TOOL) || null;
     return this._channel;
+  }
+
+  /**
+   * 懒初始化确认通道（session 通道）：SESSION.CONFIRM_* 经此广播，随会话隔离。
+   * 与编排层 / session facade 用的 session 通道是同一实例（getOrCreateChannel 按名复用），
+   * 故 Shell 经同名 session 通道即可收到确认事件。
+   */
+  private _confirmChannelRef(): { emit(event: string, payload?: unknown): void } | null {
+    if (!this._ipc) return null;
+    if (!this._confirmChannel) this._confirmChannel = this._ipc.getOrCreateChannel(KernelChannels.SESSION) || null;
+    return this._confirmChannel;
   }
 
   /** 广播注册表变更：REGISTERED/UNREGISTERED 同时发 CHANGED（CHANGED 是 UI 唯一订阅点） */
@@ -512,21 +527,23 @@ export class ToolsManager {
       const timer = setTimeout(() => {
         this._pendingConfirm.delete(requestId);
         Log.warn('ToolsManager', `Confirm timed out for ${req.toolName}, denying`);
-        // 通知 Shell 移除气泡内待确认态
-        if (this._ipc && req.toolCallId) {
-          this._ipc.emit(KernelEvents.CONFIRM.RESOLVED, { requestId, toolCallId: req.toolCallId });
+        // 通知 Shell 移除气泡内待确认态（经 session 通道，随会话隔离）
+        const ch = this._confirmChannelRef();
+        if (ch && req.toolCallId) {
+          ch.emit(KernelEvents.SESSION.CONFIRM_RESOLVED, { requestId, toolCallId: req.toolCallId, sessionId: req.sessionId ?? null });
         }
         resolve(false);
       }, this._confirmTimeoutMs);
 
-      this._pendingConfirm.set(requestId, { resolve, timer, toolCallId: req.toolCallId ?? null });
-      // 经内核 IPC 广播；IPCTransport 中间件把事件转发到 Shell 的 IPC 实例
-      this._ipc!.emit(KernelEvents.CONFIRM.REQUEST, payload);
+      this._pendingConfirm.set(requestId, { resolve, timer, toolCallId: req.toolCallId ?? null, sessionId: req.sessionId ?? null });
+      // 经 session 通道广播；IPCTransport 中间件把事件转发到 Shell 的同名 session 通道实例
+      const ch = this._confirmChannelRef();
+      ch?.emit(KernelEvents.SESSION.CONFIRM_REQUEST, payload);
     });
   }
 
   /**
-   * 由专用 RPC `confirm.resolve` 回调：解除对应请求的挂起态，回写用户决策。
+   * 由专用 RPC `session.confirmResolve` 回调：解除对应请求的挂起态，回写用户决策。
    * 迟到 / 未知的 requestId 直接忽略（已被超时回收）。
    */
   resolveConfirm(requestId: string, approved: boolean): void {
@@ -534,11 +551,34 @@ export class ToolsManager {
     if (!entry) return;
     clearTimeout(entry.timer);
     this._pendingConfirm.delete(requestId);
-    // 通知 Shell 移除气泡内待确认态
-    if (this._ipc && entry.toolCallId) {
-      this._ipc.emit(KernelEvents.CONFIRM.RESOLVED, { requestId, toolCallId: entry.toolCallId });
+    // 通知 Shell 移除气泡内待确认态（经 session 通道，随会话隔离）
+    if (entry.toolCallId) {
+      const ch = this._confirmChannelRef();
+      ch?.emit(KernelEvents.SESSION.CONFIRM_RESOLVED, { requestId, toolCallId: entry.toolCallId, sessionId: entry.sessionId ?? null });
     }
     entry.resolve(approved === true);
+  }
+
+  /**
+   * 会话级确认回收（confirm 作为「会话管理」子系统的一部分）：
+   * 会话被删除 / 清空消息时由 session facade 调用，清除该会话所有挂起的确认请求，
+   * 避免「删会话后确认悬空、一直等到 120s 超时」的缺口。
+   * 安全默认：会话已不存在，工具结果无处安放 → 按拒绝处理（resolve(false)），
+   * 并广播 CONFIRM_RESOLVED 让 Shell / 用户脚本 Port 清理残留确认 UI。
+   */
+  cancelPendingConfirmsForSession(sessionId: string | null | undefined): void {
+    if (!sessionId) return;
+    const ch = this._confirmChannelRef();
+    // 复制键集遍历，回调内会 delete
+    for (const [requestId, entry] of [...this._pendingConfirm]) {
+      if (entry.sessionId !== sessionId) continue;
+      clearTimeout(entry.timer);
+      this._pendingConfirm.delete(requestId);
+      if (entry.toolCallId && ch) {
+        ch.emit(KernelEvents.SESSION.CONFIRM_RESOLVED, { requestId, toolCallId: entry.toolCallId, sessionId });
+      }
+      entry.resolve(false);
+    }
   }
 
   setAfterInvoke(mw: (result: ToolResult, context: Record<string, unknown>) => void): void {

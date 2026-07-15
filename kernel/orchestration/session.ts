@@ -162,7 +162,7 @@ async function runTurn(
 
     // 媒体解析失败（如 mediaId 孤儿、IndexedDB 异常）上报 warning，由 Shell 弹 toast 提示用户
     if (mediaWarnings.length) {
-      emit(KernelEvents.SESSION.WARNING, { warnings: mediaWarnings });
+      emit(KernelEvents.SESSION.WARNING, { warnings: mediaWarnings, sessionId: sid });
     }
 
     // 调试：打印每条消息的 content 形态，确认图片块是否进入请求体（image_url）

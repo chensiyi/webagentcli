@@ -84,7 +84,7 @@ webagentcli/
 │
 ├── background/                     # Service Worker 入口（内核宿主 + 脚本注入 + 媒体存储）
 │   ├── main.ts                     # SW 入口：ensureBoot 懒启动 Kernel、Phase 4 暴露 RPC、脚本注入
-│   ├── rpc-facades.ts              # 跨进程 RPC 控制器（session/tools/settings/storage/scripts/confirm/kernel/media facade）
+│   ├── rpc-facades.ts              # 跨进程 RPC 控制器（session(含 confirmResolve)/tools/settings/storage/scripts/kernel/media facade）
 │   ├── preset-installer.js         # 预装脚本远程拉取与安装
 │   ├── script-executor.js          # 用户脚本注入执行（main / isolated world 调度）
 │   ├── script-tools.js             # 脚本工具桥接
@@ -580,7 +580,7 @@ LLM 收到结果后继续（ReAct 循环）
                → 注册内置工具（RunUserScript / GetUserScripts / ManageUserScripts / CaptureScreenshot）
                → 创建 mediaStore（IndexedDB 媒体存储）
                → 安装预装脚本（preset-installer，首次/升级）
-7. READY 阶段   → 暴露 RPC（session/tools/settings/storage/scripts/confirm/kernel/media）
+7. READY 阶段   → 暴露 RPC（session(含 confirmResolve)/tools/settings/storage/scripts/kernel/media）
                → 同步已启用脚本注册到 chrome.userScripts
                → 设置 mediaResolver / mediaDeleter
 8. 发出 KERNEL.BOOT_COMPLETE → Shell 收到后即可安全调用 RPC

@@ -29,7 +29,7 @@ webagentcli/
 │   └── CORE_MODELS.md         # 数据模型详解
 ├── background/               # ★ 内核自举 + Service Worker 入口（Kernel 启动、RPC facade、内置工具）
 │   ├── main.ts                # 内核 Bootloader + RPCServer.expose 注册（构建为 dist/background.bundle.js）
-│   ├── rpc-facades.ts         # Shell→Kernel 接口优先 RPC（session/tools/storage/scripts/media/confirm/kernel）
+│   ├── rpc-facades.ts         # Shell→Kernel 接口优先 RPC（session(含 confirmResolve)/tools/storage/scripts/media/kernel）
 │   ├── tools/                 # 内置工具实现（background/tools/）
 │   │   ├── RunUserScriptTool.js      # 页面执行任意 JS（danger）
 │   │   ├── ManageUserScriptsTool.js  # 用户脚本写操作 install/update/toggle/delete（danger）

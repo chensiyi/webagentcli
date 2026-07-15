@@ -229,3 +229,55 @@
   filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.18));
 }
 .pc-launcher[hidden] { display: none; }
+
+/* ---------- 危险工具确认卡片 ---------- */
+.pc-confirm {
+  width: 240px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 170, 130, 0.7);
+  background: rgba(255, 247, 240, 0.80);
+  box-shadow: 0 16px 40px rgba(120, 40, 20, 0.22);
+  -webkit-backdrop-filter: blur(16px);
+          backdrop-filter: blur(16px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pc-confirm-head {
+  font-size: 13px;
+  font-weight: 700;
+  color: #c0392b;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pc-confirm-body { display: flex; flex-direction: column; gap: 6px; }
+.pc-confirm-tool { font-size: 14px; font-weight: 600; color: #1a1c22; word-break: break-word; }
+.pc-confirm-reason { font-size: 12px; color: #7a5a4d; line-height: 1.45; }
+.pc-confirm-args {
+  margin: 0;
+  max-height: 140px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.045);
+  font-size: 11px;
+  line-height: 1.4;
+  color: #444;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.pc-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.pc-confirm-btn {
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 10px;
+  transition: transform .12s ease, opacity .12s ease;
+}
+.pc-confirm-btn:hover { transform: scale(1.04); opacity: 0.92; }
+.pc-confirm-btn.cancel { background: rgba(120, 130, 160, 0.18); color: #444; }
+.pc-confirm-btn.allow { background: #c0392b; color: #fff; }

@@ -102,7 +102,12 @@ function makeFakeIpc() {
   const events: { event: string; data: any }[] = [];
   const ipc: any = {
     emit(event: string, data: unknown) { events.push({ event, data }); return { event, data, timestamp: 0, id: 'm', origin: 't' }; },
-    getOrCreateChannel() { return { emit() {} }; },
+    // 通道 emit 也记录到同一 events（SESSION.CONFIRM_* 现经 session 通道广播）
+    getOrCreateChannel() {
+      return {
+        emit(event: string, data: unknown) { events.push({ event, data }); return { event, data, timestamp: 0, id: 'm', origin: 't' }; },
+      };
+    },
   };
   return { ipc, events };
 }
@@ -114,9 +119,9 @@ describe('ToolsManager 危险工具人工确认闸门', () => {
     let handlerCalled = false;
     tm.register(new Tool({ name: 'danger', danger: true, handler: async () => { handlerCalled = true; return 'done'; } }));
     const invokePromise = tm.invoke(new ToolCall(null, 'danger', {}));
-    // requestConfirm 已同步经 IPC 广播 CONFIRM.REQUEST，取出 requestId 后回写拒绝
-    expect(events.some(e => e.event === 'confirm:request')).toBe(true);
-    const reqId = events.find(e => e.event === 'confirm:request')!.data.requestId as string;
+    // requestConfirm 已同步经 IPC 广播 SESSION.CONFIRM_REQUEST，取出 requestId 后回写拒绝
+    expect(events.some(e => e.event === 'session:confirmRequest')).toBe(true);
+    const reqId = events.find(e => e.event === 'session:confirmRequest')!.data.requestId as string;
     tm.resolveConfirm(reqId, false);
     const res = await invokePromise;
     expect(handlerCalled).toBe(false);
@@ -129,7 +134,7 @@ describe('ToolsManager 危险工具人工确认闸门', () => {
     let handlerCalled = false;
     tm.register(new Tool({ name: 'danger', danger: true, handler: async () => { handlerCalled = true; return 'ok'; } }));
     const invokePromise = tm.invoke(new ToolCall(null, 'danger', {}));
-    const reqId = events.find(e => e.event === 'confirm:request')!.data.requestId as string;
+    const reqId = events.find(e => e.event === 'session:confirmRequest')!.data.requestId as string;
     tm.resolveConfirm(reqId, true);
     const res = await invokePromise;
     expect(handlerCalled).toBe(true);
@@ -142,7 +147,7 @@ describe('ToolsManager 危险工具人工确认闸门', () => {
     const tm = new ToolsManager({ ipc });
     tm.register(new Tool({ name: 'safe', handler: async () => 'ok' }));
     const res = await tm.invoke(new ToolCall(null, 'safe', {}));
-    expect(events.some(e => e.event === 'confirm:request')).toBe(false);
+    expect(events.some(e => e.event === 'session:confirmRequest')).toBe(false);
     expect(res.status).toBe('success');
   });
 
@@ -168,10 +173,10 @@ describe('ToolsManager 危险工具人工确认闸门', () => {
     let handlerCalled = false;
     tm.register(new Tool({ name: 'danger', danger: true, handler: async () => { handlerCalled = true; return 'ok'; } }));
     const invokePromise = tm.invoke(new ToolCall('call-1', 'danger', {}));
-    const reqId = events.find(e => e.event === 'confirm:request')!.data.requestId as string;
+    const reqId = events.find(e => e.event === 'session:confirmRequest')!.data.requestId as string;
     tm.resolveConfirm(reqId, true);
     await invokePromise;
-    const resolved = events.find(e => e.event === 'confirm:resolved');
+    const resolved = events.find(e => e.event === 'session:confirmResolved');
     expect(resolved).toBeTruthy();
     expect((resolved!.data as any).toolCallId).toBe('call-1');
     expect((resolved!.data as any).requestId).toBe(reqId);
@@ -187,7 +192,7 @@ describe('ToolsManager 危险工具人工确认闸门', () => {
     // 超过 confirmTimeoutMs 后定时器触发 → 拒绝 + 广播
     expect(handlerCalled).toBe(false);
     expect(res.status).toBe('rejected');
-    const resolved = events.find(e => e.event === 'confirm:resolved');
+    const resolved = events.find(e => e.event === 'session:confirmResolved');
     expect(resolved).toBeTruthy();
     expect((resolved!.data as any).toolCallId).toBe('call-2');
   });
@@ -202,7 +207,7 @@ describe('ToolsManager 会话级三态覆盖（toolEnabledOverride）', () => {
     let handlerCalled = false;
     tm.register(new Tool({ name: 'danger', danger: true, handler: async () => { handlerCalled = true; return 'ok'; } }));
     const res = await tm.invoke(new ToolCall(null, 'danger', {}), { toolEnabledOverride: true });
-    expect(events.some(e => e.event === 'confirm:request')).toBe(false);
+    expect(events.some(e => e.event === 'session:confirmRequest')).toBe(false);
     expect(handlerCalled).toBe(true);
     expect(res.status).toBe('success');
     expect(res.output).toBe('ok');
@@ -214,7 +219,7 @@ describe('ToolsManager 会话级三态覆盖（toolEnabledOverride）', () => {
     let handlerCalled = false;
     tm.register(new Tool({ name: 'danger', danger: true, handler: async () => { handlerCalled = true; return 'done'; } }));
     const res = await tm.invoke(new ToolCall(null, 'danger', {}), { toolEnabledOverride: false });
-    expect(events.some(e => e.event === 'confirm:request')).toBe(false);
+    expect(events.some(e => e.event === 'session:confirmRequest')).toBe(false);
     expect(handlerCalled).toBe(false);
     expect(res.status).toBe('rejected');
   });
@@ -225,7 +230,7 @@ describe('ToolsManager 会话级三态覆盖（toolEnabledOverride）', () => {
     let handlerCalled = false;
     tm.register(new Tool({ name: 'safe', handler: async () => { handlerCalled = true; return 'ok'; } }));
     const res = await tm.invoke(new ToolCall(null, 'safe', {}), { toolEnabledOverride: false });
-    expect(events.some(e => e.event === 'confirm:request')).toBe(false);
+    expect(events.some(e => e.event === 'session:confirmRequest')).toBe(false);
     expect(handlerCalled).toBe(false);
     expect(res.status).toBe('rejected');
   });
@@ -236,7 +241,7 @@ describe('ToolsManager 会话级三态覆盖（toolEnabledOverride）', () => {
     let handlerCalled = false;
     tm.register(new Tool({ name: 'safe', handler: async () => { handlerCalled = true; return 'ok'; } }));
     const res = await tm.invoke(new ToolCall(null, 'safe', {}), { toolEnabledOverride: undefined });
-    expect(events.some(e => e.event === 'confirm:request')).toBe(false);
+    expect(events.some(e => e.event === 'session:confirmRequest')).toBe(false);
     expect(handlerCalled).toBe(true);
     expect(res.status).toBe('success');
   });
@@ -247,8 +252,8 @@ describe('ToolsManager 会话级三态覆盖（toolEnabledOverride）', () => {
     let handlerCalled = false;
     tm.register(new Tool({ name: 'danger', danger: true, handler: async () => { handlerCalled = true; return 'ok'; } }));
     const invokePromise = tm.invoke(new ToolCall('c3', 'danger', {}), { toolEnabledOverride: undefined });
-    expect(events.some(e => e.event === 'confirm:request')).toBe(true);
-    const reqId = events.find(e => e.event === 'confirm:request')!.data.requestId as string;
+    expect(events.some(e => e.event === 'session:confirmRequest')).toBe(true);
+    const reqId = events.find(e => e.event === 'session:confirmRequest')!.data.requestId as string;
     tm.resolveConfirm(reqId, true);
     const res = await invokePromise;
     expect(handlerCalled).toBe(true);
