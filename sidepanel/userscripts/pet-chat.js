@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         网页宠物聊天浮窗 Pet Chat
-// @namespace    __PRESET_NAMESPACE__
+// @namespace    https://github.com/chensiyi/webagentcli
 // @version      2.0.0
 // @description  点宠物 → 弹出玻璃输入框，工具清单与侧栏同步、聊天气泡流式返回并自动淡化保留最新两条。经 USER_SCRIPT 世界 Port 直连内核 RPC。
 // @author       chensiyi

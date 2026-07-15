@@ -32,9 +32,6 @@ import { Log } from 'kernel/services/Log.js';
 
 /** 预装源仓库（GitHub org/repo）。 */
 const PRESET_REPO = 'chensiyi/webagentcli';
-/** 预装脚本统一 namespace，由 PRESET_REPO 派生；源文件用占位符 __PRESET_NAMESPACE__，
- *  安装时注入，避免各脚本写死、仓库改名 / 换 org 只需改 PRESET_REPO 一处。 */
-const PRESET_NAMESPACE = `https://github.com/${PRESET_REPO}`;
 /** 仓库内预装脚本所在目录（相对仓库根）。与本地源目录统一，不再单独维护 presets/。 */
 const PRESET_DIR = 'sidepanel/userscripts';
 /** 版本 tag 前缀（与仓库 release tag 命名保持一致，tag 不带 v 前缀，如 0.7.5）。 */
@@ -106,12 +103,7 @@ export async function installPresets(scriptsManager, storage, remoteBase = PRESE
   let applied = 0;
   for (const file of files) {
     try {
-      const raw = await fetchText(`${remoteBase}/${file}`);
-      // 源文件 namespace 用占位符 __PRESET_NAMESPACE__，安装时注入为仓库派生值（统一且去硬编码）；
-      // 不含占位符的脚本（如本地非预装用户脚本）保持原样。
-      const code = raw.includes('__PRESET_NAMESPACE__')
-        ? raw.replace('__PRESET_NAMESPACE__', PRESET_NAMESPACE)
-        : raw;
+      const code = await fetchText(`${remoteBase}/${file}`);
       const meta = scriptsManager.parseMetadata(code);
       const key = scriptKey(meta);
       const ver = meta.version || '0';

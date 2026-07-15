@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         迷你网页宠物 Mini Page Pet
-// @namespace    __PRESET_NAMESPACE__
+// @namespace    https://github.com/chensiyi/webagentcli
 // @version      1.0.0
 // @description  在任意网页挂一只会跟随鼠标、点击互动的迷你宠物（零依赖、零素材，emoji 实现）
 // @author       chensiyi

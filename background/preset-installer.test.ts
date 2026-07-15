@@ -96,21 +96,6 @@ describe('installPresets 预装机制（#4.0 远程源）', () => {
     expect(scripts[0].namespace).toBe('https://evil.example.com');
   });
 
-  it('源文件占位符 __PRESET_NAMESPACE__：安装时注入为仓库派生 namespace', async () => {
-    // 模拟源文件写法：@namespace 用占位符，安装时由 PRESET_REPO 派生注入
-    const withToken = PRESET_CODE.replace(/@namespace\s+[^\n]+/, '@namespace    __PRESET_NAMESPACE__');
-    mockFetch(['extract-headings.user.js'], withToken);
-    const sm = new ScriptsManager({ getIPC: () => null, getStorageManager: mkStorage });
-    const storage = mkStorage();
-
-    await installPresets(sm, storage, BASE);
-
-    const scripts = await sm.loadAll();
-    expect(scripts.length).toBe(1);
-    // PRESET_NAMESPACE = https://github.com/chensiyi/webagentcli（由 PRESET_REPO 派生）
-    expect(scripts[0].namespace).toBe('https://github.com/chensiyi/webagentcli');
-  });
-
   it('清单缺失/损坏：安全跳过，不抛异常', async () => {
     (globalThis as any).fetch = vi.fn(async () => { throw new Error('404'); }) as any;
     const sm = new ScriptsManager({ getIPC: () => null, getStorageManager: mkStorage });
