@@ -57,8 +57,8 @@ export class UserScriptBridge {
     private rpcServer: RPCServer | null = null;
     private sessionChannel: IPC | null = null;
     private _bound = false;
-    /** bind 之前到达的 Port 连接暂存于此，bind 后逐个处理 */
-    private _pendingPorts: any[] = [];
+    /** bind 之前到达的 Port 连接暂存于此（含缓冲监听），bind 后逐个处理 */
+    private _pendingPorts: Array<{ port: any; bufferFn: any }> = [];
     /** 选项：用户脚本世界连接时回调（用于触发内核启动/保活，对称于 IPCTransport 的 onShellConnect） */
     private _opts: { onUserScriptConnect?: () => void | Promise<void> } = {};
 
@@ -90,11 +90,15 @@ export class UserScriptBridge {
             if (this._bound) {
                 this._handlePort(port);
             } else {
-                // 内核尚未就绪，暂存 Port（Chrome 会在 onMessage 监听器添加前缓冲消息）
-                this._pendingPorts.push(port);
+                // 内核尚未就绪：立即挂临时监听收下入站 RPC，避免早期消息被静默丢弃
+                const bufferFn = (msg: any) => {
+                    (port.__buffered ||= []).push(msg);
+                };
+                port.onMessage.addListener(bufferFn);
+                this._pendingPorts.push({ port, bufferFn });
                 // 监听断开以从暂存列表移除
                 port.onDisconnect.addListener(() => {
-                    const idx = this._pendingPorts.indexOf(port);
+                    const idx = this._pendingPorts.findIndex((p) => p.port === port);
                     if (idx >= 0) this._pendingPorts.splice(idx, 1);
                 });
                 Log.info('UserScriptBridge', `Port queued (kernel not ready), ${this._pendingPorts.length} pending`);
@@ -113,13 +117,13 @@ export class UserScriptBridge {
         this.sessionChannel = sessionChannel;
         this._bound = true;
 
-        // 处理暂存的 Port 连接
+        // 处理暂存的 Port 连接（携带缓冲监听，bind 时移除缓冲并重放）
         const pending = this._pendingPorts;
         this._pendingPorts = [];
-        for (const port of pending) {
+        for (const { port, bufferFn } of pending) {
             // 检查 port 是否仍然连接（可能用户在等待期间关闭了页面）
             try {
-                this._handlePort(port);
+                this._handlePort(port, bufferFn);
             } catch {
                 /* port 可能已断开 */
             }
@@ -129,10 +133,15 @@ export class UserScriptBridge {
         }
     }
 
-    private _handlePort(port: any): void {
+    private _handlePort(port: any, bufferFn?: any): void {
         if (!this.rpcServer || !this.sessionChannel) return;
         const rpcServer = this.rpcServer;
         const sessionChannel = this.sessionChannel;
+
+        // 若有缓冲监听（bind 前到达），先移除，再挂真实 handler 并回放
+        if (bufferFn) {
+            try { port.onMessage.removeListener(bufferFn); } catch { /* noop */ }
+        }
 
         Log.info('UserScriptBridge', 'Port connected');
 
@@ -191,6 +200,18 @@ export class UserScriptBridge {
             }
         };
         port.onMessage.addListener(onMessage);
+
+        // ── 重放 bind 前缓冲的入站消息（{__bind} / RPC 请求），消除早期发送竞态 ──
+        if (bufferFn) {
+            const buffered: any[] = port.__buffered || [];
+            port.__buffered = null;
+            for (const m of buffered) {
+                try { onMessage(m); } catch { /* 缓冲消息处理异常不影响后续 */ }
+            }
+            if (buffered.length) {
+                Log.info('UserScriptBridge', `Replayed ${buffered.length} buffered message(s)`);
+            }
+        }
 
         // ── 断开清理 ──
         port.onDisconnect.addListener(() => {

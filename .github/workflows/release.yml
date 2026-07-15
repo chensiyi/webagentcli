@@ -1,7 +1,7 @@
 name: Release
 
 # Layer2 — automatic build & publish.
-# Triggered by pushing a `v*` tag. Split into two jobs:
+# Triggered by pushing a version tag (e.g. `0.7.5`, without a `v` prefix). Split into two jobs:
 #   verify  : re-runs typecheck + test + checks package.json version == tag  (gate)
 #   release : needs: verify -> only starts if verify is green; builds, zips the
 #             MV3 package, and creates a GitHub Release with the zip attached.
@@ -11,7 +11,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - '[0-9]*.[0-9]*.[0-9]*'
 
 permissions:
   contents: write
@@ -42,7 +42,7 @@ jobs:
       - name: Version consistency
         run: |
           PKG_VERSION="$(node -p "require('./package.json').version")"
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          TAG_VERSION="${GITHUB_REF_NAME}"
           if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
             echo "::error::package.json version ($PKG_VERSION) does not match tag ($TAG_VERSION)"
             exit 1
@@ -71,7 +71,7 @@ jobs:
 
       - name: Prepare version
         id: version
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: echo "VERSION=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Package extension
         id: package
@@ -93,7 +93,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: Web Agent Client v${{ steps.version.outputs.VERSION }}
+          name: Web Agent Client ${{ steps.version.outputs.VERSION }}
           draft: false
           prerelease: false
           generate_release_notes: true

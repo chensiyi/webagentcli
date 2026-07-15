@@ -35,8 +35,18 @@
 
   /* =============================================================================
    * CSS — 从 CDN 加载，fetch 后注入 <style>（不走 <link> 以绕过页面 CSP style-src）
+   * 按当前扩展版本号拼 tag（@<version>），与 preset-installer 拉取本脚本的 tag 一致，
+   * 避免 @latest 漂移导致 .js 与 .css 版本脱节。非扩展环境回退 @latest。
    * ========================================================================== */
-  const CSS_CDN_URL = 'https://cdn.jsdelivr.net/gh/chensiyi/webagentcli@latest/sidepanel/userscripts/pet-chat.css';
+  function cdnBase() {
+    let tag = 'latest';
+    try {
+      const v = chrome.runtime.getManifest()?.version;
+      if (v) tag = v;
+    } catch (e) { /* 非扩展环境，回退 @latest */ }
+    return `https://cdn.jsdelivr.net/gh/chensiyi/webagentcli@${tag}/sidepanel/userscripts`;
+  }
+  const CSS_CDN_URL = cdnBase() + '/pet-chat.css';
   let _cssLoaded = false;
 
   async function injectStyles() {
@@ -319,8 +329,6 @@
   }
 
   /* ----------------------------------------------------- 气泡生命周期 */
-  function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
-
   const FADE_DELAY = 6000;
   const FADE_MS = 1200;
 

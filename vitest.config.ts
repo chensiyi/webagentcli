@@ -14,6 +14,7 @@ export default defineConfig({
   resolve: {
     alias: {
       'kernel': resolve(__dirname, 'kernel'),
+      'bridge': resolve(__dirname, 'bridge'),
     },
   },
 });

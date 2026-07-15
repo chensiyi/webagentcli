@@ -1,8 +1,11 @@
 /* =============================================================================
  * pet-chat.css — 网页宠物聊天浮窗样式
  * -----------------------------------------------------------------------------
- * 发布到 CDN（jsDelivr），由 pet-chat.js 运行时 fetch 加载后注入 <style>。
- * CDN URL: https://cdn.jsdelivr.net/gh/chensiyi/webagentcli@latest/sidepanel/userscripts/pet-chat.css
+ * 由 pet-chat.js 运行时加载：按当前扩展版本号拼 CDN 地址
+ *   https://cdn.jsdelivr.net/gh/chensiyi/webagentcli@<version>/sidepanel/userscripts/pet-chat.css
+ * 经 fetch 拉取后注入 <style>（用 textContent 而非 <link>，绕过页面 CSP style-src）。
+ * 安装脚本模型下 userScripts.register 只注册 JS，CSS 无法随脚本独立分发，
+ * 故统一走绝对 CDN 地址，且 .js 与 .css 始终落在同一版本 tag 上，避免 @latest 漂移。
  * ========================================================================== */
 
 /* 浮窗根容器：固定在视口右下，按列自下而上堆叠（气泡→输入框） */
@@ -63,6 +66,13 @@
   color: #1a1c22;
 }
 .pc-bubble.fading { opacity: 0; transform: translateY(4px); }
+/* 发送失败兜底气泡：常驻、不自动淡化，提示用户可重试 */
+.pc-bubble.pc-fallback {
+  background: linear-gradient(180deg, rgba(255, 244, 224, 0.94), rgba(255, 236, 200, 0.80));
+  color: #7a5a1a;
+  border-color: rgba(214, 158, 60, 0.5);
+  transition: none;
+}
 
 /* 打字光标 */
 .pc-caret {
@@ -180,6 +190,14 @@
   text-overflow: ellipsis;
 }
 .pc-tool-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; }
+.pc-tool-desc {
+  font-size: 11px;
+  color: #9aa0b3;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .pc-badge {
   font-size: 10px;
   line-height: 1;

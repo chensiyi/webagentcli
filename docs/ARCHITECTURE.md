@@ -1,6 +1,6 @@
 # Web Agent Client 架构文档
 
-> 架构版本：Microkernel v0.8.0 · 与当前代码库保持同步
+> 架构版本：Microkernel 0.7.5 · 与当前代码库保持同步
 
 ## 核心理念
 
@@ -513,7 +513,7 @@ LLM 收到结果后继续（ReAct 循环）
 预装脚本与本地用户脚本共用同一目录，避免双份冗余：
 
 - **单一脚本目录**：所有脚本源放在 `sidepanel/userscripts/`，其中 `presets.json` 是预装白名单（文件名数组）——只有列进清单的脚本才随版本发布预装，目录里其余 `.user.js` 仅作本地源。
-- **远程拉取**：首次启动（及升级）时，`preset-installer.js` 从 `https://cdn.jsdelivr.net/gh/chensiyi/webagentcli@v<当前版本>/sidepanel/userscripts` 拉取 `presets.json` + 各 `.user.js`，经 `installOrUpdate` 进 `ScriptsManager`；jsDelivr 回 `access-control-allow-origin: *`，规避 SW 跨域 CORS 限制。
+- **远程拉取**：首次启动（及升级）时，`preset-installer.js` 从 `https://cdn.jsdelivr.net/gh/chensiyi/webagentcli@<当前版本>/sidepanel/userscripts` 拉取 `presets.json` + 各 `.user.js`，经 `installOrUpdate` 进 `ScriptsManager`；jsDelivr 回 `access-control-allow-origin: *`，规避 SW 跨域 CORS 限制。
 - **与 @tool 自动注册衔接**：预装脚本若含 `@tool` 声明，由 `ScriptsManager` 解析 `toolMeta` → `reconcileScriptTools` 经 `ToolsManager.register`（source='script'）注册为可调 AI 工具（如 `page_to_markdown.user.js` → `page_to_markdown_script`）。
 - **幂等升级**：storage 记录 `{ [name|namespace]: version }`；同版本跳过（保留用户编辑/删除），版本变化原地更新；拉取失败（离线/该 tag 暂无清单）跳过，不阻断启动。
 

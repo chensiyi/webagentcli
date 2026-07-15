@@ -17,7 +17,7 @@
  * 受 CORS 限制，前者回 `access-control-allow-origin: *`，后者多数情况不回，会 Failed to fetch。
  *
  * 版本 tag 规则：取当前扩展版本（chrome.runtime.getManifest().version，如 0.8.0），
- * 拼上前缀得到 tag（默认 v0.8.0）。发布时仓库需打 `vX.Y.Z` 的 tag 并含 sidepanel/userscripts/ 目录，
+ * 按当前扩展版本号拼 tag（如 0.7.5）。发布时仓库需打不带 v 前缀的 `X.Y.Z` 的 tag（如 0.7.5）并含 sidepanel/userscripts/ 目录，
  * 扩展即从此 tag 拉取。若要换分支/固定 ref，改 PRESET_REF 即可。
  *
  * 幂等 & 升级：storage 记录 { [name|namespace]: version }。
@@ -32,8 +32,8 @@ import { Log } from 'kernel/services/Log.js';
 const PRESET_REPO = 'chensiyi/webagentcli';
 /** 仓库内预装脚本所在目录（相对仓库根）。与本地源目录统一，不再单独维护 presets/。 */
 const PRESET_DIR = 'sidepanel/userscripts';
-/** 版本 tag 前缀（与仓库 release tag 命名保持一致，仓库一般用 v 前缀，如 v0.8.0）。 */
-const PRESET_TAG_PREFIX = 'v';
+/** 版本 tag 前缀（与仓库 release tag 命名保持一致，tag 不带 v 前缀，如 0.7.5）。 */
+const PRESET_TAG_PREFIX = '';
 
 /** 取当前扩展版本号（运行时来源，随 manifest 自动同步）。非扩展环境回退空串。 */
 function getManifestVersion() {
@@ -51,7 +51,7 @@ function presetTag() {
 
 /**
  * 预装源基址，默认按「当前版本 tag」解析：
- *   https://cdn.jsdelivr.net/gh/<repo>@v<version>/sidepanel/userscripts
+ *   https://cdn.jsdelivr.net/gh/<repo>@<version>/sidepanel/userscripts
  * 仓库未打对应 tag / 该目录无 presets.json 时，fetch 会失败并安全跳过。
  */
 export const PRESET_REMOTE_BASE = `https://cdn.jsdelivr.net/gh/${PRESET_REPO}@${presetTag()}/${PRESET_DIR}`;
