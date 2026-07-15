@@ -43,7 +43,8 @@ export class SessionManager extends BaseSessionManager {
     this.discardAllTransient();
     const s = new Session({
       title: (rest.title as string) || '新对话',
-      reasoningEffort: (rest.reasoningEffort as string) || 'medium',
+      // 不硬编码档位：调用方（facade）传入的配置值原样透传；未传则 null（继承配置）
+      reasoningEffort: (rest.reasoningEffort as string) ?? null,
       model: rest.model || null,
       createdAt: Date.now(),
       updatedAt: Date.now()

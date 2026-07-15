@@ -156,11 +156,16 @@
 
   /* ============================================ 会话管理 */
   let sessionId = null;
+  // 会话思考强度：session.create 返回的 sessionView 已带 reasoningEffort（取自全局配置），
+  // 宠物无需单独读 settings，捕获后随 session.send 透传，与侧栏行为一致。
+  let sessionReasoning = null;
 
   async function ensureSession() {
     if (sessionId) return sessionId;
     const resp = await rpcCall('session.create', []);
     sessionId = resp?.session?.id || null;
+    // sessionView 顶层即带 reasoningEffort（会话级→全局配置→'off' 的回退结果）
+    sessionReasoning = resp?.reasoningEffort ?? null;
     // 向内核桥接上报本 Port 绑定的会话：bridge 据此仅向本 Port 定向转发本会话的
     // 流式/消息/确认事件（多会话并行时消除跨会话广播）。
     bindSession();
@@ -543,9 +548,10 @@
       return;
     }
 
-    // fire-and-forget：session.send 只触发编排，流式 token 经事件回调到达
+    // fire-and-forget：session.send 只触发编排，流式 token 经事件回调到达。
+    // 显式带上会话思考强度（取自全局配置），使宠物与侧栏一致：默认「关」即不返回思考过程。
     try {
-      await rpcCall('session.send', [{ sessionId: sid, content: text }]);
+      await rpcCall('session.send', [{ sessionId: sid, content: text, reasoningEffort: sessionReasoning || undefined }]);
     } catch (e) {
       // session.send 正常返回 null（fire-and-forget），超时不算错误
       // 只有真正的端口级错误才需要处理

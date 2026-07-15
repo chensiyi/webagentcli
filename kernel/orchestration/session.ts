@@ -80,7 +80,9 @@ export async function runConversation(
   const {
     sessionId = null,
     content = '',
-    reasoningEffort = 'off',
+    // 不设硬默认：未传时保持 undefined → 沿用会话已存储的 reasoningEffort（继承配置），
+    // 避免把「没传参」误当成「显式关闭」。仅当调用方显式传入时才覆盖会话档位。
+    reasoningEffort,
     model = null,
     isToolContinuation = false,
   } = input;

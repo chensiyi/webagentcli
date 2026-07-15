@@ -56,8 +56,17 @@ class LMStudioService extends BaseProviderAPIService {
     if (request.temperature !== undefined) body.temperature = request.temperature;
     if (request.maxTokens) body.max_tokens = request.maxTokens;
     if (request.system) body.messages.unshift({ role: 'system', content: request.system });
+    // 思考强度忠实透传：off 也要发送「关闭」信号，而非静默省略。
+    // LM Studio 无统一 off 字段，按官方约定分档处理：
+    //  - off  → chat_template_kwargs.enable_thinking=false（覆盖 Qwen3 等本地推理模型的思考开关），
+    //           且不下发 reasoning_effort；
+    //  - 其它 → 下发 reasoning_effort（gpt-oss 等据此调档）。
     const effort = request.thinking?.effort;
-    if (effort && effort !== 'off') body.reasoning_effort = effort;
+    if (effort === 'off') {
+      body.chat_template_kwargs = { ...(body.chat_template_kwargs || {}), enable_thinking: false };
+    } else if (effort) {
+      body.reasoning_effort = effort;
+    }
 
     // === LM Studio 端前缀缓存 ===
     // LM Studio v0.3.5+ 支持 context_overlap / cache_prompt

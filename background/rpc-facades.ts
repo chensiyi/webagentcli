@@ -28,8 +28,7 @@ function sessionView(kernel: any, session: any): { session: any; messages: any[]
   return {
     session,
     messages: session?.messages || [],
-    // 无当前会话时回退到全局默认档位，保证空态也显示正确默认（如“关”）
-    reasoningEffort: session?.reasoningEffort || settingsEffort || 'medium',
+    reasoningEffort: session?.reasoningEffort || settingsEffort,
   };
 }
 
@@ -52,7 +51,7 @@ export function createSessionFacade(kernel: Kernel, sessionChannel: RpcChannel) 
       const settings = kernel.getSettingsManager().getSettings() as any;
       // 新建会话沿用全局默认思考强度，但先不落盘——未发送前只是临时会话，
       // 避免留下空对话（首条消息发送时由 addMessage 正式落盘）
-      const s = await sm.createSession({ reasoningEffort: settings?.reasoningEffort || 'medium', persist: false });
+      const s = await sm.createSession({ reasoningEffort: settings?.reasoningEffort, persist: false });
       return sessionView(kernel, s);
     },
 

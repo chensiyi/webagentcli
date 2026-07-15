@@ -20,7 +20,9 @@ export class Session extends BaseModel {
     super(options);
     this.title = (options.title as string) || '新对话';
     this.messages = [];
-    this.reasoningEffort = (options.reasoningEffort as string) || 'medium';
+    // 不硬编码档位：未指定时为 null（表示「继承配置/全局默认」），
+    // 由编排层与 sessionView 统一回退到配置值，最终安全兜底 'off'。
+    this.reasoningEffort = (options.reasoningEffort as string) ?? null;
     this.model = options.model || null;
     this.toolEnabled = (options.toolEnabled as Record<string, boolean>) || null;
     this.createdAt = (options.createdAt as number) || Date.now();
@@ -62,9 +64,9 @@ export class Session extends BaseModel {
       messageCount: this.messages.length,
       preview,
       // 会话级配置必须随索引持久化，否则重启后 init() 从索引重建会话时丢失。
-      // 此前 toIndexJSON 只存了 id/title/时间戳/preview，漏掉 reasoningEffort 与 model，
-      // 导致重建时构造器回退默认（reasoningEffort→'medium'、model→null）。
-      // 构造器保证 reasoningEffort 恒为字符串；model 可能为 null（沿用全局默认）。
+      // 此前 toIndexJSON 只存了 id/title/时间戳/preview，漏掉 reasoningEffort 与 model。
+      // reasoningEffort 可能为 null（继承配置/全局默认，最终由编排层兜底 'off'）；
+      // model 可能为 null（沿用全局默认）。
       reasoningEffort: this.reasoningEffort,
       model: this.model,
       toolEnabled: this.toolEnabled,
