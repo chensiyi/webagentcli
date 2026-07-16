@@ -356,3 +356,58 @@
 .pc-confirm-btn:hover { transform: scale(1.04); opacity: 0.92; }
 .pc-confirm-btn.cancel { background: rgba(120, 130, 160, 0.18); color: #444; }
 .pc-confirm-btn.allow { background: #c0392b; color: #fff; }
+
+/* ---------- 工具调用卡片 ---------- */
+.pc-tool-card {
+  width: 300px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(150, 160, 190, 0.45);
+  background: rgba(238, 242, 255, 0.78);
+  box-shadow: 0 12px 32px rgba(40, 50, 90, 0.16);
+  -webkit-backdrop-filter: blur(14px);
+          backdrop-filter: blur(14px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+.pc-tool-head { display: flex; align-items: center; gap: 8px; }
+.pc-tool-icon { font-size: 14px; line-height: 1; }
+.pc-tool-icon.spin { animation: pc-spin 1s linear infinite; }
+@keyframes pc-spin { to { transform: rotate(360deg); } }
+.pc-tool-name {
+  flex: 1 1 auto;
+  font-weight: 600;
+  color: #2a2f45;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pc-tool-badge {
+  flex: 0 0 auto;
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: #5a6275;
+  background: rgba(120, 130, 160, 0.16);
+}
+.pc-tool-badge.running { color: #b06a00; background: rgba(255, 180, 60, 0.20); }
+.pc-tool-badge.done { color: #2f7d4f; background: rgba(60, 160, 100, 0.16); }
+.pc-tool-badge.error { color: #c0392b; background: rgba(192, 57, 43, 0.14); }
+.pc-tool-body { display: flex; flex-direction: column; gap: 4px; }
+.pc-tool-result {
+  margin: 0;
+  max-height: 160px;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #3a3f55;
+  background: rgba(255, 255, 255, 0.55);
+  border-radius: 8px;
+  padding: 6px 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

@@ -28,6 +28,16 @@ export default class OpenAIService extends BaseProviderAPIService {
     return false;
   }
 
+  /**
+   * 是否支持 reasoning_effort='none'（真正关闭推理）。
+   * o3/o4 与 GPT-5 系列支持；o1 仅支持 low/medium/high，需回落 'low' 避免 400。
+   */
+  static supportsNoneEffort(model: string): boolean {
+    const m = (model || '').toLowerCase();
+    const name = m.includes('/') ? m.split('/').pop()! : m;
+    return /^(o[3-9]|gpt-5)/.test(name);
+  }
+
   buildRequestBody(request: Record<string, any>): Record<string, any> {
     const body: Record<string, any> = {
       model: request.model || this.config.model,
@@ -37,9 +47,15 @@ export default class OpenAIService extends BaseProviderAPIService {
       max_tokens: request.maxTokens,
       tools: request.tools || undefined,
     };
+    // 仅对推理模型发送 reasoning_effort，避免对非推理模型（gpt-4o 等）误发导致 400。
+    // 「关」(off) 必须显式下发，不能用「省略字段」代替：o 系列 / GPT-5 在缺省时按
+    // medium 思考，会表现为「设置 off 仍按 medium 思考」（OpenRouter/LMStudio 已正确映射 off→关闭）。
+    // 此处与兄弟 provider 对齐：off → 'none' 真正关闭推理；o1 不支持 'none'，回落最低 'low' 防 400。
     const effort = request.thinking?.effort;
-    if (effort && effort !== 'off' && OpenAIService.isReasoningModel(body.model)) {
-      body.reasoning_effort = effort;
+    if (effort && OpenAIService.isReasoningModel(body.model)) {
+      body.reasoning_effort = effort === 'off'
+        ? (OpenAIService.supportsNoneEffort(body.model) ? 'none' : 'low')
+        : effort;
     }
     return body;
   }

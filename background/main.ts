@@ -353,6 +353,9 @@ async function bootKernel() {
     bootloader.on(Bootloader.PHASES.READY, async () => {
         // 会话通道：RPC facade（createSessionFacade）直接驱动编排并把流式/生命周期事件回灌此通道
         const sessionChannel = ipc.getOrCreateChannel(KernelChannels.SESSION);
+        // 工具通道：ToolsManager / 编排层经此广播 tool:executing / tool:completed，
+        // 与 session 通道同带 sessionId，供桥接层按 boundSessionId 转发给宠物 Port（补全工具调用 UI）。
+        const toolChannel = ipc.getOrCreateChannel(KernelChannels.TOOL);
 
         // ── RPC 分发（统一请求 ID 关联，错误回传，边界 sanitize） ──
         const rpcServer = new RPCServer(ipc);
@@ -409,10 +412,11 @@ async function bootKernel() {
         // 启动期把 @tool 脚本同步注册为 AI 工具（P2 自动注册）
         reconcileScriptTools(kernel.getScriptsManager(), kernel.getToolsManager());
 
-        // 用户脚本世界 RPC 桥接：注入 rpcServer + sessionChannel，
+        // 用户脚本世界 RPC 桥接：注入 rpcServer + sessionChannel（+ toolChannel 用于转发工具执行事件），
         // 处理 init() 阶段暂存的 Port 连接（SW 唤醒后可能已有 pet-chat.js 连接在排队）。
-        // CONFIRM.* 确认闸门事件与 STREAM_* 同走 session 通道，bridge 只订阅 sessionChannel 即可统一按会话路由。
-        usBridge.bind(rpcServer, sessionChannel);
+        // CONFIRM.* 确认闸门事件与 STREAM_* 同走 session 通道，bridge 只订阅 sessionChannel 即可统一按会话路由；
+        // 工具执行事件（tool:executing / tool:completed）走独立的 tool 通道，此处一并注入供 pet 补全工具调用 UI。
+        usBridge.bind(rpcServer, sessionChannel, toolChannel);
     });
 
     await bootloader.boot();

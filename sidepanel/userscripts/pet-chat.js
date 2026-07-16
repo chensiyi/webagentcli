@@ -6,6 +6,8 @@
 // @author       chensiyi
 // @match        *://*/*
 // @grant        GM_setValue
+// @require      https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js
+// @require      https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -66,33 +68,21 @@
   }
 
   /* =============================================================================
-   * Markdown 渲染 —— 外部库（marked + DOMPurify）从 npm CDN 加载
+   * Markdown 渲染 —— 外部库（marked + DOMPurify）经 @require 前置注入
    * -----------------------------------------------------------------------------
-   * USER_SCRIPT 世界 fetch 可绕过页面 CSP（与 pet-chat.css 加载同理）。
-   * 固定版本号，避免 @latest 漂移。库未就绪时渲染降级为纯文本。
-   * 加载方式：fetch 源码文本后间接 eval（UMD 挂到 window.marked / window.DOMPurify）。
+   * 库源固定为 npm CDN 精确版本（marked@12.0.2 / dompurify@3.1.6）。
+   * 安装期由 ScriptsManager._resolveIncludes 拉取源码、拼接为 requireCode，
+   * 经 wrapWithGM 前置进本 user script（与用户代码同处 USER_SCRIPT 世界），
+   * 因此脚本一开始运行 window.marked / window.DOMPurify 即就绪，无需运行时 fetch/eval。
+   *
+   * ⚠️ 早期版本用「运行时 fetch + 间接 eval」注入，但 USER_SCRIPT 世界受扩展默认
+   * CSP（script-src 'self'）约束，eval 被拦截，window.marked 永远挂不上，markdown
+   * 静默降级纯文本（CSS 走 textContent 不受影响，故只有 markdown 没渲染）。
+   * @require 前置是本项目既有可靠方式（见 page_to_markdown），故改回此路。
+   *
+   * 安全兜底：库万一未就绪（如安装期离线拉取失败），renderMarkdown 返回 null，
+   * 调用方降级纯文本，不抛错。
    * ========================================================================== */
-  const MARKED_URL = 'https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js';
-  const PURIFY_URL = 'https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js';
-  let _mdLibsPromise = null;
-  function loadMarkdownLibs() {
-    if (_mdLibsPromise) return _mdLibsPromise;
-    _mdLibsPromise = (async () => {
-      try {
-        if (!window.marked) {
-          const src = await (await fetch(MARKED_URL)).text();
-          (0, eval)(src);            // 间接 eval → 全局作用域，UMD 挂到 window.marked
-        }
-        if (!window.DOMPurify) {
-          const src = await (await fetch(PURIFY_URL)).text();
-          (0, eval)(src);            // 挂到 window.DOMPurify
-        }
-      } catch (e) {
-        console.warn('[pet-chat] markdown 库加载失败，降级纯文本:', e);
-      }
-    })();
-    return _mdLibsPromise;
-  }
   // 渲染文本为安全 HTML；库未就绪时返回 null（调用方降级 textContent）
   function renderMarkdown(text) {
     if (!window.marked) return null;
@@ -192,8 +182,8 @@
 
   /* ============================================ 会话管理 */
   let sessionId = null;
-  // 会话思考强度：session.create 返回的 sessionView 已带 reasoningEffort（取自全局配置），
-  // 宠物无需单独读 settings，捕获后随 session.send 透传，与侧栏行为一致。
+  // 会话思考强度：session.create 返回的 sessionView 已带 reasoningEffort（创建时取自全局配置），
+  // 捕获后随 session.send 透传，与侧栏行为一致。会话创建后独立跟随自身值，不再随全局设置变动。
   let sessionReasoning = null;
   // 本会话工具开关覆盖表（session.toolEnabled）：与侧栏一致，宠物开关只写这一层（会话级），
   // 不碰全局 tools.toggle。全局 enabled 是天花板，覆盖仅能在该会话内收窄/开启（全局关则锁定）。
@@ -561,6 +551,76 @@
     confirmCard = null;
   }
 
+  /* ----------------------------------------------------- 工具调用卡片 */
+  // 与危险确认卡片不同：工具调用卡片是「执行状态」展示，按 toolCallId 跟踪、回合内常驻，
+  // 不进气泡栈（不参与自动淡出），回合开始（streamStart）时整体清空。
+  // 数据来源：内核经桥接层转发 tool:executing / tool:completed（tool 通道）+ session:messageAdded（tool 结果消息）。
+  const toolCards = new Map(); // toolCallId -> { el, body, badge, icon }
+
+  function extractToolText(content) {
+    if (content == null) return '';
+    if (typeof content === 'string') return content.trim();
+    if (Array.isArray(content)) {
+      return content.map((b) => (b && b.type === 'text' ? (b.text || '') : '')).join('').trim();
+    }
+    return '';
+  }
+
+  function showToolCard(toolCallId, toolName) {
+    if (!toolCallId) return null;
+    let card = toolCards.get(toolCallId);
+    if (card) return card;
+    const el = document.createElement('div');
+    el.className = 'pc-tool-card';
+    el.dataset.toolCallId = toolCallId;
+    const head = document.createElement('div');
+    head.className = 'pc-tool-head';
+    const icon = document.createElement('span');
+    icon.className = 'pc-tool-icon spin';
+    icon.textContent = '🔄';
+    const name = document.createElement('span');
+    name.className = 'pc-tool-name';
+    name.textContent = '🔧 ' + (toolName || '工具');
+    const badge = document.createElement('span');
+    badge.className = 'pc-tool-badge running';
+    badge.textContent = '执行中';
+    head.append(icon, name, badge);
+    const body = document.createElement('div');
+    body.className = 'pc-tool-body';
+    el.append(head, body);
+    // 插入到气泡栈与输入框之间（与确认卡片同位置）
+    root.insertBefore(el, box);
+    card = { el, body, badge, icon };
+    toolCards.set(toolCallId, card);
+    return card;
+  }
+
+  function updateToolCard(toolCallId, status) {
+    const card = toolCards.get(toolCallId);
+    if (!card) return;
+    const failed = status === 'failed' || status === 'rejected';
+    card.icon.classList.remove('spin');
+    card.icon.textContent = failed ? '⛔' : '✅';
+    card.badge.className = 'pc-tool-badge ' + (failed ? 'error' : 'done');
+    card.badge.textContent = failed ? '失败' : '已完成';
+  }
+
+  function appendToolResult(toolCallId, text) {
+    const card = toolCards.get(toolCallId);
+    if (!card || !text) return;
+    const pre = document.createElement('pre');
+    pre.className = 'pc-tool-result';
+    pre.textContent = text.length > 500 ? text.slice(0, 500) + '\n…(已截断)' : text;
+    card.body.appendChild(pre);
+  }
+
+  function clearToolCards() {
+    for (const [, card] of toolCards) {
+      if (card.el && card.el.isConnected) card.el.remove();
+    }
+    toolCards.clear();
+  }
+
   function summarizeArgs(args) {
     if (args === undefined || args === null) return '';
     try {
@@ -606,9 +666,26 @@
       // 内核已决策（或超时自动拒绝）后广播，移除残留确认卡片
       clearConfirm();
       return;
+    } else if (event === 'tool:executing') {
+      // 工具开始执行：弹出「执行中」卡片（按 toolCallId 跟踪，回合内常驻）
+      showToolCard(data?.toolCallId, data?.toolName);
+      return;
+    } else if (event === 'tool:completed') {
+      // 工具执行结束：卡片标记完成/失败（结果文本经 session:messageAdded 的 tool 消息附加上来）
+      updateToolCard(data?.toolCallId, data?.status);
+      return;
+    } else if (event === 'session:messageAdded') {
+      // 工具结果消息（role='tool'）：把结果文本追加到对应工具卡片
+      const m = data?.message;
+      if (m && m.role === 'tool' && m.toolCallId) {
+        appendToolResult(m.toolCallId, extractToolText(m.content));
+      }
+      return;
     }
 
     if (event === 'session:streamStart') {
+      // 回合开始：清空上一回合残留的工具卡片
+      clearToolCards();
       // 创建 AI 气泡，准备累加渲染
       streamingBubble = pushBubble('ai', '');
       streamingText = '';
@@ -646,8 +723,7 @@
   async function sendUser(text) {
     text = (text || '').trim();
     if (!text) return;
-    // 确保 markdown 库就绪，首条气泡即走渲染（未就绪则降级纯文本）
-    await loadMarkdownLibs();
+    // markdown 库经 @require 前置已随脚本就绪；renderMarkdown 内部再做兜底降级
     pushBubble('user', text);
     inputEl.value = '';
 
@@ -668,7 +744,8 @@
     }
 
     // fire-and-forget：session.send 只触发编排，流式 token 经事件回调到达。
-    // 显式带上会话思考强度（取自全局配置），使宠物与侧栏一致：默认「关」即不返回思考过程。
+    // 显式带上会话创建时捕获的思考强度（取自全局配置并烤进会话），使宠物与侧栏一致：
+    // 创建时默认「关」即不返回思考过程；创建后该会话独立跟随自身值，不随全局设置变动。
     try {
       await rpcCall('session.send', [{ sessionId: sid, content: text, reasoningEffort: sessionReasoning || undefined }]);
     } catch (e) {
@@ -711,6 +788,7 @@
   // 断开后 connectPort 内部会自动重连，保证保活连续性。
   connectPort();
   injectStyles();
-  loadMarkdownLibs();   // 外部 markdown 库（marked + DOMPurify），失败则降级纯文本
+  // marked + DOMPurify 经 @require 前置，安装期已注入本 user script 世界，
+  // 脚本运行即 window.marked / window.DOMPurify 就绪，无需运行时加载。
   buildDOM();
 })();

@@ -18,7 +18,7 @@ class RunUserScriptTool extends Tool {
   constructor() {
     super({
       name: 'run_user_script',
-      description: '在用户当前浏览的页面上执行 JavaScript 代码，可以读取或修改页面内容。\n适用场景：\n- 页面数据提取（标题/文本/表格/图片链接等）\n- 页面操作（点击按钮、填写表单、滚动等）\n- 页面状态检测（判断元素是否存在/可见等）\n⚠️ 返回值规则（务必遵守，否则模型看不到结果）：\n- 必须用 return 把结果回传给模型，例如：return document.title;\n- 多行逻辑请包成 IIFE 并 return：(() => { const x = document.body.innerText; return x.length; })();\n- 仅写一条裸表达式（如 document.body.innerText）也会作为返回值\n- 不写 return 将返回 undefined，模型无法获得任何结果\n注意事项：\n- 代码在目标页面上下文中执行，可访问完整 DOM 与页面全局变量\n- Chrome 限制：只能使用 requestAnimationFrame、setTimeout 之外的定时器\n- 返回值自动格式化：字符串/数字直接返回，对象/数组自动 JSON.stringify',
+      description: '在用户当前浏览的页面上执行 JavaScript 代码，可以读取或修改页面内容。\n适用场景：\n- 页面数据提取（标题/文本/表格/图片链接等）\n- 页面操作（点击按钮、填写表单、滚动等）\n- 页面状态检测（判断元素是否存在/可见等）\n⚠️ 返回值规则（务必遵守，否则模型看不到结果）：\n- 必须显式用 return 把结果回传给模型，例如：return document.title;\n- 多行逻辑时直接写多行语句，最后一行用 return 收尾。例如：\n  const x = document.body.innerText;\n  return x.length;\n- 不要额外包成 IIFE（如 (() => { ... })()），否则返回值会被丢弃，模型得到 null\n- 仅写一条裸表达式（如 document.body.innerText）也会作为返回值\n- 不写 return 将返回 undefined，模型无法获得任何结果\n注意事项：\n- 代码在目标页面上下文中执行，可访问完整 DOM 与页面全局变量\n- Chrome 限制：只能使用 requestAnimationFrame、setTimeout 之外的定时器\n- 返回值自动格式化：字符串/数字直接返回，对象/数组自动 JSON.stringify',
       danger: true,
       metadata: {
         dangerReason: '将在当前页面执行任意 JavaScript，可能读取/修改页面内容或账户状态，需人工确认',
@@ -28,7 +28,7 @@ class RunUserScriptTool extends Tool {
         properties: {
           code: {
             type: 'string',
-            description: '要在当前页面执行的 JavaScript 代码。必须写 return 才能把结果回传给模型（见工具说明）；不写 return 模型将拿不到任何结果。'
+            description: '要在当前页面执行的 JavaScript 代码。必须写 return 才能把结果回传给模型（见工具说明）；不要包成 IIFE，否则模型将拿到 null。'
           },
           world: {
             type: 'string',

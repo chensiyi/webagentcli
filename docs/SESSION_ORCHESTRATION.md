@@ -58,7 +58,7 @@
 #### RunUserScriptTool — `background/tools/RunUserScriptTool.js`
 
 - description 从通用描述改为结构化说明，包含适用场景和注意事项
-- code 参数描述优化，建议使用 IIFE 包裹代码
+- code 参数描述优化，建议直接写 return 返回结果，不要包成 IIFE（避免返回值被丢弃成 null）
 - 新增 `timeout` 参数（number，默认 300000ms）
 - 标 `danger: true`（在页面执行任意 JS，高危确认闸门）
 

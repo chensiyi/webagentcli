@@ -56,6 +56,7 @@ const FORWARD_EVENTS = [
 export class UserScriptBridge {
     private rpcServer: RPCServer | null = null;
     private sessionChannel: IPC | null = null;
+    private _toolChannel: IPC | null = null;
     private _bound = false;
     /** bind 之前到达的 Port 连接暂存于此（含缓冲监听），bind 后逐个处理 */
     private _pendingPorts: Array<{ port: any; bufferFn: any }> = [];
@@ -112,9 +113,10 @@ export class UserScriptBridge {
      * @param sessionChannel session 通道实例——STREAM_* / MESSAGE_ADDED / SESSION.CONFIRM_* 均在此广播，
      *   桥接层只订阅它即可统一按会话路由（无需再订阅根 IPC）。
      */
-    bind(rpcServer: RPCServer, sessionChannel: IPC): void {
+    bind(rpcServer: RPCServer, sessionChannel: IPC, toolChannel: IPC | null = null): void {
         this.rpcServer = rpcServer;
         this.sessionChannel = sessionChannel;
+        this._toolChannel = toolChannel;
         this._bound = true;
 
         // 处理暂存的 Port 连接（携带缓冲监听，bind 时移除缓冲并重放）
@@ -171,6 +173,24 @@ export class UserScriptBridge {
             };
             sessionChannel.on(evt, fn);
             eventHandlers.push([sessionChannel, evt, fn]);
+        }
+
+        // ── 工具通道事件转发：tool:executing / tool:completed → Port（按 boundSessionId 定向）──
+        // 工具执行状态与 STREAM_* 不同通道（前者在 tool 通道、后者在 session 通道），
+        // 但二者同带 sessionId、路由逻辑一致，故沿用同一 boundSessionId 过滤。
+        // 命名沿用内核 KernelEvents.TOOL 原值（'tool:executing' / 'tool:completed'），
+        // pet 侧按字面匹配即可，无需在桥接层改写。
+        if (this._toolChannel) {
+            const toolEvents = [KernelEvents.TOOL.EXECUTING, KernelEvents.TOOL.COMPLETED];
+            for (const evt of toolEvents) {
+                const fn = (data: any) => {
+                    if (data && (data as any).__remote) return;
+                    if (boundSessionId && (data as any)?.sessionId !== boundSessionId) return;
+                    postEvent(evt, data);
+                };
+                this._toolChannel.on(evt, fn);
+                eventHandlers.push([this._toolChannel, evt, fn]);
+            }
         }
 
         // ── Port 入站消息：控制消息 {__bind} 与 RPC 请求 {__rpc} ──
