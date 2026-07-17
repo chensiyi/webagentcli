@@ -23,6 +23,7 @@ import { Message } from '../models/Message.js';
 import { ThinkingConfig } from '../models/MessageContent.js';
 import { Session } from '../models/Session.js';
 import { Kernel } from '../Kernel.js';
+import { StandardResponse } from '../services/IProviderAPIService.js';
 import { ContextBuilder } from './session-context.js';
 
 /**
@@ -59,6 +60,8 @@ export interface ConversationInput {
   isToolContinuation?: boolean;
   /** Shell 传入的活动标签页 id，供 ScriptTool 等页面操作类工具定位目标 */
   tabId?: number | null;
+  /** 阻塞模式：使用 service.chat（非流式），通过 Promise 结果返回完整 StandardResponse，而非发射 STREAM_* 事件；错误时以拒绝形式上抛 */
+  blocking?: boolean;
 }
 
 export interface ConversationHooks {
@@ -76,7 +79,7 @@ export async function runConversation(
   kernel: Kernel,
   input: ConversationInput,
   hooks: ConversationHooks,
-): Promise<void> {
+): Promise<StandardResponse | void> {
   const {
     sessionId = null,
     content = '',
@@ -87,11 +90,14 @@ export async function runConversation(
     isToolContinuation = false,
   } = input;
   const emit = hooks.onEvent;
+  // 阻塞模式：走 service.chat（非流式），结果经 Promise 返回；错误以拒绝形式上抛（不发 STREAM_ERROR）
+  const blocking = !!input.blocking;
 
   // provider 未就绪（设置尚未加载 / 未配置）→ 直接报错返回，不进入管线
   const service = kernel.getProviderFactory()?.getCurrentProvider();
   if (!service) {
     const err = new Error('Provider service not initialized yet. Please wait for settings to load or configure a provider in Settings.');
+    if (blocking) throw err;   // 阻塞：上抛 → ask 拒绝 → pet 显示错误泡
     emit(KernelEvents.SESSION.STREAM_ERROR, { error: err, message: err.message });
     return;
   }
@@ -107,11 +113,12 @@ export async function runConversation(
       session.reasoningEffort = reasoningEffort as string;
     }
   } catch (e: any) {
+    if (blocking) throw e;     // 阻塞：上抛 → ask 拒绝
     emit(KernelEvents.SESSION.STREAM_ERROR, { error: e, message: e.message });
     return;
   }
 
-  return runTurn(kernel, session.id, { content, model, isToolContinuation: !!isToolContinuation, tabId: input.tabId ?? null }, emit);
+  return runTurn(kernel, session.id, { content, model, isToolContinuation: !!isToolContinuation, tabId: input.tabId ?? null, blocking }, emit);
 }
 
 // ─── 单轮生成管线（围绕某个 session；ReAct 续轮递归进入） ──────
@@ -119,10 +126,10 @@ export async function runConversation(
 async function runTurn(
   kernel: Kernel,
   sessionId: string,
-  opts: { content: string | any[]; model: unknown; isToolContinuation: boolean; tabId?: number | null },
+  opts: { content: string | any[]; model: unknown; isToolContinuation: boolean; tabId?: number | null; blocking?: boolean },
   emit: (event: string, data: unknown) => void,
-): Promise<void> {
-  const { content, model, isToolContinuation, tabId } = opts;
+): Promise<StandardResponse | void> {
+  const { content, model, isToolContinuation, tabId, blocking = false } = opts;
   const sm = kernel.getSessionManager();
   const settings = kernel.getSettingsManager().getSettings();
   const sid = sessionId;
@@ -202,27 +209,41 @@ async function runTurn(
     const turn = turns.get(sid)!;
     turn.assistantMessageId = assistantMsg.id;
     emit(KernelEvents.SESSION.MESSAGE_ADDED, { message: assistantMsg, messageId: assistantMsg.id, sessionId: sid });
-    emit(KernelEvents.SESSION.STREAM_START, { sessionId: sid, messageId: assistantMsg.id });
+    if (!blocking) emit(KernelEvents.SESSION.STREAM_START, { sessionId: sid, messageId: assistantMsg.id });
 
-    // ── 流式响应 ──
-    const result = await service.chatStream(request, (chunk: Record<string, unknown>) => {
-      const t = turns.get(sid);
-      if (t) t.lastActiveAt = Date.now();
+    // ── 响应：阻塞模式走 chat（非流式），流式模式走 chatStream ──
+    let result: StandardResponse | null;
+    if (blocking) {
+      result = await service.chat(request);
+      if (result) {
+        // 占位 message 初始为空，整段写入等价于流式追加（可交换、仅一次），保持持久化路径一致
+        turn.lastActiveAt = Date.now();
+        sm.streamChunkMessage(
+          assistantMsg.id,
+          { content: result.content || '', reasoning_content: result.reasoning_content || '' },
+          sid,
+        );
+      }
+    } else {
+      result = await service.chatStream(request, (chunk: Record<string, unknown>) => {
+        const t = turns.get(sid);
+        if (t) t.lastActiveAt = Date.now();
 
-      const c = (chunk.content as string) || '';
-      const r = (chunk.reasoning_content as string) || '';
+        const c = (chunk.content as string) || '';
+        const r = (chunk.reasoning_content as string) || '';
 
-      sm.streamChunkMessage(assistantMsg.id, { content: c, reasoning_content: r }, sid);
-      emit(KernelEvents.SESSION.STREAM_CHUNK_APPEND, {
-        sessionId: sid, messageId: assistantMsg.id, content: c, reasoning_content: r,
+        sm.streamChunkMessage(assistantMsg.id, { content: c, reasoning_content: r }, sid);
+        emit(KernelEvents.SESSION.STREAM_CHUNK_APPEND, {
+          sessionId: sid, messageId: assistantMsg.id, content: c, reasoning_content: r,
+        });
       });
-    });
+    }
 
     if (!result) {
       return;
     }
 
-    // 流式结束：立即把累积的 token 强制落盘（不依赖批处理定时器窗口）
+    // 结束：立即把累积内容强制落盘（不依赖批处理定时器窗口）
     await sm.flushSession(sid);
 
     // ── 工具调用（委托 ToolExecutor 做执行循环） ──
@@ -233,22 +254,22 @@ async function runTurn(
       }, sid, { immediate: true });
 
       const duration = Date.now() - turns.get(sid)!.startedAt;
-      // 流式结束：把最终完整消息（含累积 content / reasoning / toolCalls）推给 Shell，
+      // 结束：把最终完整消息（含累积 content / reasoning / toolCalls）推给 Shell，
       // 让 Shell 的 messages 列表与内核权威态对齐，再由其删除流式累积缓冲（streamingMap）。
       emit(KernelEvents.SESSION.MESSAGE_UPDATED, { message: assistantMsg, messageId: assistantMsg.id, sessionId: sid });
-      emit(KernelEvents.SESSION.STREAM_COMPLETE, { sessionId: sid, messageId: assistantMsg.id, duration });
+      if (!blocking) emit(KernelEvents.SESSION.STREAM_COMPLETE, { sessionId: sid, messageId: assistantMsg.id, duration });
 
       const toolExecutor = new ToolExecutor(kernel, emit);
       await toolExecutor.execute(result.toolCalls, sid, { tabId: tabId ?? undefined });
-      // 工具执行完成后，继续下一轮（ReAct 循环，递归进入续轮）
-      await runTurn(kernel, sid, { content: '', model: null, isToolContinuation: true }, emit);
-      return;
+      // 工具执行完成后，继续下一轮（ReAct 循环，递归进入续轮）；阻塞模式把续轮最终 StandardResponse 冒泡返回
+      return await runTurn(kernel, sid, { content: '', model: null, isToolContinuation: true, blocking }, emit);
     }
 
     const duration = Date.now() - turns.get(sid)!.startedAt;
-    // 流式结束：把最终完整消息推给 Shell，与内核权威态对齐（见上方同款注释）。
+    // 结束：把最终完整消息推给 Shell，与内核权威态对齐（见上方同款注释）。
     emit(KernelEvents.SESSION.MESSAGE_UPDATED, { message: assistantMsg, messageId: assistantMsg.id, sessionId: sid });
-    emit(KernelEvents.SESSION.STREAM_COMPLETE, { sessionId: sid, messageId: assistantMsg.id, duration });
+    if (!blocking) emit(KernelEvents.SESSION.STREAM_COMPLETE, { sessionId: sid, messageId: assistantMsg.id, duration });
+    return blocking ? result : undefined;
   } catch (error: any) {
     const turn = turns.get(sid);
     const assistantMessageId = turn?.assistantMessageId;
@@ -258,6 +279,7 @@ async function runTurn(
         return msg;
       }, sid, { immediate: true });
     }
+    if (blocking) throw error;   // 阻塞：上抛 → facade.ask 拒绝 → pet catch 显示错误泡（finally 仍释放 turn 锁）
     emit(KernelEvents.SESSION.STREAM_ERROR, {
       error, message: error.message,
       sessionId: sid, messageId: assistantMessageId,

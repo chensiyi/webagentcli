@@ -212,7 +212,8 @@ export class UserScriptBridge {
                     __rpc: true,
                     id,
                     ok: resp.ok,
-                    result: resp.result,
+                    // 回包结果经 sanitizeForClone 净化，与事件转发一致；防御 StandardResponse.usage 等 any 字段携带不可结构化克隆值
+                    result: resp.ok ? sanitizeForClone(resp.result) : null,
                     error: resp.error,
                 });
             } catch {

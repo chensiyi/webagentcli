@@ -19,10 +19,12 @@
         - page_to_markdown：预装脚本（source=script），非内置工具；经 sidepanel/userscripts/page_to_markdown.user.js 的 @tool 声明 + 预装/脚本机制自动注册为 page_to_markdown_script，在 MAIN 世界执行 DOM→Markdown 转换；不随 capture_screenshot 默认可用，需经预装或手动安装
         2. 油猴请求拦截与编辑（main world，油猴功能一部分，非 agent 请求编排）  待开发 · 进行中 · 优先
         - 拦截/编辑页面请求，扩展 agent 的页面能力
+        - 设计：`docs/4.2-request-intercept-design.md`（2026-07-17）。决议：① 拦截器注入 **MAIN world**（USER_SCRIPT 世界看不见页面 fetch/XHR）；② **规则随脚本注册、随脚本初始化加载、随脚本生灭**，不进 SettingsManager/GM_setValue；③ **响应编辑本期不做**（响应侧默认交给 AI）；④ 阻塞式（决策返回前不放请求，XHR 延迟 send，超时 fail-open）；⑤ 默认关闭，需显式 `@grant GM_webRequest`。
         3. Agent 请求编排（background isolated world）  待开发 · 进行中 · 其次
         - 请求生命周期 hooks（beforeRequest / afterResponse），独立于油猴请求拦截
-        4. Main World RPC Bridge  待开发 · 进行中 · 暂缓
-        - 升级 bridge，为脚本在 main world 调用内核 RPC 提供通道（getPageContent、invokeTool），实现页面内 mini agent；仅已安装脚本可用，敏感操作走 danger 确认
+        4. Main World RPC Bridge  ✅ 已落地（含微调：阻塞式请求，2026-07-17 确认）
+        - 实现：`bridge/UserScriptBridge.ts` 把 main world 脚本经 `chrome.runtime.onUserScriptConnect` 的 Port 接入 `rpcServer.dispatch()`，可调用全部 facade（session/tools/settings/storage/scripts/media/kernel），STREAM_*/MESSAGE_ADDED/SESSION.CONFIRM_* 已按 boundSessionId 转发 → 页面内 mini agent 通道打通；`pet-chat.js` 的 `rpcCall` 即典型客户端。
+        - 微调项（进行中）：将请求改为阻塞式（dispatch 返回前 await 内核处理完，调用方同步等待结果）；仅已安装脚本可用，敏感操作走 danger 确认。
 以上内容可能存在临时性开发文档，当模块足够庞大，开发完成后，应当整理为标准说明文档，清理临时文档。
 
 待建设:

@@ -318,7 +318,7 @@ async function bootKernel() {
         const rpcServer = new RPCServer(ipc);
 
         rpcServer.expose('session', createSessionFacade(kernel, sessionChannel), {
-            methods: ['getCurrent', 'create', 'update', 'deleteMessage', 'list', 'delete', 'clearMessages', 'send', 'stop', 'confirmResolve'],
+            methods: ['getCurrent', 'create', 'update', 'deleteMessage', 'list', 'delete', 'clearMessages', 'send', 'ask', 'stop', 'confirmResolve'],
             capabilities: kernel.getCapabilities() as any,
         });
         rpcServer.expose('tools', createToolsFacade(kernel), {

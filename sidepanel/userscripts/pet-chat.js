@@ -461,13 +461,19 @@
   /* ----------------------------------------------------- 气泡生命周期 */
   const FADE_DELAY = 6000;
   const FADE_MS = 1200;
+  // 阻塞式 ask 超时：留足余量 > 内核 120s 危险确认自动拒绝，避免长回答/确认等待被误超时
+  const ASK_TIMEOUT_MS = 180000;
+
+  // 把文本渲染进已有气泡（markdown；库未就绪时降级纯文本），供 pushBubble 与 sendUser 复用
+  function paintBubble(el, text) {
+    const html = renderMarkdown(text);
+    if (html !== null) el.innerHTML = html; else el.textContent = text || '';
+  }
 
   function pushBubble(kind, text) {
     const el = document.createElement('div');
     el.className = 'pc-bubble ' + kind;
-    // Markdown 渲染；库未就绪时降级纯文本
-    const html = renderMarkdown(text);
-    if (html !== null) el.innerHTML = html; else el.textContent = text || '';
+    paintBubble(el, text);
     bubblesEl.appendChild(el);
     scrollToBottom();
     scheduleFades();
@@ -663,92 +669,33 @@
     }
   }
 
-  /* ----------------------------------------------------- 对话发送 + 流式接收 */
-  // 当前正在流式接收的气泡（用于事件回调渲染）
-  let streamingBubble = null;
-  let streamingText = '';          // 流式累加的原文，每个 chunk 重新 markdown 渲染
-  // 把累加原文渲染进气泡（含打字光标）；库未就绪时降级纯文本
-  function renderStreaming(showCaret) {
-    if (!streamingBubble) return;
-    const html = renderMarkdown(streamingText);
-    if (html !== null) {
-      streamingBubble.innerHTML = html;
-      if (showCaret) {
-        const caret = document.createElement('span');
-        caret.className = 'pc-caret';
-        streamingBubble.appendChild(caret);
-      }
-    } else {
-      streamingBubble.textContent = streamingText;
-    }
-  }
-
-  // 注册 session 事件监听：处理流式 token 与危险工具确认
+  /* ----------------------------------------------------- 对话发送（阻塞式 ask） */
+  // 注册 session 事件监听：仅处理危险工具确认与工具卡片（阻塞式 ask 的最终回复经 RPC 结果返回，不再消费 STREAM_* 事件）
   onSessionEvent((event, data) => {
     // 只处理当前会话的事件
     if (!sessionId || data?.sessionId !== sessionId) return;
 
-    // —— 危险工具人工确认闸门（与 STREAM_* 同走 session 通道）——
+    // —— 危险工具人工确认闸门（走 session 通道）——
     if (event === 'session:confirmRequest') {
       // 内核 invoke 危险工具前广播，弹出「允许/取消」卡片
       showConfirm(data);
-      return;
     } else if (event === 'session:confirmResolved') {
       // 内核已决策（或超时自动拒绝）后广播，移除残留确认卡片
       clearConfirm();
-      return;
     } else if (event === 'tool:executing') {
       // 工具开始执行：弹出「执行中」卡片（按 toolCallId 跟踪，回合内常驻）
       showToolCard(data?.toolCallId, data?.toolName);
-      return;
     } else if (event === 'tool:completed') {
       // 工具执行结束：卡片标记完成/失败（结果文本经 session:messageAdded 的 tool 消息附加上来）
       updateToolCard(data?.toolCallId, data?.status);
-      return;
     } else if (event === 'session:messageAdded') {
       // 工具结果消息（role='tool'）：把结果文本追加到对应工具卡片
       const m = data?.message;
       if (m && m.role === 'tool' && m.toolCallId) {
         appendToolResult(m.toolCallId, extractToolText(m.content));
       }
-      return;
     }
-
-    if (event === 'session:streamStart') {
-      // 回合开始：清空上一回合残留的工具卡片
-      clearToolCards();
-      // 创建 AI 气泡，准备累加渲染
-      streamingBubble = pushBubble('ai', '');
-      streamingText = '';
-    } else if (event === 'session:streamChunkAppend') {
-      // 追加 token 并重新 markdown 渲染（含光标）
-      if (streamingBubble) {
-        const chunk = data?.content || '';
-        if (chunk) {
-          streamingText += chunk;
-          renderStreaming(true);
-          scrollToBottom();
-        }
-      }
-    } else if (event === 'session:streamComplete') {
-      // 流式结束：最终渲染（去光标）
-      renderStreaming(false);
-      streamingBubble = null;
-      streamingText = '';
-      scheduleFades();
-    } else if (event === 'session:streamError') {
-      // 流式错误
-      const msg = '（' + (data?.message || '发送失败') + '）';
-      if (streamingBubble) {
-        const html = renderMarkdown(msg);
-        if (html !== null) streamingBubble.innerHTML = html; else streamingBubble.textContent = msg;
-      } else {
-        pushBubble('ai', msg);
-      }
-      streamingBubble = null;
-      streamingText = '';
-      scheduleFades();
-    }
+    // 阻塞模式下不再发射/消费 session:stream* 事件——最终回复由 session.ask 的 Promise 结果一次性渲染。
   });
 
   async function sendUser(text) {
@@ -757,6 +704,8 @@
     // markdown 库经 @require 前置已随脚本就绪；renderMarkdown 内部再做兜底降级
     pushBubble('user', text);
     inputEl.value = '';
+    // 清掉上一回合残留的工具卡片（原挂在 streamStart 触发点，现移到发起处）
+    clearToolCards();
 
     // 确保端口和会话就绪
     if (!portReady) connectPort();
@@ -774,19 +723,22 @@
       return;
     }
 
-    // fire-and-forget：session.send 只触发编排，流式 token 经事件回调到达。
-    // 显式带上会话创建时捕获的思考强度（取自全局配置并烤进会话），使宠物与侧栏一致：
-    // 创建时默认「关」即不返回思考过程；创建后该会话独立跟随自身值，不随全局设置变动。
+    // 阻塞式：先放「思考中…」占位泡，await 完整结果后一次性渲染（不再逐 token 重渲染 markdown）。
+    // 等待期间工具/危险确认事件仍经 onSessionEvent 驱动卡片；session.ask 返回最终 StandardResponse。
+    // 显式带上会话创建时捕获的思考强度（取自全局配置并烤进会话），使宠物与侧栏一致。
+    const thinkingBubble = pushBubble('ai', '思考中…');
     try {
-      await rpcCall('session.send', [{ sessionId: sid, content: text, reasoningEffort: sessionReasoning || undefined }]);
+      const res = await rpcCall(
+        'session.ask',
+        [{ sessionId: sid, content: text, reasoningEffort: sessionReasoning || undefined }],
+        ASK_TIMEOUT_MS,
+      );
+      const content = res && res.content ? res.content : '（无回复）';
+      paintBubble(thinkingBubble, content);
     } catch (e) {
-      // session.send 正常返回 null（fire-and-forget），超时不算错误
-      // 只有真正的端口级错误才需要处理
-      if (!streamingBubble) {
-        pushBubble('ai', '（发送异常：' + (e?.message || e) + '）');
-        scheduleFades();
-      }
+      paintBubble(thinkingBubble, '（' + (e?.message || '发送失败') + '）');
     }
+    scheduleFades();
   }
 
   /* ----------------------------------------------------- 开合 */

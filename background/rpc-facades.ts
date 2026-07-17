@@ -116,6 +116,19 @@ export function createSessionFacade(kernel: Kernel, sessionChannel: RpcChannel) 
       return null;
     },
 
+    // 阻塞式请求：与 send 平行，但运行完整 ReAct 循环（含工具/危险确认），使用 service.chat（非流式），
+    // 并通过 Promise 结果返回最终 StandardResponse。不发射 STREAM_*；仍发射 MESSAGE_ADDED / MESSAGE_UPDATED
+    // 以保持 sidepanel 一致。错误时 Promise 拒绝（send 路径则发射 STREAM_ERROR 且不拒绝）。
+    // 注意：直接 return runConversation 的 Promise（不包 void ….catch），使拒绝能穿透 rpcServer.dispatch → 回传调用方（如 pet）。
+    ask(data: { sessionId: string; content: string | any[]; reasoningEffort?: string; tabId?: number | null }) {
+      if (!data?.sessionId || !data?.content) return null;
+      return runConversation(
+        kernel,
+        { sessionId: data.sessionId, content: data.content, reasoningEffort: data.reasoningEffort, tabId: data.tabId ?? null, blocking: true } as any,
+        { onEvent: emit },
+      );
+    },
+
     // 停止流式：传 sessionId 仅取消该会话（多 session 并行下必须按 id 定向，勿误伤其他会话）。
     // ⚠️ 省略 sessionId 会取消全部进行中的轮次——仅限"全局停止"语义，普通停止按钮务必传 id。
     stop(data: { sessionId?: string | null }) {
