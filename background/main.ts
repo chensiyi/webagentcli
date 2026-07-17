@@ -395,13 +395,16 @@ async function bootKernel() {
  * 内部 installPresets 已跳过未变脚本，重复调用安全；远程不可达时仅记日志、不阻断启动。
  */
 async function runPresetInstall(k: Kernel): Promise<void> {
+  // 明确归因：本函数仅由 chrome.runtime.onInstalled 驱动（非 kernel 启动路径），
+  // 故日志统一打在独立的 PRESET tag 下，避免与 BACKGROUND/kernel 启动日志混淆。
+  Log.info('PRESET', 'onInstalled 触发预装（首次安装 / 版本升级 / dev 重载扩展）');
   try {
     const storage = k.getStorageManager();
     const curVer = chrome.runtime.getManifest()?.version || '';
     const presetRes = await installPresets(k.getScriptsManager(), storage);
     Log.info(
-      'BACKGROUND',
-      `Preset scripts: ${presetRes.installed} installed, ${presetRes.skipped} skipped (dev=${__DEV__}, reachable=${presetRes.reachable})`
+      'PRESET',
+      `预装完成：${presetRes.installed} 安装 / ${presetRes.skipped} 跳过 (dev=${__DEV__}, reachable=${presetRes.reachable})`
     );
     // 仅在远程清单成功拉取（reachable）时落地版本标记；离线/不可达保留旧值，下次启动重试。
     if (presetRes.reachable && curVer) {
@@ -414,7 +417,7 @@ async function runPresetInstall(k: Kernel): Promise<void> {
       notifyShell('error', '预装脚本更新失败（可能离线或该源暂无清单），将于下次启动重试。', 0);
     }
   } catch (e) {
-    Log.warn('BACKGROUND', 'Preset install failed (non-fatal)', e);
+    Log.warn('PRESET', 'Preset install failed (non-fatal)', e);
     notifyShell('error', '预装脚本安装失败，可稍后重试或手动安装。', 0);
   }
 }

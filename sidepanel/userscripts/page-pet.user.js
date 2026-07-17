@@ -89,9 +89,11 @@
   document.body.appendChild(bubble);
 
   // ---------- 状态 ----------
-  let x = 100, y = 100, tx = x, ty = y, facing = 1, reacting = false, hidden = false, chatOpen = false, fastMode = false;
+  let x = 100, y = 100, tx = x, ty = y, facing = 1, reacting = false, hidden = false, chatOpen = false, fastMode = false, following = true;
 
-  document.addEventListener('mousemove', (e) => { if (!hidden && !chatOpen) { tx = e.clientX; ty = e.clientY; } });
+  // 鼠标跟随开关：点击进入聊天（奔向角落）的瞬间立即关掉，关闭聊天恢复时再开。
+  // 用独立 flag 而非仅依赖 !chatOpen，确保「点击即停跟」在事件时序上绝对优先。
+  document.addEventListener('mousemove', (e) => { if (following && !hidden) { tx = e.clientX; ty = e.clientY; } });
 
   pet.addEventListener('click', () => {
     if (reacting || hidden) return;
@@ -108,8 +110,9 @@
     }
     reacting = true;
     glyph.classList.add('happy');
-    // 唤醒聊天浮窗（pet-chat.js）：宠物不再停在原地，而是奔向聊天窗左侧；
-    // 内核冷暖由 pet-chat 拉取初始化数据的快慢决定（收到 mini-pet:kernel-ready 即加速）。
+    // 点击即立即关闭鼠标跟随（避免后续 mousemove 把目标 tx/ty 刷新走，导致奔向角落途中被拉回闪烁），
+    // 然后再唤醒聊天浮窗、奔向聊天窗左侧。
+    following = false;
     chatOpen = true;
     window.dispatchEvent(new CustomEvent('mini-pet:open-chat'));
     setTimeout(() => {
@@ -123,6 +126,10 @@
     chatOpen = false;
     fastMode = false;
     glyph.classList.remove('happy');
+    // 恢复鼠标跟随：把目标复位到宠物当前位置，避免复用「点击前」残留的 tx/ty 而导致
+    // 关闭瞬间宠物朝旧光标位置猛冲一下再折返的闪烁。
+    following = true;
+    tx = x; ty = y;
   });
 
   // 聊天浮窗初始化数据到手（= 内核已启动）：宠物加速冲刺到聊天窗左侧
