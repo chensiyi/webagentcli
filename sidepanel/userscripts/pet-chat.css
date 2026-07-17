@@ -42,7 +42,9 @@
 .pc-bubbles::-webkit-scrollbar-track { background: transparent; }
 
 .pc-bubble {
-  max-width: 360px;
+  max-width: 100%;
+  width: 340px;
+  min-width: 0;
   padding: 10px 14px;
   border-radius: 12px;
   font-size: 14px;
@@ -52,6 +54,8 @@
   -webkit-backdrop-filter: blur(10px);
           backdrop-filter: blur(10px);
   word-break: break-word;
+  overflow-wrap: anywhere;
+  overflow: hidden;
   -webkit-user-select: text;
   user-select: text;
   transition: opacity 1.2s ease, transform 1.2s ease;
@@ -92,8 +96,11 @@
   padding: 10px 12px;
   border-radius: 10px;
   background: rgba(20, 22, 35, 0.10);
-  overflow-x: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   max-height: 260px;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 .pc-bubble pre code { background: none; padding: 0; font-size: 12.5px; }
 .pc-bubble blockquote {
