@@ -23,6 +23,12 @@ export const StorageKeys = {
   USER_SCRIPTS: 'user_scripts',
   /** 预装脚本（TARGETS #4.0）已应用版本记录：值为 { [name|namespace]: version }，用于幂等与升级判断 */
   PRESET_INSTALLED: 'preset_installed',
+  /**
+   * 上次成功执行预装时的「扩展版本号」（chrome.runtime.getManifest().version）。
+   * boot 时与当前扩展版本比对：不一致（升级）或缺失（全新）才重新拉取远程预装，
+   * 同版本内的 SW 唤醒直接跳过，避免每次唤醒都发起远程 fetch。
+   */
+  PRESET_EXT_VERSION: 'preset_ext_version',
 } as const;
 
 /**

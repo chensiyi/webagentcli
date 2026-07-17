@@ -320,31 +320,7 @@ async function bootKernel() {
         await settingsManager.loadSettings();
         log.info('BACKGROUND', 'Settings loaded');
 
-        // 预装脚本机制：仅在「所有用户数据存储为空」（全新安装）时执行一次，
-        // 避免每次 SW 唤醒都发起远程拉取而可能引发内核加载异常。
-        // 非致命：单条失败已被安装器内部吞掉，整体异常也不应阻断内核启动。
-        try {
-          const fresh = await isFreshInstall(kernel.getStorageManager());
-          if (fresh) {
-            // 安装前告知 Shell 正在尝试安装（error 型 toast 更醒目）
-            notifyShell('error', '正在尝试安装预装脚本，请稍候…', 0);
-            const presetRes = await installPresets(
-              kernel.getScriptsManager(),
-              kernel.getStorageManager()
-            );
-            log.info(
-              'BACKGROUND',
-              `Preset scripts: ${presetRes.installed} installed, ${presetRes.skipped} skipped`
-            );
-            // 完成后提示用户重新打开扩展，使注入脚本/投影工具生效
-            notifyShell('info', '预装脚本已安装完成，请重新打开扩展（或刷新页面）以生效。', 0);
-          } else {
-            log.info('BACKGROUND', 'Storage 非空，跳过预装脚本安装');
-          }
-        } catch (e) {
-          log.warn('BACKGROUND', 'Preset install failed (non-fatal)', e);
-          notifyShell('error', '预装脚本安装失败，可稍后重试或手动安装。', 0);
-        }
+        // 预装脚本的安装/升级已统一移至 READY 阶段（见下方 syncRegisteredScripts 之前），此处不再处理。
         // 注意：kernel:bootComplete 统一在 bootKernel() resolve 后由 onShellConnect 的 .then 发出，
         // 此时 Phase 4(READY) 已完成、RPC 服务已暴露，Shell 收到后即可安全调用 RPC，避免竞态超时。
     });
@@ -403,6 +379,51 @@ async function bootKernel() {
           if (list.length === 0) return;
           await Promise.all(list.map((id) => mediaStore.delete(id).catch(() => {})));
         });
+
+        // ── 预装脚本安装 / 升级（统一在 READY、注入前执行）──
+        // 安装 → 注入(chrome.userScripts) → @tool 投影 三步在同一有序 pass 完成，
+        // 修复此前「fresh 装于 START、upgrade 等 tools 加载完才跑」的时序错乱。
+        // 触发条件：
+        //  - dev 分支（IS_DEV 为真）：永远（重新）安装/升级预装脚本 —— dev 特殊能力，
+        //    便于开发期随时拿到最新预装；此时 PRESET_REMOTE_BASE 已指向 @dev 分支，无需 tag。
+        //  - 正式发布：仅「全新安装」或「扩展版本变化（升级）」时执行，避免每次 SW 唤醒都发远程 fetch。
+        // 非致命：单条失败已被安装器内部吞掉，整体异常也不应阻断内核启动。
+        try {
+          const storage = kernel.getStorageManager();
+          const curVer = chrome.runtime.getManifest()?.version || '';
+          const isDev = __DEV__;
+          const storedVer = (await storage.get(StorageKeys.PRESET_EXT_VERSION).catch(() => undefined)) as string | undefined;
+          const fresh = await isFreshInstall(storage);
+          const upgraded = curVer !== '' && storedVer !== curVer;   // 版本变化（含 storedVer 缺失）
+          if (isDev || fresh || upgraded) {
+            // 安装前告知 Shell 正在尝试安装/更新（error 型 toast 更醒目）
+            notifyShell('error', fresh ? '正在尝试安装预装脚本，请稍候…'
+              : (isDev ? 'dev：正在（重新）安装/升级预装脚本…' : '检测到扩展升级，正在更新预装脚本…'), 0);
+            const presetRes = await installPresets(
+              kernel.getScriptsManager(),
+              storage
+            );
+            log.info(
+              'BACKGROUND',
+              `Preset scripts: ${presetRes.installed} installed, ${presetRes.skipped} skipped (dev=${isDev}, fresh=${fresh}, upgraded=${upgraded}, ${storedVer || '∅'}→${curVer}, reachable=${presetRes.reachable})`
+            );
+            // 仅在远程清单成功拉取（reachable）时落地版本标记；离线/不可达则保留旧值，下次 boot 重试。
+            if (presetRes.reachable && curVer) {
+              await storage.set(StorageKeys.PRESET_EXT_VERSION, curVer);
+            }
+            // 完成后提示用户重新打开扩展，使注入脚本/投影工具生效
+            if (presetRes.reachable) {
+              notifyShell('info', '预装脚本已更新，请重新打开扩展（或刷新页面）以生效。', 0);
+            } else {
+              notifyShell('error', '预装脚本更新失败（可能离线或该源暂无清单），将于下次启动重试。', 0);
+            }
+          } else {
+            log.info('BACKGROUND', `预装脚本已是最新（版本 ${curVer}），跳过安装`);
+          }
+        } catch (e) {
+          log.warn('BACKGROUND', 'Preset install failed (non-fatal)', e);
+          notifyShell('error', '预装脚本安装失败，可稍后重试或手动安装。', 0);
+        }
 
         // 首次（每次 SW 唤醒）内核启动完毕时，把已启用的用户脚本注册到 chrome.userScripts。
         // 注册是持久化的，SW/内核被回收后注入仍继续；此处保证「内核启动完毕」即完成注入初始化。

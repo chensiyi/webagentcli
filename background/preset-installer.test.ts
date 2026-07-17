@@ -102,7 +102,7 @@ describe('installPresets 预装机制（#4.0 远程源）', () => {
     const storage = mkStorage();
 
     const res = await installPresets(sm, storage, BASE);
-    expect(res).toEqual({ installed: 0, skipped: 0 });
+    expect(res).toEqual({ installed: 0, skipped: 0, reachable: false });
     expect(await sm.loadAll()).toHaveLength(0);
   });
 
@@ -130,7 +130,7 @@ describe('installPresets 预装机制（#4.0 远程源）', () => {
     const sm = new ScriptsManager({ getIPC: () => null, getStorageManager: mkStorage });
     const storage = mkStorage();
     const res = await installPresets(sm, storage, '');
-    expect(res).toEqual({ installed: 0, skipped: 0 });
+    expect(res).toEqual({ installed: 0, skipped: 0, reachable: false });
     expect((globalThis as any).fetch).not.toHaveBeenCalled();
   });
 });
