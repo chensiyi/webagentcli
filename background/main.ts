@@ -401,7 +401,7 @@ async function runPresetInstall(k: Kernel): Promise<void> {
   try {
     const storage = k.getStorageManager();
     const curVer = chrome.runtime.getManifest()?.version || '';
-    const presetRes = await installPresets(k.getScriptsManager(), storage);
+    const presetRes = await installPresets(k.getScriptsManager(), storage, undefined, { local: __DEV__ });
     Log.info(
       'PRESET',
       `预装完成：${presetRes.installed} 安装 / ${presetRes.skipped} 跳过 (dev=${__DEV__}, reachable=${presetRes.reachable})`

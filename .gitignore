@@ -35,6 +35,9 @@ yarn-error.log*
 # ==================== 临时文件 ====================
 tmp/
 temp/
+
+# ==================== 构建期自动生成（embed-presets.mjs 产出） ====================
+background/preset-sources.generated.ts
 *.tmp
 *.cache
 

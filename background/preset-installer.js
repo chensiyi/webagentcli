@@ -13,6 +13,14 @@
  * 发布时打上当前版本 tag 即"发布"，无需重新打包扩展——已安装扩展按自身版本号 fetch
  * 对应 tag 下的预装脚本。
  *
+ * 混合预装源（2026-07-17 定）：
+ *  - 正式发布（__DEV__=false）：仍走 jsDelivr CDN（按版本 tag 拉取），保留「打 tag 即更新预装」能力。
+ *  - dev 构建（__DEV__=true）：改为读「构建期内联」的本地硬编码源码
+ *    （scripts/embed-presets.mjs 把 sidepanel/userscripts/ 按 presets.json 白名单打进
+ *    background/preset-sources.generated.ts，installPresets 传 { local: true } 即走此路径），
+ *    彻底跳过 jsDelivr @dev 分支最长约 12h 的缓存——本地改脚本 → build → reload 即生效，
+ *    零推送、零 CDN 等待。
+ *
  * 之所以走 jsDelivr 而非 raw.githubusercontent.com：扩展 Service Worker 跨域 fetch
  * 受 CORS 限制，前者回 `access-control-allow-origin: *`，后者多数情况不回，会 Failed to fetch。
  *
@@ -29,6 +37,9 @@
  */
 import { StorageKeys } from 'kernel/Keys.js';
 import { Log } from 'kernel/services/Log.js';
+// dev 构建（__DEV__=true）由调用点传 { local: true } 时，直接读此「构建期内联」的本地硬编码源码，
+// 跳过 jsDelivr（避免 @dev 分支最长约 12h 缓存导致本地改动不生效）。正式发布不引用此常量。
+import { PRESET_SOURCES } from './preset-sources.generated.js';
 
 /** 预装源仓库（GitHub org/repo）。 */
 const PRESET_REPO = 'chensiyi/webagentcli';
@@ -81,23 +92,30 @@ function scriptKey(meta) {
  * @param {import('kernel/services/ScriptsManager.js').ScriptsManager} scriptsManager
  * @param {{ get(key:string):Promise<unknown>, set(key:string,value:unknown):Promise<void> }} storage 内核 IStorageManager
  * @param {string} [remoteBase] 预装源基址（默认按当前版本 tag 解析的 PRESET_REMOTE_BASE）。测试或动态配置时可注入。
+ * @param {{ local?: boolean }} [opts] 预装源选择。{ local: true } 时（dev 构建由调用点按 __DEV__ 传入）直接读构建期内联的本地硬编码源码，跳过 CDN；省略时走 CDN（与注入显式 remoteBase 的单测一致）。
  * @returns {Promise<{ installed:number, skipped:number, reachable:boolean }>}
  *   reachable：远程清单 presets.json 是否成功拉取并解析（用于调用方判定「是否可安全落地版本标记」，
  *   离线/仓库不可达时为 false，调用方应保留旧版本标记以便下次 boot 重试）。
  */
-export async function installPresets(scriptsManager, storage, remoteBase = PRESET_REMOTE_BASE) {
+export async function installPresets(scriptsManager, storage, remoteBase = PRESET_REMOTE_BASE, opts = {}) {
   if (!scriptsManager || !storage) return { installed: 0, skipped: 0, reachable: false };
   if (!remoteBase) {
     Log.warn('preset-installer', '预装源基址无效，跳过预装。');
     return { installed: 0, skipped: 0, reachable: false };
   }
+  // dev 构建（__DEV__=true）由调用点传 { local: true }：直接读本地硬编码源码，跳过 CDN；
+  // 正式发布（__DEV__=false）走 CDN。单测注入显式 remoteBase 时默认仍走 CDN，不受影响。
+  const useLocal = opts.local ?? false;
 
-  // 1) 读预装清单。清单缺失/损坏（离线、tag 未打、目录为空）→ 跳过预装，不阻断启动。
+  // 1) 读预装清单。dev 读本地硬编码；正式发布从 CDN（按版本 tag）拉取。
+  //    清单缺失/损坏（离线、tag 未打、目录为空）→ 跳过预装，不阻断启动。
   let files = [];
   try {
-    files = JSON.parse(await fetchText(`${remoteBase}/presets.json`));
+    const raw = useLocal ? PRESET_SOURCES['presets.json'] : await fetchText(`${remoteBase}/presets.json`);
+    files = JSON.parse(raw);
   } catch (e) {
-    Log.warn('preset-installer', `读取远程预装清单 presets.json 失败，跳过预装（可能离线或该版本 tag 暂无清单）: ${remoteBase}`, e);
+    const src = useLocal ? '本地硬编码源' : remoteBase;
+    Log.warn('preset-installer', `读取预装清单 presets.json 失败，跳过预装（可能离线或该版本 tag 暂无清单）: ${src}`, e);
     return { installed: 0, skipped: 0, reachable: false };
   }
   // 清单已拉到（reachable=true），即便为空也算「远程可达」——避免调用方误判为离线而反复重试。
@@ -112,7 +130,8 @@ export async function installPresets(scriptsManager, storage, remoteBase = PRESE
   let applied = 0;
   for (const file of files) {
     try {
-      const code = await fetchText(`${remoteBase}/${file}`);
+      const code = useLocal ? PRESET_SOURCES[file] : await fetchText(`${remoteBase}/${file}`);
+      if (code == null) throw new Error(`本地预装源缺失: ${file}`);
       const meta = scriptsManager.parseMetadata(code);
       const key = scriptKey(meta);
       const ver = meta.version || '0';
