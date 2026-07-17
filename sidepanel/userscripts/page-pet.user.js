@@ -34,19 +34,27 @@
       font-size:28px; line-height: 1; cursor: pointer; user-select: none;
       filter: drop-shadow(0 6px 6px rgba(0,0,0,.18));
       transform: translate(40px,40px) scaleX(1);
-      transition: transform .12s cubic-bezier(.22,1,.36,1);
+      /* 注意：位置位移完全由 rAF 主循环的 lerp 驱动，这里不要加 transition。
+         否则每帧重写 transform 都会打断上一段 .12s 过渡，产生「追帧式」抖动闪烁。 */
       will-change: transform;
     }
-    #${ROOT_ID}.idle  { animation: mp-bob 2.4s ease-in-out infinite; }
-    @keyframes mp-bob { 0%,100%{ margin-top:0 } 50%{ margin-top:-6px } }
-    #${ROOT_ID}.happy { animation: mp-hop .6s cubic-bezier(.28,.84,.42,1); }
-    @keyframes mp-hop {
-      0%   { transform: translate(var(--x),var(--y)) scaleX(var(--f)) scale(1) }
-      40%  { transform: translate(var(--x),calc(var(--y) - 34px)) scaleX(var(--f)) scale(1.25) }
-      100% { transform: translate(var(--x),var(--y)) scaleX(var(--f)) scale(1) }
+    /* 内层字形：承载 idle/happy/blink 动画，与外层定位 transform 解耦。
+       这样动画只是叠加在定位之上（不会覆盖位置），也不会去读 stale 的 --x/--y/--f 变量，
+       从而避免点击后冻结再「瞬移」到角落的闪烁感。 */
+    #${ROOT_ID} .mp-glyph {
+      display: inline-block;
+      transform-origin: 50% 100%;
     }
-    #${ROOT_ID}.blink { animation: mp-blink .18s ease; }
-    @keyframes mp-blink { 50% { transform: translate(var(--x),var(--y)) scaleX(var(--f)) scaleY(.1) } }
+    #${ROOT_ID} .mp-glyph.idle  { animation: mp-bob 2.4s ease-in-out infinite; }
+    @keyframes mp-bob { 0%,100%{ transform: translateY(0) } 50%{ transform: translateY(-6px) } }
+    #${ROOT_ID} .mp-glyph.happy { animation: mp-hop .6s cubic-bezier(.28,.84,.42,1); }
+    @keyframes mp-hop {
+      0%   { transform: translateY(0) scale(1) }
+      40%  { transform: translateY(-34px) scale(1.25) }
+      100% { transform: translateY(0) scale(1) }
+    }
+    #${ROOT_ID} .mp-glyph.blink { animation: mp-blink .18s ease; }
+    @keyframes mp-blink { 50% { transform: scaleY(.1) } }
     #${ROOT_ID}-bubble {
       position: fixed; z-index: 2147483646; padding: 6px 12px; border-radius: 14px;
       background: rgba(255,255,255,.85); backdrop-filter: blur(8px);
@@ -62,9 +70,14 @@
   // ---------- DOM ----------
   const pet = document.createElement('div');
   pet.id = ROOT_ID;
-  pet.className = 'idle';
-  pet.textContent = PET;
   document.body.appendChild(pet);
+
+  // 内层字形：位置由外层 pet 的 transform 控制，idle/happy/blink 动画只作用在这一层，
+  // 互相叠加而不覆盖，消除点击奔向角落 / 返回时的闪烁。
+  const glyph = document.createElement('span');
+  glyph.className = 'mp-glyph idle';
+  glyph.textContent = PET;
+  pet.appendChild(glyph);
 
   // 测量宠物真实尺寸（用布局盒 offset 尺寸，忽略动画 transform 的瞬时缩放）
   // 光标与盒子的距离按宽/高分别计，保证每个方向都留出 GAP
@@ -86,25 +99,21 @@
     // 无宠物聊天浮窗时（pet-chat.js 未注入）保持原互动行为
     if (!chatRoot) {
       reacting = true;
-      pet.classList.remove('idle');
-      pet.classList.add('happy');
+      glyph.classList.add('happy');
       setTimeout(() => {
-        pet.classList.remove('happy');
-        if (!chatOpen) pet.classList.add('idle');
+        glyph.classList.remove('happy');
         reacting = false;
       }, 620);
       return;
     }
     reacting = true;
-    pet.classList.remove('idle');
-    pet.classList.add('happy');
+    glyph.classList.add('happy');
     // 唤醒聊天浮窗（pet-chat.js）：宠物不再停在原地，而是奔向聊天窗左侧；
     // 内核冷暖由 pet-chat 拉取初始化数据的快慢决定（收到 mini-pet:kernel-ready 即加速）。
     chatOpen = true;
     window.dispatchEvent(new CustomEvent('mini-pet:open-chat'));
     setTimeout(() => {
-      pet.classList.remove('happy');
-      if (!chatOpen) pet.classList.add('idle');
+      glyph.classList.remove('happy');
       reacting = false;
     }, 620);
   });
@@ -113,7 +122,7 @@
   window.addEventListener('mini-pet:chat-closed', () => {
     chatOpen = false;
     fastMode = false;
-    pet.classList.add('idle');
+    glyph.classList.remove('happy');
   });
 
   // 聊天浮窗初始化数据到手（= 内核已启动）：宠物加速冲刺到聊天窗左侧
@@ -122,8 +131,8 @@
   // 偶尔眨眼
   setInterval(() => {
     if (reacting || hidden || chatOpen) return;
-    pet.classList.add('blink');
-    setTimeout(() => pet.classList.remove('blink'), 200);
+    glyph.classList.add('blink');
+    setTimeout(() => glyph.classList.remove('blink'), 200);
   }, 4200);
 
   // ---------- 主循环 ----------
@@ -146,17 +155,11 @@
             x += dx / (dist || 1) * step;
             y += dy / (dist || 1) * step;
             if (Math.abs(dx) > 1) facing = dx < 0 ? -1 : 1;
-            pet.classList.remove('idle');
-          } else {
-            pet.classList.add('idle');   // 已到位，原地轻晃
           }
+          // 位置每帧由 lerp 直接写出（无 CSS transition，无闪烁）。
+          // idle 呼吸动画恒定挂在 glyph 上，叠加在此定位之上，不再每帧切换 class。
           const ox = x - HALF_W, oy = y - HALF_H;
-          pet.style.setProperty('--x', ox + 'px');
-          pet.style.setProperty('--y', oy + 'px');
-          pet.style.setProperty('--f', facing);
-          if (!reacting && !pet.classList.contains('blink')) {
-            pet.style.transform = `translate(${ox}px, ${oy}px) scaleX(${facing})`;
-          }
+          pet.style.transform = `translate(${ox}px, ${oy}px) scaleX(${facing})`;
         }
       }
     } else {
@@ -166,24 +169,16 @@
       const bx = Math.max(0, Math.abs(dx) - HALF_W);
       const by = Math.max(0, Math.abs(dy) - HALF_H);
       const boxDist = Math.hypot(bx, by);
-      if (boxDist > GAP + 2 && !reacting) {
+      if (boxDist > GAP + 2) {
         // 朝光标靠近，但停在盒子外缘距光标 GAP 处（每个方向都留 25px），鼠标一动就继续追
         const step = Math.min((boxDist - GAP) * 0.08, 14);
         const len = Math.hypot(dx, dy) || 1;
         x += dx / len * step; y += dy / len * step;
         if (Math.abs(dx) > 1) facing = dx < 0 ? -1 : 1;
-        pet.classList.remove('idle');
-      } else if (!reacting) {
-        pet.classList.add('idle');
       }
       // 以宠物中心对齐鼠标（减去真实半宽/半高），消除「左上角到达即停」的偏移
       const ox = x - HALF_W, oy = y - HALF_H;
-      pet.style.setProperty('--x', ox + 'px');
-      pet.style.setProperty('--y', oy + 'px');
-      pet.style.setProperty('--f', facing);
-      if (!reacting && !pet.classList.contains('blink')) {
-        pet.style.transform = `translate(${ox}px, ${oy}px) scaleX(${facing})`;
-      }
+      pet.style.transform = `translate(${ox}px, ${oy}px) scaleX(${facing})`;
     }
     requestAnimationFrame(loop);
   }
