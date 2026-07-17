@@ -96,7 +96,11 @@
   let port = null;
   let portReady = false;
   let reconnectTimer = null;
+  let reconnectBackoff = 1000; // 指数退避起始值（ms）
+  const MAX_RECONNECT_BACKOFF = 8000;
   const pendingRpc = new Map(); // id → {resolve, reject, timer}
+  // 端口未就绪时的待发送队列：[{method, params, resolve, reject}]
+  const sendQueue = [];
   let rpcSeq = 0;
   // session 事件监听器（由 onSessionEvent 注册）
   const sessionEventListeners = new Set();
@@ -106,10 +110,14 @@
     try {
       port = chrome.runtime.connect({ name: PORT_NAME });
       portReady = true;
+      reconnectBackoff = 1000; // 连接成功，重置退避
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       // 断线重连后新 Port 无绑定态：若已有会话，立即重新上报绑定，
       // 否则 bridge 会退回全量转发（跨会话串流）。首次连接时 sessionId 尚为空，静默跳过。
       bindSession();
+
+      // 连接建立成功后，刷出排队的待发送请求
+      drainSendQueue();
 
       port.onMessage.addListener((msg) => {
         if (!msg) return;
@@ -138,26 +146,49 @@
           entry.reject(new Error('port disconnected'));
         }
         pendingRpc.clear();
-        // 延迟重连（SW 可能被回收，下次 connect 会唤醒）
+        // 指数退避重连（SW 可能被回收，下次 connect 会唤醒）
         if (!reconnectTimer) {
-          reconnectTimer = setTimeout(() => { reconnectTimer = null; connectPort(); }, 1000);
+          reconnectTimer = setTimeout(() => { reconnectTimer = null; connectPort(); }, reconnectBackoff);
+          reconnectBackoff = Math.min(reconnectBackoff * 2, MAX_RECONNECT_BACKOFF);
         }
       });
     } catch (e) {
       port = null;
       portReady = false;
       if (!reconnectTimer) {
-        reconnectTimer = setTimeout(() => { reconnectTimer = null; connectPort(); }, 1000);
+        reconnectTimer = setTimeout(() => { reconnectTimer = null; connectPort(); }, reconnectBackoff);
+        reconnectBackoff = Math.min(reconnectBackoff * 2, MAX_RECONNECT_BACKOFF);
       }
     }
     return port;
   }
 
+  /**
+   * 刷出排队等待端口的发送请求。
+   * 在 connectPort() 成功建立新连接后调用，把 sendQueue 中积压的
+   * 请求逐一通过 rpcCall 发出（此时端口已就绪，不会再次入队）。
+   */
+  function drainSendQueue() {
+    if (!sendQueue.length || !portReady) return;
+    const queue = sendQueue.splice(0);
+    for (const item of queue) {
+      try {
+        rpcCall(item.method, item.params).then(item.resolve).catch(item.reject);
+      } catch (e) {
+        item.reject(e);
+      }
+    }
+  }
+
   function rpcCall(method, params, timeoutMs = 15000) {
     return new Promise((resolve, reject) => {
+      // 端口未就绪：先尝试连一次；若仍失败，入队等下次 connectPort() 成功后刷出
       if (!portReady) {
         connectPort();
-        if (!portReady) { reject(new Error('port not connected')); return; }
+        if (!portReady) {
+          sendQueue.push({ method, params, resolve, reject });
+          return;
+        }
       }
       const id = 'pc-' + (++rpcSeq).toString(36) + '-' + Date.now().toString(36);
       const timer = setTimeout(() => {

@@ -25,10 +25,18 @@ export interface ToastItem {
   actions?: ToastAction[];
 }
 
+/** 各类型 toast 的默认自动消失时长（毫秒）。 */
+const TOAST_DURATION: Record<ToastItem['type'], number> = {
+  success: 3000,   // 成功提示：3 秒
+  info: 10000,     // 信息提示：10 秒     
+  error: 10000,    // 异常提示：10 秒
+  warning: 10000,
+};
+
 class ToastStore {
   toasts = $state<ToastItem[]>([]);
 
-  private add(message: string, type: ToastItem['type'], duration = 3000): string {
+  private add(message: string, type: ToastItem['type'], duration = TOAST_DURATION[type]): string {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     this.toasts = [...this.toasts, { id, message, type, duration }];
     if (duration > 0) {
@@ -48,10 +56,10 @@ class ToastStore {
 
   /**
    * 带操作按钮的 toast（如危险操作确认）。
-   * 点击任一按钮后自动关闭；默认 12s 后自动消失。
+   * 点击任一按钮后自动关闭；默认时长跟随类型（warning 等「其他」类型 30s）。
    * 显式传 duration=0 表示常驻（不自动关闭，由按钮或 ✕ 关闭）。
    */
-  action(message: string, actions: ToastAction[], type: ToastItem['type'] = 'warning', duration = 12000): string {
+  action(message: string, actions: ToastAction[], type: ToastItem['type'] = 'warning', duration = TOAST_DURATION[type]): string {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const wrapped = actions.map((a) => ({
       ...a,

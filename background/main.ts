@@ -190,25 +190,6 @@ function notifyShell(type: 'info' | 'success' | 'warning' | 'error', message: st
  * 注意：ToolsManager.init 仅读取 TOOLS_ENABLED、SettingsManager.loadSettings 在新鲜安装时
  * 不会落盘，故该判定在 boot 流程中稳定有效。
  */
-async function isFreshInstall(storage: { get(key: string): Promise<unknown> }): Promise<boolean> {
-  if (!storage) return false;
-  const probeKeys = [
-    StorageKeys.APP_SETTINGS,
-    StorageKeys.TOOLS_ENABLED,
-    StorageKeys.SESSIONS,
-    StorageKeys.USER_SCRIPTS,
-    StorageKeys.PRESET_INSTALLED,
-  ];
-  const values = await Promise.all(probeKeys.map((k) => storage.get(k).catch(() => undefined)));
-  return values.every((v) => {
-    if (v == null) return true;
-    if (typeof v === 'string') return v.trim().length === 0;
-    if (Array.isArray(v)) return v.length === 0;
-    if (typeof v === 'object') return Object.keys(v as Record<string, unknown>).length === 0;
-    return false;
-  });
-}
-
 function ensureBoot(): Promise<any> {
     if (!bootPromise) {
         bootPromise = bootKernel()
@@ -380,50 +361,10 @@ async function bootKernel() {
           await Promise.all(list.map((id) => mediaStore.delete(id).catch(() => {})));
         });
 
-        // ── 预装脚本安装 / 升级（统一在 READY、注入前执行）──
-        // 安装 → 注入(chrome.userScripts) → @tool 投影 三步在同一有序 pass 完成，
-        // 修复此前「fresh 装于 START、upgrade 等 tools 加载完才跑」的时序错乱。
-        // 触发条件：
-        //  - dev 分支（IS_DEV 为真）：永远（重新）安装/升级预装脚本 —— dev 特殊能力，
-        //    便于开发期随时拿到最新预装；此时 PRESET_REMOTE_BASE 已指向 @dev 分支，无需 tag。
-        //  - 正式发布：仅「全新安装」或「扩展版本变化（升级）」时执行，避免每次 SW 唤醒都发远程 fetch。
-        // 非致命：单条失败已被安装器内部吞掉，整体异常也不应阻断内核启动。
-        try {
-          const storage = kernel.getStorageManager();
-          const curVer = chrome.runtime.getManifest()?.version || '';
-          const isDev = __DEV__;
-          const storedVer = (await storage.get(StorageKeys.PRESET_EXT_VERSION).catch(() => undefined)) as string | undefined;
-          const fresh = await isFreshInstall(storage);
-          const upgraded = curVer !== '' && storedVer !== curVer;   // 版本变化（含 storedVer 缺失）
-          if (isDev || fresh || upgraded) {
-            // 安装前告知 Shell 正在尝试安装/更新（error 型 toast 更醒目）
-            notifyShell('error', fresh ? '正在尝试安装预装脚本，请稍候…'
-              : (isDev ? 'dev：正在（重新）安装/升级预装脚本…' : '检测到扩展升级，正在更新预装脚本…'), 0);
-            const presetRes = await installPresets(
-              kernel.getScriptsManager(),
-              storage
-            );
-            log.info(
-              'BACKGROUND',
-              `Preset scripts: ${presetRes.installed} installed, ${presetRes.skipped} skipped (dev=${isDev}, fresh=${fresh}, upgraded=${upgraded}, ${storedVer || '∅'}→${curVer}, reachable=${presetRes.reachable})`
-            );
-            // 仅在远程清单成功拉取（reachable）时落地版本标记；离线/不可达则保留旧值，下次 boot 重试。
-            if (presetRes.reachable && curVer) {
-              await storage.set(StorageKeys.PRESET_EXT_VERSION, curVer);
-            }
-            // 完成后提示用户重新打开扩展，使注入脚本/投影工具生效
-            if (presetRes.reachable) {
-              notifyShell('info', '预装脚本已更新，请重新打开扩展（或刷新页面）以生效。', 0);
-            } else {
-              notifyShell('error', '预装脚本更新失败（可能离线或该源暂无清单），将于下次启动重试。', 0);
-            }
-          } else {
-            log.info('BACKGROUND', `预装脚本已是最新（版本 ${curVer}），跳过安装`);
-          }
-        } catch (e) {
-          log.warn('BACKGROUND', 'Preset install failed (non-fatal)', e);
-          notifyShell('error', '预装脚本安装失败，可稍后重试或手动安装。', 0);
-        }
+        // 预装脚本的安装/升级已完全迁移到 chrome.runtime.onInstalled（见文件末尾监听器）：
+        // 仅在「安装 / 版本升级 / 开发期重新加载扩展」时触发，SW 空闲重启绝不预装，
+        // 从根上消除 dev 分支因 SW 反复唤醒而反复远程 fetch 的刷屏。
+        // 此处只负责把已落地的脚本注入 chrome.userScripts 并投影为 @tool。
 
         // 首次（每次 SW 唤醒）内核启动完毕时，把已启用的用户脚本注册到 chrome.userScripts。
         // 注册是持久化的，SW/内核被回收后注入仍继续；此处保证「内核启动完毕」即完成注入初始化。
@@ -447,11 +388,49 @@ async function bootKernel() {
     return kernel;
 }
 
-// 扩展安装/更新时启动 Kernel（仅一次）
-chrome.runtime.onInstalled.addListener(() => {
-    ensureBoot();
-    // 点击工具栏图标即打开侧边栏（MV3 默认行为兜底）
-    chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => {});
+/**
+ * 预装脚本安装（幂等）：完全由 chrome.runtime.onInstalled 驱动。
+ * - 首次安装 / 版本升级 / 开发期「重新加载」扩展（unpacked reload 会触发 onInstalled）时拉取预装；
+ * - SW 空闲重启绝不触发，从根上消除 dev 分支反复预装刷屏。
+ * 内部 installPresets 已跳过未变脚本，重复调用安全；远程不可达时仅记日志、不阻断启动。
+ */
+async function runPresetInstall(k: Kernel): Promise<void> {
+  try {
+    const storage = k.getStorageManager();
+    const curVer = chrome.runtime.getManifest()?.version || '';
+    const presetRes = await installPresets(k.getScriptsManager(), storage);
+    Log.info(
+      'BACKGROUND',
+      `Preset scripts: ${presetRes.installed} installed, ${presetRes.skipped} skipped (dev=${__DEV__}, reachable=${presetRes.reachable})`
+    );
+    // 仅在远程清单成功拉取（reachable）时落地版本标记；离线/不可达保留旧值，下次启动重试。
+    if (presetRes.reachable && curVer) {
+      await storage.set(StorageKeys.PRESET_EXT_VERSION, curVer);
+    }
+    // 提示清理：仅在有真实变更时告知用户重新打开；无变化（如 dev 重载但脚本未变）或离线失败各给一次提示，避免每次刷屏。
+    if (presetRes.installed > 0) {
+      notifyShell('info', '预装脚本已更新，请重新打开扩展（或刷新页面）以生效。', 0);
+    } else if (!presetRes.reachable) {
+      notifyShell('error', '预装脚本更新失败（可能离线或该源暂无清单），将于下次启动重试。', 0);
+    }
+  } catch (e) {
+    Log.warn('BACKGROUND', 'Preset install failed (non-fatal)', e);
+    notifyShell('error', '预装脚本安装失败，可稍后重试或手动安装。', 0);
+  }
+}
+
+// 扩展安装/更新/开发期「重新加载」时启动 Kernel 并（重新）拉取预装脚本（仅一次）
+chrome.runtime.onInstalled.addListener(async () => {
+  await ensureBoot();
+  // 点击工具栏图标即打开侧边栏（MV3 默认行为兜底）
+  chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => {});
+  // 安装 / 升级 / dev 重载（unpacked reload 触发 onInstalled）→ 重新拉取预装（dev 走 @dev 源；生产走版本 tag）
+  if (activeKernel) {
+    await runPresetInstall(activeKernel);
+    // 安装完成后立即重新注入 + 投影，使新脚本在本会话即刻生效（不必等下次 SW 唤醒）
+    await syncRegisteredScripts(activeKernel.getScriptsManager());
+    reconcileScriptTools(activeKernel.getScriptsManager(), activeKernel.getToolsManager());
+  }
 });
 
 // SW 即将被浏览器回收前：优雅清理内核（清定时器、off 监听、取消活跃进程）。
