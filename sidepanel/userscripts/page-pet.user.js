@@ -95,11 +95,59 @@
   // 用独立 flag 而非仅依赖 !chatOpen，确保「点击即停跟」在事件时序上绝对优先。
   document.addEventListener('mousemove', (e) => { if (following && !hidden) { tx = e.clientX; ty = e.clientY; } });
 
+  // ---------- 宿主扩展（浏览器插件）缺失时的安装提示 ----------
+  // 宠物脚本本应由 webagentcli 扩展经 userScripts 注入；若被单独装到 Tampermonkey
+  // 或分享给未装扩展的人，chrome.runtime 不可用，宠物聊天将无法连接内核。
+  // 此时不再静默失败，而是提示前往 GitHub Releases 下载安装扩展。
+  const EXT_RELEASES_URL = 'https://github.com/chensiyi/webagentcli/releases';
+  let _installHintShown = false;
+  function detectRuntime() {
+    try {
+      return typeof chrome !== 'undefined' && !!chrome.runtime && typeof chrome.runtime.connect === 'function';
+    } catch (e) { return false; }
+  }
+  function showInstallHint() {
+    if (_installHintShown) return;
+    _installHintShown = true;
+    const el = document.createElement('div');
+    el.id = ROOT_ID + '-install';
+    el.innerHTML = `
+      <div class="mp-install-card">
+        <div class="mp-install-title">🐱 未检测到 Web Agent Client 扩展</div>
+        <div class="mp-install-desc">点宠物聊天需要安装 Web Agent Client 浏览器扩展。请安装后刷新页面。</div>
+        <div class="mp-install-actions">
+          <a class="mp-install-btn" href="${EXT_RELEASES_URL}" target="_blank" rel="noopener">前往下载安装</a>
+          <button class="mp-install-close" type="button">关闭</button>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+    el.querySelector('.mp-install-close').addEventListener('click', () => el.remove());
+    const st = document.createElement('style');
+    st.id = ROOT_ID + '-install-style';
+    st.textContent = `
+      #${ROOT_ID}-install{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:2147483647;font:14px/1.4 system-ui,sans-serif}
+      #${ROOT_ID}-install .mp-install-card{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);box-shadow:0 12px 32px rgba(0,0,0,.18);border-radius:14px;padding:16px 18px;max-width:340px;color:#222}
+      #${ROOT_ID}-install .mp-install-title{font-weight:600;font-size:15px;margin-bottom:6px}
+      #${ROOT_ID}-install .mp-install-desc{color:#555;margin-bottom:12px}
+      #${ROOT_ID}-install .mp-install-actions{display:flex;gap:8px;align-items:center}
+      #${ROOT_ID}-install .mp-install-btn{display:inline-block;background:#2b6cff;color:#fff;text-decoration:none;padding:8px 14px;border-radius:10px;font-weight:600}
+      #${ROOT_ID}-install .mp-install-btn:hover{background:#1f5be0}
+      #${ROOT_ID}-install .mp-install-close{background:transparent;border:none;color:#888;cursor:pointer;padding:8px}
+    `;
+    document.head.appendChild(st);
+  }
+
   pet.addEventListener('click', () => {
     if (reacting || hidden) return;
     const chatRoot = document.getElementById('pet-chat-root');
-    // 无宠物聊天浮窗时（pet-chat.js 未注入）保持原互动行为
+    // 无宠物聊天浮窗时（pet-chat.js 未注入）：
+    // - 若宿主扩展也没装（chrome.runtime 不可用）→ 提示去下载安装扩展，而非无声失败；
+    // - 否则保持原玩具互动行为（扩展在、只是没开聊天浮窗，点一下蹦跶）。
     if (!chatRoot) {
+      if (!detectRuntime()) {
+        showInstallHint();
+        return;
+      }
       reacting = true;
       glyph.classList.add('happy');
       setTimeout(() => {

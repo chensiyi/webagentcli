@@ -35,6 +35,50 @@
   const ROOT_ID = 'pet-chat-root';
   if (document.getElementById(ROOT_ID)) return;            // 防重复注入
 
+  // ---------- 宿主扩展（浏览器插件）缺失时的安装提示 ----------
+  // 本脚本依赖 webagentcli 扩展的 background SW（经 chrome.runtime Port 直连内核）。
+  // 若扩展未安装（脚本被单独装到 Tampermonkey / 分享给未装扩展的人），chrome.runtime
+  // 不可用或连接报 "Receiving end does not exist" —— 此时不再无限重连，而是提示去
+  // GitHub Releases 下载安装扩展（覆盖原「无法连接内核」的静默失败）。
+  const EXT_RELEASES_URL = 'https://github.com/chensiyi/webagentcli/releases';
+  let _installPromptShown = false;
+  let _extensionMissing = false;
+  function detectRuntime() {
+    try {
+      return typeof chrome !== 'undefined' && !!chrome.runtime && typeof chrome.runtime.connect === 'function';
+    } catch (e) { return false; }
+  }
+  function showInstallPrompt() {
+    if (_installPromptShown) return;
+    _installPromptShown = true;
+    const el = document.createElement('div');
+    el.id = ROOT_ID + '-install';
+    el.innerHTML = `
+      <div class="pc-install-card">
+        <div class="pc-install-title">🐱 未检测到 Web Agent Client 扩展</div>
+        <div class="pc-install-desc">宠物聊天需要安装 Web Agent Client 浏览器扩展才能连接内核。请安装后刷新页面。</div>
+        <div class="pc-install-actions">
+          <a class="pc-install-btn" href="${EXT_RELEASES_URL}" target="_blank" rel="noopener">前往下载安装</a>
+          <button class="pc-install-close" type="button">关闭</button>
+        </div>
+      </div>`;
+    document.body.appendChild(el);
+    el.querySelector('.pc-install-close').addEventListener('click', () => el.remove());
+    const st = document.createElement('style');
+    st.id = ROOT_ID + '-install-style';
+    st.textContent = `
+      #${ROOT_ID}-install{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:2147483647;font:14px/1.4 system-ui,sans-serif}
+      #${ROOT_ID}-install .pc-install-card{background:rgba(255,255,255,.95);backdrop-filter:blur(8px);border:1px solid rgba(0,0,0,.08);box-shadow:0 12px 32px rgba(0,0,0,.18);border-radius:14px;padding:16px 18px;max-width:340px;color:#222}
+      #${ROOT_ID}-install .pc-install-title{font-weight:600;font-size:15px;margin-bottom:6px}
+      #${ROOT_ID}-install .pc-install-desc{color:#555;margin-bottom:12px}
+      #${ROOT_ID}-install .pc-install-actions{display:flex;gap:8px;align-items:center}
+      #${ROOT_ID}-install .pc-install-btn{display:inline-block;background:#2b6cff;color:#fff;text-decoration:none;padding:8px 14px;border-radius:10px;font-weight:600}
+      #${ROOT_ID}-install .pc-install-btn:hover{background:#1f5be0}
+      #${ROOT_ID}-install .pc-install-close{background:transparent;border:none;color:#888;cursor:pointer;padding:8px}
+    `;
+    document.head.appendChild(st);
+  }
+
   /* =============================================================================
    * CSS — 从 CDN 加载，fetch 后注入 <style>（不走 <link> 以绕过页面 CSP style-src）
    * 按当前扩展版本号拼 tag（@<version>），与 preset-installer 拉取本脚本的 tag 一致，
@@ -107,6 +151,13 @@
 
   function connectPort() {
     if (port && portReady) return port;
+    // 宿主扩展未安装：chrome.runtime 不可用（如脚本被单独装到 Tampermonkey）。
+    // 直接提示去下载，不再尝试连接/重连（重连无意义）。
+    if (!detectRuntime()) {
+      _extensionMissing = true;
+      showInstallPrompt();
+      return null;
+    }
     try {
       port = chrome.runtime.connect({ name: PORT_NAME });
       portReady = true;
@@ -146,13 +197,26 @@
           entry.reject(new Error('port disconnected'));
         }
         pendingRpc.clear();
-        // 指数退避重连（SW 可能被回收，下次 connect 会唤醒）
+        const err = (chrome.runtime && chrome.runtime.lastError && chrome.runtime.lastError.message) || '';
+        // 宿主扩展没装：没有接收端 → 提示下载，不再重连（重连无意义）。
+        if (err.includes('Receiving end does not exist')) {
+          _extensionMissing = true;
+          showInstallPrompt();
+          return;
+        }
+        // 其它断开（SW 被回收等）→ 指数退避重连，下次 connect 会唤醒 SW。
         if (!reconnectTimer) {
           reconnectTimer = setTimeout(() => { reconnectTimer = null; connectPort(); }, reconnectBackoff);
           reconnectBackoff = Math.min(reconnectBackoff * 2, MAX_RECONNECT_BACKOFF);
         }
       });
     } catch (e) {
+      // 连接抛错：若非扩展未装（极少），仍走退避重连；扩展确实没装则提示下载。
+      if (!detectRuntime()) {
+        _extensionMissing = true;
+        showInstallPrompt();
+        return null;
+      }
       port = null;
       portReady = false;
       if (!reconnectTimer) {
@@ -708,7 +772,16 @@
     clearToolCards();
 
     // 确保端口和会话就绪
-    if (!portReady) connectPort();
+    if (!portReady) {
+      // 宿主扩展没装：提示下载，给出明确原因，不再进入「无法连接内核」死路。
+      if (_extensionMissing || !detectRuntime()) {
+        showInstallPrompt();
+        pushBubble('ai', '（未安装 Web Agent Client 扩展，无法连接内核。请安装扩展后刷新页面。）');
+        scheduleFades();
+        return;
+      }
+      connectPort();
+    }
     let sid;
     try {
       sid = await ensureSession();
@@ -727,17 +800,31 @@
     // 等待期间工具/危险确认事件仍经 onSessionEvent 驱动卡片；session.ask 返回最终 StandardResponse。
     // 显式带上会话创建时捕获的思考强度（取自全局配置并烤进会话），使宠物与侧栏一致。
     const thinkingBubble = pushBubble('ai', '思考中…');
-    try {
-      const res = await rpcCall(
-        'session.ask',
-        [{ sessionId: sid, content: text, reasoningEffort: sessionReasoning || undefined }],
-        ASK_TIMEOUT_MS,
-      );
-      const content = res && res.content ? res.content : '（无回复）';
-      paintBubble(thinkingBubble, content);
-    } catch (e) {
-      paintBubble(thinkingBubble, '（' + (e?.message || '发送失败') + '）');
+    // 会话可能已失效（内核侧该会话被清除 / 存储重置 / 冷启动竞态）：捕获 "Session not found" 后
+    // 清缓存、重建会话并重试一次，避免用户必须手动刷新页面。
+    let res = null;
+    let lastErr = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        res = await rpcCall(
+          'session.ask',
+          [{ sessionId: sid, content: text, reasoningEffort: sessionReasoning || undefined }],
+          ASK_TIMEOUT_MS,
+        );
+        break;
+      } catch (e) {
+        lastErr = e;
+        if ((e?.message || '').includes('Session not found') && sessionId) {
+          sessionId = null; // 失效：清缓存，下一轮 ensureSession 重建
+          try { sid = await ensureSession(); } catch { break; }
+          if (!sid) break;
+          continue; // 用新会话重试
+        }
+        break; // 其它错误不重试
+      }
     }
+    if (res && res.content) paintBubble(thinkingBubble, res.content);
+    else paintBubble(thinkingBubble, '（' + (lastErr?.message || '无回复') + '）');
     scheduleFades();
   }
 
@@ -745,6 +832,12 @@
   function openChat() {
     root.hidden = false;
     if (launcher) launcher.hidden = true;
+    // 宿主扩展未安装：直接提示下载，不打开空聊天窗、让宠物退回跟随鼠标。
+    if (_extensionMissing || !detectRuntime()) {
+      showInstallPrompt();
+      window.dispatchEvent(new CustomEvent('mini-pet:chat-closed'));
+      return;
+    }
     // 懒连接：首次打开时建立 Port
     if (!portReady) connectPort();
     inputEl.focus();
