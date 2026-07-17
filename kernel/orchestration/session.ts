@@ -203,6 +203,9 @@ async function runTurn(
       thinking: new ThinkingConfig(thinkingEffort),
       tools: Array.isArray(tools) && tools.length > 0 ? tools : null,
     });
+    // stream 由本调用方决定：阻塞（chat 非流式 JSON）/ 流式（chatStream 强制 true）。
+    // 直接写进 request，让 chat()/chatStream() 忠实读取，而不是在方法内部擅自改写定义。
+    request.stream = blocking ? false : true;
 
     // ── Assistant 消息占位（数据操作下沉 SessionManager） ──
     const assistantMsg = await sm.createAssistantPlaceholder(sid);

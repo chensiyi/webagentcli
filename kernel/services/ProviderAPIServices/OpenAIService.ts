@@ -72,6 +72,8 @@ export default class OpenAIService extends BaseProviderAPIService {
   }
   async chat(request: any) {
     const url = this.buildUrl('/chat/completions');
+    // stream 由调用方（runTurn）经 request.stream 控制：阻塞路径 request.stream=false → 非流式 JSON；
+    // 流式路径走 chatStream（各自强制 stream:true）。此处忠实读取 request，不擅自改写。
     const body = this.buildRequestBody(request);
     Log.info('OpenAIService', `Chat request: model=${body.model}, messages=${body.messages?.length}`);
 
