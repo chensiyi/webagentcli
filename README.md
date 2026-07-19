@@ -1,5 +1,7 @@
 # Web Agent Client
+> ⚠️ **项目状态（2026-07）**：因架构优化，项目暂停开发；新架构将停止对于基础功能和库的开发维护，专注于构建开放生态，提供大模型自编排环境与实用工具构建。详见作者的 [miniagent](https://github.com/chensiyi/miniagent) 项目。
 
+---
 > AI Agent Runtime Environment for Web · 基于 Chrome Manifest V3 的浏览器内 AI Agent 扩展
 
 Web Agent Client 是一个轻量级、可扩展的 Chrome 侧边栏扩展，为 AI Agent 提供完整的网页端执行环境。它在浏览器侧边栏内整合了 **多 Provider 接入、多会话管理、流式对话、思考过程展示、Tool Calling、用户脚本执行、本地缓存查看** 等能力，开箱即用，代码完全运行在客户端。
